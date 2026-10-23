@@ -88,6 +88,7 @@ textarea { resize: vertical; width: 100%; }
 
 /* 3 カラム */
 .main { flex: 1; display: grid; grid-template-columns: 240px 1fr 320px; min-height: 0; }
+.main.no-list { grid-template-columns: 1fr 320px; }
 .element-list, .right-panel { background: var(--panel); overflow-y: auto; min-height: 0; }
 .element-list { border-right: 1px solid var(--border); }
 .right-panel { border-left: 1px solid var(--border); }

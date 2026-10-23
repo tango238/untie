@@ -29,3 +29,6 @@ coverage
 src-tauri/gen/schemas
 
 *.tsbuildinfo
+
+# Claude Code の作業用 worktree
+.claude/

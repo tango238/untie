@@ -10,6 +10,8 @@ export default defineConfig(() => ({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Claude Code の作業用 worktree (.claude/worktrees) のテストを拾わない
+    include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8" as const,
       include: ["src/model/**", "src/store/**"],

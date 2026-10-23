@@ -16,8 +16,9 @@ export default function App() {
   return (
     <div className="app">
       <Toolbar />
-      <div className="main">
-        <ElementList />
+      {/* 固定ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
+      <div className={`main${fixedLayer ? " no-list" : ""}`}>
+        {!fixedLayer && <ElementList />}
         <main className="canvas-area">
           {fixedLayer ? <FixedBoard key={fixedLayer} layer={fixedLayer} /> : <Canvas />}
         </main>
