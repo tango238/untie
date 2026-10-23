@@ -356,3 +356,15 @@ describe("PropertyPanel の固定ボードへ移るリンク", () => {
     expect(screen.queryByRole("navigation", { name: "固定ボードへ移る" })).toBeNull();
   });
 });
+
+describe("PropertyPanel の関係一覧", () => {
+  it("関係名と向きに加えて、相手の種類 (レイヤー名) を出す", () => {
+    resetStore();
+    act(() => st().select({ type: "element", id: "act_verify_identity" }));
+    render(<PropertyPanel />);
+    const items = screen.getAllByRole("listitem").filter((li) => li.closest(".relation-list"));
+    const texts = items.map((li) => li.textContent?.replace("×", ""));
+    expect(texts).toContain("担当←アクターフロント担当");
+    expect(texts).toContain("使う→操作チェックインを記録する");
+  });
+});

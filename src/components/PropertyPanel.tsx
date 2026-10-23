@@ -204,6 +204,12 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                   <span className="relation-dir" aria-hidden="true">
                     {relationRule(r.kind).undirected ? "↔" : outgoing ? "→" : "←"}
                   </span>
+                  {other && (
+                    <span className={`relation-layer kind-${other.kind}`}>
+                      <span className="kind-dot" />
+                      {ELEMENT_KIND_LABELS[other.kind]}
+                    </span>
+                  )}
                   <button type="button" className="link" onClick={() => other && selectAndReveal(other.id)}>
                     {other?.name || "(名前なし)"}
                   </button>

@@ -370,3 +370,5 @@ textarea { resize: vertical; width: 100%; }
 .layer-link.is-current { opacity: 1; color: var(--muted); background: #f0ede7; }
 .fixed-group.is-selected { outline: 3px solid var(--selected); outline-offset: 1px; }
 .fixed-section.is-selected .fixed-section-head .fixed-section-title { outline: 3px solid var(--selected); outline-offset: 1px; }
+.relation-layer { display: inline-flex; align-items: center; font-size: 11px; color: var(--c, var(--muted)); white-space: nowrap; flex: none; }
+.relation-layer .kind-dot { width: 7px; height: 7px; margin-right: 3px; }
