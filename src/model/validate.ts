@@ -132,7 +132,7 @@ export function checkIntegrity(model: UntieModel): string[] {
   const byId = new Map<string, Element>();
   for (const e of model.elements) if (!byId.has(e.id)) byId.set(e.id, e);
 
-  // BUC / アクティビティ
+  // BUC / アクティビティ / 情報のコンテキスト
   const defaultCount = new Map<string, number>();
   for (const e of model.elements) {
     if (e.kind === "buc") {
@@ -140,6 +140,11 @@ export function checkIntegrity(model: UntieModel): string[] {
       if (!biz) errors.push(`${label(e)} の業務 ${e.businessId} が存在しません`);
       else if (biz.kind !== "business") errors.push(`${label(e)} の businessId ${e.businessId} は業務ではありません`);
       if (e.isDefault) defaultCount.set(e.businessId, (defaultCount.get(e.businessId) ?? 0) + 1);
+    }
+    if (e.kind === "information" && e.contextId !== null) {
+      const ctx = byId.get(e.contextId);
+      if (!ctx) errors.push(`${label(e)} のコンテキスト ${e.contextId} が存在しません`);
+      else if (ctx.kind !== "context") errors.push(`${label(e)} の contextId ${e.contextId} はコンテキストではありません`);
     }
     if (e.kind === "activity" && e.bucId !== null) {
       const buc = byId.get(e.bucId);

@@ -27,10 +27,30 @@ describe("固定ボードの id", () => {
 });
 
 describe("fixedGroups", () => {
-  it("アクター: アクターと外部アクターの 2 枠", () => {
+  it("アクター: アクター・外部アクター・システムの 3 枠", () => {
     const gs = fixedGroups(sample(), "actor");
-    expect(gs.map((g) => g.title)).toEqual(["アクター", "外部アクター"]);
+    expect(gs.map((g) => g.title)).toEqual(["アクター", "外部アクター", "システム"]);
     expect(gs[1]!.items).toHaveLength(3);
+    expect(names(gs[2]!.items)).toEqual(["宿泊管理システム", "会計システム", "宿泊者名簿", "清掃チェック表"]);
+  });
+
+  it("システムの枠に足すと、媒体はシステムで作る", () => {
+    const m = sample();
+    const r = addToGroup(m, fixedGroups(m, "actor")[2]!, "予約台帳");
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "system", medium: "system" });
+  });
+
+  it("コンテキスト: 1 枠に並べる。情報はコンテキストごと、未分類は中身があるときだけ", () => {
+    const m = sample();
+    expect(names(fixedGroups(m, "context")[0]!.items)).toEqual(["予約", "顧客", "客室", "料金"]);
+    const gs = fixedGroups(m, "information");
+    expect(gs.map((g) => g.title)).toEqual(["予約", "顧客", "客室", "料金"]);
+    expect(names(group(m, "information", "ctx_charge").items)).toEqual(["料金プラン", "請求"]);
+    const r = addToGroup(m, group(m, "information", "ctx_room"), "鍵");
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ contextId: "ctx_room" });
+    expect(fixedGroups(emptyModel(), "information").map((g) => g.title)).toEqual(["未分類"]);
   });
 
   it("業務: アクターごとに主担当の業務。主担当の無い業務は「主担当なし」", () => {

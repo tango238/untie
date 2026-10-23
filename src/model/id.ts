@@ -5,10 +5,12 @@ export type IdKind = ElementKind | "relation" | "board";
 export const ID_PREFIXES: Record<IdKind, string> = {
   actor: "actor",
   externalActor: "ext",
+  system: "sys",
   business: "biz",
   buc: "buc",
   activity: "act",
   usecase: "uc",
+  context: "ctx",
   information: "info",
   state: "st",
   variation: "var",

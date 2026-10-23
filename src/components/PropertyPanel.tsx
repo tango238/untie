@@ -4,6 +4,7 @@ import {
   addRelation,
   moveActivity,
   moveBuc,
+  moveInformation,
   removeElement,
   removeFromBoard,
   removeRelation,
@@ -15,11 +16,15 @@ import { defaultBucOf, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
   isIssueTargetKind,
+  kindLabelOf,
+  SYSTEM_MEDIUM_LABELS,
   type Activity,
   type Buc,
   type Element,
+  type Information,
   type Issue,
   type Relation,
+  type SystemMedium,
   type UntieModel,
   type Variation,
 } from "../model/types";
@@ -139,7 +144,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
     <div className={`editor kind-${element.kind}`} data-testid="element-editor">
       <div className="kind-line">
         <span className="kind-dot" />
-        {ELEMENT_KIND_LABELS[element.kind]}
+        {kindLabelOf(element)}
       </div>
       <CommitField label="名前" value={element.name} inputRef={nameRef} onCommit={(name) => update({ name })} />
       <CommitField
@@ -155,8 +160,22 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
-        {element.kind === "information" && (
-          <CommitField label="分類" value={element.context ?? ""} onCommit={(context) => update({ context })} />
+        {element.kind === "information" && <InformationFields information={element} model={model} />}
+        {element.kind === "system" && (
+          <label className="field">
+            <span className="field-label">媒体</span>
+            <select
+              aria-label="媒体"
+              value={element.medium}
+              onChange={(e) => update({ medium: e.target.value as SystemMedium })}
+            >
+              {Object.entries(SYSTEM_MEDIUM_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {element.kind === "state" && (
           <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
@@ -379,6 +398,32 @@ function BucFields({ buc, model }: { buc: Buc; model: UntieModel }) {
         {businesses.map((b) => (
           <option key={b.id} value={b.id}>
             {b.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function InformationFields({ information, model }: { information: Information; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const contexts = model.elements.filter((e) => e.kind === "context");
+  return (
+    <label className="field">
+      <span className="field-label">コンテキスト</span>
+      <select
+        aria-label="コンテキスト"
+        value={information.contextId ?? ""}
+        onChange={(e) => {
+          const r = dispatch((m) => moveInformation(m, { informationId: information.id, contextId: e.target.value || null }));
+          if (!r.ok) pushToast(r.reason, "error");
+        }}
+      >
+        <option value="">未分類</option>
+        {contexts.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name || "(名前なし)"}
           </option>
         ))}
       </select>

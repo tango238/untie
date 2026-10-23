@@ -17,7 +17,19 @@ export type Description = string;
  * 要素。kind ごとに固有の項目を持つ。
  */
 export type Element =
-  Actor | ExternalActor | Business | Buc | Activity | Usecase | Information | State | Variation | Condition | Issue;
+  | Actor
+  | ExternalActor
+  | System
+  | Business
+  | Buc
+  | Activity
+  | Usecase
+  | Context
+  | Information
+  | State
+  | Variation
+  | Condition
+  | Issue;
 /**
  * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
  */
@@ -33,6 +45,8 @@ export type RelationKind =
   | "usecaseCondition"
   | "informationRelated"
   | "informationVariation"
+  | "systemInformation"
+  | "informationSystem"
   | "conditionVariation"
   | "conditionState"
   | "stateUsecase"
@@ -92,6 +106,19 @@ export interface ExternalActor {
   description?: Description;
 }
 /**
+ * システム。情報の取得元・保存先。帳簿や注文票などの紙媒体も含む (medium で区別する)。
+ */
+export interface System {
+  id: Id;
+  kind: "system";
+  name: Name;
+  description?: Description;
+  /**
+   * 媒体。system はシステム、paper は紙媒体 (帳簿・注文票など)。
+   */
+  medium: "system" | "paper";
+}
+/**
  * 業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。
  */
 export interface Business {
@@ -140,7 +167,16 @@ export interface Usecase {
   description?: Description;
 }
 /**
- * 情報。業務で扱う情報。
+ * コンテキスト。情報をまとめる親カテゴリ (RDRA の information.context)。情報からだけ参照され、関係は持たない。
+ */
+export interface Context {
+  id: Id;
+  kind: "context";
+  name: Name;
+  description?: Description;
+}
+/**
+ * 情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。
  */
 export interface Information {
   id: Id;
@@ -148,9 +184,9 @@ export interface Information {
   name: Name;
   description?: Description;
   /**
-   * 情報の分類 (RDRA の information.context)。任意。
+   * 所属するコンテキストの id。未分類なら null。
    */
-  context?: string;
+  contextId: Id | null;
 }
 /**
  * 状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHotelSample, hotelSample } from "..";
-import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, validateModel } from "../../model";
+import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, RELATION_KINDS, validateModel } from "../../model";
 import type { BoardNode } from "../../model";
 
 describe("宿泊施設サンプル", () => {
@@ -15,6 +15,7 @@ describe("宿泊施設サンプル", () => {
     expect(count("business")).toBe(5);
     expect(count("actor")).toBe(4);
     expect(count("externalActor")).toBe(3);
+    expect(count("system")).toBe(4);
     expect(count("buc")).toBe(5 + 2);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
@@ -28,7 +29,7 @@ describe("宿泊施設サンプル", () => {
 
   it("全ての関係の種類が使われている", () => {
     const kinds = new Set(hotelSample.relations.map((r) => r.kind));
-    expect(kinds.size).toBe(11);
+    expect(kinds.size).toBe(RELATION_KINDS.length);
   });
 
   it("「滞在中の対応」にだけ既定でない BUC がある", () => {

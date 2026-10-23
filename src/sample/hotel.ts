@@ -17,6 +17,14 @@ const externalActors: Element[] = [
   { id: "ext_payment", kind: "externalActor", name: "決済サービス" },
 ];
 
+/** 情報の取得元・保存先。帳簿や記入表などの紙媒体も含む */
+const systems: Element[] = [
+  { id: "sys_pms", kind: "system", name: "宿泊管理システム", medium: "system" },
+  { id: "sys_accounting", kind: "system", name: "会計システム", medium: "system" },
+  { id: "sys_guest_register", kind: "system", name: "宿泊者名簿", medium: "paper" },
+  { id: "sys_cleaning_sheet", kind: "system", name: "清掃チェック表", medium: "paper" },
+];
+
 const businessDefs: [id: string, name: string][] = [
   ["biz_reservation", "予約受付"],
   ["biz_checkin", "チェックイン"],
@@ -77,13 +85,21 @@ const usecases: Element[] = [
   { id: "uc_update_cleaning", kind: "usecase", name: "清掃状況を更新する" },
 ];
 
+/** 情報をまとめる親カテゴリ */
+const contexts: Element[] = [
+  { id: "ctx_reservation", kind: "context", name: "予約" },
+  { id: "ctx_customer", kind: "context", name: "顧客" },
+  { id: "ctx_room", kind: "context", name: "客室" },
+  { id: "ctx_charge", kind: "context", name: "料金" },
+];
+
 const informations: Element[] = [
-  { id: "info_reservation", kind: "information", name: "予約", context: "予約" },
-  { id: "info_guest", kind: "information", name: "宿泊客", context: "顧客" },
-  { id: "info_room", kind: "information", name: "部屋", context: "客室" },
-  { id: "info_plan", kind: "information", name: "料金プラン", context: "料金" },
-  { id: "info_bill", kind: "information", name: "請求", context: "料金" },
-  { id: "info_cleaning_record", kind: "information", name: "清掃記録", context: "客室" },
+  { id: "info_reservation", kind: "information", name: "予約", contextId: "ctx_reservation" },
+  { id: "info_guest", kind: "information", name: "宿泊客", contextId: "ctx_customer" },
+  { id: "info_room", kind: "information", name: "部屋", contextId: "ctx_room" },
+  { id: "info_plan", kind: "information", name: "料金プラン", contextId: "ctx_charge" },
+  { id: "info_bill", kind: "information", name: "請求", contextId: "ctx_charge" },
+  { id: "info_cleaning_record", kind: "information", name: "清掃記録", contextId: "ctx_room" },
 ];
 
 const states: Element[] = [
@@ -225,6 +241,19 @@ const pairs: [source: string, target: string][] = [
   ["info_reservation", "info_plan"],
   ["info_bill", "info_reservation"],
   ["info_cleaning_record", "info_room"],
+  // systemInformation (システム → 情報: 取得元)
+  ["sys_pms", "info_reservation"],
+  ["sys_pms", "info_guest"],
+  ["sys_pms", "info_room"],
+  ["sys_pms", "info_plan"],
+  ["sys_pms", "info_bill"],
+  // informationSystem (情報 → システム: 保存先)
+  ["info_reservation", "sys_pms"],
+  ["info_guest", "sys_pms"],
+  ["info_guest", "sys_guest_register"],
+  ["info_room", "sys_pms"],
+  ["info_bill", "sys_accounting"],
+  ["info_cleaning_record", "sys_cleaning_sheet"],
   // informationVariation
   ["info_room", "var_room_type"],
   ["info_reservation", "var_channel"],
@@ -261,11 +290,13 @@ const pairs: [source: string, target: string][] = [
 const elements: Element[] = [
   ...actors,
   ...externalActors,
+  ...systems,
   ...businesses,
   ...defaultBucs,
   ...bucs,
   ...activities,
   ...usecases,
+  ...contexts,
   ...informations,
   ...states,
   ...variations,

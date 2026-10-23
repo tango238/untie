@@ -11,10 +11,12 @@
   /* 要素の種類ごとの色 */
   --c-actor: #4f8a6b;
   --c-externalActor: #7b6bb0;
+  --c-system: #4a6a80;
   --c-business: #3b6ea5;
   --c-buc: #2f8f9d;
   --c-activity: #d08a2e;
   --c-usecase: #c0583f;
+  --c-context: #3f7f5f;
   --c-information: #5a8f3c;
   --c-state: #9a6f3a;
   --c-variation: #a05a8c;
@@ -38,10 +40,12 @@ body { background: var(--bg); }
 
 .kind-actor { --c: var(--c-actor); }
 .kind-externalActor { --c: var(--c-externalActor); }
+.kind-system { --c: var(--c-system); }
 .kind-business { --c: var(--c-business); }
 .kind-buc { --c: var(--c-buc); }
 .kind-activity { --c: var(--c-activity); }
 .kind-usecase { --c: var(--c-usecase); }
+.kind-context { --c: var(--c-context); }
 .kind-information { --c: var(--c-information); }
 .kind-state { --c: var(--c-state); }
 .kind-variation { --c: var(--c-variation); }
@@ -168,11 +172,13 @@ textarea { resize: vertical; width: 100%; }
 /* ミニマップは要素の色で塗る (枠は薄く) */
 .react-flow__minimap-node.mini-actor { fill: var(--c-actor); }
 .react-flow__minimap-node.mini-externalActor { fill: var(--c-externalActor); }
+.react-flow__minimap-node.mini-system { fill: var(--c-system); }
 .react-flow__minimap-node.mini-business { fill: color-mix(in srgb, var(--c-business) 25%, #fff); }
 .react-flow__minimap-node.mini-buc { fill: color-mix(in srgb, var(--c-buc) 35%, #fff); }
 .react-flow__minimap-node.mini-activity { fill: var(--c-activity); }
 .react-flow__minimap-node.mini-usecase { fill: var(--c-usecase); }
 .react-flow__minimap-node.mini-information { fill: var(--c-information); }
+.react-flow__minimap-node.mini-context { fill: var(--c-context); }
 .react-flow__minimap-node.mini-state { fill: var(--c-state); }
 .react-flow__minimap-node.mini-variation { fill: var(--c-variation); }
 .react-flow__minimap-node.mini-condition { fill: var(--c-condition); }
@@ -260,3 +266,9 @@ textarea { resize: vertical; width: 100%; }
 .plain-fieldset:disabled select, .plain-fieldset:disabled input, .plain-fieldset:disabled textarea, .plain-fieldset:disabled button {
   opacity: 0.55; cursor: not-allowed;
 }
+
+/* システム: 紙媒体は破線で区別する */
+.card-node.medium-paper, .fixed-card.medium-paper, .actor-chip.medium-paper { border-style: dashed; }
+.fixed-card.medium-paper { border-left-style: solid; }
+.system-chips { justify-content: flex-start; }
+.system-chip-role { font-weight: 600; margin-right: 3px; }

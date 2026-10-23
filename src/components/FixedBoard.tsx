@@ -13,21 +13,23 @@ import {
   type FixedSection,
 } from "../model/fixedBoards";
 import { issueSummaries } from "../model/selectors";
-import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type UntieModel } from "../model/types";
+import { ELEMENT_KIND_LABELS, isIssueTargetKind, kindLabelOf, type Element, type UntieModel } from "../model/types";
 import { useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
-import { actorLabels } from "./canvas/toFlow";
+import { SystemChips } from "./canvas/SystemChips";
+import { actorLabels, systemLabels, type SystemLabel } from "./canvas/toFlow";
 import { IssueBadge } from "./IssueBadge";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
-  actor: "アクターと外部アクターを並べます。",
+  actor: "アクター・外部アクターと、情報の取得元・保存先になるシステムを並べます。",
   business: "アクターごとに、主担当の業務を並べます。",
   buc: "業務ごとに BUC を並べます。",
   activity: "BUC ごとに (BUC の無い業務は業務ごとに) アクティビティを並べます。",
   usecase: "BUC ごとに区切り、アクティビティごとに使うユースケースを並べます。",
-  information: "ユースケースごとに、扱う情報を並べます。",
+  context: "情報をまとめる親カテゴリを並べます。",
+  information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステムを出します。",
   condition: "ユースケースごとに、判断に使う条件を並べます。",
   state: "状態グループごとに状態を並べます。",
   variation: "情報ごとに、種別 (バリエーション) を並べます。",
@@ -48,6 +50,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
   const groups = useMemo(() => filterGroups(allGroups, query), [allGroups, query]);
   const summaries = useMemo(() => issueSummaries(model), [model]);
   const actors = useMemo(() => actorLabels(model), [model]);
+  const systems = useMemo(() => systemLabels(model), [model]);
   const selectedId = selection?.type === "element" ? selection.id : null;
 
   // 要素一覧からのクリックで、そのカードへスクロールする
@@ -90,6 +93,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
                 selectedId={selectedId}
                 summaries={summaries}
                 actors={actors}
+                systems={systems}
               />
             ))}
           </div>
@@ -152,6 +156,7 @@ function GroupView({
   selectedId,
   summaries,
   actors,
+  systems,
 }: {
   group: FixedGroup;
   /** 絞り込み前の枠 (既存の要素を足す候補はこちらで決める) */
@@ -160,6 +165,7 @@ function GroupView({
   selectedId: string | null;
   summaries: ReturnType<typeof issueSummaries>;
   actors: ReturnType<typeof actorLabels>;
+  systems: Map<string, SystemLabel[]>;
 }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const select = useUntieStore((s) => s.select);
@@ -168,7 +174,7 @@ function GroupView({
   const pushToast = useUntieStore((s) => s.pushToast);
 
   const parent = group.parentId ? model.elements.find((e) => e.id === group.parentId) : undefined;
-  const parentKind = parent?.kind ?? (group.childKind === "actor" || group.childKind === "externalActor" ? group.childKind : undefined);
+  const parentKind = parent?.kind ?? (group.childKind === "actor" || group.childKind === "externalActor" || group.childKind === "system" ? group.childKind : undefined);
   const canUnlink = group.link.type === "relation";
   const candidates = linkCandidates(model, fullGroup);
   const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
@@ -210,6 +216,7 @@ function GroupView({
               selected={selectedId === e.id}
               summary={isIssueTargetKind(e.kind) ? summaries.get(e.id) : undefined}
               actors={actors.get(e.id)}
+              systems={systems.get(e.id)}
               onClick={() => choose(e.id)}
             />
             {canUnlink && (
@@ -262,28 +269,31 @@ function FixedCard({
   selected,
   summary,
   actors,
+  systems,
   onClick,
 }: {
   element: Element;
   selected: boolean;
   summary?: { count: number; maxSeverity: number };
   actors?: ReturnType<typeof actorLabels> extends Map<string, infer V> ? V : never;
+  systems?: SystemLabel[];
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`fixed-card kind-${element.kind}${selected ? " is-selected" : ""}`}
+      className={`fixed-card kind-${element.kind}${element.kind === "system" ? ` medium-${element.medium}` : ""}${selected ? " is-selected" : ""}`}
       data-fixed-card={element.id}
       aria-pressed={selected}
       onClick={onClick}
     >
       <span className="fixed-card-top">
-        <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
+        <span className="card-kind-inline">{kindLabelOf(element)}</span>
         {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
       </span>
       <span className="fixed-card-name">{element.name || "(名前なし)"}</span>
       {actors && <ActorChips actors={actors} />}
+      {systems && <SystemChips systems={systems} />}
     </button>
   );
 }

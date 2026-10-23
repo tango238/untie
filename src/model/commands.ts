@@ -6,9 +6,11 @@ import { relationKindFor, sameRelation } from "./relations";
 import {
   isFrameKind,
   isIssueTargetKind,
+  SYSTEM_MEDIUM_LABELS,
   type Buc,
   type Element,
   type ElementKind,
+  type SystemMedium,
   type UntieModel,
 } from "./types";
 
@@ -40,12 +42,14 @@ export const DEFAULT_FRAME_SIZE: Record<"business" | "buc", Size> = {
 /** 種類ごとに追加時に指定できる初期値 */
 export interface ElementInit {
   description?: string;
-  /** information */
-  context?: string;
+  /** information (所属コンテキスト。省略時は未分類) */
+  contextId?: string | null;
   /** state */
   group?: string;
   /** variation */
   values?: string[];
+  /** system (省略時は system) */
+  medium?: SystemMedium;
   /** issue */
   severity?: number;
   targetIds?: string[];
@@ -59,9 +63,9 @@ export interface ElementInit {
 export interface ElementPatch {
   name?: string;
   description?: string;
-  context?: string;
   group?: string;
   values?: string[];
+  medium?: SystemMedium;
   severity?: number;
   targetIds?: string[];
 }
@@ -69,11 +73,13 @@ export interface ElementPatch {
 const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> = {
   actor: [],
   externalActor: [],
+  system: ["medium"],
   business: [],
   buc: [],
   activity: [],
   usecase: [],
-  information: ["context"],
+  context: [],
+  information: [],
   state: ["group"],
   variation: ["values"],
   condition: [],
@@ -114,6 +120,10 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
 
 function checkSeverity(severity: number): string | null {
   return Number.isInteger(severity) && severity >= 1 && severity <= 5 ? null : "重要度は 1〜5 の整数にしてください";
+}
+
+function checkMedium(medium: string): string | null {
+  return Object.keys(SYSTEM_MEDIUM_LABELS).includes(medium) ? null : `媒体が不正です: ${medium}`;
 }
 
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
@@ -163,6 +173,14 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     const buc = findElement(model, init.bucId);
     if (!buc || buc.kind !== "buc") return fail(`所属先の BUC が存在しません: ${init.bucId}`);
   }
+  if (kind === "information" && init.contextId) {
+    const ctx = findElement(model, init.contextId);
+    if (!ctx || ctx.kind !== "context") return fail(`所属先のコンテキストが存在しません: ${init.contextId}`);
+  }
+  if (kind === "system" && init.medium !== undefined) {
+    const reason = checkMedium(init.medium);
+    if (reason) return fail(reason);
+  }
   if (kind === "issue") {
     const reason = checkIssueTargets(model, init.targetIds ?? []);
     if (reason) return fail(reason);
@@ -183,8 +201,12 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     case "externalActor":
     case "business":
     case "usecase":
+    case "context":
     case "condition":
       element = { id, kind, name, ...description };
+      break;
+    case "system":
+      element = { id, kind, name, medium: init.medium ?? "system", ...description };
       break;
     case "buc":
       element = { id, kind, name, businessId: init.businessId!, isDefault: false, ...description };
@@ -193,7 +215,7 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
       element = { id, kind, name, bucId: init.bucId ?? null, ...description };
       break;
     case "information":
-      element = { id, kind, name, ...description, ...(init.context ? { context: init.context } : {}) };
+      element = { id, kind, name, contextId: init.contextId ?? null, ...description };
       break;
     case "state":
       element = { id, kind, name, ...description, ...(init.group ? { group: init.group } : {}) };
@@ -235,7 +257,7 @@ export interface UpdateElementPayload {
   patch: ElementPatch;
 }
 
-/** 名前・説明・種類固有の項目を変える。所属 (bucId / businessId) は moveActivity / moveBuc で変える */
+/** 名前・説明・種類固有の項目を変える。所属 (bucId / businessId / contextId) は moveActivity / moveBuc / moveInformation で変える */
 export function updateElement(model: UntieModel, payload: UpdateElementPayload): CommandResult {
   const target = findElement(model, payload.id);
   if (!target) return fail(`要素が存在しません: ${payload.id}`);
@@ -248,6 +270,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   const allowed = new Set<string>(["name", "description", ...PATCH_KEYS_BY_KIND[target.kind]]);
   for (const key of Object.keys(patch)) {
     if (!allowed.has(key)) return fail(`この要素では「${key}」を変更できません`);
+  }
+  if (patch.medium !== undefined) {
+    const reason = checkMedium(patch.medium);
+    if (reason) return fail(reason);
   }
   if (patch.severity !== undefined) {
     const reason = checkSeverity(patch.severity);
@@ -272,14 +298,11 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       if (patch.description === "") delete el.description;
       else el.description = patch.description;
     }
-    if (el.kind === "information" && patch.context !== undefined) {
-      if (patch.context === "") delete el.context;
-      else el.context = patch.context;
-    }
     if (el.kind === "state" && patch.group !== undefined) {
       if (patch.group === "") delete el.group;
       else el.group = patch.group;
     }
+    if (el.kind === "system" && patch.medium !== undefined) el.medium = patch.medium;
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
     if (el.kind === "issue") {
       if (patch.severity !== undefined) el.severity = patch.severity;
@@ -308,6 +331,11 @@ export function removeElement(model: UntieModel, payload: RemoveElementPayload):
       for (const id of bucIds) removed.add(id);
       for (const e of draft.elements) {
         if (e.kind === "activity" && e.bucId && bucIds.has(e.bucId)) e.bucId = null;
+      }
+    } else if (target.kind === "context") {
+      // コンテキストを消すと、所属していた情報は未分類になる
+      for (const e of draft.elements) {
+        if (e.kind === "information" && e.contextId === target.id) e.contextId = null;
       }
     } else if (target.kind === "buc") {
       // 既定でない BUC を消すと、所属アクティビティは業務の既定 BUC に戻る
@@ -343,6 +371,28 @@ export function moveActivity(model: UntieModel, payload: MoveActivityPayload): C
   const next = produce(model, (draft) => {
     const a = draft.elements.find((e) => e.id === payload.activityId);
     if (a && a.kind === "activity") a.bucId = payload.bucId;
+  });
+  return { ok: true, model: next };
+}
+
+export interface MoveInformationPayload {
+  informationId: string;
+  /** null は未分類 */
+  contextId: string | null;
+}
+
+/** 情報の所属コンテキストを変える */
+export function moveInformation(model: UntieModel, payload: MoveInformationPayload): CommandResult {
+  const info = findElement(model, payload.informationId);
+  if (!info || info.kind !== "information") return fail(`情報が存在しません: ${payload.informationId}`);
+  if (payload.contextId !== null) {
+    const ctx = findElement(model, payload.contextId);
+    if (!ctx || ctx.kind !== "context") return fail(`コンテキストが存在しません: ${payload.contextId}`);
+  }
+  if (info.contextId === payload.contextId) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const e = draft.elements.find((x) => x.id === payload.informationId);
+    if (e && e.kind === "information") e.contextId = payload.contextId;
   });
   return { ok: true, model: next };
 }

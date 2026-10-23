@@ -19,6 +19,7 @@ export const FIXED_LAYERS = [
   "buc",
   "activity",
   "usecase",
+  "context",
   "information",
   "condition",
   "state",
@@ -32,6 +33,7 @@ export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
   buc: "BUC",
   activity: "アクティビティ",
   usecase: "ユースケース",
+  context: "コンテキスト",
   information: "情報",
   condition: "条件",
   state: "状態",
@@ -60,6 +62,8 @@ export type GroupLink =
   | { type: "business"; businessId: string }
   /** アクティビティの所属 BUC (null は未所属) */
   | { type: "buc"; bucId: string | null }
+  /** 情報の所属コンテキスト (null は未分類) */
+  | { type: "context"; contextId: string | null }
   /** 状態の状態グループ (undefined はグループなし) */
   | { type: "stateGroup"; group: string | undefined };
 
@@ -142,9 +146,10 @@ function bucSections(model: UntieModel): FixedSection[] {
 export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] {
   switch (layer) {
     case "actor":
-      return (["actor", "externalActor"] as const).map((kind) => ({
+      return (["actor", "externalActor", "system"] as const).map((kind) => ({
         key: kind,
         title: ELEMENT_KIND_LABELS[kind],
+        ...(kind === "system" ? { subtitle: "帳簿・伝票などの紙媒体も含む" } : {}),
         parentId: null,
         childKind: kind,
         link: { type: "none" },
@@ -205,8 +210,36 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
       );
     }
 
-    case "information":
-      return relationGroups(model, "usecase", "information", "ユースケースなし");
+    case "context":
+      return [
+        {
+          key: "context",
+          title: ELEMENT_KIND_LABELS.context,
+          subtitle: "情報をまとめる親カテゴリ",
+          parentId: null,
+          childKind: "context",
+          link: { type: "none" },
+          items: byKind(model, "context"),
+        },
+      ];
+
+    case "information": {
+      const infos = byKind(model, "information");
+      const groups: FixedGroup[] = byKind(model, "context").map((ctx) => ({
+        key: ctx.id,
+        title: ctx.name || "(名前なし)",
+        subtitle: "コンテキスト",
+        parentId: ctx.id,
+        childKind: "information" as const,
+        link: { type: "context", contextId: ctx.id },
+        items: infos.filter((i) => i.contextId === ctx.id),
+      }));
+      const orphans = infos.filter((i) => i.contextId === null);
+      if (orphans.length > 0 || groups.length === 0) {
+        groups.push({ key: "__none", title: "未分類", parentId: null, childKind: "information", link: { type: "context", contextId: null }, items: orphans });
+      }
+      return groups;
+    }
 
     case "condition":
       return relationGroups(model, "usecase", "condition", "ユースケースなし");
@@ -275,9 +308,11 @@ export function addToGroup(model: UntieModel, group: FixedGroup, name?: string):
       ? { businessId: link.businessId }
       : link.type === "buc"
         ? { bucId: link.bucId }
-        : link.type === "stateGroup" && link.group
-          ? { group: link.group }
-          : undefined;
+        : link.type === "context"
+          ? { contextId: link.contextId }
+          : link.type === "stateGroup" && link.group
+            ? { group: link.group }
+            : undefined;
   const created = addElement(model, { kind, name: label, ...(init ? { init } : {}) });
   if (!created.ok || link.type !== "relation") return created;
   const linked = addRelation(created.model, { sourceId: link.parentId, targetId: created.id });

@@ -21,6 +21,8 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "usecaseCondition", sources: ["usecase"], targets: ["condition"], label: "判断", undirected: false },
   { kind: "informationRelated", sources: ["information"], targets: ["information"], label: "関連", undirected: true },
   { kind: "informationVariation", sources: ["information"], targets: ["variation"], label: "種別", undirected: false },
+  { kind: "systemInformation", sources: ["system"], targets: ["information"], label: "取得元", undirected: false },
+  { kind: "informationSystem", sources: ["information"], targets: ["system"], label: "保存先", undirected: false },
   { kind: "conditionVariation", sources: ["condition"], targets: ["variation"], label: "区分", undirected: false },
   { kind: "conditionState", sources: ["condition"], targets: ["state"], label: "状態参照", undirected: false },
   { kind: "stateUsecase", sources: ["state"], targets: ["usecase"], label: "実行可", undirected: false },

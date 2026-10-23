@@ -68,10 +68,12 @@
       "enum": [
         "actor",
         "externalActor",
+        "system",
         "business",
         "buc",
         "activity",
         "usecase",
+        "context",
         "information",
         "state",
         "variation",
@@ -95,10 +97,12 @@
       "oneOf": [
         { "$ref": "#/$defs/actor" },
         { "$ref": "#/$defs/externalActor" },
+        { "$ref": "#/$defs/system" },
         { "$ref": "#/$defs/business" },
         { "$ref": "#/$defs/buc" },
         { "$ref": "#/$defs/activity" },
         { "$ref": "#/$defs/usecase" },
+        { "$ref": "#/$defs/context" },
         { "$ref": "#/$defs/information" },
         { "$ref": "#/$defs/state" },
         { "$ref": "#/$defs/variation" },
@@ -128,6 +132,23 @@
         "kind": { "const": "externalActor" },
         "name": { "$ref": "#/$defs/name" },
         "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "system": {
+      "description": "システム。情報の取得元・保存先。帳簿や注文票などの紙媒体も含む (medium で区別する)。",
+      "type": "object",
+      "required": ["id", "kind", "name", "medium"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "system" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "medium": {
+          "description": "媒体。system はシステム、paper は紙媒体 (帳簿・注文票など)。",
+          "type": "string",
+          "enum": ["system", "paper"]
+        }
       }
     },
     "business": {
@@ -190,20 +211,31 @@
         "description": { "$ref": "#/$defs/description" }
       }
     },
-    "information": {
-      "description": "情報。業務で扱う情報。",
+    "context": {
+      "description": "コンテキスト。情報をまとめる親カテゴリ (RDRA の information.context)。情報からだけ参照され、関係は持たない。",
       "type": "object",
       "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "context" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "information": {
+      "description": "情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。",
+      "type": "object",
+      "required": ["id", "kind", "name", "contextId"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "information" },
         "name": { "$ref": "#/$defs/name" },
         "description": { "$ref": "#/$defs/description" },
-        "context": {
-          "description": "情報の分類 (RDRA の information.context)。任意。",
-          "type": "string",
-          "maxLength": 200
+        "contextId": {
+          "description": "所属するコンテキストの id。未分類なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
         }
       }
     },
@@ -288,6 +320,8 @@
         "usecaseCondition",
         "informationRelated",
         "informationVariation",
+        "systemInformation",
+        "informationSystem",
         "conditionVariation",
         "conditionState",
         "stateUsecase",

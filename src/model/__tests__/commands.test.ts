@@ -7,6 +7,7 @@ import {
   DEFAULT_FRAME_SIZE,
   moveActivity,
   moveBuc,
+  moveInformation,
   moveNode,
   placeOnBoard,
   removeBoard,
@@ -45,11 +46,13 @@ describe("addElement", () => {
     let m = emptyModel();
     const biz = addElement(m, { kind: "business", name: "B" });
     m = okModel(biz);
-    const kinds = ["actor", "externalActor", "usecase", "information", "state", "variation", "condition", "issue", "activity"] as const;
+    const kinds = ["actor", "externalActor", "system", "usecase", "context", "information", "state", "variation", "condition", "issue", "activity"] as const;
     for (const kind of kinds) m = okModel(addElement(m, { kind, name: ` ${kind} ` }));
     expect(m.elements.find((e) => e.kind === "issue")).toMatchObject({ severity: 3, targetIds: [], name: "issue" });
     expect(m.elements.find((e) => e.kind === "variation")).toMatchObject({ values: [] });
     expect(m.elements.find((e) => e.kind === "activity")).toMatchObject({ bucId: null });
+    expect(m.elements.find((e) => e.kind === "system")).toMatchObject({ medium: "system" });
+    expect(m.elements.find((e) => e.kind === "information")).toMatchObject({ contextId: null });
     expectValid(m);
   });
 
@@ -115,8 +118,8 @@ describe("updateElement", () => {
     expect(el(m, "var_room_type")).toMatchObject({ values: ["a", "b"] });
     m = okModel(updateElement(m, { id: "issue_manual_entry", patch: { severity: 1 } }));
     expect(el(m, "issue_manual_entry")).toMatchObject({ severity: 1 });
-    m = okModel(updateElement(m, { id: "info_room", patch: { context: "" } }));
-    expect(el(m, "info_room")).not.toHaveProperty("context");
+    m = okModel(updateElement(m, { id: "sys_pms", patch: { medium: "paper" } }));
+    expect(el(m, "sys_pms")).toMatchObject({ medium: "paper" });
     m = okModel(updateElement(m, { id: "st_res_confirmed", patch: { group: "G" } }));
     expect(el(m, "st_res_confirmed")).toMatchObject({ group: "G" });
     expectValid(m);
@@ -129,6 +132,8 @@ describe("updateElement", () => {
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { severity: 2.5 } }), /重要度/);
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { targetIds: ["actor_front"] } }), /対象/);
     expectFail(updateElement(m, { id: "nope", patch: { name: "x" } }), /存在しません/);
+    expectFail(updateElement(m, { id: "sys_pms", patch: { medium: "tape" as never } }), /媒体/);
+    expectFail(updateElement(m, { id: "info_room", patch: { medium: "paper" } }), /変更できません/);
     expectFail(updateElement(m, { id: "act_clean", patch: { bucId: "x" } as never }), /変更できません/);
   });
 });
@@ -166,6 +171,14 @@ describe("removeElement", () => {
     expectFail(removeElement(sample(), { id: "nope" }), /存在しません/);
   });
 
+  it("コンテキストを消すと、所属していた情報は未分類になる", () => {
+    const m = okModel(removeElement(sample(), { id: "ctx_charge" }));
+    expect(el(m, "info_bill")).toMatchObject({ contextId: null });
+    expect(el(m, "info_plan")).toMatchObject({ contextId: null });
+    expect(el(m, "info_room")).toMatchObject({ contextId: "ctx_room" });
+    expectValid(m);
+  });
+
   it("既定でない BUC を消すと、所属アクティビティは業務の既定 BUC に戻る", () => {
     const m = okModel(removeElement(sample(), { id: "buc_room_care" }));
     expect(el(m, "buc_room_care")).toBeUndefined();
@@ -197,6 +210,17 @@ describe("所属の変更", () => {
     m = okModel(moveActivity(m, { activityId: "act_hand_key", bucId: null }));
     expect(el(m, "act_hand_key")).toMatchObject({ bucId: null });
     expectValid(m);
+  });
+
+  it("moveInformation でコンテキストを変え、null で未分類にできる。不正な対象は拒否する", () => {
+    let m = okModel(moveInformation(sample(), { informationId: "info_bill", contextId: "ctx_reservation" }));
+    expect(el(m, "info_bill")).toMatchObject({ contextId: "ctx_reservation" });
+    m = okModel(moveInformation(m, { informationId: "info_bill", contextId: null }));
+    expect(el(m, "info_bill")).toMatchObject({ contextId: null });
+    expectValid(m);
+    expectFail(moveInformation(m, { informationId: "actor_front", contextId: null }), /情報/);
+    expectFail(moveInformation(m, { informationId: "info_bill", contextId: "info_room" }), /コンテキスト/);
+    expectFail(addElement(m, { kind: "information", name: "x", init: { contextId: "nope" } }), /コンテキスト/);
   });
 
   it("moveActivity は不正な対象を拒否する", () => {

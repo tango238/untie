@@ -12,6 +12,8 @@ describe("関係ルール", () => {
     ["usecase", "condition", "usecaseCondition"],
     ["information", "information", "informationRelated"],
     ["information", "variation", "informationVariation"],
+    ["system", "information", "systemInformation"],
+    ["information", "system", "informationSystem"],
     ["condition", "variation", "conditionVariation"],
     ["condition", "state", "conditionState"],
     ["state", "usecase", "stateUsecase"],
@@ -50,6 +52,8 @@ describe("関係ルール", () => {
     expect(RELATION_RULES.map((r) => r.kind).sort()).toEqual([...RELATION_KINDS].sort());
     for (const k of RELATION_KINDS) expect(relationLabel(k).length).toBeGreaterThan(0);
     expect(relationLabel("usecaseState")).toBe("次の状態");
+    expect(relationLabel("systemInformation")).toBe("取得元");
+    expect(relationLabel("informationSystem")).toBe("保存先");
   });
 
   it("無向なのは informationRelated だけ", () => {

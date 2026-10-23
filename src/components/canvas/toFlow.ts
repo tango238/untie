@@ -8,6 +8,7 @@ import {
   type Element,
   type ElementKind,
   type FrameKind,
+  type SystemMedium,
   type UntieModel,
 } from "../../model/types";
 
@@ -15,6 +16,9 @@ import {
 export const CARD_SIZE = DEFAULT_CARD_SIZE;
 
 export type ActorLabel = { name: string; kind: "actor" | "externalActor" };
+
+/** 情報の取得元・保存先のシステム */
+export type SystemLabel = { name: string; medium: SystemMedium; role: "source" | "store" };
 
 export type CardNodeData = {
   elementId: string;
@@ -24,6 +28,8 @@ export type CardNodeData = {
   label?: string;
   /** 担当アクター (線の代わりにラベルで出す) */
   actors?: ActorLabel[];
+  /** システムの媒体 */
+  medium?: SystemMedium;
   issueCount: number;
   maxSeverity: number;
 };
@@ -144,6 +150,25 @@ export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
   return result;
 }
 
+/** 情報 id → 取得元・保存先のシステム (取得元 → 保存先、それぞれ関係の並び順) */
+export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
+  const byId = elementMap(model);
+  const result = new Map<string, SystemLabel[]>();
+  for (const role of ["source", "store"] as const) {
+    for (const r of model.relations) {
+      const kind = role === "source" ? "systemInformation" : "informationSystem";
+      if (r.kind !== kind) continue;
+      const [sysId, infoId] = role === "source" ? [r.sourceId, r.targetId] : [r.targetId, r.sourceId];
+      const sys = byId.get(sysId);
+      if (!sys || sys.kind !== "system") continue;
+      const list = result.get(infoId) ?? [];
+      list.push({ name: sys.name || "(名前なし)", medium: sys.medium, role });
+      result.set(infoId, list);
+    }
+  }
+  return result;
+}
+
 const FRAME_ORDER: Record<string, number> = { business: 0, buc: 1 };
 
 /** ボードのノードを React Flow のノードにする。親の枠が先に来る順に並べる */
@@ -211,6 +236,7 @@ export function buildFlowNodes(model: UntieModel, boardId: string, options: Buil
           name: el.name,
           ...(label ? { label } : {}),
           ...(actorsOf.has(el.id) ? { actors: actorsOf.get(el.id) } : {}),
+          ...(el.kind === "system" ? { medium: el.medium } : {}),
           issueCount: summary?.count ?? 0,
           maxSeverity: summary?.maxSeverity ?? 0,
         },

@@ -93,12 +93,12 @@ describe("Toolbar", () => {
     expect((screen.getByRole("button", { name: "ボード削除" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("ボードの選択肢は固定ボード 9 枚と自由ボードに分かれる。固定ボードでは名前変更・削除ができない", () => {
+  it("ボードの選択肢は固定ボード 10 枚と自由ボードに分かれる。固定ボードでは名前変更・削除ができない", () => {
     render(<Toolbar />);
     const select = screen.getByLabelText("ボード") as HTMLSelectElement;
     const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
     expect(groups).toEqual(["固定ボード", "自由ボード"]);
-    expect(select.querySelectorAll('optgroup[label="固定ボード"] option')).toHaveLength(9);
+    expect(select.querySelectorAll('optgroup[label="固定ボード"] option')).toHaveLength(10);
     fireEvent.change(select, { target: { value: "fixed:buc" } });
     expect(st().ui.currentBoardId).toBe("fixed:buc");
     expect((screen.getByRole("button", { name: "名前変更" }) as HTMLButtonElement).disabled).toBe(true);

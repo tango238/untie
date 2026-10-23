@@ -98,18 +98,33 @@ describe("PropertyPanel", () => {
     expect(values()).toEqual(["シングル", "和室", "スイート"]);
   });
 
-  it("情報の分類・状態のグループを編集できる", () => {
+  it("情報のコンテキスト・状態のグループを編集できる", () => {
     onFixedBoard();
     selectEl("info_reservation");
     const { unmount } = render(<PropertyPanel />);
-    const ctx = screen.getByLabelText("分類");
-    fireEvent.change(ctx, { target: { value: "予約系" } });
-    fireEvent.blur(ctx);
-    expect(el("info_reservation")).toMatchObject({ context: "予約系" });
+    fireEvent.change(screen.getByLabelText("コンテキスト"), { target: { value: "ctx_customer" } });
+    expect(el("info_reservation")).toMatchObject({ contextId: "ctx_customer" });
+    fireEvent.change(screen.getByLabelText("コンテキスト"), { target: { value: "" } });
+    expect(el("info_reservation")).toMatchObject({ contextId: null });
     unmount();
     selectEl("st_res_tentative");
     render(<PropertyPanel />);
     expect(screen.getByLabelText("状態グループ")).toBeDefined();
+  });
+
+  it("システムの媒体を切り替え、情報と取得元・保存先の関係を結べる", () => {
+    onFixedBoard();
+    selectEl("sys_guest_register");
+    render(<PropertyPanel />);
+    expect(screen.getByText("紙媒体", { selector: ".kind-line" })).toBeDefined();
+    fireEvent.change(screen.getByLabelText("媒体"), { target: { value: "system" } });
+    expect(el("sys_guest_register")).toMatchObject({ medium: "system" });
+    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "sys_guest_register>info_guest" } });
+    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "info_reservation>sys_guest_register" } });
+    const kinds = st()
+      .model.relations.filter((r) => r.sourceId === "sys_guest_register" || r.targetId === "sys_guest_register")
+      .map((r) => r.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["systemInformation", "informationSystem"]));
   });
 
   it("課題の重要度と対象を編集できる", () => {
