@@ -2,21 +2,14 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ANALYSIS_LABELS,
   LOCATION_FLAG_LABELS,
-  businessContextMatrix,
-  contextCoupling,
   informationLocations,
   issueDistribution,
-  pairKey,
   performerWorkList,
   usecasesOfActivity,
-  workFlow,
   type ActivitySection,
   type AnalysisKind,
-  type BridgePath,
-  type BusinessUnit,
 } from "../../model/analysis";
-import { relationLabel } from "../../model/relations";
-import { ELEMENT_KIND_LABELS, type Element, type Link, type Relation, type UntieModel } from "../../model/types";
+import { ELEMENT_KIND_LABELS, type Element, type Link, type UntieModel } from "../../model/types";
 import { useUntieStore } from "../../store";
 import { openExternalUrl } from "../../io/file";
 import { canvasApi } from "../canvas/canvasApi";
@@ -26,13 +19,8 @@ import { HoursLabel } from "../Hours";
 const DESCRIPTIONS: Record<AnalysisKind, string> = {
   people:
     "担い手 (アクター・外部アクター・システム) ごとに、受け持つ作業を業務・活動の順に並べます。作業や操作をクリックすると、プロパティ欄でリンク (マニュアルなど) を編集できます。",
-  businessContext:
-    "業務 (または活動) から 作業 → 操作 → 情報 と辿り、どのコンテキストを扱うかを数えます。半分以上の行から使われる列をリソース系、それより少ない列をトランザクション系として目安を出します。数をクリックすると元の道筋を出します。",
-  contextCoupling:
-    "コンテキストに属する要素 (情報・状態・条件・バリエーション) どうしの関係を数えます。対角はコンテキストの中で閉じた関係 (凝集)、それ以外はコンテキストどうしの結合です。数をクリックすると元の関係を出します。",
   informationLocation:
     "情報ごとに、取得元・保存先のシステム・帳票を並べます。置き場所の無い情報、紙だけの情報、保存先が複数ある情報 (二重管理の可能性) に印を付けます。",
-  workFlow: "活動ごとに、作業の担当と、使う操作・扱う情報・判断に使う条件・状態の遷移を並べます。",
   issues: "業務ごとに、業務・その作業・作業が使う操作に付いた課題を集めます。課題の多い業務、重要度の高い業務がわかります。",
 };
 
@@ -59,10 +47,7 @@ export function AnalysisBoard({ kind }: { kind: AnalysisKind }) {
         <span className="fixed-hint">{DESCRIPTIONS[kind]}</span>
       </div>
       {kind === "people" && <PeopleView model={model} />}
-      {kind === "businessContext" && <BusinessContextView model={model} />}
-      {kind === "contextCoupling" && <ContextCouplingView model={model} />}
       {kind === "informationLocation" && <InformationLocationView model={model} />}
-      {kind === "workFlow" && <WorkFlowView model={model} />}
       {kind === "issues" && <IssuesView model={model} />}
     </div>
   );
@@ -90,18 +75,6 @@ function El({ element, plain }: { element: Element | undefined; plain?: boolean 
       {!plain && <span className="kind-dot" />}
       {element.name || "(名前なし)"}
     </button>
-  );
-}
-
-function Els({ elements, empty = "—" }: { elements: (Element | undefined)[]; empty?: string }) {
-  const list = elements.filter((e): e is Element => !!e);
-  if (list.length === 0) return <span className="an-empty">{empty}</span>;
-  return (
-    <span className="an-els">
-      {list.map((e) => (
-        <El key={e.id} element={e} />
-      ))}
-    </span>
   );
 }
 
@@ -232,207 +205,7 @@ function ActivityTable({ model, sections }: { model: UntieModel; sections: Activ
   );
 }
 
-// ---------------------------------------------------------------- 2. 業務とコンテキストの結合
-
-function BusinessContextView({ model }: { model: UntieModel }) {
-  const [unit, setUnit] = useState<BusinessUnit>("business");
-  const data = useMemo(() => businessContextMatrix(model, unit), [model, unit]);
-  const byId = useById(model);
-  const [picked, setPicked] = useState<string | null>(null);
-  const paths = picked ? (data.cells.get(picked) ?? []) : [];
-  const [rowId, colId] = picked ? picked.split("|") : [];
-  return (
-    <>
-      <div className="an-toolbar" role="radiogroup" aria-label="行の単位">
-        {(["business", "buc"] as const).map((u) => (
-          <button
-            key={u}
-            type="button"
-            role="radio"
-            aria-checked={unit === u}
-            className={unit === u ? "active" : ""}
-            onClick={() => {
-              setUnit(u);
-              setPicked(null);
-            }}
-          >
-            {u === "business" ? "業務ごと" : "活動ごと"}
-          </button>
-        ))}
-      </div>
-      {data.columns.length === 0 ? (
-        <p className="hint">コンテキストがありません。コンテキストの固定ボードで作り、情報を属させてください。</p>
-      ) : (
-        <div className="an-scroll">
-          <table className="an-table an-matrix">
-            <thead>
-              <tr>
-                <th>{unit === "business" ? "業務" : "業務 / 活動"}</th>
-                {data.columns.map((c) => (
-                  <th key={c.id} scope="col">
-                    {c.id === "__none" ? c.label : <El element={byId.get(c.id)} plain />}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((r) => (
-                <tr key={r.id}>
-                  <th scope="row">
-                    <El element={byId.get(r.elementId)} plain />
-                    {r.sub && <span className="an-sub">{r.sub}</span>}
-                  </th>
-                  {data.columns.map((c) => {
-                    const key = `${r.id}|${c.id}`;
-                    const cell = data.cells.get(key);
-                    const n = cell ? new Set(cell.map((p) => p.usecaseId)).size : 0;
-                    return (
-                      <td key={c.id} className={`an-cell${n > 0 ? " has-value" : ""}${picked === key ? " is-picked" : ""}`} style={heat(n, 4)}>
-                        {n > 0 && (
-                          <button type="button" className="an-cell-button" aria-label={`${r.label} と ${c.label}: 操作 ${n} 件`} onClick={() => setPicked(picked === key ? null : key)}>
-                            {n}
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row">つながる行の数</th>
-                {data.columns.map((c) => {
-                  const reach = data.columnReach.get(c.id) ?? 0;
-                  return (
-                    <td key={c.id} className="an-reach">
-                      {reach}
-                      <span className="an-sub">{reach >= Math.max(2, data.rows.length / 2) ? "リソース系" : reach > 0 ? "トランザクション系" : ""}</span>
-                    </td>
-                  );
-                })}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-      {picked && (
-        <section className="an-detail" aria-label="元の道筋">
-          <h3 className="an-block-title">
-            元の道筋: {data.rows.find((r) => r.id === rowId)?.label} × {data.columns.find((c) => c.id === colId)?.label}
-          </h3>
-          <PathList paths={paths} byId={byId} />
-        </section>
-      )}
-    </>
-  );
-}
-
-function PathList({ paths, byId }: { paths: BridgePath[]; byId: Map<string, Element> }) {
-  return (
-    <ul className="an-paths">
-      {paths.map((p, i) => (
-        <li key={i}>
-          <El element={byId.get(p.activityId)} />
-          <span className="an-arrow">→</span>
-          <El element={byId.get(p.usecaseId)} />
-          <span className="an-arrow">→</span>
-          <El element={byId.get(p.informationId)} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** 数に応じた背景色 (0 は無色) */
-function heat(n: number, max: number) {
-  if (n <= 0) return undefined;
-  const ratio = Math.min(1, n / max);
-  return { background: `color-mix(in srgb, var(--accent) ${Math.round(10 + ratio * 35)}%, #fff)` };
-}
-
-// ---------------------------------------------------------------- 3. コンテキストの結合
-
-function ContextCouplingView({ model }: { model: UntieModel }) {
-  const data = useMemo(() => contextCoupling(model), [model]);
-  const byId = useById(model);
-  const [picked, setPicked] = useState<string | null>(null);
-  const relations = picked ? (data.pairs.get(picked) ?? []) : [];
-  if (data.contexts.length === 0) return <p className="hint">コンテキストがありません。</p>;
-  return (
-    <>
-      <div className="an-scroll">
-        <table className="an-table an-matrix">
-          <thead>
-            <tr>
-              <th />
-              {data.contexts.map((c) => (
-                <th key={c.id} scope="col">
-                  <El element={byId.get(c.id)} plain />
-                </th>
-              ))}
-              <th scope="col">中で閉じた関係</th>
-              <th scope="col">外へ出る関係</th>
-              <th scope="col">凝集の割合</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.contexts.map((row) => {
-              const c = data.cohesion.get(row.id)!;
-              const total = c.internal + c.external;
-              return (
-                <tr key={row.id}>
-                  <th scope="row">
-                    <El element={byId.get(row.id)} plain />
-                  </th>
-                  {data.contexts.map((col) => {
-                    const key = pairKey(row.id, col.id);
-                    const n = data.pairs.get(key)?.length ?? 0;
-                    const diag = row.id === col.id;
-                    return (
-                      <td key={col.id} className={`an-cell${diag ? " is-diag" : ""}${picked === key ? " is-picked" : ""}`} style={diag ? undefined : heat(n, 4)}>
-                        {n > 0 && (
-                          <button type="button" className="an-cell-button" aria-label={`${row.label} と ${col.label}: 関係 ${n} 件`} onClick={() => setPicked(picked === key ? null : key)}>
-                            {n}
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                  <td className="an-num">{c.internal}</td>
-                  <td className="an-num">{c.external}</td>
-                  <td className="an-num">{total === 0 ? "—" : `${Math.round((c.internal / total) * 100)}%`}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {picked && (
-        <section className="an-detail" aria-label="元の関係">
-          <h3 className="an-block-title">元の関係</h3>
-          <RelationList relations={relations} byId={byId} />
-        </section>
-      )}
-    </>
-  );
-}
-
-function RelationList({ relations, byId }: { relations: Relation[]; byId: Map<string, Element> }) {
-  return (
-    <ul className="an-paths">
-      {relations.map((r) => (
-        <li key={r.id}>
-          <El element={byId.get(r.sourceId)} />
-          <span className="relation-kind">{relationLabel(r.kind)}</span>
-          <El element={byId.get(r.targetId)} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// ---------------------------------------------------------------- 4. 情報の所在
+// ---------------------------------------------------------------- 2. 情報の所在
 
 function InformationLocationView({ model }: { model: UntieModel }) {
   const data = useMemo(() => informationLocations(model), [model]);
@@ -490,77 +263,7 @@ function InformationLocationView({ model }: { model: UntieModel }) {
   );
 }
 
-// ---------------------------------------------------------------- 5. 作業の流れ
-
-function WorkFlowView({ model }: { model: UntieModel }) {
-  const data = useMemo(() => workFlow(model), [model]);
-  return (
-    <>
-      {data.map(({ section, rows }) => (
-        <section key={section.buc?.id ?? section.business?.id ?? "none"} className="an-block" aria-label={section.buc?.name ?? section.business?.name ?? "未所属の作業"}>
-          <h3 className="an-block-title">{sectionTitle(section)}</h3>
-          <table className="an-table">
-            <thead>
-              <tr>
-                <th>作業</th>
-                <th>担当</th>
-                <th>操作</th>
-                <th>扱う情報</th>
-                <th>判断に使う条件</th>
-                <th>状態の遷移</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const ucs = row.usecases.length > 0 ? row.usecases : [null];
-                return ucs.map((u, i) => (
-                  <tr key={`${row.activity.id}-${u?.usecase.id ?? "none"}`}>
-                    {i === 0 && (
-                      <>
-                        <td rowSpan={ucs.length}>
-                          <El element={row.activity} />
-                          <HoursLabel element={row.activity} model={model} className="hours-label is-block" />
-                        </td>
-                        <td rowSpan={ucs.length}>
-                          <Els elements={row.performers} empty="担当なし" />
-                        </td>
-                      </>
-                    )}
-                    <td>
-                      {u ? (
-                        <>
-                          <El element={u.usecase} />
-                          <HoursLabel element={u.usecase} model={model} />
-                        </>
-                      ) : (
-                        <span className="an-empty">—</span>
-                      )}
-                    </td>
-                    <td>{u && <Els elements={u.informations} />}</td>
-                    <td>{u && <Els elements={u.conditions} />}</td>
-                    <td>
-                      {u && (u.fromStates.length > 0 || u.toStates.length > 0) ? (
-                        <span className="an-els">
-                          <Els elements={u.fromStates} empty="(どこからでも)" />
-                          <span className="an-arrow">→</span>
-                          <Els elements={u.toStates} empty="(変わらない)" />
-                        </span>
-                      ) : (
-                        <span className="an-empty">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ));
-              })}
-            </tbody>
-          </table>
-        </section>
-      ))}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------- 6. 課題の分布
+// ---------------------------------------------------------------- 3. 課題の分布
 
 function IssuesView({ model }: { model: UntieModel }) {
   const data = useMemo(() => issueDistribution(model), [model]);
