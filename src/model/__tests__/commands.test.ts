@@ -33,7 +33,7 @@ function expectValid(m: UntieModel) {
 }
 
 describe("addElement", () => {
-  it("業務を作ると既定 BUC が 1 つ作られ、名前は業務名と同じ", () => {
+  it("業務を作ると既定の活動が 1 つ作られ、名前は業務名と同じ", () => {
     const m = okModel(addElement(emptyModel(), { kind: "business", name: "新業務" }));
     const biz = m.elements.find((e) => e.kind === "business")!;
     const bucs = m.elements.filter((e): e is Buc => e.kind === "buc");
@@ -72,12 +72,12 @@ describe("addElement", () => {
     expectFail(addElement(m, { kind: "issue", name: "x", boardId: "b1" }), /課題/);
   });
 
-  it("存在しないボード・BUC・業務・対象は失敗する", () => {
+  it("存在しないボード・活動・業務・対象は失敗する", () => {
     const m = sample();
     expectFail(addElement(m, { kind: "actor", name: "x", boardId: "nope" }), /ボード/);
     expectFail(addElement(m, { kind: "buc", name: "x" }), /業務/);
     expectFail(addElement(m, { kind: "buc", name: "x", init: { businessId: "actor_front" } }), /業務/);
-    expectFail(addElement(m, { kind: "activity", name: "x", init: { bucId: "nope" } }), /BUC/);
+    expectFail(addElement(m, { kind: "activity", name: "x", init: { bucId: "nope" } }), /活動/);
     expectFail(addElement(m, { kind: "issue", name: "x", init: { targetIds: ["actor_front"] } }), /対象/);
     expectFail(addElement(m, { kind: "issue", name: "x", init: { severity: 9 } }), /重要度/);
   });
@@ -86,8 +86,8 @@ describe("addElement", () => {
     expectFail(addElement(sample(), { kind: "actor", name: "x", id: "actor_front" }), /重複/);
   });
 
-  it("BUC を追加できる", () => {
-    const m = okModel(addElement(sample(), { kind: "buc", name: "新 BUC", init: { businessId: "biz_checkin" } }));
+  it("活動を追加できる", () => {
+    const m = okModel(addElement(sample(), { kind: "buc", name: "新活動", init: { businessId: "biz_checkin" } }));
     expect(m.elements.filter((e) => e.kind === "buc" && e.businessId === "biz_checkin")).toHaveLength(2);
     expectValid(m);
   });
@@ -108,7 +108,7 @@ describe("updateElement", () => {
     expect(el(m, "actor_front")).not.toHaveProperty("description");
   });
 
-  it("業務名を変えると既定 BUC の名前も追従する", () => {
+  it("業務名を変えると既定の活動の名前も追従する", () => {
     const m = okModel(updateElement(sample(), { id: "biz_checkin", patch: { name: "到着対応" } }));
     expect(defaultBuc(m, "biz_checkin").name).toBe("到着対応");
   });
@@ -162,9 +162,9 @@ describe("removeElement", () => {
     expectValid(m);
   });
 
-  it("既定 BUC は削除できない", () => {
+  it("既定の活動は削除できない", () => {
     const m = sample();
-    expectFail(removeElement(m, { id: defaultBuc(m, "biz_checkin").id }), /既定 BUC/);
+    expectFail(removeElement(m, { id: defaultBuc(m, "biz_checkin").id }), /既定の活動/);
   });
 
   it("存在しない id は失敗する", () => {
@@ -179,7 +179,7 @@ describe("removeElement", () => {
     expectValid(m);
   });
 
-  it("既定でない BUC を消すと、所属アクティビティは業務の既定 BUC に戻る", () => {
+  it("既定でない活動を消すと、所属作業は業務の既定の活動に戻る", () => {
     const m = okModel(removeElement(sample(), { id: "buc_room_care" }));
     expect(el(m, "buc_room_care")).toBeUndefined();
     expect(el(m, "act_room_request")).toMatchObject({ bucId: defaultBuc(m, "biz_stay").id });
@@ -187,7 +187,7 @@ describe("removeElement", () => {
     expectValid(m);
   });
 
-  it("業務を消すと BUC が全て消え、所属アクティビティは未所属になる", () => {
+  it("業務を消すと活動が全て消え、所属作業は未所属になる", () => {
     const before = sample();
     const m = okModel(removeElement(before, { id: "biz_stay" }));
     expect(el(m, "biz_stay")).toBeUndefined();
@@ -204,7 +204,7 @@ describe("removeElement", () => {
 });
 
 describe("所属の変更", () => {
-  it("moveActivity で BUC を変え、null で未所属にできる", () => {
+  it("moveActivity で活動を変え、null で未所属にできる", () => {
     let m = okModel(moveActivity(sample(), { activityId: "act_hand_key", bucId: "buc_dining" }));
     expect(el(m, "act_hand_key")).toMatchObject({ bucId: "buc_dining" });
     m = okModel(moveActivity(m, { activityId: "act_hand_key", bucId: null }));
@@ -225,20 +225,20 @@ describe("所属の変更", () => {
 
   it("moveActivity は不正な対象を拒否する", () => {
     const m = sample();
-    expectFail(moveActivity(m, { activityId: "actor_front", bucId: null }), /アクティビティ/);
-    expectFail(moveActivity(m, { activityId: "act_clean", bucId: "biz_stay" }), /BUC/);
-    expectFail(moveActivity(m, { activityId: "act_clean", bucId: "nope" }), /BUC/);
+    expectFail(moveActivity(m, { activityId: "actor_front", bucId: null }), /作業/);
+    expectFail(moveActivity(m, { activityId: "act_clean", bucId: "biz_stay" }), /活動/);
+    expectFail(moveActivity(m, { activityId: "act_clean", bucId: "nope" }), /活動/);
   });
 
-  it("moveBuc で業務を変えられ、既定 BUC は変えられない", () => {
+  it("moveBuc で業務を変えられ、既定の活動は変えられない", () => {
     const m0 = sample();
     const m = okModel(moveBuc(m0, { bucId: "buc_dining", businessId: "biz_checkout" }));
     expect(el(m, "buc_dining")).toMatchObject({ businessId: "biz_checkout" });
     expect(el(m, "act_room_service")).toMatchObject({ bucId: "buc_dining" });
     expectValid(m);
-    expectFail(moveBuc(m0, { bucId: defaultBuc(m0, "biz_checkin").id, businessId: "biz_stay" }), /既定 BUC/);
+    expectFail(moveBuc(m0, { bucId: defaultBuc(m0, "biz_checkin").id, businessId: "biz_stay" }), /既定の活動/);
     expectFail(moveBuc(m0, { bucId: "buc_dining", businessId: "actor_front" }), /業務/);
-    expectFail(moveBuc(m0, { bucId: "nope", businessId: "biz_stay" }), /BUC/);
+    expectFail(moveBuc(m0, { bucId: "nope", businessId: "biz_stay" }), /活動/);
   });
 });
 
@@ -311,12 +311,12 @@ describe("ボードとノード", () => {
     expectFail(removeBoard(only, { id: only.boards[0].id }), /最後/);
   });
 
-  it("placeOnBoard は課題・既定 BUC・二重配置・不正な指定を拒否する", () => {
+  it("placeOnBoard は課題・既定の活動・二重配置・不正な指定を拒否する", () => {
     const m = sample();
     expectFail(placeOnBoard(m, { boardId: "board_flow", elementId: "issue_manual_entry", position: { x: 0, y: 0 } }), /課題/);
     expectFail(
       placeOnBoard(m, { boardId: "board_flow", elementId: defaultBuc(m, "biz_stay").id, position: { x: 0, y: 0 } }),
-      /既定 BUC/,
+      /既定の活動/,
     );
     expectFail(placeOnBoard(m, { boardId: "board_flow", elementId: "uc_register_reservation", position: { x: 0, y: 0 } }), /すでに/);
     expectFail(placeOnBoard(m, { boardId: "nope", elementId: "actor_front", position: { x: 0, y: 0 } }), /ボード/);
@@ -375,16 +375,16 @@ describe("課題・全体", () => {
   });
 });
 
-describe("既定 BUC まわりの追加検査", () => {
-  it("既定 BUC の名前は直接変えられない (業務名の変更には追従する)", () => {
+describe("既定の活動まわりの追加検査", () => {
+  it("既定の活動の名前は直接変えられない (業務名の変更には追従する)", () => {
     const m = sample();
-    expectFail(updateElement(m, { id: defaultBuc(m, "biz_checkin").id, patch: { name: "別名" } }), /既定 BUC/);
+    expectFail(updateElement(m, { id: defaultBuc(m, "biz_checkin").id, patch: { name: "別名" } }), /既定の活動/);
     const renamed = okModel(updateElement(m, { id: "biz_checkin", patch: { name: "到着手続き" } }));
     expect(defaultBuc(renamed, "biz_checkin").name).toBe("到着手続き");
     expectValid(renamed);
   });
 
-  it("業務を作ってボードに置いても、既定 BUC はボードに置かれない", () => {
+  it("業務を作ってボードに置いても、既定の活動はボードに置かれない", () => {
     const m = okModel(addElement(sample(), { kind: "business", name: "新業務", boardId: "board_overview", position: { x: 0, y: 0 } }));
     const biz = m.elements.find((e) => e.kind === "business" && e.name === "新業務")!;
     const board = m.boards.find((b) => b.id === "board_overview")!;

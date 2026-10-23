@@ -30,9 +30,9 @@ export type FixedLayer = (typeof FIXED_LAYERS)[number];
 export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
   actor: "アクター",
   business: "業務",
-  buc: "BUC",
-  activity: "アクティビティ",
-  usecase: "ユースケース",
+  buc: "活動",
+  activity: "作業",
+  usecase: "操作",
   context: "コンテキスト",
   information: "情報",
   condition: "条件",
@@ -134,9 +134,9 @@ function bucSections(model: UntieModel): FixedSection[] {
   const sections: FixedSection[] = [];
   for (const biz of byKind(model, "business")) {
     const def = defaultBucOf(model, biz.id);
-    if (def) sections.push({ key: def.id, title: biz.name || "(名前なし)", subtitle: "業務 (BUC なし)", parentId: biz.id });
+    if (def) sections.push({ key: def.id, title: biz.name || "(名前なし)", subtitle: "業務 (活動なし)", parentId: biz.id });
     for (const buc of byKind(model, "buc").filter((b) => b.businessId === biz.id && !b.isDefault)) {
-      sections.push({ key: buc.id, title: buc.name || "(名前なし)", subtitle: `BUC (業務: ${biz.name})`, parentId: buc.id });
+      sections.push({ key: buc.id, title: buc.name || "(名前なし)", subtitle: `活動 (業務: ${biz.name})`, parentId: buc.id });
     }
   }
   return sections;
@@ -193,12 +193,12 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
 
     case "usecase": {
       // アクティビティの枠を、所属する BUC の段落に分けて BUC の順に並べる。中身の無い BUC は出さない
-      const groups = relationGroups(model, "activity", "usecase", "アクティビティなし", () => "アクティビティ");
+      const groups = relationGroups(model, "activity", "usecase", "作業なし", () => "作業");
       const bucOf = new Map(byKind(model, "activity").map((a) => [a.id, a.bucId]));
       const sections: FixedSection[] = [
         ...bucSections(model),
-        { key: "__unassigned", title: "未所属", subtitle: "BUC に属さないアクティビティ", parentId: null },
-        { key: "__none", title: "アクティビティなし", subtitle: "どのアクティビティにも使われていないユースケース", parentId: null },
+        { key: "__unassigned", title: "未所属", subtitle: "活動に属さない作業", parentId: null },
+        { key: "__none", title: "作業なし", subtitle: "どの作業にも使われていない操作", parentId: null },
       ];
       const sectionKeyOf = (g: FixedGroup) => {
         if (g.parentId === null) return "__none";
@@ -242,7 +242,7 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
     }
 
     case "condition":
-      return relationGroups(model, "usecase", "condition", "ユースケースなし");
+      return relationGroups(model, "usecase", "condition", "操作なし");
 
     case "state": {
       const states = byKind(model, "state");

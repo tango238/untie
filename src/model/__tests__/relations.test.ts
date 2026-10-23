@@ -39,7 +39,7 @@ describe("関係ルール", () => {
     expect(relationKindFor("usecase", "activity")).toBeNull();
   });
 
-  it("課題と BUC は関係を持たない", () => {
+  it("課題と活動は関係を持たない", () => {
     for (const k of ELEMENT_KINDS) {
       expect(relationKindFor("issue", k)).toBeNull();
       expect(relationKindFor(k, "issue")).toBeNull();

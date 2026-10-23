@@ -113,7 +113,7 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
   for (const id of targetIds) {
     const t = findElement(model, id);
     if (!t) return `課題の対象が存在しません: ${id}`;
-    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは業務・アクティビティ・ユースケースだけです";
+    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは業務・作業・操作だけです";
   }
   return null;
 }
@@ -167,11 +167,11 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
 
   if (kind === "buc") {
     const biz = init.businessId ? findElement(model, init.businessId) : undefined;
-    if (!biz || biz.kind !== "business") return fail("BUC には所属する業務が必要です");
+    if (!biz || biz.kind !== "business") return fail("活動には所属する業務が必要です");
   }
   if (kind === "activity" && init.bucId) {
     const buc = findElement(model, init.bucId);
-    if (!buc || buc.kind !== "buc") return fail(`所属先の BUC が存在しません: ${init.bucId}`);
+    if (!buc || buc.kind !== "buc") return fail(`所属先の活動が存在しません: ${init.bucId}`);
   }
   if (kind === "information" && init.contextId) {
     const ctx = findElement(model, init.contextId);
@@ -264,7 +264,7 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   const patch = payload.patch;
 
   if (target.kind === "buc" && target.isDefault && patch.name !== undefined) {
-    return fail("既定 BUC の名前は業務の名前と同じで、直接は変えられません");
+    return fail("既定の活動の名前は業務の名前と同じで、直接は変えられません");
   }
 
   const allowed = new Set<string>(["name", "description", ...PATCH_KEYS_BY_KIND[target.kind]]);
@@ -320,7 +320,7 @@ export interface RemoveElementPayload {
 export function removeElement(model: UntieModel, payload: RemoveElementPayload): CommandResult {
   const target = findElement(model, payload.id);
   if (!target) return fail(`要素が存在しません: ${payload.id}`);
-  if (target.kind === "buc" && target.isDefault) return fail("既定 BUC は削除できません");
+  if (target.kind === "buc" && target.isDefault) return fail("既定の活動は削除できません");
 
   const next = produce(model, (draft) => {
     const removed = new Set<string>([payload.id]);
@@ -362,10 +362,10 @@ export interface MoveActivityPayload {
 /** アクティビティの所属 BUC を変える */
 export function moveActivity(model: UntieModel, payload: MoveActivityPayload): CommandResult {
   const act = findElement(model, payload.activityId);
-  if (!act || act.kind !== "activity") return fail(`アクティビティが存在しません: ${payload.activityId}`);
+  if (!act || act.kind !== "activity") return fail(`作業が存在しません: ${payload.activityId}`);
   if (payload.bucId !== null) {
     const buc = findElement(model, payload.bucId);
-    if (!buc || buc.kind !== "buc") return fail(`BUC が存在しません: ${payload.bucId}`);
+    if (!buc || buc.kind !== "buc") return fail(`活動が存在しません: ${payload.bucId}`);
   }
   if (act.bucId === payload.bucId) return { ok: true, model };
   const next = produce(model, (draft) => {
@@ -405,8 +405,8 @@ export interface MoveBucPayload {
 /** BUC の所属業務を変える (所属アクティビティは BUC についていく) */
 export function moveBuc(model: UntieModel, payload: MoveBucPayload): CommandResult {
   const buc = findElement(model, payload.bucId);
-  if (!buc || buc.kind !== "buc") return fail(`BUC が存在しません: ${payload.bucId}`);
-  if (buc.isDefault) return fail("既定 BUC の業務は変えられません");
+  if (!buc || buc.kind !== "buc") return fail(`活動が存在しません: ${payload.bucId}`);
+  if (buc.isDefault) return fail("既定の活動の業務は変えられません");
   const biz = findElement(model, payload.businessId);
   if (!biz || biz.kind !== "business") return fail(`業務が存在しません: ${payload.businessId}`);
   if (buc.businessId === payload.businessId) return { ok: true, model };
@@ -517,7 +517,7 @@ export function placeOnBoard(model: UntieModel, payload: PlaceOnBoardPayload): C
   const el = findElement(model, payload.elementId);
   if (!el) return fail(`要素が存在しません: ${payload.elementId}`);
   if (el.kind === "issue") return fail("課題はボードに置けません");
-  if (el.kind === "buc" && el.isDefault) return fail("既定 BUC はボードに置けません");
+  if (el.kind === "buc" && el.isDefault) return fail("既定の活動はボードに置けません");
   if (board.nodes.some((n) => n.elementId === el.id)) return fail("この要素はすでにこのボードにあります");
   if (!isFinitePoint(payload.position)) return fail("座標が不正です");
   if (payload.size && !isValidSize(payload.size)) return fail("サイズが不正です");

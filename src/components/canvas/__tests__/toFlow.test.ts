@@ -15,7 +15,7 @@ import {
 const sample = createHotelSample;
 
 describe("buildFlowNodes", () => {
-  it("枠の中のアクティビティは parentId を持ち、座標が相対になる", () => {
+  it("枠の中の作業は parentId を持ち、座標が相対になる", () => {
     const m = sample();
     const nodes = buildFlowNodes(m, "board_overview");
     const biz = nodes.find((n) => n.id === "biz_checkin")!;
@@ -30,7 +30,7 @@ describe("buildFlowNodes", () => {
     expect(act.type).toBe("card");
   });
 
-  it("親が必ず子より前に来る (業務枠 → BUC 小枠 → カード)", () => {
+  it("親が必ず子より前に来る (業務枠 → 活動小枠 → カード)", () => {
     const nodes = buildFlowNodes(sample(), "board_overview");
     const index = (id: string) => nodes.findIndex((n) => n.id === id);
     for (const n of nodes) {
@@ -40,30 +40,30 @@ describe("buildFlowNodes", () => {
     expect(index("buc_room_care")).toBeLessThan(index("act_room_request"));
     expect(nodes.find((n) => n.id === "act_room_request")!.parentId).toBe("buc_room_care");
     expect(nodes.find((n) => n.id === "buc_room_care")!.parentId).toBe("biz_stay");
-    // 既定 BUC のアクティビティは業務の枠の直下
+    // 既定の活動の作業は業務の枠の直下
     expect(nodes.find((n) => n.id === "act_record_extra")!.parentId).toBe("biz_stay");
   });
 
-  it("既定 BUC と課題はノードにならない", () => {
+  it("既定の活動と課題はノードにならない", () => {
     const nodes = buildFlowNodes(sample(), "board_overview");
     expect(nodes.some((n) => n.id.startsWith("buc_default_"))).toBe(false);
     expect(nodes.some((n) => n.id.startsWith("issue_"))).toBe(false);
   });
 
-  it("枠の無いボードでは業務名・「業務名 / BUC 名」をラベルに入れる", () => {
+  it("枠の無いボードでは業務名・「業務名 / 活動名」をラベルに入れる", () => {
     const nodes = buildFlowNodes(sample(), "board_flow");
     const verify = nodes.find((n) => n.id === "act_verify_identity")!;
     expect(verify.parentId).toBeUndefined();
     expect(verify.data).toMatchObject({ label: "チェックイン" });
     expect(verify.position).toEqual({ x: 40, y: expect.any(Number) });
-    // BUC の下のアクティビティを枠なしで置くと「業務名 / BUC 名」
+    // 活動の下の作業を枠なしで置くと「業務名 / 活動名」
     let m = sample();
     m = okModel(placeOnBoard(m, { boardId: "board_flow", elementId: "act_room_request", position: { x: 0, y: 0 } }));
     const n = buildFlowNodes(m, "board_flow").find((x) => x.id === "act_room_request")!;
     expect(n.data.label).toBe("滞在中の対応 / 客室対応");
   });
 
-  it("未所属のアクティビティには「未所属」を出す", () => {
+  it("未所属の作業には「未所属」を出す", () => {
     const m = okModel(moveActivity(sample(), { activityId: "act_verify_identity", bucId: null }));
     const nodes = buildFlowNodes(m, "board_overview");
     const n = nodes.find((x) => x.id === "act_verify_identity")!;
@@ -74,13 +74,13 @@ describe("buildFlowNodes", () => {
     expect(n.position).toEqual({ x: abs.x, y: abs.y });
   });
 
-  it("業務の枠だけが無く BUC の小枠があるとき、BUC は業務名を添えた枠になる", () => {
+  it("業務の枠だけが無く活動の小枠があるとき、活動は業務名を添えた枠になる", () => {
     const m = okModel(removeFromBoard(sample(), { boardId: "board_overview", elementId: "biz_stay" }));
     const nodes = buildFlowNodes(m, "board_overview");
     const buc = nodes.find((n) => n.id === "buc_room_care")!;
     expect(buc.parentId).toBeUndefined();
     expect(buc.data.label).toBe("滞在中の対応");
-    // BUC の枠があるので、アクティビティの親は BUC のまま
+    // 活動の枠があるので、作業の親は活動のまま
     expect(nodes.find((n) => n.id === "act_room_request")!.parentId).toBe("buc_room_care");
   });
 
@@ -161,7 +161,7 @@ describe("buildFlowEdges", () => {
     expect(flow.some((e) => e.data!.kind === "activityUsecase")).toBe(true);
   });
 
-  it("アクターの担当は線にせず、業務の枠・アクティビティのカードにラベルで出す", () => {
+  it("アクターの担当は線にせず、業務の枠・作業のカードにラベルで出す", () => {
     const m = sampleWithActorCards();
     // アクターのカードがボードにあっても線は引かない
     expect(buildFlowEdges(m, "board_overview").some((e) => e.source.startsWith("actor_"))).toBe(false);
@@ -172,7 +172,7 @@ describe("buildFlowEdges", () => {
       { name: "フロント担当", kind: "actor" },
       { name: "宿泊客", kind: "externalActor" },
     ]);
-    // ボードに無いアクティビティのラベルも、アクターがボードに無くても出る
+    // ボードに無い作業のラベルも、アクターがボードに無くても出る
     expect(buildFlowNodes(m, "board_flow").find((n) => n.id === "act_hand_key")!.data.actors).toEqual([
       { name: "フロント担当", kind: "actor" },
     ]);

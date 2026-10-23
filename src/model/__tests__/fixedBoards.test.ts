@@ -62,33 +62,33 @@ describe("fixedGroups", () => {
     expect(names(group(m2, "business", "__none").items)).toEqual(["新しい業務"]);
   });
 
-  it("BUC: 業務ごと。既定 BUC は出さない", () => {
+  it("活動: 業務ごと。既定の活動は出さない", () => {
     const m = sample();
     expect(names(group(m, "buc", "biz_stay").items)).toEqual(["客室対応", "飲食提供"]);
     expect(group(m, "buc", "biz_checkin").items).toHaveLength(0);
   });
 
-  it("アクティビティ: 業務に直接属するもの (既定 BUC) と BUC ごと", () => {
+  it("作業: 業務に直接属するもの (既定の活動) と活動ごと", () => {
     const m = sample();
     const def = group(m, "activity", "buc_default_checkin");
-    expect(def).toMatchObject({ title: "チェックイン", subtitle: "業務 (BUC なし)", parentId: "biz_checkin" });
+    expect(def).toMatchObject({ title: "チェックイン", subtitle: "業務 (活動なし)", parentId: "biz_checkin" });
     expect(def.items).toHaveLength(4);
     expect(group(m, "activity", "buc_dining")).toMatchObject({ title: "飲食提供", parentId: "buc_dining" });
     expect(names(group(m, "activity", "buc_default_stay").items)).toEqual(["追加料金を記録する"]);
   });
 
-  it("ユースケース: アクティビティごと。同じユースケースが複数の枠に出る", () => {
+  it("操作: 作業ごと。同じ操作が複数の枠に出る", () => {
     const m = sample();
     expect(names(group(m, "usecase", "act_confirm_reservation").items)).toEqual(["予約を確定する", "予約を検索する"]);
     expect(names(group(m, "usecase", "act_confirm_arrival").items)).toEqual(["予約を検索する"]);
   });
 
-  it("ユースケース: アクティビティの枠を BUC の段落に分け、BUC の順に並べる。中身の無い BUC は出さない", () => {
+  it("操作: 作業の枠を活動の段落に分け、活動の順に並べる。中身の無い活動は出さない", () => {
     const m = sample();
     const gs = fixedGroups(m, "usecase");
     const sectionKeys = [...new Set(gs.map((g) => g.section?.key))];
     const bucOrder = fixedGroups(m, "activity").map((g) => g.key);
-    // 段落は活動のボードと同じ並び (既定 BUC → BUC)
+    // 段落は活動のボードと同じ並び (既定の活動 → 活動)
     expect(sectionKeys.filter((k) => k !== "__none")).toEqual(bucOrder.filter((k) => sectionKeys.includes(k)));
     // 同じ段落の枠は続けて並ぶ
     const runs = gs.filter((g, i) => i === 0 || g.section?.key !== gs[i - 1]!.section?.key).length;
@@ -108,7 +108,7 @@ describe("fixedGroups", () => {
     const m = emptyModel();
     expect(fixedGroups(m, "buc")).toEqual([]);
     expect(fixedGroups(m, "activity").map((g) => g.title)).toEqual(["未所属"]);
-    expect(fixedGroups(m, "usecase").map((g) => [g.title, g.section?.key])).toEqual([["アクティビティなし", "__none"]]);
+    expect(fixedGroups(m, "usecase").map((g) => [g.title, g.section?.key])).toEqual([["作業なし", "__none"]]);
   });
 });
 
@@ -129,15 +129,15 @@ describe("filterGroups", () => {
 });
 
 describe("枠への追加・紐づけ", () => {
-  it("BUC の枠にアクティビティを足すと、その BUC に所属する", () => {
+  it("活動の枠に作業を足すと、その活動に所属する", () => {
     const m = sample();
     const r = addToGroup(m, group(m, "activity", "buc_dining"));
     if (!r.ok) throw new Error(r.reason);
-    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "activity", name: "新しいアクティビティ", bucId: "buc_dining" });
+    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "activity", name: "新しい作業", bucId: "buc_dining" });
     expect(validateModel(r.model).ok).toBe(true);
   });
 
-  it("業務の枠に BUC を足すと、その業務の BUC になる", () => {
+  it("業務の枠に活動を足すと、その業務の活動になる", () => {
     const m = sample();
     const r = addToGroup(m, group(m, "buc", "biz_checkin"));
     if (!r.ok) throw new Error(r.reason);

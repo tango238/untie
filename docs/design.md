@@ -27,15 +27,17 @@ Rust ツールチェーンは rustup の stable (`~/.rustup/toolchains/stable-aa
 | `externalActor` | 外部アクター | 顧客・外部サービスなど、社外の人やシステム | なし |
 | `system` | システム | 情報の取得元・保存先。帳簿・注文票などの紙媒体も含む | `medium` (`system` / `paper`) |
 | `business` | 業務 | 業務のまとまり。ボード上では枠 (グループノード) | なし |
-| `buc` | BUC | 業務の中の作業のまとまり (Business Use Case)。任意 | `businessId`、`isDefault` |
-| `activity` | アクティビティ | 業務の中の個々の作業 | `bucId` (null 可) |
-| `usecase` | ユースケース | システムに期待する振る舞い | なし |
+| `buc` | 活動 (BUC) | 業務の中の作業のまとまり (Business Use Case)。任意 | `businessId`、`isDefault` |
+| `activity` | 作業 (アクティビティ) | 業務の中の個々の作業 | `bucId` (null 可) |
+| `usecase` | 操作 (ユースケース) | システムに期待する振る舞い | なし |
 | `context` | コンテキスト | 情報をまとめる親カテゴリ。関係は持たない | なし |
 | `information` | 情報 | 業務で扱う情報 | `contextId` (null 可) |
 | `state` | 状態 | 情報やモノの状態 | `group` (状態グループ、任意) |
 | `variation` | バリエーション | 種別・区分と、その値の一覧 | `values: string[]` |
 | `condition` | 条件 | 判断の条件・ルール | なし |
 | `issue` | 課題 | 現場で困っていること。ボードには置かない | `severity` (1〜5)、`targetIds` |
+
+画面の表示名は RDRA の用語と変えている: `buc` は「活動」、`activity` は「作業」、`usecase` は「操作」と出す (現場担当者に通じる言葉にするため)。この設計書とコード・スキーマは RDRA の用語 (BUC・アクティビティ・ユースケース) のまま書く。
 
 全要素に共通: `id` (安定した文字列)、`kind`、`name`、`description` (任意の説明文)。
 

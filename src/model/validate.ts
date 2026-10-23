@@ -148,20 +148,20 @@ export function checkIntegrity(model: UntieModel): string[] {
     }
     if (e.kind === "activity" && e.bucId !== null) {
       const buc = byId.get(e.bucId);
-      if (!buc) errors.push(`${label(e)} の BUC ${e.bucId} が存在しません`);
-      else if (buc.kind !== "buc") errors.push(`${label(e)} の bucId ${e.bucId} は BUC ではありません`);
+      if (!buc) errors.push(`${label(e)} の活動 ${e.bucId} が存在しません`);
+      else if (buc.kind !== "buc") errors.push(`${label(e)} の bucId ${e.bucId} は活動ではありません`);
     }
   }
   for (const e of model.elements) {
     if (e.kind === "buc" && e.isDefault) {
       const biz = byId.get(e.businessId);
       if (biz && biz.kind === "business" && biz.name !== e.name) {
-        errors.push(`${label(e)} の名前が業務名「${biz.name}」と一致しません (既定 BUC は業務名と同じにします)`);
+        errors.push(`${label(e)} の名前が業務名「${biz.name}」と一致しません (既定の活動は業務名と同じにします)`);
       }
     }
     if (e.kind !== "business") continue;
     const n = defaultCount.get(e.id) ?? 0;
-    if (n !== 1) errors.push(`${label(e)} の既定 BUC が ${n} 個あります (ちょうど 1 個必要です)`);
+    if (n !== 1) errors.push(`${label(e)} の既定の活動が ${n} 個あります (ちょうど 1 個必要です)`);
   }
 
   // 課題の対象
@@ -170,7 +170,7 @@ export function checkIntegrity(model: UntieModel): string[] {
     for (const tid of e.targetIds) {
       const t = byId.get(tid);
       if (!t) errors.push(`${label(e)} の対象 ${tid} が存在しません`);
-      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は業務・アクティビティ・ユースケースではありません`);
+      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は業務・作業・操作ではありません`);
     }
   }
 
@@ -212,7 +212,7 @@ export function checkIntegrity(model: UntieModel): string[] {
         errors.push(`ボード「${board.name}」の ${label(el)} のノードには width と height が必要です`);
       }
       if (el.kind === "issue") errors.push(`ボード「${board.name}」に課題 ${label(el)} が置かれています`);
-      if (el.kind === "buc" && el.isDefault) errors.push(`ボード「${board.name}」に既定 BUC ${label(el)} が置かれています`);
+      if (el.kind === "buc" && el.isDefault) errors.push(`ボード「${board.name}」に既定の活動 ${label(el)} が置かれています`);
     }
   }
 

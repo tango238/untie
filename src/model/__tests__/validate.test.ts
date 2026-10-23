@@ -121,27 +121,27 @@ describe("validateModel: 参照整合性", () => {
     const b = j.elements.find((e: Json) => e.id === "buc_dining");
     b.businessId = "actor_front";
     const errors = errorsOf(j);
-    expect(errors.some((e) => e.includes("BUC nope が存在しません"))).toBe(true);
+    expect(errors.some((e) => e.includes("活動 nope が存在しません"))).toBe(true);
     expect(errors.some((e) => e.includes("は業務ではありません"))).toBe(true);
 
     const k = json();
     k.elements.find((e: Json) => e.id === "act_clean").bucId = "biz_stay";
-    expect(errorsOf(k).some((e) => e.includes("は BUC ではありません"))).toBe(true);
+    expect(errorsOf(k).some((e) => e.includes("は活動ではありません"))).toBe(true);
     const l = json();
     l.elements.find((e: Json) => e.id === "buc_dining").businessId = "nope";
     expect(errorsOf(l).some((e) => e.includes("業務 nope が存在しません"))).toBe(true);
   });
 
-  it("業務ごとの既定 BUC はちょうど 1 つ", () => {
+  it("業務ごとの既定の活動はちょうど 1 つ", () => {
     const none = json();
     none.elements = none.elements.filter((e: Json) => !(e.kind === "buc" && e.isDefault && e.businessId === "biz_stay"));
-    // 既定 BUC に属していたアクティビティは別 BUC へ
+    // 既定の活動に属していた作業は別活動へ
     none.elements.find((e: Json) => e.id === "act_record_extra").bucId = "buc_dining";
-    expect(errorsOf(none).some((e) => e.includes("既定 BUC が 0 個"))).toBe(true);
+    expect(errorsOf(none).some((e) => e.includes("既定の活動が 0 個"))).toBe(true);
 
     const two = json();
     two.elements.find((e: Json) => e.id === "buc_dining").isDefault = true;
-    expect(errorsOf(two).some((e) => e.includes("既定 BUC が 2 個"))).toBe(true);
+    expect(errorsOf(two).some((e) => e.includes("既定の活動が 2 個"))).toBe(true);
   });
 
   it("課題の対象が存在しない、または対象にできない種類", () => {
@@ -150,10 +150,10 @@ describe("validateModel: 参照整合性", () => {
     issue.targetIds = ["nope", "actor_front"];
     const errors = errorsOf(j);
     expect(errors.some((e) => e.includes("対象 nope が存在しません"))).toBe(true);
-    expect(errors.some((e) => e.includes("業務・アクティビティ・ユースケースではありません"))).toBe(true);
+    expect(errors.some((e) => e.includes("業務・作業・操作ではありません"))).toBe(true);
   });
 
-  it("ボードのノード: 存在しない要素・重複・課題・既定 BUC", () => {
+  it("ボードのノード: 存在しない要素・重複・課題・既定の活動", () => {
     const j = json();
     const nodes = j.boards[1].nodes;
     nodes.push({ elementId: "nope", x: 0, y: 0 });
@@ -164,7 +164,7 @@ describe("validateModel: 参照整合性", () => {
     expect(errors.some((e) => e.includes("要素 nope が存在しません"))).toBe(true);
     expect(errors.some((e) => e.includes("複数回置かれています"))).toBe(true);
     expect(errors.some((e) => e.includes("課題") && e.includes("置かれています"))).toBe(true);
-    expect(errors.some((e) => e.includes("既定 BUC") && e.includes("置かれています"))).toBe(true);
+    expect(errors.some((e) => e.includes("既定の活動") && e.includes("置かれています"))).toBe(true);
   });
 
   it("ボード id の重複", () => {
@@ -191,14 +191,14 @@ describe("validateModel: 追加の検査", () => {
     expect(errors.some((e) => e.includes(j.elements[1].id) && e.includes("要素とボード"))).toBe(true);
   });
 
-  it("業務・BUC のノードに width / height が無いと報告する", () => {
+  it("業務・活動のノードに width / height が無いと報告する", () => {
     const j = json();
     const node = j.boards[0].nodes.find((n: Json) => n.elementId === "biz_checkin");
     delete node.width;
     expect(errorsOf(j).some((e) => e.includes("width と height が必要"))).toBe(true);
   });
 
-  it("既定 BUC の名前が業務名と違うと報告する", () => {
+  it("既定の活動の名前が業務名と違うと報告する", () => {
     const j = json();
     const buc = j.elements.find((e: Json) => e.kind === "buc" && e.isDefault && e.businessId === "biz_checkin");
     buc.name = "違う名前";

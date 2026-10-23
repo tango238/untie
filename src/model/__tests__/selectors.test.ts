@@ -26,7 +26,7 @@ describe("selectors", () => {
     expect(issuesTargeting(m, t).map((i) => i.id)).toContain("issue_manual_entry");
   });
 
-  it("listableElements は既定 BUC を除く", () => {
+  it("listableElements は既定の活動を除く", () => {
     const m = sample();
     const list = listableElements(m);
     expect(list.some((e) => e.kind === "buc" && e.isDefault)).toBe(false);

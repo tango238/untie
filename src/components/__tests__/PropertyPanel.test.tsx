@@ -58,12 +58,12 @@ describe("PropertyPanel", () => {
     expect(el("actor_manager").description).toBeUndefined();
   });
 
-  it("アクティビティの業務と BUC を変えられる (未所属を含む)", () => {
+  it("作業の業務と活動を変えられる (未所属を含む)", () => {
     onFixedBoard();
     selectEl("act_room_request");
     render(<PropertyPanel />);
     const biz = screen.getByLabelText("業務") as HTMLSelectElement;
-    const buc = screen.getByLabelText("BUC") as HTMLSelectElement;
+    const buc = screen.getByLabelText("活動") as HTMLSelectElement;
     expect(biz.value).toBe("biz_stay");
     expect(buc.value).toBe("buc_room_care");
     fireEvent.change(buc, { target: { value: "buc_dining" } });
@@ -72,10 +72,10 @@ describe("PropertyPanel", () => {
     expect(el("act_room_request")).toMatchObject({ bucId: "buc_default_checkin" });
     fireEvent.change(screen.getByLabelText("業務"), { target: { value: "" } });
     expect(el("act_room_request")).toMatchObject({ bucId: null });
-    expect((screen.getByLabelText("BUC") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("活動") as HTMLSelectElement).disabled).toBe(true);
   });
 
-  it("BUC の業務を変えられる", () => {
+  it("活動の業務を変えられる", () => {
     onFixedBoard();
     selectEl("buc_dining");
     render(<PropertyPanel />);

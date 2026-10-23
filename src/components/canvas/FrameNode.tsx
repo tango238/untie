@@ -16,7 +16,7 @@ export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
       />
       <Handle type="target" position={Position.Left} />
       <div className="frame-title">
-        <span className="frame-kind">{isBuc ? "BUC" : "業務"}</span>
+        <span className="frame-kind">{isBuc ? "活動" : "業務"}</span>
         <span className="frame-name">{data.name || "(名前なし)"}</span>
         {data.label && <span className="frame-owner">{data.label}</span>}
         {data.actors && <ActorChips actors={data.actors} />}

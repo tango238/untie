@@ -10,12 +10,12 @@ import { removeFromBoard } from "../../model/commands";
 beforeEach(() => resetStore());
 
 describe("ElementList", () => {
-  it("種類ごとのグループと件数を出し、既定 BUC は出さない", () => {
+  it("種類ごとのグループと件数を出し、既定の活動は出さない", () => {
     render(<ElementList />);
-    const bucGroup = screen.getByRole("button", { name: /^.*BUC/ });
+    const bucGroup = screen.getByRole("button", { name: /^.*活動/ });
     expect(bucGroup.textContent).toContain("2"); // 客室対応・飲食提供だけ
     expect(screen.queryByText("予約受付", { selector: ".row-name" })).not.toBeNull(); // 業務
-    // 業務名と同名の既定 BUC 行は出ない (業務の 1 行だけ)
+    // 業務名と同名の既定の活動行は出ない (業務の 1 行だけ)
     expect(screen.getAllByText("予約受付", { selector: ".row-name" })).toHaveLength(1);
   });
 
@@ -31,7 +31,7 @@ describe("ElementList", () => {
     const row = screen.getByTestId("row-act_accept_reservation");
     expect(within(row).getByLabelText(/課題 1 件、最高の重要度 5/)).toBeDefined();
     expect(within(row).getByLabelText("ボードにあります")).toBeDefined();
-    // 全体ボードに無い要素 (ユースケース) には印がなく「置く」ボタンがある
+    // 全体ボードに無い要素 (操作) には印がなく「置く」ボタンがある
     const uc = screen.getByTestId("row-uc_register_reservation");
     expect(within(uc).queryByLabelText("ボードにあります")).toBeNull();
     expect(within(uc).getByRole("button", { name: /ボードに置く/ })).toBeDefined();
@@ -86,7 +86,7 @@ describe("ElementList", () => {
     expect(screen.getByTestId("row-actor_front").getAttribute("draggable")).toBe("false");
   });
 
-  it("BUC の行には所属する業務名を「業務:」付きで出す", () => {
+  it("活動の行には所属する業務名を「業務:」付きで出す", () => {
     render(<ElementList />);
     expect(within(screen.getByTestId("row-buc_room_care")).getByText("業務: 滞在中の対応")).toBeDefined();
   });

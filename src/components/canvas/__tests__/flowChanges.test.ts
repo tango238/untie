@@ -26,7 +26,7 @@ describe("applyFlowChanges", () => {
     expect(rectOf(m, "biz_checkin")).toEqual(frame);
   });
 
-  it("枠の移動は子と孫 (BUC の小枠の中のアクティビティ) も同じ量だけ動かす", () => {
+  it("枠の移動は子と孫 (活動の小枠の中の作業) も同じ量だけ動かす", () => {
     const m0 = createHotelSample();
     const before = (id: string) => rectOf(m0, id);
     const m = apply([{ id: "biz_stay", type: "position", position: { x: before("biz_stay").x + 50, y: before("biz_stay").y - 10 } }], m0);
@@ -96,7 +96,7 @@ describe("applyFlowChanges", () => {
     expect(rectOf(m, "biz_checkin")).toEqual({ x: f.x - 15, y: f.y - 5, width: f.width + 15, height: f.height + 5 });
   });
 
-  it("右下からのリサイズ (位置の変更なし) は大きさだけを変える。入れ子の BUC の小枠も同様", () => {
+  it("右下からのリサイズ (位置の変更なし) は大きさだけを変える。入れ子の活動の小枠も同様", () => {
     const m0 = createHotelSample();
     const care = rectOf(m0, "buc_room_care");
     const m = apply([{ id: "buc_room_care", type: "dimensions", resizing: true, setAttributes: true, dimensions: { width: care.width + 40, height: care.height + 30 } }], m0);
@@ -104,7 +104,7 @@ describe("applyFlowChanges", () => {
     expect(rectOf(m, "act_room_request")).toEqual(rectOf(m0, "act_room_request"));
   });
 
-  it("入れ子の BUC の小枠を左上からリサイズしても、孫は動かない", () => {
+  it("入れ子の活動の小枠を左上からリサイズしても、孫は動かない", () => {
     const m0 = createHotelSample();
     const care = rectOf(m0, "buc_room_care");
     const parent = rectOf(m0, "biz_stay");

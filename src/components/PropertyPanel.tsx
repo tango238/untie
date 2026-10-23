@@ -361,9 +361,9 @@ function ActivityFields({ activity, model }: { activity: Activity; model: UntieM
         </select>
       </label>
       <label className="field">
-        <span className="field-label">BUC</span>
+        <span className="field-label">活動</span>
         <select
-          aria-label="BUC"
+          aria-label="活動"
           value={activity.bucId ?? ""}
           disabled={!businessId}
           onChange={(e) => move(e.target.value || null)}

@@ -31,7 +31,7 @@ describe("FixedBoard", () => {
 
   it("枠の「＋」で要素を作って所属させ、選択して名前欄へのフォーカスを依頼する", () => {
     render(<FixedBoard layer="activity" />);
-    fireEvent.click(screen.getByRole("button", { name: "「飲食提供」にアクティビティを追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "「飲食提供」に作業を追加" }));
     const sel = st().ui.selection!;
     expect(st().model.elements.find((e) => e.id === sel.id)).toMatchObject({ kind: "activity", bucId: "buc_dining" });
     expect(st().ui.nameFocusNonce).toBe(1);
@@ -45,14 +45,14 @@ describe("FixedBoard", () => {
     render(<FixedBoard layer="usecase" />);
     const has = () =>
       st().model.relations.some((r) => r.sourceId === "act_hand_key" && r.targetId === "uc_record_checkin");
-    fireEvent.change(screen.getByLabelText("「鍵を渡す」に既存のユースケースを足す"), { target: { value: "uc_record_checkin" } });
+    fireEvent.change(screen.getByLabelText("「鍵を渡す」に既存の操作を足す"), { target: { value: "uc_record_checkin" } });
     expect(has()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "チェックインを記録するを「鍵を渡す」から外す" }));
     expect(has()).toBe(false);
     expect(st().model.elements.some((e) => e.id === "uc_record_checkin")).toBe(true);
   });
 
-  it("ユースケースのボードは BUC ごとの段落に分け、段落の見出しで BUC を選べる", () => {
+  it("操作のボードは活動ごとの段落に分け、段落の見出しで活動を選べる", () => {
     render(<FixedBoard layer="usecase" />);
     const section = screen.getByRole("region", { name: "飲食提供" });
     expect(section.className).toContain("fixed-section");

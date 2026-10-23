@@ -32,7 +32,7 @@ describe("宿泊施設サンプル", () => {
     expect(kinds.size).toBe(RELATION_KINDS.length);
   });
 
-  it("「滞在中の対応」にだけ既定でない BUC がある", () => {
+  it("「滞在中の対応」にだけ既定でない活動がある", () => {
     const nonDefault = hotelSample.elements.filter((e) => e.kind === "buc" && !e.isDefault);
     expect(nonDefault.every((b) => b.kind === "buc" && b.businessId === "biz_stay")).toBe(true);
     expect(nonDefault).toHaveLength(2);
@@ -74,14 +74,14 @@ describe("宿泊施設サンプル", () => {
     expect(checked).toBeGreaterThanOrEqual(15);
   });
 
-  it("仮予約から確定へ遷移するユースケースがある", () => {
+  it("仮予約から確定へ遷移する操作がある", () => {
     const rels = hotelSample.relations;
     const from = rels.filter((r) => r.kind === "stateUsecase" && r.sourceId === "st_res_tentative").map((r) => r.targetId);
     const to = rels.filter((r) => r.kind === "usecaseState" && r.targetId === "st_res_confirmed").map((r) => r.sourceId);
     expect(from.filter((id) => to.includes(id))).not.toHaveLength(0);
   });
 
-  it("「予約からチェックアウトまで」に鍵を渡すアクティビティがある", () => {
+  it("「予約からチェックアウトまで」に鍵を渡す作業がある", () => {
     const board = hotelSample.boards.find((b) => b.id === "board_flow")!;
     expect(board.nodes.some((n) => n.elementId === "act_hand_key")).toBe(true);
   });
