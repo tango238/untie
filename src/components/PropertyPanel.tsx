@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addElement,
   addRelation,
@@ -13,6 +13,7 @@ import {
 } from "../model/commands";
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "../model/relations";
 import { suggestContext } from "../model/contexts";
+import { lineage } from "../model/lineage";
 import { FIXED_LAYER_LABELS, LAYER_NEIGHBORS, fixedBoardId, fixedLayerOf, type FixedLayer } from "../model/fixedBoards";
 import { activityHours, defaultBucOf, formatHours, issuesTargeting } from "../model/selectors";
 import {
@@ -230,6 +231,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         )}
       </section>
 
+      <TraceSection element={element} model={model} />
+
       {isIssueTargetKind(element.kind) && (
         <section className="subsection">
           <h3>課題</h3>
@@ -282,6 +285,115 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 }
 
 const handledFocus = { nonce: 0 };
+
+/** 1 つの行に最初から出す要素の数 (残りは「ほか N 件」で開く) */
+const TRACE_VISIBLE = 6;
+
+/**
+ * トレース: 上 (担い手の側) と下 (詳細の側) へ、直接つながっていない要素まで辿ってレイヤーごとに並べる。
+ * 行ごとに、そのレイヤーの固定ボードへ移るリンクを出す
+ */
+function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
+  const own = fixedLayerOf(element.kind);
+  const boardId = useUntieStore((s) => s.ui.currentBoardId);
+  const { up, down } = useMemo(() => lineage(model, element.id), [model, element.id]);
+  if (!own) return null;
+  const rows = [
+    ...up.map((r) => ({ ...r, dir: "up" as const })),
+    { layer: own, elements: [element], dir: "own" as const },
+    ...down.map((r) => ({ ...r, dir: "down" as const })),
+  ];
+  return (
+    <section className="subsection">
+      <h3>トレース</h3>
+      {up.length === 0 && down.length === 0 && <p className="hint">上下のレイヤーにつながる要素はありません。</p>}
+      <table className="trace-table">
+        <thead>
+          <tr>
+            <th scope="col">レイヤー</th>
+            <th scope="col">要素</th>
+            <th scope="col">
+              <span className="visually-hidden">移動</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <TraceRow
+              key={`${r.dir}-${r.layer}`}
+              dir={r.dir}
+              layer={r.layer}
+              elements={r.elements}
+              currentId={element.id}
+              current={boardId === fixedBoardId(r.layer)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function TraceRow({
+  dir,
+  layer,
+  elements,
+  currentId,
+  current,
+}: {
+  dir: "up" | "own" | "down";
+  layer: FixedLayer;
+  elements: Element[];
+  currentId: string;
+  current: boolean;
+}) {
+  const [all, setAll] = useState(false);
+  const shown = all ? elements : elements.slice(0, TRACE_VISIBLE);
+  return (
+    <tr className={`trace-tr is-${dir}`}>
+      <th scope="row">
+        <span className="trace-dir" aria-hidden="true">
+          {dir === "up" ? "↑" : dir === "down" ? "↓" : "●"}
+        </span>
+        {FIXED_LAYER_LABELS[layer]}
+      </th>
+      <td>
+        <span className="trace-els">
+          {shown.map((e) =>
+            e.id === currentId ? (
+              <span key={e.id} className={`trace-el is-self kind-${e.kind}`}>
+                <span className="kind-dot" />
+                {e.name || "(名前なし)"}
+              </span>
+            ) : (
+              <button key={e.id} type="button" className={`trace-el kind-${e.kind}`} title={`${ELEMENT_KIND_LABELS[e.kind]}: ${e.name}`} onClick={() => selectAndReveal(e.id)}>
+                <span className="kind-dot" />
+                {e.name || "(名前なし)"}
+              </button>
+            ),
+          )}
+          {elements.length > TRACE_VISIBLE && (
+            <button type="button" className="link-plain trace-more" onClick={() => setAll(!all)}>
+              {all ? "たたむ" : `ほか ${elements.length - TRACE_VISIBLE} 件`}
+            </button>
+          )}
+        </span>
+      </td>
+      <td>
+        <button
+          type="button"
+          className="layer-link"
+          disabled={current}
+          aria-label={`固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
+          title={current ? "今開いているボードです" : `固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る (この要素を選んだまま)`}
+          onClick={() => goToLayer(layer, currentId)}
+        >
+          移動
+        </button>
+      </td>
+    </tr>
+  );
+}
 
 /** この要素の固定ボードと、その上下のレイヤーの固定ボードへ移るリンク */
 function LayerNav({ element, boardId }: { element: Element; boardId: string }) {

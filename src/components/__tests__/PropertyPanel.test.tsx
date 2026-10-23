@@ -368,3 +368,27 @@ describe("PropertyPanel の関係一覧", () => {
     expect(texts).toContain("使う→操作チェックインを記録する");
   });
 });
+
+describe("PropertyPanel のトレース", () => {
+  it("関係と課題の間に、上下のレイヤーと要素を表で出し、行ごとにそのレイヤーへ移れる", () => {
+    resetStore();
+    act(() => st().setCurrentBoard("fixed:activity"));
+    act(() => st().select({ type: "element", id: "act_verify_identity" }));
+    render(<PropertyPanel />);
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings.indexOf("トレース")).toBe(headings.indexOf("関係") + 1);
+    expect(headings.indexOf("課題")).toBe(headings.indexOf("トレース") + 1);
+    const rows = screen.getAllByRole("row").filter((r) => r.closest(".trace-table") && r.querySelector("th[scope=row]"));
+    const layers = rows.map((r) => r.querySelector("th")!.textContent);
+    expect(layers.slice(0, 3)).toEqual(["↑登場人物", "↑業務", "●作業"]);
+    expect(layers).toContain("↓操作");
+    // 今のボード (作業) の行は移れない
+    const ownRow = rows.find((r) => r.querySelector("th")!.textContent === "●作業")!;
+    expect((within(ownRow).getByRole("button", { name: /固定ボード「作業」へ移る/ }) as HTMLButtonElement).disabled).toBe(true);
+    // 操作の行から移ると、要素を選んだまま操作のボードへ
+    const ucRow = rows.find((r) => r.querySelector("th")!.textContent === "↓操作")!;
+    fireEvent.click(within(ucRow).getByRole("button", { name: /固定ボード「操作」へ移る/ }));
+    expect(st().ui.currentBoardId).toBe("fixed:usecase");
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_verify_identity" });
+  });
+});
