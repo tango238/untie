@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addElement,
+  addRelation,
   moveActivity,
   moveBuc,
   removeElement,
@@ -9,7 +10,7 @@ import {
   setIssueTargets,
   updateElement,
 } from "../model/commands";
-import { relationLabel, relationRule } from "../model/relations";
+import { relationKindFor, relationLabel, relationRule } from "../model/relations";
 import { defaultBucOf, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
@@ -166,6 +167,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       <section className="subsection">
         <h3>関係</h3>
+        {(element.kind === "business" || element.kind === "activity") && <ActorAdder element={element} model={model} />}
         {relations.length === 0 ? (
           <p className="hint">この要素につながる線はありません。</p>
         ) : (
@@ -248,6 +250,36 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 const handledFocus = { nonce: 0 };
 
 // ---------------------------------------------------------------- 種類固有
+
+/** 業務・アクティビティに担当アクターを足す。キャンバスでは線ではなくラベルで出る */
+function ActorAdder({ element, model }: { element: Element; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const assigned = new Set(model.relations.filter((r) => r.targetId === element.id).map((r) => r.sourceId));
+  const candidates = model.elements.filter(
+    (e) => (e.kind === "actor" || e.kind === "externalActor") && !assigned.has(e.id) && relationKindFor(e.kind, element.kind),
+  );
+  if (candidates.length === 0) return null;
+  return (
+    <select
+      aria-label="担当アクターを追加"
+      value=""
+      onChange={(ev) => {
+        const sourceId = ev.target.value;
+        if (!sourceId) return;
+        const r = dispatch((m) => addRelation(m, { sourceId, targetId: element.id }));
+        if (!r.ok) pushToast(r.reason, "error");
+      }}
+    >
+      <option value="">{element.kind === "business" ? "主担当アクターを追加…" : "担当アクターを追加…"}</option>
+      {candidates.map((e) => (
+        <option key={e.id} value={e.id}>
+          {e.name || "(名前なし)"}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function ActivityFields({ activity, model }: { activity: Activity; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);

@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ELEMENT_KIND_LABELS } from "../../model/types";
 import { IssueBadge } from "../IssueBadge";
+import { ActorChips } from "./ActorChips";
 import type { CardFlowNode } from "./toFlow";
 
 const BADGE_KINDS = new Set(["activity", "usecase"]);
@@ -15,6 +16,7 @@ export function CardNode({ data, selected }: NodeProps<CardFlowNode>) {
       )}
       <div className="card-name">{data.name || "(名前なし)"}</div>
       {data.label && <div className="card-owner">{data.label}</div>}
+      {data.actors && <ActorChips actors={data.actors} />}
       <Handle type="source" position={Position.Right} />
     </div>
   );

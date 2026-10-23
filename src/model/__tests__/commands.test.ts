@@ -321,7 +321,7 @@ describe("ボードとノード", () => {
   it("moveNode は座標とサイズを変える。サイズ省略時は維持される", () => {
     let m = okModel(moveNode(sample(), { boardId: "board_overview", elementId: "biz_stay", position: { x: 1, y: 2 } }));
     let n = m.boards[0].nodes.find((x) => x.elementId === "biz_stay")!;
-    expect(n).toMatchObject({ x: 1, y: 2, width: 520, height: 420 });
+    expect(n).toMatchObject({ x: 1, y: 2, width: 520, height: 460 });
     m = okModel(moveNode(m, { boardId: "board_overview", elementId: "biz_stay", position: { x: 1, y: 2 }, size: { width: 600, height: 300 } }));
     n = m.boards[0].nodes.find((x) => x.elementId === "biz_stay")!;
     expect(n).toMatchObject({ width: 600, height: 300 });

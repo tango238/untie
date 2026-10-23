@@ -1,5 +1,6 @@
 // ドラッグ終了時の「どの枠に入ったか」の判定。純粋関数。
 import { DEFAULT_FRAME_SIZE, moveActivity, moveBuc, moveNode, type CommandResult } from "../../model/commands";
+import { relationKindFor } from "../../model/relations";
 import { defaultBucOf } from "../../model/selectors";
 import { isFrameKind, type UntieModel } from "../../model/types";
 import { CARD_SIZE, descendantElementIds, parentFrameElementId, type Point } from "./toFlow";
@@ -157,4 +158,24 @@ export function decidePlacement(model: UntieModel, boardId: string, elementId: s
   if (decision.type === "clamp") return { type: "none" };
   if (decision.type === "moveActivity" && !frameAt(model, boardId, rectCenter(rect))) return { type: "none" };
   return decision;
+}
+
+/**
+ * 要素一覧からアクターを落とした点にある、担当をつけられる要素の id。
+ * アクティビティのカードを優先し、次に業務の枠。どれも無ければ null (カードとして置く)。
+ */
+export function actorDropTarget(model: UntieModel, boardId: string, actorId: string, point: Point): string | null {
+  const board = model.boards.find((b) => b.id === boardId);
+  const actor = model.elements.find((e) => e.id === actorId);
+  if (!board || !actor) return null;
+  let frame: string | null = null;
+  for (const n of board.nodes) {
+    const el = model.elements.find((e) => e.id === n.elementId);
+    if (!el || !relationKindFor(actor.kind, el.kind)) continue;
+    const r = nodeRect(model, boardId, el.id);
+    if (!r || !contains(r, point)) continue;
+    if (!isFrameKind(el.kind)) return el.id;
+    frame ??= el.id;
+  }
+  return frame;
 }

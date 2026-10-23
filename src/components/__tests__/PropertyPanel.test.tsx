@@ -184,4 +184,18 @@ describe("PropertyPanel", () => {
     });
     expect(document.activeElement).toBe(screen.getByLabelText("名前"));
   });
+
+  it("業務には主担当アクターを、まだ担当していないアクターから選んで足せる", () => {
+    render(<PropertyPanel />);
+    selectEl("biz_checkin");
+    const select = screen.getByLabelText("担当アクターを追加") as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => o.textContent);
+    // フロント担当は既に主担当。外部アクターは業務の主担当になれない
+    expect(options).not.toContain("フロント担当");
+    expect(options).not.toContain("宿泊客");
+    fireEvent.change(select, { target: { value: "actor_manager" } });
+    expect(
+      st().model.relations.some((r) => r.kind === "actorBusiness" && r.sourceId === "actor_manager" && r.targetId === "biz_checkin"),
+    ).toBe(true);
+  });
 });

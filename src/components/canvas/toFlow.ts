@@ -1,7 +1,7 @@
 // モデル (ボード内の絶対座標) と React Flow のノード・エッジの変換。純粋関数だけを置く。
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import { DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE } from "../../model/commands";
-import { isUndirected, relationLabel } from "../../model/relations";
+import { isShownAsLabel, isUndirected, relationLabel } from "../../model/relations";
 import { issueSummaries } from "../../model/selectors";
 import {
   isFrameKind,
@@ -14,12 +14,16 @@ import {
 /** カードの表示サイズ (CSS と合わせる)。枠の当たり判定にも使う */
 export const CARD_SIZE = DEFAULT_CARD_SIZE;
 
+export type ActorLabel = { name: string; kind: "actor" | "externalActor" };
+
 export type CardNodeData = {
   elementId: string;
   kind: ElementKind;
   name: string;
   /** 所属の枠が無いときに出す所属ラベル (業務名、「業務名 / BUC 名」) */
   label?: string;
+  /** 担当アクター (線の代わりにラベルで出す) */
+  actors?: ActorLabel[];
   issueCount: number;
   maxSeverity: number;
 };
@@ -30,6 +34,8 @@ export type FrameNodeData = {
   name: string;
   /** BUC の小枠が業務の枠の外にあるときの業務名 */
   label?: string;
+  /** 主担当アクター (線の代わりにラベルで出す) */
+  actors?: ActorLabel[];
   issueCount: number;
   maxSeverity: number;
 };
@@ -123,6 +129,21 @@ function ownerLabel(model: UntieModel, el: Element): string | undefined {
   return undefined;
 }
 
+/** 要素 id → ラベルで出すアクター (関係の並び順)。ボードに置かれているかは問わない */
+export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
+  const byId = elementMap(model);
+  const result = new Map<string, ActorLabel[]>();
+  for (const r of model.relations) {
+    if (!isShownAsLabel(r.kind)) continue;
+    const actor = byId.get(r.sourceId);
+    if (!actor || (actor.kind !== "actor" && actor.kind !== "externalActor")) continue;
+    const list = result.get(r.targetId) ?? [];
+    list.push({ name: actor.name || "(名前なし)", kind: actor.kind });
+    result.set(r.targetId, list);
+  }
+  return result;
+}
+
 const FRAME_ORDER: Record<string, number> = { business: 0, buc: 1 };
 
 /** ボードのノードを React Flow のノードにする。親の枠が先に来る順に並べる */
@@ -131,6 +152,7 @@ export function buildFlowNodes(model: UntieModel, boardId: string, options: Buil
   if (!board) return [];
   const byId = elementMap(model);
   const summaries = issueSummaries(model);
+  const actorsOf = actorLabels(model);
   const abs = new Map(board.nodes.map((n) => [n.elementId, n]));
 
   const nodes: FlowNode[] = [];
@@ -163,6 +185,7 @@ export function buildFlowNodes(model: UntieModel, boardId: string, options: Buil
           kind: el.kind,
           name: el.name,
           ...(label ? { label } : {}),
+          ...(actorsOf.has(el.id) ? { actors: actorsOf.get(el.id) } : {}),
           issueCount: summary?.count ?? 0,
           maxSeverity: summary?.maxSeverity ?? 0,
         },
@@ -187,6 +210,7 @@ export function buildFlowNodes(model: UntieModel, boardId: string, options: Buil
           kind: el.kind,
           name: el.name,
           ...(label ? { label } : {}),
+          ...(actorsOf.has(el.id) ? { actors: actorsOf.get(el.id) } : {}),
           issueCount: summary?.count ?? 0,
           maxSeverity: summary?.maxSeverity ?? 0,
         },
@@ -206,14 +230,14 @@ export interface BuildEdgesOptions {
   selectedRelationId?: string | null;
 }
 
-/** 両端がボードにある関係だけを React Flow のエッジにする */
+/** 両端がボードにある関係だけを React Flow のエッジにする。アクターの担当はラベルで出すので線にしない */
 export function buildFlowEdges(model: UntieModel, boardId: string, options: BuildEdgesOptions = {}): FlowEdge[] {
   const board = model.boards.find((b) => b.id === boardId);
   if (!board) return [];
   const onBoard = new Set(board.nodes.map((n) => n.elementId));
   const byId = elementMap(model);
   return model.relations
-    .filter((r) => onBoard.has(r.sourceId) && onBoard.has(r.targetId))
+    .filter((r) => !isShownAsLabel(r.kind) && onBoard.has(r.sourceId) && onBoard.has(r.targetId))
     .filter((r) => {
       // ボードに出ない要素 (課題・既定 BUC) に向かう線は描かない
       const s = byId.get(r.sourceId);

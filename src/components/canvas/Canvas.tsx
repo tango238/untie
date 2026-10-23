@@ -17,7 +17,7 @@ import { useUntieStore } from "../../store";
 import { placeElement } from "../actions";
 import { ELEMENT_DRAG_TYPE, canvasApi } from "./canvasApi";
 import { CardNode } from "./CardNode";
-import { applyDropDecision, decideDrop } from "./drop";
+import { actorDropTarget, applyDropDecision, decideDrop } from "./drop";
 import { applyFlowChanges } from "./flowChanges";
 import { FrameNode } from "./FrameNode";
 import {
@@ -133,6 +133,16 @@ function CanvasInner() {
       const el = st.model.elements.find((x) => x.id === elementId);
       if (!el) return;
       const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      // アクターを業務の枠・アクティビティに落としたら、カードを置かずに担当をつける
+      if (el.kind === "actor" || el.kind === "externalActor") {
+        const targetId = actorDropTarget(st.model, st.ui.currentBoardId, elementId, p);
+        if (targetId) {
+          const r = st.dispatch((m) => addRelation(m, { sourceId: elementId, targetId }));
+          if (!r.ok) st.pushToast(r.reason, "info");
+          st.select({ type: "element", id: targetId });
+          return;
+        }
+      }
       const isFrame = el.kind === "business" || el.kind === "buc";
       const position = isFrame ? p : { x: p.x - CARD_SIZE.width / 2, y: p.y - CARD_SIZE.height / 2 };
       const result = placeElement(elementId, position);

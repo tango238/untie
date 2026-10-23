@@ -3,7 +3,7 @@ import { moveNode, removeFromBoard, placeOnBoard } from "../../../model/commands
 import { okModel } from "../../../model/__tests__/helpers";
 import { createHotelSample } from "../../../sample";
 import type { UntieModel } from "../../../model/types";
-import { applyDropDecision, decideDrop, decidePlacement, frameAt, moveFrameWithDescendants, nodeRect, rectCenter } from "../drop";
+import { actorDropTarget, applyDropDecision, decideDrop, decidePlacement, frameAt, moveFrameWithDescendants, nodeRect, rectCenter } from "../drop";
 
 const B = "board_overview";
 const put = (m: UntieModel, id: string, x: number, y: number) =>
@@ -153,5 +153,23 @@ describe("decidePlacement / applyDropDecision (配置直後の所属判定)", ()
     const m0 = unplace(createHotelSample(), "buc_dining");
     const placed = okModel(placeOnBoard(m0, { boardId: B, elementId: "buc_dining", position: { x: 5000, y: 5000 } }));
     expect(decidePlacement(placed, B, "buc_dining")).toEqual({ type: "none" });
+  });
+});
+
+describe("actorDropTarget", () => {
+  const B = "board_overview";
+  it("アクティビティのカードを優先し、次に業務の枠。枠の外は null", () => {
+    const m = createHotelSample();
+    const card = nodeRect(m, B, "act_hand_key")!;
+    expect(actorDropTarget(m, B, "actor_manager", rectCenter(card))).toBe("act_hand_key");
+    const frame = nodeRect(m, B, "biz_checkin")!;
+    expect(actorDropTarget(m, B, "actor_manager", { x: frame.x + 5, y: frame.y + frame.height - 5 })).toBe("biz_checkin");
+    expect(actorDropTarget(m, B, "actor_manager", { x: -1000, y: -1000 })).toBeNull();
+  });
+
+  it("外部アクターは業務の主担当になれないので、枠の上でも null", () => {
+    const m = createHotelSample();
+    const frame = nodeRect(m, B, "biz_checkin")!;
+    expect(actorDropTarget(m, B, "ext_booking_site", { x: frame.x + 5, y: frame.y + frame.height - 5 })).toBeNull();
   });
 });

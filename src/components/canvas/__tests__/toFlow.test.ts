@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { removeFromBoard, moveActivity, placeOnBoard } from "../../../model/commands";
 import { createHotelSample } from "../../../sample";
 import { okModel } from "../../../model/__tests__/helpers";
+import { sampleWithActorCards } from "../../../test/utils";
 import {
   buildFlowEdges,
   buildFlowNodes,
@@ -94,7 +95,7 @@ describe("buildFlowNodes", () => {
   });
 
   it("選択中の要素に selected を付ける", () => {
-    const nodes = buildFlowNodes(sample(), "board_overview", { selectedElementId: "actor_front" });
+    const nodes = buildFlowNodes(sampleWithActorCards(), "board_overview", { selectedElementId: "actor_front" });
     expect(nodes.filter((n) => n.selected).map((n) => n.id)).toEqual(["actor_front"]);
   });
 
@@ -149,17 +150,32 @@ describe("親枠の判定", () => {
 describe("buildFlowEdges", () => {
   it("両端がボードにある関係だけをエッジにする", () => {
     const m = sample();
-    const overview = buildFlowEdges(m, "board_overview");
-    const onBoard = new Set(m.boards[0].nodes.map((n) => n.elementId));
-    expect(overview.length).toBeGreaterThan(0);
-    for (const e of overview) {
+    const flow = buildFlowEdges(m, "board_flow");
+    const onBoard = new Set(m.boards[1].nodes.map((n) => n.elementId));
+    expect(flow.length).toBeGreaterThan(0);
+    for (const e of flow) {
       expect(onBoard.has(e.source) && onBoard.has(e.target)).toBe(true);
     }
     const expected = m.relations.filter((r) => onBoard.has(r.sourceId) && onBoard.has(r.targetId));
-    expect(overview).toHaveLength(expected.length);
-    // 全体ボードにはアクティビティ → ユースケースの線は出ない (ユースケースがない)
-    expect(overview.some((e) => e.data!.kind === "activityUsecase")).toBe(false);
-    expect(buildFlowEdges(m, "board_flow").some((e) => e.data!.kind === "activityUsecase")).toBe(true);
+    expect(flow).toHaveLength(expected.length);
+    expect(flow.some((e) => e.data!.kind === "activityUsecase")).toBe(true);
+  });
+
+  it("アクターの担当は線にせず、業務の枠・アクティビティのカードにラベルで出す", () => {
+    const m = sampleWithActorCards();
+    // アクターのカードがボードにあっても線は引かない
+    expect(buildFlowEdges(m, "board_overview").some((e) => e.source.startsWith("actor_"))).toBe(false);
+    const nodes = buildFlowNodes(createHotelSample(), "board_overview");
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    expect(byId.get("biz_checkin")!.data.actors).toEqual([{ name: "フロント担当", kind: "actor" }]);
+    expect(byId.get("act_verify_identity")!.data.actors).toEqual([
+      { name: "フロント担当", kind: "actor" },
+      { name: "宿泊客", kind: "externalActor" },
+    ]);
+    // ボードに無いアクティビティのラベルも、アクターがボードに無くても出る
+    expect(buildFlowNodes(m, "board_flow").find((n) => n.id === "act_hand_key")!.data.actors).toEqual([
+      { name: "フロント担当", kind: "actor" },
+    ]);
   });
 
   it("informationRelated は矢印なし、それ以外は終点に矢印、ラベルは関係名", () => {

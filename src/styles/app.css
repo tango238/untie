@@ -143,10 +143,20 @@ textarea { resize: vertical; width: 100%; }
   background: color-mix(in srgb, var(--c) 9%, transparent);
 }
 .frame-node.kind-buc { border-style: dashed; background: color-mix(in srgb, var(--c) 12%, transparent); }
-.frame-title { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: grab; font-weight: 600; border-bottom: 1px solid color-mix(in srgb, var(--c) 40%, transparent); }
+.frame-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 10px; cursor: grab; font-weight: 600; border-bottom: 1px solid color-mix(in srgb, var(--c) 40%, transparent); }
 .frame-kind { font-size: 10px; color: #fff; background: var(--c); border-radius: 3px; padding: 1px 5px; }
 .frame-owner { font-size: 11px; color: var(--muted); font-weight: 400; }
 .frame-badge { margin-left: auto; }
+.actor-chips { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
+/* カードでは 1 行に収め、入りきらない名前は省略する (カードの高さを変えない) */
+.card-node .actor-chips { margin-top: 4px; flex-wrap: nowrap; overflow: hidden; }
+.card-node .actor-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.frame-title .actor-chips { justify-content: flex-start; font-weight: 400; }
+.actor-chip {
+  font-size: 10px; line-height: 1.5; padding: 0 6px; border-radius: 8px; white-space: nowrap;
+  color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--c) 45%, #fff);
+}
 
 .react-flow__handle { width: 9px; height: 9px; background: var(--c, #888); border: 1.5px solid #fff; }
 .react-flow__edge-textbg { fill: #efece6; }

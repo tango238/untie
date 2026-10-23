@@ -49,6 +49,11 @@ export function isUndirected(kind: RelationKind): boolean {
   return relationRule(kind).undirected;
 }
 
+/** キャンバスに線を引かず、相手の枠・カードにアクター名のラベルで出す関係 */
+export function isShownAsLabel(kind: RelationKind): boolean {
+  return kind === "actorBusiness" || kind === "actorActivity";
+}
+
 type RelationLike = Pick<Relation, "kind" | "sourceId" | "targetId">;
 
 /** 同じ関係か。無向関係は向きを無視する */

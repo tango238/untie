@@ -291,9 +291,9 @@ function column(ids: string[], x: number, y0: number, dy: number): BoardNode[] {
 }
 
 // 「全体」: 業務の枠の中に、枠内の絶対座標でアクティビティを置く
-const FRAME_Y = 200;
-const FRAME_H = 420;
-const ACT_STEP = 84;
+const FRAME_Y = 40;
+const FRAME_H = 460;
+const ACT_STEP = 96;
 // 横長になりすぎて文字が小さくならないよう、後半の業務は 2 段目に置く
 const FRAME_Y2 = FRAME_Y + FRAME_H + 60;
 
@@ -304,12 +304,8 @@ function frameWithActivities(bizId: string, x: number, actIds: string[], y = FRA
   ];
 }
 
+// アクターは線ではなく枠・カードのラベルで見せるので、このボードには置かない
 const overviewNodes: BoardNode[] = [
-  ...["actor_reservation", "actor_front", "actor_housekeeping", "actor_manager"].map((elementId, i) => ({
-    elementId,
-    x: 40 + i * 220,
-    y: 60,
-  })),
   ...frameWithActivities("biz_reservation", 40, ["act_accept_reservation", "act_confirm_reservation", "act_change_cancel"]),
   ...frameWithActivities("biz_checkin", 340, ["act_confirm_arrival", "act_verify_identity", "act_assign_room", "act_hand_key"]),
   // 滞在中の対応: BUC 小枠 2 つと、既定 BUC (枠に直接置く) のアクティビティ
@@ -344,7 +340,7 @@ const flowInfos = informations.map((e) => e.id);
 const flowConditions = conditions.map((e) => e.id);
 
 const flowNodes: BoardNode[] = [
-  ...column(flowActivities, 40, 40, 90),
+  ...column(flowActivities, 40, 40, 110),
   ...column(flowUsecases, 340, 40, 90),
   ...column(flowInfos, 660, 40, 100),
   ...column(flowConditions, 960, 40, 100),
