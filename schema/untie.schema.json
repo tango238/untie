@@ -205,6 +205,11 @@
         "bucId": {
           "description": "所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。",
           "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "links": {
+          "description": "マニュアルなどへのリンク。順序を保つ。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/link" }
         }
       }
     },
@@ -217,7 +222,12 @@
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "usecase" },
         "name": { "$ref": "#/$defs/name" },
-        "description": { "$ref": "#/$defs/description" }
+        "description": { "$ref": "#/$defs/description" },
+        "links": {
+          "description": "マニュアルなどへのリンク。順序を保つ。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/link" }
+        }
       }
     },
     "context": {
@@ -328,6 +338,16 @@
           "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         }
+      }
+    },
+    "link": {
+      "description": "リンク。表示名と URL (http / https)。",
+      "type": "object",
+      "required": ["title", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "url": { "type": "string", "maxLength": 2000, "pattern": "^https?://" }
       }
     },
     "relationKind": {

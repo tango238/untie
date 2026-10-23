@@ -22,12 +22,14 @@ import {
   type Buc,
   type Element,
   type Issue,
+  type Link,
   type Relation,
   type UntieModel,
   type Variation,
 } from "../model/types";
 import { isFixedBoard, useUntieStore } from "../store";
 import { selectAndReveal } from "./actions";
+import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
 import { GRANULARITY, isGuideKind } from "./granularity";
 
@@ -155,9 +157,12 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         value={element.description ?? ""}
         onCommit={(description) => update({ description })}
       />
+      {(element.kind === "activity" || element.kind === "usecase") && (
+        <LinksEditor links={element.links ?? []} onChange={(links) => update({ links })} />
+      )}
 
       {!structural && (
-        <p className="hint">自由ボードでは名前と説明だけを変えられます。所属・関係・削除は固定ボードで行います。</p>
+        <p className="hint">自由ボードでは名前・説明・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。</p>
       )}
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
@@ -426,6 +431,84 @@ function ContextField({ element, model }: { element: Element; model: UntieModel 
         </p>
       )}
     </div>
+  );
+}
+
+/** マニュアルなどへのリンク (作業・操作)。名前をクリックすると既定のブラウザで開く */
+function LinksEditor({ links, onChange }: { links: Link[]; onChange: (links: Link[]) => void }) {
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const add = () => {
+    const u = url.trim();
+    if (!u) return;
+    if (!/^https?:\/\//.test(u)) {
+      pushToast("URL は http:// か https:// で始めてください", "error");
+      return;
+    }
+    onChange([...links, { title: title.trim() || u, url: u }]);
+    setTitle("");
+    setUrl("");
+  };
+  const move = (i: number, j: number) => {
+    const next = [...links];
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    onChange(next);
+  };
+  return (
+    <section className="subsection">
+      <h3>リンク</h3>
+      {links.length === 0 ? (
+        <p className="hint">マニュアルなどへのリンクはまだありません。</p>
+      ) : (
+        <ul className="link-list">
+          {links.map((l, i) => (
+            <li key={i}>
+              <button type="button" className="link" title={l.url} onClick={() => void openExternalUrl(l.url)}>
+                {l.title}
+              </button>
+              <button type="button" className="icon-button" aria-label={`リンク「${l.title}」を上へ`} disabled={i === 0} onClick={() => move(i, i - 1)}>
+                ↑
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`リンク「${l.title}」を下へ`}
+                disabled={i === links.length - 1}
+                onClick={() => move(i, i + 1)}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`リンク「${l.title}」を削除`}
+                onClick={() => onChange(links.filter((_, k) => k !== i))}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="link-add">
+        <input aria-label="リンクの表示名" placeholder="表示名 (例: 鍵の受け渡しマニュアル)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="inline-add">
+          <input
+            aria-label="リンクの URL"
+            placeholder="https://..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") add();
+            }}
+          />
+          <button type="button" onClick={add}>
+            追加
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 

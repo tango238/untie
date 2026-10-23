@@ -19,6 +19,7 @@ export type {
   RelationKind,
   State,
   Ledger,
+  Link,
   System,
   UntieModel,
   Usecase,

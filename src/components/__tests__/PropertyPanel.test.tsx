@@ -278,3 +278,36 @@ describe("PropertyPanel のコンテキスト", () => {
     expect(st().model.elements.find((e) => e.id === "cond_full")).toMatchObject({ contextId: "ctx_room" });
   });
 });
+
+const opened = vi.hoisted(() => [] as string[]);
+vi.mock("../../io/file", async (orig) => ({
+  ...(await orig<typeof import("../../io/file")>()),
+  openExternalUrl: async (url: string) => {
+    opened.push(url);
+  },
+}));
+
+describe("PropertyPanel のリンク", () => {
+  it("作業にリンクを足し、並べ替え・削除でき、クリックで開く。自由ボードでも編集できる", () => {
+    resetStore();
+    act(() => st().select({ type: "element", id: "act_clean" }));
+    render(<PropertyPanel />);
+    const add = (title: string, url: string) => {
+      fireEvent.change(screen.getByLabelText("リンクの表示名"), { target: { value: title } });
+      fireEvent.change(screen.getByLabelText("リンクの URL"), { target: { value: url } });
+      fireEvent.click(screen.getByRole("button", { name: "追加" }));
+    };
+    add("清掃手順", "https://example.com/clean");
+    add("", "https://example.com/check");
+    expect(el("act_clean")).toMatchObject({ links: [{ title: "清掃手順" }, { title: "https://example.com/check" }] });
+    fireEvent.click(screen.getByRole("button", { name: "リンク「清掃手順」を下へ" }));
+    expect((el("act_clean") as { links: { title: string }[] }).links.map((l) => l.title)).toEqual(["https://example.com/check", "清掃手順"]);
+    fireEvent.click(screen.getByRole("button", { name: "清掃手順" }));
+    expect(opened).toContain("https://example.com/clean");
+    fireEvent.click(screen.getByRole("button", { name: "リンク「清掃手順」を削除" }));
+    expect((el("act_clean") as { links: unknown[] }).links).toHaveLength(1);
+    // http(s) 以外は足さない
+    add("x", "file:///etc/passwd");
+    expect((el("act_clean") as { links: unknown[] }).links).toHaveLength(1);
+  });
+});

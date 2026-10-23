@@ -349,7 +349,14 @@ function FixedCard({
     >
       <span className="fixed-card-top">
         <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
-        {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
+        <span className="fixed-card-badges">
+          {"links" in element && element.links && element.links.length > 0 && (
+            <span className="card-links" title={element.links.map((l) => l.title).join("、")} aria-label={`リンク ${element.links.length} 件`}>
+              🔗{element.links.length}
+            </span>
+          )}
+          {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
+        </span>
       </span>
       <span className="fixed-card-name">{element.name || "(名前なし)"}</span>
       {actors && <ActorChips actors={actors} />}

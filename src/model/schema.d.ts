@@ -162,6 +162,17 @@ export interface Activity {
    * 所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。
    */
   bucId: Id | null;
+  /**
+   * マニュアルなどへのリンク。順序を保つ。
+   */
+  links?: Link[];
+}
+/**
+ * リンク。表示名と URL (http / https)。
+ */
+export interface Link {
+  title: string;
+  url: string;
 }
 /**
  * ユースケース。システムに期待する振る舞い。
@@ -171,6 +182,10 @@ export interface Usecase {
   kind: "usecase";
   name: Name;
   description?: Description;
+  /**
+   * マニュアルなどへのリンク。順序を保つ。
+   */
+  links?: Link[];
 }
 /**
  * コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。

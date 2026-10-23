@@ -122,6 +122,16 @@ describe("updateElement", () => {
     expectValid(m);
   });
 
+  it("作業・操作にリンクを付け替えられる。表示名が空なら URL を使い、空にすると項目ごと消える。http(s) 以外は失敗する", () => {
+    let m = okModel(updateElement(sample(), { id: "act_clean", patch: { links: [{ title: " 清掃手順 ", url: "https://example.com/a" }, { title: "", url: "https://example.com/b" }] } }));
+    expect(el(m, "act_clean")).toMatchObject({ links: [{ title: "清掃手順", url: "https://example.com/a" }, { title: "https://example.com/b", url: "https://example.com/b" }] });
+    m = okModel(updateElement(m, { id: "act_clean", patch: { links: [] } }));
+    expect(el(m, "act_clean")).not.toHaveProperty("links");
+    expectFail(updateElement(m, { id: "act_clean", patch: { links: [{ title: "x", url: "javascript:alert(1)" }] } }), /http/);
+    expectFail(updateElement(m, { id: "info_room", patch: { links: [] } }), /変更できません/);
+    expectValid(m);
+  });
+
   it("その種類にない項目や不正な値は失敗する", () => {
     const m = sample();
     expectFail(updateElement(m, { id: "actor_front", patch: { severity: 3 } }), /変更できません/);

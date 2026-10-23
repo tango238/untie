@@ -313,3 +313,9 @@ textarea { resize: vertical; width: 100%; }
 .context-suggest { margin: 4px 0 0; }
 .context-apply { color: var(--accent); margin-left: 4px; text-decoration: underline; }
 .notice-dirty { margin-left: 12px; color: #a0522d; font-weight: 600; }
+.link-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.link-list li { display: flex; align-items: center; gap: 4px; }
+.link-list li .link { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-add { display: flex; flex-direction: column; gap: 4px; }
+.card-links { font-size: 10px; color: var(--accent); }
+.fixed-card-badges { display: inline-flex; align-items: center; gap: 4px; }

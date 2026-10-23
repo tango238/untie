@@ -59,7 +59,17 @@ const activities: Element[] = [
   { id: "act_confirm_arrival", kind: "activity", name: "到着を確認する", bucId: dflt("biz_checkin") },
   { id: "act_verify_identity", kind: "activity", name: "本人確認をする", bucId: dflt("biz_checkin") },
   { id: "act_assign_room", kind: "activity", name: "部屋を割り当てる", bucId: dflt("biz_checkin") },
-  { id: "act_hand_key", kind: "activity", name: "鍵を渡す", bucId: dflt("biz_checkin") },
+  {
+    id: "act_hand_key",
+    kind: "activity",
+    name: "鍵を渡す",
+    bucId: dflt("biz_checkin"),
+    // 架空のマニュアル (example.com はリンクの例示用ドメイン)
+    links: [
+      { title: "鍵の受け渡しマニュアル", url: "https://example.com/manual/key-handover" },
+      { title: "鍵の保管ルール", url: "https://example.com/manual/key-storage" },
+    ],
+  },
   { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care" },
   { id: "act_room_service", kind: "activity", name: "ルームサービスを提供する", bucId: "buc_dining" },
   { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: dflt("biz_stay") },
@@ -78,7 +88,12 @@ const usecases: Element[] = [
   { id: "uc_search_reservation", kind: "usecase", name: "予約を検索する" },
   { id: "uc_change_reservation", kind: "usecase", name: "予約を変更する" },
   { id: "uc_cancel_reservation", kind: "usecase", name: "予約を取り消す" },
-  { id: "uc_record_checkin", kind: "usecase", name: "チェックインを記録する" },
+  {
+    id: "uc_record_checkin",
+    kind: "usecase",
+    name: "チェックインを記録する",
+    links: [{ title: "宿泊管理システム操作手順 (チェックイン)", url: "https://example.com/manual/pms-checkin" }],
+  },
   { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する" },
   { id: "uc_calc_charge", kind: "usecase", name: "請求金額を計算する" },
   { id: "uc_register_extra", kind: "usecase", name: "追加料金を登録する" },

@@ -10,6 +10,7 @@ import {
   type Buc,
   type Element,
   type ElementKind,
+  type Link,
   type UntieModel,
 } from "./types";
 
@@ -60,6 +61,8 @@ export interface ElementInit {
 export interface ElementPatch {
   name?: string;
   description?: string;
+  /** activity / usecase */
+  links?: Link[];
   group?: string;
   values?: string[];
   severity?: number;
@@ -73,8 +76,8 @@ const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> =
   ledger: [],
   business: [],
   buc: [],
-  activity: [],
-  usecase: [],
+  activity: ["links"],
+  usecase: ["links"],
   context: [],
   information: [],
   state: ["group"],
@@ -117,6 +120,13 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
 
 function checkSeverity(severity: number): string | null {
   return Number.isInteger(severity) && severity >= 1 && severity <= 5 ? null : "重要度は 1〜5 の整数にしてください";
+}
+
+function checkLinks(links: Link[]): string | null {
+  for (const l of links) {
+    if (!/^https?:\/\//.test(l.url.trim())) return `リンクの URL は http:// か https:// で始めてください: ${l.url}`;
+  }
+  return null;
 }
 
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
@@ -269,6 +279,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   for (const key of Object.keys(patch)) {
     if (!allowed.has(key)) return fail(`この要素では「${key}」を変更できません`);
   }
+  if (patch.links !== undefined) {
+    const reason = checkLinks(patch.links);
+    if (reason) return fail(reason);
+  }
   if (patch.severity !== undefined) {
     const reason = checkSeverity(patch.severity);
     if (reason) return fail(reason);
@@ -302,6 +316,11 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       }
     }
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
+    if ((el.kind === "activity" || el.kind === "usecase") && patch.links !== undefined) {
+      const links = patch.links.map((l) => ({ title: l.title.trim() || l.url.trim(), url: l.url.trim() }));
+      if (links.length === 0) delete el.links;
+      else el.links = links;
+    }
     if (el.kind === "issue") {
       if (patch.severity !== undefined) el.severity = patch.severity;
       if (patch.targetIds !== undefined) el.targetIds = [...new Set(patch.targetIds)];
