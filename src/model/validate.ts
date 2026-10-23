@@ -1,6 +1,5 @@
 // スキーマ検証 (ajv, 2020-12) + 参照整合性の検査。
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020";
-import addFormats from "ajv-formats";
 import schema from "../../schema/untie.schema.json";
 import { relationKindFor, sameRelation } from "./relations";
 import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isIssueTargetKind } from "./types";
@@ -9,7 +8,6 @@ import type { Element, UntieModel } from "./types";
 export type ValidationResult = { ok: true; model: UntieModel } | { ok: false; errors: string[] };
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats(ajv);
 const validateSchema = ajv.compile(schema);
 
 /** instancePath (/elements/3/name) を elements[3].name の形にする */
@@ -87,6 +85,11 @@ function summarizeSchemaErrors(json: unknown, errors: readonly ErrorObject[]): s
     }
     validate(elements[index]);
     for (const ve of validate.errors ?? []) {
+      // bucId は oneOf (id か null) なので、枝ごとの複数エラーを 1 件にまとめる
+      if (ve.instancePath === "/bucId") {
+        messages.push(`elements[${index}].bucId: 文字列の id か null である必要があります`);
+        continue;
+      }
       messages.push(describeError({ ...ve, instancePath: `/elements/${index}${ve.instancePath}` }));
     }
   }
@@ -109,6 +112,22 @@ export function checkIntegrity(model: UntieModel): string[] {
   dup(model.elements.map((e) => e.id), "要素");
   dup(model.relations.map((r) => r.id), "関係");
   dup(model.boards.map((b) => b.id), "ボード");
+  // 要素・関係・ボードをまたいだ重複 (同じ種類の中の重複は上で報告済み)
+  const owner = new Map<string, string>();
+  const crossReported = new Set<string>();
+  const collect = (ids: string[], what: string) => {
+    for (const id of new Set(ids)) {
+      const prev = owner.get(id);
+      if (prev !== undefined && prev !== what && !crossReported.has(id)) {
+        crossReported.add(id);
+        errors.push(`id「${id}」が${prev}と${what}の両方で使われています`);
+      }
+      if (prev === undefined) owner.set(id, what);
+    }
+  };
+  collect(model.elements.map((e) => e.id), "要素");
+  collect(model.relations.map((r) => r.id), "関係");
+  collect(model.boards.map((b) => b.id), "ボード");
 
   const byId = new Map<string, Element>();
   for (const e of model.elements) if (!byId.has(e.id)) byId.set(e.id, e);
@@ -129,6 +148,12 @@ export function checkIntegrity(model: UntieModel): string[] {
     }
   }
   for (const e of model.elements) {
+    if (e.kind === "buc" && e.isDefault) {
+      const biz = byId.get(e.businessId);
+      if (biz && biz.kind === "business" && biz.name !== e.name) {
+        errors.push(`${label(e)} の名前が業務名「${biz.name}」と一致しません (既定 BUC は業務名と同じにします)`);
+      }
+    }
     if (e.kind !== "business") continue;
     const n = defaultCount.get(e.id) ?? 0;
     if (n !== 1) errors.push(`${label(e)} の既定 BUC が ${n} 個あります (ちょうど 1 個必要です)`);
@@ -178,6 +203,9 @@ export function checkIntegrity(model: UntieModel): string[] {
       }
       if (seen.has(n.elementId)) errors.push(`ボード「${board.name}」に ${label(el)} が複数回置かれています`);
       seen.add(n.elementId);
+      if ((el.kind === "business" || el.kind === "buc") && (n.width === undefined || n.height === undefined)) {
+        errors.push(`ボード「${board.name}」の ${label(el)} のノードには width と height が必要です`);
+      }
       if (el.kind === "issue") errors.push(`ボード「${board.name}」に課題 ${label(el)} が置かれています`);
       if (el.kind === "buc" && el.isDefault) errors.push(`ボード「${board.name}」に既定 BUC ${label(el)} が置かれています`);
     }

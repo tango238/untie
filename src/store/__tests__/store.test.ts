@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addElement, moveActivity, moveNode, removeBoard, removeElement, updateElement } from "../../model";
+import { addElement, clearAll, moveActivity, moveNode, removeBoard, removeElement, updateElement, validateModel } from "../../model";
 import { HISTORY_LIMIT, createUntieStore } from "..";
 import { emptyModel } from "../../model/types";
 
@@ -118,7 +118,7 @@ describe("ストア", () => {
     const s = createUntieStore();
     const before = s.getState().model;
     s.getState().setCurrentBoard("board_flow");
-    s.getState().dispatch((m) => ({ ok: true, model: { ...m, elements: [], relations: [], boards: [{ id: "b", name: "ボード 1", nodes: [] }] } }));
+    s.getState().dispatch((m) => clearAll(m, { boardId: "b" }));
     expect(s.getState().ui.currentBoardId).toBe("b");
     s.getState().undo();
     expect(s.getState().model).toBe(before);
@@ -171,5 +171,27 @@ describe("ストア", () => {
     s.getState().setCurrentBoard("board_flow");
     s.getState().dispatch((m) => removeBoard(m, { id: "board_flow" }));
     expect(s.getState().ui.currentBoardId).toBe("board_overview");
+  });
+
+  it("ドラッグ中の undo / redo は無視され、ドラッグはそのまま続けられる", () => {
+    const s = createUntieStore();
+    s.getState().dispatch(rename("actor_front", "A"));
+    s.getState().undo();
+    s.getState().previewNode("board_overview", "actor_manager", { x: 7, y: 7 });
+    const during = s.getState().model;
+    s.getState().undo();
+    s.getState().redo();
+    expect(s.getState().model).toBe(during);
+    expect(s.getState().dragBase).not.toBeNull();
+    expect(s.getState().history.future).toHaveLength(1);
+    s.getState().commitDrag();
+    expect(s.getState().history.past).toHaveLength(1);
+  });
+
+  it("業務名を変えたあとも整合性検査を通る", () => {
+    const s = createUntieStore();
+    s.getState().dispatch(rename("biz_checkin", "到着手続き"));
+    const r = validateModel(JSON.parse(JSON.stringify(s.getState().model)));
+    expect(r.ok ? [] : r.errors).toEqual([]);
   });
 });

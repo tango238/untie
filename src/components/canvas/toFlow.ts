@@ -1,6 +1,6 @@
 // モデル (ボード内の絶対座標) と React Flow のノード・エッジの変換。純粋関数だけを置く。
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import { DEFAULT_FRAME_SIZE } from "../../model/commands";
+import { DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE } from "../../model/commands";
 import { isUndirected, relationLabel } from "../../model/relations";
 import { issueSummaries } from "../../model/selectors";
 import {
@@ -12,7 +12,7 @@ import {
 } from "../../model/types";
 
 /** カードの表示サイズ (CSS と合わせる)。枠の当たり判定にも使う */
-export const CARD_SIZE = { width: 168, height: 64 };
+export const CARD_SIZE = DEFAULT_CARD_SIZE;
 
 export type CardNodeData = {
   elementId: string;

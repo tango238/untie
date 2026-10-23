@@ -173,3 +173,35 @@ describe("validateModel: 参照整合性", () => {
     expect(errorsOf(j).some((e) => e.includes("ボードの id が重複"))).toBe(true);
   });
 });
+
+describe("validateModel: 追加の検査", () => {
+  it("activity.bucId の型違いは 1 件にまとめて報告する", () => {
+    const j = json();
+    const i = j.elements.findIndex((e: Json) => e.kind === "activity");
+    j.elements[i].bucId = 5;
+    expect(errorsOf(j)).toEqual([`elements[${i}].bucId: 文字列の id か null である必要があります`]);
+  });
+
+  it("要素と関係・ボードをまたいだ id の重複を報告する", () => {
+    const j = json();
+    j.relations[0].id = j.elements[0].id;
+    j.boards[0].id = j.elements[1].id;
+    const errors = errorsOf(j);
+    expect(errors.some((e) => e.includes(j.elements[0].id) && e.includes("要素と関係"))).toBe(true);
+    expect(errors.some((e) => e.includes(j.elements[1].id) && e.includes("要素とボード"))).toBe(true);
+  });
+
+  it("業務・BUC のノードに width / height が無いと報告する", () => {
+    const j = json();
+    const node = j.boards[0].nodes.find((n: Json) => n.elementId === "biz_checkin");
+    delete node.width;
+    expect(errorsOf(j).some((e) => e.includes("width と height が必要"))).toBe(true);
+  });
+
+  it("既定 BUC の名前が業務名と違うと報告する", () => {
+    const j = json();
+    const buc = j.elements.find((e: Json) => e.kind === "buc" && e.isDefault && e.businessId === "biz_checkin");
+    buc.name = "違う名前";
+    expect(errorsOf(j).some((e) => e.includes("業務名") && e.includes("一致しません"))).toBe(true);
+  });
+});

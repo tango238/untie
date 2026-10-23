@@ -100,7 +100,8 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
     },
 
     undo: () => {
-      if (get().dragBase) get().commitDrag();
+      // ドラッグ中は無視する (確定して直後に取り消すと、ドラッグが丸ごと消えてしまう)
+      if (get().dragBase) return;
       const { model, history, ui } = get();
       const prev = history.past[history.past.length - 1];
       if (!prev) return;
@@ -112,7 +113,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
     },
 
     redo: () => {
-      if (get().dragBase) get().commitDrag();
+      if (get().dragBase) return;
       const { model, history, ui } = get();
       const next = history.future[0];
       if (!next) return;

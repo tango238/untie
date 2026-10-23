@@ -4,6 +4,8 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { ELEMENT_DRAG_TYPE, canvasApi } from "../canvas/canvasApi";
 import { ElementList } from "../ElementList";
+import { placeElement } from "../actions";
+import { removeFromBoard } from "../../model/commands";
 
 beforeEach(() => resetStore());
 
@@ -66,5 +68,21 @@ describe("ElementList", () => {
     fireEvent.dragStart(row, { dataTransfer: { setData: (k: string, v: string) => (data[k] = v), effectAllowed: "" } });
     expect(data[ELEMENT_DRAG_TYPE]).toBe("actor_front");
     expect(screen.getByTestId("row-issue_manual_entry").getAttribute("draggable")).toBe("false");
+  });
+
+  it("枠の上に置くと、配置と所属変更が 1 件の履歴になる。枠の外では所属を変えない", () => {
+    const st = () => useUntieStore.getState();
+    st().dispatch((m) => removeFromBoard(m, { boardId: "board_overview", elementId: "act_verify_identity" }));
+    const dining = st().model.boards[0]!.nodes.find((n) => n.elementId === "buc_dining")!;
+    const before = st().history.past.length;
+    const r = placeElement("act_verify_identity", { x: dining.x + 20, y: dining.y + 60 });
+    expect(r.ok).toBe(true);
+    expect(st().history.past.length).toBe(before + 1);
+    expect(st().model.elements.find((e) => e.id === "act_verify_identity")).toMatchObject({ bucId: "buc_dining" });
+    st().undo();
+    expect(st().model.elements.find((e) => e.id === "act_verify_identity")).toMatchObject({ bucId: "buc_default_checkin" });
+
+    placeElement("act_verify_identity", { x: -900, y: 1500 });
+    expect(st().model.elements.find((e) => e.id === "act_verify_identity")).toMatchObject({ bucId: "buc_default_checkin" });
   });
 });

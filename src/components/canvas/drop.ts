@@ -1,5 +1,5 @@
 // ドラッグ終了時の「どの枠に入ったか」の判定。純粋関数。
-import { DEFAULT_FRAME_SIZE, moveNode, type CommandResult } from "../../model/commands";
+import { DEFAULT_FRAME_SIZE, moveActivity, moveBuc, moveNode, type CommandResult } from "../../model/commands";
 import { defaultBucOf } from "../../model/selectors";
 import { isFrameKind, type UntieModel } from "../../model/types";
 import { CARD_SIZE, descendantElementIds, parentFrameElementId, type Point } from "./toFlow";
@@ -130,4 +130,31 @@ export function moveFrameWithDescendants(
     current = res.model;
   }
   return { ok: true, model: current };
+}
+
+/** 判定結果をモデルに適用する (ドラッグ終了時・配置時に共通) */
+export function applyDropDecision(model: UntieModel, boardId: string, decision: DropDecision): CommandResult {
+  switch (decision.type) {
+    case "moveActivity":
+      return moveActivity(model, { activityId: decision.activityId, bucId: decision.bucId });
+    case "moveBuc":
+      return moveBuc(model, { bucId: decision.bucId, businessId: decision.businessId });
+    case "clamp":
+      return moveFrameWithDescendants(model, boardId, decision.elementId, decision.position);
+    default:
+      return { ok: true, model };
+  }
+}
+
+/**
+ * 一覧からのドロップ・「置く」で要素をボードに置いた直後の所属判定。
+ * 枠の上に置いたときだけ所属を合わせ、枠の外に置いても所属は変えない。
+ */
+export function decidePlacement(model: UntieModel, boardId: string, elementId: string): DropDecision {
+  const rect = nodeRect(model, boardId, elementId);
+  if (!rect) return { type: "none" };
+  const decision = decideDrop(model, boardId, elementId);
+  if (decision.type === "clamp") return { type: "none" };
+  if (decision.type === "moveActivity" && !frameAt(model, boardId, rectCenter(rect))) return { type: "none" };
+  return decision;
 }

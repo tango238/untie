@@ -1,9 +1,9 @@
 // 複数のコンポーネントから使う、ストアとキャンバスをまたぐ操作。
-import { addElement, DEFAULT_FRAME_SIZE, placeOnBoard } from "../model/commands";
+import { addElement, DEFAULT_FRAME_SIZE, placeOnBoard, type CommandResult } from "../model/commands";
 import { ELEMENT_KIND_LABELS, isFrameKind, type ElementKind } from "../model/types";
 import { useUntieStore } from "../store";
 import { viewCenter, canvasApi } from "./canvas/canvasApi";
-import { bucIdAt, frameAt } from "./canvas/drop";
+import { applyDropDecision, bucIdAt, decidePlacement, frameAt } from "./canvas/drop";
 import { CARD_SIZE } from "./canvas/toFlow";
 
 /** 見えている範囲の中央に新しい要素を作る (課題はボードに置かない)。選択して名前欄にフォーカスする */
@@ -49,6 +49,21 @@ export function addElementAtCenter(kind: ElementKind): string | null {
   return result.id;
 }
 
+/**
+ * 既存の要素を現在のボードの指定位置に置く。枠の上に置いたときは所属 (BUC・業務) も合わせ、
+ * 配置と所属変更を 1 件の履歴にする。枠の外に置いたときは所属を変えない。
+ */
+export function placeElement(elementId: string, position: { x: number; y: number }): CommandResult {
+  const st = useUntieStore.getState();
+  const boardId = st.ui.currentBoardId;
+  return st.dispatch((m) => {
+    const placed = placeOnBoard(m, { boardId, elementId, position });
+    if (!placed.ok) return placed;
+    const followUp = applyDropDecision(placed.model, boardId, decidePlacement(placed.model, boardId, elementId));
+    return followUp.ok ? followUp : placed;
+  });
+}
+
 /** 既存の要素を現在のボードの見えている範囲の中央に置く */
 export function placeElementAtCenter(elementId: string): void {
   const st = useUntieStore.getState();
@@ -57,8 +72,7 @@ export function placeElementAtCenter(elementId: string): void {
   const c = viewCenter();
   const size = isFrameKind(el.kind) ? DEFAULT_FRAME_SIZE[el.kind] : CARD_SIZE;
   const position = { x: c.x - size.width / 2, y: c.y - size.height / 2 };
-  const boardId = st.ui.currentBoardId;
-  const result = st.dispatch((m) => placeOnBoard(m, { boardId, elementId, position }));
+  const result = placeElement(elementId, position);
   if (!result.ok) {
     st.pushToast(result.reason, "info");
     return;

@@ -350,3 +350,22 @@ describe("課題・全体", () => {
     expectValid(m);
   });
 });
+
+describe("既定 BUC まわりの追加検査", () => {
+  it("既定 BUC の名前は直接変えられない (業務名の変更には追従する)", () => {
+    const m = sample();
+    expectFail(updateElement(m, { id: defaultBuc(m, "biz_checkin").id, patch: { name: "別名" } }), /既定 BUC/);
+    const renamed = okModel(updateElement(m, { id: "biz_checkin", patch: { name: "到着手続き" } }));
+    expect(defaultBuc(renamed, "biz_checkin").name).toBe("到着手続き");
+    expectValid(renamed);
+  });
+
+  it("業務を作ってボードに置いても、既定 BUC はボードに置かれない", () => {
+    const m = okModel(addElement(sample(), { kind: "business", name: "新業務", boardId: "board_overview", position: { x: 0, y: 0 } }));
+    const biz = m.elements.find((e) => e.kind === "business" && e.name === "新業務")!;
+    const board = m.boards.find((b) => b.id === "board_overview")!;
+    expect(board.nodes.some((n) => n.elementId === biz.id)).toBe(true);
+    expect(board.nodes.some((n) => n.elementId === defaultBuc(m, biz.id).id)).toBe(false);
+    expectValid(m);
+  });
+});

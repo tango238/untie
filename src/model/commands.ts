@@ -28,6 +28,9 @@ export interface Size {
   height: number;
 }
 
+/** 枠でない要素 (カード) の表示サイズ。UI のカードの大きさと一致させる */
+export const DEFAULT_CARD_SIZE: Size = { width: 168, height: 64 };
+
 /** 枠 (業務・BUC) をボードに置くときの既定サイズ */
 export const DEFAULT_FRAME_SIZE: Record<"business" | "buc", Size> = {
   business: { width: 480, height: 320 },
@@ -237,6 +240,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   const target = findElement(model, payload.id);
   if (!target) return fail(`要素が存在しません: ${payload.id}`);
   const patch = payload.patch;
+
+  if (target.kind === "buc" && target.isDefault && patch.name !== undefined) {
+    return fail("既定 BUC の名前は業務の名前と同じで、直接は変えられません");
+  }
 
   const allowed = new Set<string>(["name", "description", ...PATCH_KEYS_BY_KIND[target.kind]]);
   for (const key of Object.keys(patch)) {

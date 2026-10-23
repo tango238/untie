@@ -3,7 +3,7 @@ import { ELEMENT_KIND_LABELS } from "../../model/types";
 import { IssueBadge } from "../IssueBadge";
 import type { CardFlowNode } from "./toFlow";
 
-const BADGE_KINDS = new Set(["activity", "usecase", "business"]);
+const BADGE_KINDS = new Set(["activity", "usecase"]);
 
 export function CardNode({ data, selected }: NodeProps<CardFlowNode>) {
   return (

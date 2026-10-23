@@ -2,7 +2,7 @@
 name = "untie"
 version = "0.1.0"
 description = "業務可視化ツール Untie"
-authors = ["you"]
+authors = ["tango238"]
 edition = "2021"
 
 [lib]

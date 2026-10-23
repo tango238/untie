@@ -24,9 +24,14 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
+  const focused = useRef(false);
+  const composing = useRef(false);
 
-  // 外から値が変わった (Undo など) ら取り込む
+  // 外から値が変わった (Undo など) ら取り込む。
+  // ただし入力中に、確定した値 (前後の空白を除いたもの) が戻ってきただけなら上書きしない
+  // (「予約 」と打ったあとの続きの入力で、末尾の空白が消えるのを防ぐ)
   useEffect(() => {
+    if (focused.current && value === localRef.current.trim()) return;
     setLocal(value);
     localRef.current = value;
     dirty.current = false;
@@ -52,7 +57,32 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
     localRef.current = v;
     dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(flush, delay);
+    timer.current = null;
+    // IME の変換中は確定しない (compositionend で再開する)
+    if (!composing.current) timer.current = setTimeout(flush, delay);
+  };
+
+  const handlers = {
+    onFocus: () => {
+      focused.current = true;
+    },
+    onBlur: () => {
+      focused.current = false;
+      composing.current = false;
+      flush();
+    },
+    onCompositionStart: () => {
+      composing.current = true;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+    },
+    onCompositionEnd: () => {
+      composing.current = false;
+      if (dirty.current) {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(flush, delay);
+      }
+    },
   };
 
   return (
@@ -65,7 +95,7 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           placeholder={placeholder}
           rows={4}
           onChange={(e) => change(e.target.value)}
-          onBlur={flush}
+          {...handlers}
         />
       ) : (
         <input
@@ -74,9 +104,10 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           value={local}
           placeholder={placeholder}
           onChange={(e) => change(e.target.value)}
-          onBlur={flush}
+          {...handlers}
           onKeyDown={(e) => {
-            if (e.key === "Enter") flush();
+            // 変換確定の Enter では確定しない
+            if (e.key === "Enter" && !composing.current && !e.nativeEvent.isComposing) flush();
           }}
         />
       )}

@@ -7,6 +7,14 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 type Dialog = "removeBoard" | "clearAll" | null;
 
+/** 既存のボード名と被らない「ボード N」 */
+export function nextBoardName(existing: readonly string[]): string {
+  const names = new Set(existing);
+  let n = existing.length + 1;
+  while (names.has(`ボード ${n}`)) n++;
+  return `ボード ${n}`;
+}
+
 export function Toolbar() {
   const boards = useUntieStore((s) => s.model.boards);
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
@@ -38,7 +46,7 @@ export function Toolbar() {
   }, [menuOpen]);
 
   const handleAddBoard = () => {
-    const result = dispatch((m) => addBoard(m, { name: `ボード ${m.boards.length + 1}` }));
+    const result = dispatch((m) => addBoard(m, { name: nextBoardName(m.boards.map((b) => b.name)) }));
     if (result.ok) setCurrentBoard(result.id);
   };
 
@@ -66,7 +74,11 @@ export function Toolbar() {
                 <select
                   aria-label="ボード"
                   value={currentBoardId}
-                  onChange={(e) => setCurrentBoard(e.target.value)}
+                  onChange={(e) => {
+                    setCurrentBoard(e.target.value);
+                    // フォーカスが残ると Cmd+Z や Delete がキャンバスに効かないため外す
+                    e.target.blur();
+                  }}
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>

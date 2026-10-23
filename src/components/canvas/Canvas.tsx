@@ -11,19 +11,19 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
-import { addRelation, moveActivity, moveBuc, placeOnBoard } from "../../model/commands";
+import { addRelation } from "../../model/commands";
 import { relationKindFor } from "../../model/relations";
 import { useUntieStore } from "../../store";
+import { placeElement } from "../actions";
 import { ELEMENT_DRAG_TYPE, canvasApi } from "./canvasApi";
 import { CardNode } from "./CardNode";
-import { decideDrop, moveFrameWithDescendants, nodeRect } from "./drop";
+import { applyDropDecision, decideDrop } from "./drop";
+import { applyFlowChanges } from "./flowChanges";
 import { FrameNode } from "./FrameNode";
 import {
   buildFlowEdges,
   buildFlowNodes,
   CARD_SIZE,
-  parentFrameElementId,
-  toModelPosition,
   type FlowNode,
 } from "./toFlow";
 
@@ -81,37 +81,12 @@ function CanvasInner() {
     };
   }, [rf]);
 
-  const onNodesChange = useCallback(
-    (changes: NodeChange<FlowNode>[]) => {
-      const applicable = changes.filter((c) => c.type !== "remove");
-      setNodes((ns) => applyNodeChanges(applicable, ns));
-      const st = useUntieStore.getState();
-      for (const ch of applicable) {
-        if (ch.type === "position" && ch.position) {
-          const { model: m, ui } = st;
-          const rect = nodeRect(m, ui.currentBoardId, ch.id);
-          if (!rect) continue;
-          const parentId = parentFrameElementId(m, ui.currentBoardId, ch.id);
-          const parentRect = parentId ? nodeRect(m, ui.currentBoardId, parentId) : null;
-          const abs = toModelPosition(ch.position, parentRect ? { x: parentRect.x, y: parentRect.y } : null);
-          if (abs.x === rect.x && abs.y === rect.y) continue;
-          const el = m.elements.find((e) => e.id === ch.id);
-          if (el && (el.kind === "business" || el.kind === "buc")) {
-            st.previewCommand((cur) => moveFrameWithDescendants(cur, ui.currentBoardId, ch.id, abs));
-          } else {
-            st.previewNode(ui.currentBoardId, ch.id, abs);
-          }
-        } else if (ch.type === "dimensions" && ch.setAttributes && ch.dimensions) {
-          // NodeResizer による枠のリサイズ
-          const rect = nodeRect(st.model, st.ui.currentBoardId, ch.id);
-          if (rect) {
-            st.previewNode(st.ui.currentBoardId, ch.id, { x: rect.x, y: rect.y }, ch.dimensions);
-          }
-        }
-      }
-    },
-    [],
-  );
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
+    const applicable = changes.filter((c) => c.type !== "remove");
+    setNodes((ns) => applyNodeChanges(applicable, ns));
+    // 最新のモデルに対して 1 回のコマンドで反映する (ドラッグ中は履歴に積まない)
+    useUntieStore.getState().previewCommand((m) => applyFlowChanges(m, useUntieStore.getState().ui.currentBoardId, applicable));
+  }, []);
 
   const onNodeDragStart = useCallback((_: unknown, node: FlowNode) => {
     useUntieStore.getState().select({ type: "element", id: node.id });
@@ -121,20 +96,12 @@ function CanvasInner() {
     const st = useUntieStore.getState();
     const bid = st.ui.currentBoardId;
     const decision = decideDrop(st.model, bid, node.id);
-    switch (decision.type) {
-      case "moveActivity":
-        st.commitDrag((m) => moveActivity(m, { activityId: decision.activityId, bucId: decision.bucId }));
-        break;
-      case "moveBuc":
-        st.commitDrag((m) => moveBuc(m, { bucId: decision.bucId, businessId: decision.businessId }));
-        break;
-      case "clamp":
-        st.commitDrag((m) => moveFrameWithDescendants(m, bid, decision.elementId, decision.position));
-        st.pushToast("BUC は業務の枠の中に置いてください", "info");
-        break;
-      default:
-        st.commitDrag();
+    if (decision.type === "none") {
+      st.commitDrag();
+      return;
     }
+    st.commitDrag((m) => applyDropDecision(m, bid, decision));
+    if (decision.type === "clamp") st.pushToast("BUC は業務の枠の中に置いてください", "info");
   }, []);
 
   const onConnect = useCallback((c: Connection) => {
@@ -168,20 +135,15 @@ function CanvasInner() {
       const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const isFrame = el.kind === "business" || el.kind === "buc";
       const position = isFrame ? p : { x: p.x - CARD_SIZE.width / 2, y: p.y - CARD_SIZE.height / 2 };
-      const result = st.dispatch((m) => placeOnBoard(m, { boardId: st.ui.currentBoardId, elementId, position }));
-      if (result.ok) {
-        st.select({ type: "element", id: elementId });
-      } else {
-        st.pushToast(result.reason, "info");
-        st.select({ type: "element", id: elementId });
-      }
+      const result = placeElement(elementId, position);
+      if (!result.ok) st.pushToast(result.reason, "info");
+      st.select({ type: "element", id: elementId });
     },
     [rf],
   );
 
   return (
     <ReactFlow
-      key={boardId}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
@@ -204,6 +166,9 @@ function CanvasInner() {
       onDragOver={onDragOver}
       onDrop={onDrop}
       deleteKeyCode={null}
+      elevateNodesOnSelect={false}
+      disableKeyboardA11y
+      selectionKeyCode={null}
       fitView
       fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
       minZoom={0.1}
@@ -220,8 +185,10 @@ function CanvasInner() {
 }
 
 export function Canvas() {
+  // ボードごとに作り直す (ローカルのノード state・表示位置を持ち越さない)
+  const boardId = useUntieStore((s) => s.ui.currentBoardId);
   return (
-    <ReactFlowProvider>
+    <ReactFlowProvider key={boardId}>
       <CanvasInner />
     </ReactFlowProvider>
   );

@@ -4,7 +4,7 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { handleKeyDown } from "../useKeyboard";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { Toolbar } from "../Toolbar";
+import { Toolbar, nextBoardName } from "../Toolbar";
 
 const st = () => useUntieStore.getState();
 
@@ -20,6 +20,31 @@ describe("Toolbar", () => {
     render(<Toolbar />);
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "board_flow" } });
     expect(st().ui.currentBoardId).toBe("board_flow");
+  });
+
+  it("ボードを切り替えたら select のフォーカスを外す (Undo や Delete を効かせるため)", () => {
+    render(<Toolbar />);
+    const select = screen.getByLabelText("ボード") as HTMLSelectElement;
+    select.focus();
+    expect(document.activeElement).toBe(select);
+    fireEvent.change(select, { target: { value: "board_flow" } });
+    expect(document.activeElement).not.toBe(select);
+  });
+
+  it("「＋ボード」の既定名は既存のボード名と被らない", () => {
+    expect(nextBoardName(["ボード 1", "ボード 3"])).toBe("ボード 4");
+    expect(nextBoardName(["ボード 1", "ボード 2", "ボード 3"])).toBe("ボード 4");
+    expect(nextBoardName(["全体", "ボード 2"])).toBe("ボード 3");
+    expect(nextBoardName(["ボード 3", "x"])).toBe("ボード 4");
+    expect(nextBoardName([])).toBe("ボード 1");
+  });
+
+  it("ボードを削除したあとに追加しても名前が重複しない", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    const names = st().model.boards.map((b) => b.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it("ボードを追加すると、そのボードに切り替わる", () => {
@@ -172,5 +197,37 @@ describe("キーボードショートカット", () => {
     st().select({ type: "relation", id: rel.id });
     key({ key: "Backspace" });
     expect(st().model.relations.some((r) => r.id === rel.id)).toBe(false);
+  });
+
+  it("Ctrl+Y で Redo", () => {
+    st().dispatch((m) => ({ ok: true, model: { ...m, meta: { ...m.meta, name: "変更" } } }));
+    st().undo();
+    key({ key: "y", ctrlKey: true });
+    expect(st().model.meta.name).toBe("変更");
+  });
+
+  it("要素一覧の行 (ボタン) にフォーカス中の Delete は無効", () => {
+    st().select({ type: "element", id: "actor_front" });
+    const row = document.createElement("button");
+    document.body.appendChild(row);
+    key({ key: "Delete" }, row);
+    expect(st().model.boards[0]!.nodes.some((n) => n.elementId === "actor_front")).toBe(true);
+    row.remove();
+  });
+
+  it("線 (SVG の <g>) にフォーカス中の Delete は有効で、関係が消える", () => {
+    const flow = document.createElement("div");
+    flow.className = "react-flow";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", "react-flow__edge");
+    svg.appendChild(g);
+    flow.appendChild(svg);
+    document.body.appendChild(flow);
+    const rel = st().model.relations[0]!;
+    st().select({ type: "relation", id: rel.id });
+    key({ key: "Delete" }, g as unknown as HTMLElement);
+    expect(st().model.relations.some((r) => r.id === rel.id)).toBe(false);
+    flow.remove();
   });
 });

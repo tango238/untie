@@ -64,6 +64,7 @@ const activities: Element[] = [
 
 const usecases: Element[] = [
   { id: "uc_register_reservation", kind: "usecase", name: "予約を登録する" },
+  { id: "uc_confirm_reservation", kind: "usecase", name: "予約を確定する" },
   { id: "uc_search_reservation", kind: "usecase", name: "予約を検索する" },
   { id: "uc_change_reservation", kind: "usecase", name: "予約を変更する" },
   { id: "uc_cancel_reservation", kind: "usecase", name: "予約を取り消す" },
@@ -181,6 +182,7 @@ const pairs: [source: string, target: string][] = [
   // activityUsecase
   ["act_accept_reservation", "uc_register_reservation"],
   ["act_confirm_reservation", "uc_search_reservation"],
+  ["act_confirm_reservation", "uc_confirm_reservation"],
   ["act_change_cancel", "uc_change_reservation"],
   ["act_change_cancel", "uc_cancel_reservation"],
   ["act_confirm_arrival", "uc_search_reservation"],
@@ -197,6 +199,7 @@ const pairs: [source: string, target: string][] = [
   ["uc_register_reservation", "info_reservation"],
   ["uc_register_reservation", "info_guest"],
   ["uc_search_reservation", "info_reservation"],
+  ["uc_confirm_reservation", "info_reservation"],
   ["uc_change_reservation", "info_reservation"],
   ["uc_cancel_reservation", "info_reservation"],
   ["uc_record_checkin", "info_reservation"],
@@ -233,6 +236,7 @@ const pairs: [source: string, target: string][] = [
   ["cond_early_checkin", "st_room_ready"],
   ["cond_full", "st_room_inuse"],
   // stateUsecase
+  ["st_res_tentative", "uc_confirm_reservation"],
   ["st_res_confirmed", "uc_change_reservation"],
   ["st_res_confirmed", "uc_cancel_reservation"],
   ["st_res_confirmed", "uc_record_checkin"],
@@ -243,6 +247,7 @@ const pairs: [source: string, target: string][] = [
   ["st_room_cleaning", "uc_update_cleaning"],
   // usecaseState
   ["uc_register_reservation", "st_res_tentative"],
+  ["uc_confirm_reservation", "st_res_confirmed"],
   ["uc_change_reservation", "st_res_confirmed"],
   ["uc_cancel_reservation", "st_res_cancelled"],
   ["uc_record_checkin", "st_res_checkedin"],
@@ -323,6 +328,7 @@ const flowActivities = [
   "act_confirm_arrival",
   "act_verify_identity",
   "act_assign_room",
+  "act_hand_key",
   "act_record_extra",
   "act_create_bill",
   "act_settle",
@@ -344,6 +350,7 @@ const flowNodes: BoardNode[] = [
 
 const stateUsecases = [
   "uc_register_reservation",
+  "uc_confirm_reservation",
   "uc_change_reservation",
   "uc_cancel_reservation",
   "uc_record_checkin",
