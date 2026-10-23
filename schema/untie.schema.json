@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:untie:schema:model:1",
+  "title": "UntieModel",
+  "description": "Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。",
+  "type": "object",
+  "required": ["version", "meta", "elements", "relations", "boards"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "任意。エディタ補完用のスキーマ参照。",
+      "type": "string"
+    },
+    "version": {
+      "description": "モデルフォーマットのバージョン。現行は 1。",
+      "type": "integer",
+      "const": 1
+    },
+    "meta": { "$ref": "#/$defs/meta" },
+    "elements": {
+      "description": "全要素。kind で 11 種を判別する。id はモデル内で一意。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" }
+    },
+    "relations": {
+      "description": "型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/relation" }
+    },
+    "boards": {
+      "description": "ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/board" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "description": "安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "name": {
+      "description": "表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。",
+      "type": "string",
+      "maxLength": 200
+    },
+    "description": {
+      "description": "説明文。メモ代わりに自由に書ける。",
+      "type": "string",
+      "maxLength": 4000
+    },
+    "meta": {
+      "description": "モデル全体の情報。",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "elementKind": {
+      "description": "要素の種類。",
+      "type": "string",
+      "enum": [
+        "actor",
+        "externalActor",
+        "business",
+        "buc",
+        "activity",
+        "usecase",
+        "information",
+        "state",
+        "variation",
+        "condition",
+        "issue"
+      ]
+    },
+    "elementBase": {
+      "description": "全要素に共通する項目。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/elementKind" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "element": {
+      "description": "要素。kind ごとに固有の項目を持つ。",
+      "oneOf": [
+        { "$ref": "#/$defs/actor" },
+        { "$ref": "#/$defs/externalActor" },
+        { "$ref": "#/$defs/business" },
+        { "$ref": "#/$defs/buc" },
+        { "$ref": "#/$defs/activity" },
+        { "$ref": "#/$defs/usecase" },
+        { "$ref": "#/$defs/information" },
+        { "$ref": "#/$defs/state" },
+        { "$ref": "#/$defs/variation" },
+        { "$ref": "#/$defs/condition" },
+        { "$ref": "#/$defs/issue" }
+      ]
+    },
+    "actor": {
+      "description": "アクター。業務を行う社内の人・役割。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "actor" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "externalActor": {
+      "description": "外部アクター。顧客・外部サービスなど社外の人やシステム。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "externalActor" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "business": {
+      "description": "業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "business" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "buc": {
+      "description": "BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。",
+      "type": "object",
+      "required": ["id", "kind", "name", "businessId", "isDefault"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "buc" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "businessId": {
+          "description": "所属する業務の id。必須。",
+          "$ref": "#/$defs/id"
+        },
+        "isDefault": {
+          "description": "業務に直接置いたアクティビティを受ける既定 BUC なら true。",
+          "type": "boolean"
+        }
+      }
+    },
+    "activity": {
+      "description": "アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。",
+      "type": "object",
+      "required": ["id", "kind", "name", "bucId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "activity" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "bucId": {
+          "description": "所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        }
+      }
+    },
+    "usecase": {
+      "description": "ユースケース。システムに期待する振る舞い。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "usecase" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "information": {
+      "description": "情報。業務で扱う情報。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "information" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "context": {
+          "description": "情報の分類 (RDRA の information.context)。任意。",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "state": {
+      "description": "状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "state" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "group": {
+          "description": "状態グループ名 (RDRA の state.group)。任意。",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "variation": {
+      "description": "バリエーション。種別・区分と、その値の一覧。",
+      "type": "object",
+      "required": ["id", "kind", "name", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "variation" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "values": {
+          "description": "値の一覧。順序を保つ。",
+          "type": "array",
+          "items": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "condition": {
+      "description": "条件。判断の条件・ルール。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "condition" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "issue": {
+      "description": "課題。現場で困っていること。ボードには置かず、対象要素のバッジと課題一覧で見る。",
+      "type": "object",
+      "required": ["id", "kind", "name", "severity", "targetIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "issue" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "severity": {
+          "description": "重要度。1 (低) 〜 5 (高)。",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "targetIds": {
+          "description": "対象要素の id。業務 / アクティビティ / ユースケース のみ。0 件も可。重複なし。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "relationKind": {
+      "description": "関係の種類。両端の要素の種類から一意に決まる。",
+      "type": "string",
+      "enum": [
+        "actorBusiness",
+        "actorActivity",
+        "activityUsecase",
+        "usecaseInformation",
+        "usecaseCondition",
+        "informationRelated",
+        "informationVariation",
+        "conditionVariation",
+        "conditionState",
+        "stateUsecase",
+        "usecaseState"
+      ]
+    },
+    "relation": {
+      "description": "型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可。",
+      "type": "object",
+      "required": ["id", "kind", "sourceId", "targetId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/relationKind" },
+        "sourceId": {
+          "description": "始点の要素 id。",
+          "$ref": "#/$defs/id"
+        },
+        "targetId": {
+          "description": "終点の要素 id。",
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "board": {
+      "description": "ボード。要素をどこに置くかだけを持ち、業務データは持たない。",
+      "type": "object",
+      "required": ["id", "name", "nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "nodes": {
+          "description": "このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boardNode" }
+        }
+      }
+    },
+    "boardNode": {
+      "description": "ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。",
+      "type": "object",
+      "required": ["elementId", "x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "elementId": { "$ref": "#/$defs/id" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": {
+          "description": "枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。",
+          "type": "number",
+          "minimum": 1
+        },
+        "height": {
+          "description": "枠 (業務・BUC) の高さ。",
+          "type": "number",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
