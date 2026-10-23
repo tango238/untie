@@ -363,10 +363,8 @@ textarea { resize: vertical; width: 100%; }
 .hours-sep { color: var(--muted); }
 .hours-breakdown { margin-top: -4px; }
 
-/* プロパティ欄: 上下のレイヤーの固定ボードへ移るリンク */
-.layer-nav { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 0 4px; }
+/* プロパティ欄: トレースの行からレイヤーの固定ボードへ移るボタン */
 .layer-link { font-size: 11px; padding: 1px 8px; border-radius: 10px; color: var(--accent); }
-.layer-link.is-own { font-weight: 600; }
 .layer-link.is-current { opacity: 1; color: var(--muted); background: #f0ede7; }
 .fixed-group.is-selected { outline: 3px solid var(--selected); outline-offset: 1px; }
 .fixed-section.is-selected .fixed-section-head .fixed-section-title { outline: 3px solid var(--selected); outline-offset: 1px; }
