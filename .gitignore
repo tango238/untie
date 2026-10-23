@@ -27,3 +27,5 @@ src-tauri/target
 src-tauri/gen
 coverage
 src-tauri/gen/schemas
+
+*.tsbuildinfo

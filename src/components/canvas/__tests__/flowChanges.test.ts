@@ -64,6 +64,22 @@ describe("applyFlowChanges", () => {
     }
   });
 
+  it("リサイズ中の枠の子は、小数のずれがあっても position を読み飛ばす", () => {
+    const m0 = createHotelSample();
+    const f = rectOf(m0, "biz_checkin");
+    const c = rectOf(m0, "act_verify_identity");
+    const jitter = 0.1 + 0.2 - 0.3; // 5.55e-17
+    const m = apply(
+      [
+        { id: "biz_checkin", type: "dimensions", resizing: true, setAttributes: true, dimensions: { width: f.width + 10, height: f.height + 10 } },
+        { id: "act_verify_identity", type: "position", position: { x: c.x - f.x + jitter + 0.1, y: c.y - f.y + jitter } },
+      ],
+      m0,
+    );
+    expect(rectOf(m, "act_verify_identity")).toEqual(c);
+    expect(rectOf(m, "biz_checkin")).toMatchObject({ width: f.width + 10, height: f.height + 10 });
+  });
+
   it("子の補正が枠より先に来ても、リサイズとして扱い子は動かない", () => {
     const m0 = createHotelSample();
     const f = rectOf(m0, "biz_checkin");

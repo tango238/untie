@@ -50,6 +50,9 @@ export function applyFlowChanges(model: UntieModel, boardId: string, changes: re
     if (ch.type !== "position" || !ch.position || resizes.has(ch.id)) continue;
     const rect = nodeRect(current, boardId, ch.id);
     if (!rect) continue;
+    // 親がリサイズ中なら、この position は親の移動を打ち消す相対補正なので読み飛ばす
+    const parentId = parentFrameElementId(current, boardId, ch.id);
+    if (parentId && resizes.has(parentId)) continue;
     const abs = absolutePosition(current, boardId, ch.id, ch.position);
     if (abs.x === rect.x && abs.y === rect.y) continue;
     const el = current.elements.find((e) => e.id === ch.id);

@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "tauri": "tauri",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "gen:types": "json2ts -i schema/untie.schema.json -o src/model/schema.d.ts",
     "check:types": "pnpm gen:types && git diff --exit-code src/model/schema.d.ts"
   },

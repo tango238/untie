@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { removeBoard } from "../../model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { handleKeyDown } from "../useKeyboard";
@@ -42,7 +43,13 @@ describe("Toolbar", () => {
   it("ボードを削除したあとに追加しても名前が重複しない", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    const added = st().model.boards[3]!;
+    expect(added.name).toBe("ボード 4");
+    st().dispatch((m) => removeBoard(m, { id: st().model.boards[1]!.id }));
+    expect(st().model.boards).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    expect(st().model.boards).toHaveLength(5);
     const names = st().model.boards.map((b) => b.name);
     expect(new Set(names).size).toBe(names.length);
   });

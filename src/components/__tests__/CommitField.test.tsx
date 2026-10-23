@@ -82,6 +82,27 @@ describe("CommitField", () => {
     expect(committed).toEqual([]);
   });
 
+  it("500ms で確定したあと何も打たずに blur すると、欄の値が trim 後に揃う", () => {
+    render(<Harness />);
+    fireEvent.focus(input());
+    fireEvent.change(input(), { target: { value: "予約 " } });
+    act(() => vi.advanceTimersByTime(COMMIT_DELAY_MS + 10));
+    expect(input().value).toBe("予約 ");
+    fireEvent.blur(input());
+    expect(input().value).toBe("予約");
+  });
+
+  it("keyCode 229 の Enter (WebKit の変換確定) では確定しない", () => {
+    const committed: string[] = [];
+    render(<Harness onCommitted={(v) => committed.push(v)} />);
+    fireEvent.focus(input());
+    fireEvent.change(input(), { target: { value: "予約" } });
+    fireEvent.keyDown(input(), { key: "Enter", keyCode: 229 });
+    expect(committed).toEqual([]);
+    fireEvent.keyDown(input(), { key: "Enter", keyCode: 13 });
+    expect(committed).toEqual(["予約"]);
+  });
+
   it("外から値が変わった (Undo など) ときは、フォーカスしていなければ取り込む", () => {
     const { rerender } = render(<CommitField label="名前" value="A" onCommit={() => {}} />);
     rerender(<CommitField label="名前" value="B" onCommit={() => {}} />);

@@ -69,7 +69,13 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
     onBlur: () => {
       focused.current = false;
       composing.current = false;
+      const wasDirty = dirty.current;
       flush();
+      // 入力中に確定済みで (trim された値が戻って上書きを止めていた)、その後何も打たずに外れた場合は揃える
+      if (!wasDirty && localRef.current !== value) {
+        setLocal(value);
+        localRef.current = value;
+      }
     },
     onCompositionStart: () => {
       composing.current = true;
@@ -107,7 +113,8 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           {...handlers}
           onKeyDown={(e) => {
             // 変換確定の Enter では確定しない
-            if (e.key === "Enter" && !composing.current && !e.nativeEvent.isComposing) flush();
+            // WebKit は変換確定の Enter を compositionend の後に isComposing=false, keyCode=229 で送ることがある
+            if (e.key === "Enter" && !composing.current && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) flush();
           }}
         />
       )}
