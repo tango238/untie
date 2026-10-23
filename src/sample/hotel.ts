@@ -13,14 +13,15 @@ const actors: Element[] = [
 
 const externalActors: Element[] = [
   { id: "ext_guest", kind: "externalActor", name: "宿泊客" },
-  { id: "ext_booking_site", kind: "externalActor", name: "予約サイト" },
-  { id: "ext_payment", kind: "externalActor", name: "決済サービス" },
+  { id: "ext_travel_agency", kind: "externalActor", name: "旅行会社" },
 ];
 
-/** 自社で使うシステム (作業の担当にも、情報の置き場所にもなる) と、紙の帳票 (情報の置き場所) */
+/** システム (自社・社外を問わない。作業の担当にも、情報の置き場所にもなる) と、紙の帳票 (情報の置き場所) */
 const systems: Element[] = [
   { id: "sys_pms", kind: "system", name: "宿泊管理システム" },
   { id: "sys_accounting", kind: "system", name: "会計システム" },
+  { id: "sys_booking_site", kind: "system", name: "予約サイト" },
+  { id: "sys_payment", kind: "system", name: "決済サービス" },
   { id: "ldg_guest_register", kind: "ledger", name: "宿泊者名簿" },
   { id: "ldg_cleaning_sheet", kind: "ledger", name: "清掃チェック表" },
 ];
@@ -178,7 +179,8 @@ const pairs: [source: string, target: string][] = [
   ["actor_housekeeping", "biz_cleaning"],
   // actorActivity
   ["actor_reservation", "act_accept_reservation"],
-  ["ext_booking_site", "act_accept_reservation"],
+  ["sys_booking_site", "act_accept_reservation"],
+  ["ext_travel_agency", "act_accept_reservation"],
   ["actor_reservation", "act_confirm_reservation"],
   ["actor_reservation", "act_change_cancel"],
   ["ext_guest", "act_change_cancel"],
@@ -194,7 +196,7 @@ const pairs: [source: string, target: string][] = [
   // システムが担当する作業 (自動で行う)
   ["sys_pms", "act_calc_charge"],
   ["actor_front", "act_settle"],
-  ["ext_payment", "act_settle"],
+  ["sys_payment", "act_settle"],
   ["actor_front", "act_collect_key"],
   ["actor_manager", "act_instruct_cleaning"],
   ["actor_housekeeping", "act_clean"],
@@ -254,6 +256,8 @@ const pairs: [source: string, target: string][] = [
   ["sys_pms", "info_room"],
   ["sys_pms", "info_plan"],
   ["sys_pms", "info_bill"],
+  ["sys_booking_site", "info_reservation"],
+  ["sys_payment", "info_bill"],
   // informationSystem (情報 → システム: 保存先)
   ["info_reservation", "sys_pms"],
   ["info_guest", "sys_pms"],

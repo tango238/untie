@@ -98,7 +98,7 @@ export interface Actor {
   description?: Description;
 }
 /**
- * 外部アクター。顧客・外部サービスなど社外の人やシステム。
+ * 外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。
  */
 export interface ExternalActor {
   id: Id;
@@ -107,7 +107,7 @@ export interface ExternalActor {
   description?: Description;
 }
 /**
- * システム。自社で使う情報システム。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。
+ * システム。情報システム (自社・社外を問わない)。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。
  */
 export interface System {
   id: Id;

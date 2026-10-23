@@ -158,8 +158,8 @@ function bucSections(model: UntieModel): FixedSection[] {
 
 /** 登場人物のボードで、役割がわかりにくい枠に添える補足 */
 const LEDGER_SUBTITLES: Partial<Record<ElementKind, string>> = {
-  system: "作業の担当にも、情報の置き場所にもなる",
-  ledger: "紙の台帳・伝票。情報の置き場所",
+  system: "社外のものも含む",
+  ledger: "紙の台帳・伝票",
 };
 
 /** 固定ボードの枠を組み立てる */

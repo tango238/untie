@@ -30,8 +30,8 @@ describe("fixedGroups", () => {
   it("登場人物: アクター・外部アクター・システム・帳票の 4 枠", () => {
     const gs = fixedGroups(sample(), "actor");
     expect(gs.map((g) => g.title)).toEqual(["アクター", "外部アクター", "システム", "帳票"]);
-    expect(gs[1]!.items).toHaveLength(3);
-    expect(names(gs[2]!.items)).toEqual(["宿泊管理システム", "会計システム"]);
+    expect(names(gs[1]!.items)).toEqual(["宿泊客", "旅行会社"]);
+    expect(names(gs[2]!.items)).toEqual(["宿泊管理システム", "会計システム", "予約サイト", "決済サービス"]);
     expect(names(gs[3]!.items)).toEqual(["宿泊者名簿", "清掃チェック表"]);
   });
 

@@ -14,8 +14,8 @@ describe("宿泊施設サンプル", () => {
     const count = (kind: string) => hotelSample.elements.filter((e) => e.kind === kind).length;
     expect(count("business")).toBe(5);
     expect(count("actor")).toBe(4);
-    expect(count("externalActor")).toBe(3);
-    expect(count("system")).toBe(2);
+    expect(count("externalActor")).toBe(2);
+    expect(count("system")).toBe(4);
     expect(count("ledger")).toBe(2);
     expect(count("buc")).toBe(5 + 2);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
