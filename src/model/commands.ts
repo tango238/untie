@@ -5,6 +5,7 @@ import { newUniqueId } from "./id";
 import { relationKindFor, sameRelation } from "./relations";
 import {
   isFrameKind,
+  isContextMemberKind,
   isIssueTargetKind,
   type Buc,
   type Element,
@@ -40,7 +41,7 @@ export const DEFAULT_FRAME_SIZE: Record<"business" | "buc", Size> = {
 /** 種類ごとに追加時に指定できる初期値 */
 export interface ElementInit {
   description?: string;
-  /** information (所属コンテキスト。省略時は未分類) */
+  /** information / state / condition / variation (所属コンテキスト。省略時は未分類) */
   contextId?: string | null;
   /** state */
   group?: string;
@@ -165,7 +166,7 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     const buc = findElement(model, init.bucId);
     if (!buc || buc.kind !== "buc") return fail(`所属先の活動が存在しません: ${init.bucId}`);
   }
-  if (kind === "information" && init.contextId) {
+  if (isContextMemberKind(kind) && init.contextId) {
     const ctx = findElement(model, init.contextId);
     if (!ctx || ctx.kind !== "context") return fail(`所属先のコンテキストが存在しません: ${init.contextId}`);
   }
@@ -192,8 +193,10 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     case "context":
     case "system":
     case "ledger":
-    case "condition":
       element = { id, kind, name, ...description };
+      break;
+    case "condition":
+      element = { id, kind, name, contextId: init.contextId ?? null, ...description };
       break;
     case "buc":
       element = { id, kind, name, businessId: init.businessId!, isDefault: false, ...description };
@@ -205,10 +208,18 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
       element = { id, kind, name, contextId: init.contextId ?? null, ...description };
       break;
     case "state":
-      element = { id, kind, name, ...description, ...(init.group ? { group: init.group } : {}) };
+      element = {
+        id,
+        kind,
+        name,
+        // 状態グループごとに同じコンテキストに属するので、同じグループの状態に合わせる
+        contextId: init.contextId ?? (init.group ? stateGroupContext(model, init.group) : null),
+        ...description,
+        ...(init.group ? { group: init.group } : {}),
+      };
       break;
     case "variation":
-      element = { id, kind, name, values: [...(init.values ?? [])], ...description };
+      element = { id, kind, name, values: [...(init.values ?? [])], contextId: init.contextId ?? null, ...description };
       break;
     case "issue":
       element = {
@@ -283,7 +294,12 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     }
     if (el.kind === "state" && patch.group !== undefined) {
       if (patch.group === "") delete el.group;
-      else el.group = patch.group;
+      else {
+        el.group = patch.group;
+        // 既にあるグループへ移したら、そのグループのコンテキストに合わせる
+        const other = model.elements.find((e) => e.kind === "state" && e.group === patch.group && e.id !== el.id);
+        if (other && other.kind === "state") el.contextId = other.contextId;
+      }
     }
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
     if (el.kind === "issue") {
@@ -315,9 +331,9 @@ export function removeElement(model: UntieModel, payload: RemoveElementPayload):
         if (e.kind === "activity" && e.bucId && bucIds.has(e.bucId)) e.bucId = null;
       }
     } else if (target.kind === "context") {
-      // コンテキストを消すと、所属していた情報は未分類になる
+      // コンテキストを消すと、所属していた要素は未分類になる
       for (const e of draft.elements) {
-        if (e.kind === "information" && e.contextId === target.id) e.contextId = null;
+        if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId === target.id) e.contextId = null;
       }
     } else if (target.kind === "buc") {
       // 既定でない BUC を消すと、所属アクティビティは業務の既定 BUC に戻る
@@ -357,24 +373,39 @@ export function moveActivity(model: UntieModel, payload: MoveActivityPayload): C
   return { ok: true, model: next };
 }
 
-export interface MoveInformationPayload {
-  informationId: string;
+export interface MoveToContextPayload {
+  /** 情報・状態・条件・バリエーション */
+  elementId: string;
   /** null は未分類 */
   contextId: string | null;
 }
 
-/** 情報の所属コンテキストを変える */
-export function moveInformation(model: UntieModel, payload: MoveInformationPayload): CommandResult {
-  const info = findElement(model, payload.informationId);
-  if (!info || info.kind !== "information") return fail(`情報が存在しません: ${payload.informationId}`);
+/** 同じ状態グループの状態が属しているコンテキスト (無ければ null) */
+function stateGroupContext(model: UntieModel, group: string): string | null {
+  for (const e of model.elements) if (e.kind === "state" && e.group === group) return e.contextId;
+  return null;
+}
+
+/**
+ * 要素の所属コンテキストを変える。状態は状態グループごとに属するので、同じグループの状態もまとめて移す
+ */
+export function moveToContext(model: UntieModel, payload: MoveToContextPayload): CommandResult {
+  const target = findElement(model, payload.elementId);
+  if (!target || !isContextMemberKind(target.kind)) return fail(`コンテキストに属せない要素です: ${payload.elementId}`);
   if (payload.contextId !== null) {
     const ctx = findElement(model, payload.contextId);
     if (!ctx || ctx.kind !== "context") return fail(`コンテキストが存在しません: ${payload.contextId}`);
   }
-  if (info.contextId === payload.contextId) return { ok: true, model };
+  const group = target.kind === "state" ? target.group : undefined;
+  const ids = new Set(
+    group ? model.elements.filter((e) => e.kind === "state" && e.group === group).map((e) => e.id) : [target.id],
+  );
+  const members = model.elements.filter((e) => ids.has(e.id));
+  if (members.every((e) => "contextId" in e && e.contextId === payload.contextId)) return { ok: true, model };
   const next = produce(model, (draft) => {
-    const e = draft.elements.find((x) => x.id === payload.informationId);
-    if (e && e.kind === "information") e.contextId = payload.contextId;
+    for (const e of draft.elements) {
+      if (ids.has(e.id) && "contextId" in e) e.contextId = payload.contextId;
+    }
   });
   return { ok: true, model: next };
 }

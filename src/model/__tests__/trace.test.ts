@@ -54,7 +54,7 @@ describe("traceToActors", () => {
     const r = traceToActors(m);
     expect(r.problems.every((p) => p.isBreak)).toBe(true);
     const reasonOf = (id: string) => r.problems.find((p) => p.elementId === id)?.reason;
-    expect(reasonOf("x_context")).toBe("情報が入っていません");
+    expect(reasonOf("x_context")).toBe("情報・状態・条件・バリエーションが入っていません");
     expect(reasonOf("x_system")).toBe("どの作業の担当にも、どの情報の取得元・保存先にもなっていません");
     expect(reasonOf("x_ledger")).toBe("どの情報の取得元・保存先にもなっていません");
     expect(reasonOf("x_variation")).toBe("どの情報・条件の種別にもなっていません");

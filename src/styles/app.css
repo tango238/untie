@@ -307,3 +307,7 @@ textarea { resize: vertical; width: 100%; }
 .trace-rule summary { cursor: pointer; color: var(--muted); }
 .trace-rule ul { margin: 6px 0; padding-left: 18px; line-height: 1.6; }
 .toolbar-count { display: inline-block; margin-left: 5px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
+.trace-info-title { margin: 12px 12px 4px; font-size: 12px; color: var(--accent); }
+.trace-notice { font-size: 12px; line-height: 1.5; }
+.context-suggest { margin: 4px 0 0; }
+.context-apply { color: var(--accent); margin-left: 4px; text-decoration: underline; }

@@ -7,7 +7,7 @@ import {
   DEFAULT_FRAME_SIZE,
   moveActivity,
   moveBuc,
-  moveInformation,
+  moveToContext,
   moveNode,
   placeOnBoard,
   removeBoard,
@@ -207,15 +207,34 @@ describe("所属の変更", () => {
     expectValid(m);
   });
 
-  it("moveInformation でコンテキストを変え、null で未分類にできる。不正な対象は拒否する", () => {
-    let m = okModel(moveInformation(sample(), { informationId: "info_bill", contextId: "ctx_reservation" }));
+  it("moveToContext でコンテキストを変え、null で未分類にできる。不正な対象は拒否する", () => {
+    let m = okModel(moveToContext(sample(), { elementId: "info_bill", contextId: "ctx_reservation" }));
     expect(el(m, "info_bill")).toMatchObject({ contextId: "ctx_reservation" });
-    m = okModel(moveInformation(m, { informationId: "info_bill", contextId: null }));
+    m = okModel(moveToContext(m, { elementId: "info_bill", contextId: null }));
     expect(el(m, "info_bill")).toMatchObject({ contextId: null });
     expectValid(m);
-    expectFail(moveInformation(m, { informationId: "actor_front", contextId: null }), /情報/);
-    expectFail(moveInformation(m, { informationId: "info_bill", contextId: "info_room" }), /コンテキスト/);
+    expectFail(moveToContext(m, { elementId: "actor_front", contextId: null }), /コンテキストに属せない/);
+    expectFail(moveToContext(m, { elementId: "info_bill", contextId: "info_room" }), /コンテキスト/);
     expectFail(addElement(m, { kind: "information", name: "x", init: { contextId: "nope" } }), /コンテキスト/);
+  });
+
+  it("状態は状態グループごとにコンテキストを移す。条件・バリエーションも移せる", () => {
+    let m = okModel(moveToContext(sample(), { elementId: "st_res_confirmed", contextId: "ctx_customer" }));
+    const resStates = m.elements.filter((e) => e.kind === "state" && e.group === "予約の状態");
+    expect(resStates.every((e) => e.kind === "state" && e.contextId === "ctx_customer")).toBe(true);
+    expect(el(m, "st_room_ready")).toMatchObject({ contextId: "ctx_room" });
+    m = okModel(moveToContext(m, { elementId: "cond_full", contextId: null }));
+    m = okModel(moveToContext(m, { elementId: "var_channel", contextId: "ctx_charge" }));
+    expect(el(m, "cond_full")).toMatchObject({ contextId: null });
+    expect(el(m, "var_channel")).toMatchObject({ contextId: "ctx_charge" });
+    // 既にあるグループに状態を足すと、そのグループのコンテキストになる
+    m = okModel(addElement(m, { kind: "state", name: "保留", id: "st_new", init: { group: "部屋の状態" } }));
+    expect(el(m, "st_new")).toMatchObject({ contextId: "ctx_room" });
+    // コンテキストを消すと、所属していた要素はすべて未分類になる
+    m = okModel(removeElement(m, { id: "ctx_room" }));
+    expect(el(m, "st_new")).toMatchObject({ contextId: null });
+    expect(el(m, "var_room_type")).toMatchObject({ contextId: null });
+    expectValid(m);
   });
 
   it("moveActivity は不正な対象を拒否する", () => {

@@ -2,7 +2,7 @@
 // つながりは必須にしない (上から順に書き出していく途中の状態を許す) ので、
 // 辿り着けない要素と、どこで途切れているかを一覧にして知らせる。
 // 作業は担当 (担い手) を必ず持つ。業務を通って辿れても、担当が無ければ途切れとする。
-import { ELEMENT_KIND_LABELS, type Element, type ElementKind, type UntieModel } from "./types";
+import { ELEMENT_KIND_LABELS, isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /** 検証の対象にしない要素 (課題は対象要素に付くもの、既定 BUC は業務と一体) */
 function isTraceTarget(e: Element): boolean {
@@ -15,7 +15,7 @@ const NO_PARENT_REASONS: Partial<Record<ElementKind, string>> = {
   buc: "業務に属していません",
   activity: "担当 (アクター・外部アクター・システム) がいません",
   usecase: "どの作業にも使われていません",
-  context: "情報が入っていません",
+  context: "情報・状態・条件・バリエーションが入っていません",
   information: "どの操作にも扱われておらず、扱われている情報とも関連していません",
   system: "どの作業の担当にも、どの情報の取得元・保存先にもなっていません",
   ledger: "どの情報の取得元・保存先にもなっていません",
@@ -30,7 +30,7 @@ export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
   buc: "プロパティ欄で業務を選んでください。",
   activity: "プロパティ欄の「関係を追加」で、担当のアクター・外部アクター・システムを結んでください。",
   usecase: "操作のボードで作業の枠の「既存から足す」で入れるか、プロパティ欄の「関係を追加」で使う作業を結んでください。",
-  context: "情報のプロパティ欄で、このコンテキストを選んでください。",
+  context: "情報・状態・条件・バリエーションのプロパティ欄で、このコンテキストを選んでください。",
   information: "情報のボードのプロパティ欄の「関係を追加」で、扱う操作を結んでください。",
   system: "プロパティ欄の「関係を追加」で、担当する作業か、取得元・保存先として情報を結んでください。",
   ledger: "プロパティ欄の「関係を追加」で、取得元・保存先として情報を結んでください。",
@@ -46,7 +46,7 @@ export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
  * - 作業 ← 担当のアクター・外部アクター・システム (所属の活動・業務からは辿らない)
  * - 操作 ← 使う作業
  * - 情報 ← 扱う操作、関連する情報
- * - コンテキスト ← 入っている情報
+ * - コンテキスト ← 入っている情報・状態・条件・バリエーション
  * - 帳票 ← 取得元・保存先として結んだ情報
  * システムは担い手なので辿り着く先になる。何とも結ばれていないシステムは別に知らせる。
  * - 条件 ← 判断に使う操作
@@ -62,7 +62,7 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
   };
   for (const e of model.elements) {
     if (e.kind === "buc") add(e.id, e.businessId);
-    if (e.kind === "information" && e.contextId) add(e.contextId, e.id);
+    if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId) add(e.contextId, e.id);
   }
   for (const r of model.relations) {
     switch (r.kind) {

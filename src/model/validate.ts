@@ -2,7 +2,7 @@
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020";
 import schema from "../../schema/untie.schema.json";
 import { relationKindFor, sameRelation } from "./relations";
-import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isIssueTargetKind } from "./types";
+import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind } from "./types";
 import type { Element, UntieModel } from "./types";
 
 export type ValidationResult = { ok: true; model: UntieModel } | { ok: false; errors: string[] };
@@ -141,7 +141,7 @@ export function checkIntegrity(model: UntieModel): string[] {
       else if (biz.kind !== "business") errors.push(`${label(e)} の businessId ${e.businessId} は業務ではありません`);
       if (e.isDefault) defaultCount.set(e.businessId, (defaultCount.get(e.businessId) ?? 0) + 1);
     }
-    if (e.kind === "information" && e.contextId !== null) {
+    if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId !== null) {
       const ctx = byId.get(e.contextId);
       if (!ctx) errors.push(`${label(e)} のコンテキスト ${e.contextId} が存在しません`);
       else if (ctx.kind !== "context") errors.push(`${label(e)} の contextId ${e.contextId} はコンテキストではありません`);

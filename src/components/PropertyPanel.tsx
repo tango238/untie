@@ -4,7 +4,7 @@ import {
   addRelation,
   moveActivity,
   moveBuc,
-  moveInformation,
+  moveToContext,
   removeElement,
   removeFromBoard,
   removeRelation,
@@ -12,14 +12,15 @@ import {
   updateElement,
 } from "../model/commands";
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "../model/relations";
+import { suggestContext } from "../model/contexts";
 import { defaultBucOf, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
+  isContextMemberKind,
   isIssueTargetKind,
   type Activity,
   type Buc,
   type Element,
-  type Information,
   type Issue,
   type Relation,
   type UntieModel,
@@ -161,7 +162,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
-        {element.kind === "information" && <InformationFields information={element} model={model} />}
+        {isContextMemberKind(element.kind) && <ContextField element={element} model={model} />}
         {element.kind === "state" && (
           <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
         )}
@@ -390,29 +391,41 @@ function BucFields({ buc, model }: { buc: Buc; model: UntieModel }) {
   );
 }
 
-function InformationFields({ information, model }: { information: Information; model: UntieModel }) {
+/** 情報・状態・条件・バリエーションの所属コンテキスト。関係から見た候補も出す */
+function ContextField({ element, model }: { element: Element; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
   const contexts = model.elements.filter((e) => e.kind === "context");
+  const current = "contextId" in element ? element.contextId : null;
+  const suggested = suggestContext(model, element.id);
+  const suggestedName = suggested ? model.elements.find((e) => e.id === suggested)?.name || "(名前なし)" : "";
+  const move = (contextId: string | null) => {
+    const r = dispatch((m) => moveToContext(m, { elementId: element.id, contextId }));
+    if (!r.ok) pushToast(r.reason, "error");
+  };
+  const byGroup = element.kind === "state" && element.group;
   return (
-    <label className="field">
-      <span className="field-label">コンテキスト</span>
-      <select
-        aria-label="コンテキスト"
-        value={information.contextId ?? ""}
-        onChange={(e) => {
-          const r = dispatch((m) => moveInformation(m, { informationId: information.id, contextId: e.target.value || null }));
-          if (!r.ok) pushToast(r.reason, "error");
-        }}
-      >
-        <option value="">未分類</option>
-        {contexts.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name || "(名前なし)"}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="field">
+      <label className="field">
+        <span className="field-label">コンテキスト{byGroup ? " (状態グループごと)" : ""}</span>
+        <select aria-label="コンテキスト" value={current ?? ""} onChange={(e) => move(e.target.value || null)}>
+          <option value="">未分類</option>
+          {contexts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name || "(名前なし)"}
+            </option>
+          ))}
+        </select>
+      </label>
+      {suggested && suggested !== current && (
+        <p className="hint context-suggest">
+          つながりから見ると「{suggestedName}」が候補です。
+          <button type="button" className="link-plain context-apply" onClick={() => move(suggested)}>
+            「{suggestedName}」にする
+          </button>
+        </p>
+      )}
+    </div>
   );
 }
 

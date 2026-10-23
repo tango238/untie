@@ -93,6 +93,13 @@ export function isFrameKind(kind: ElementKind): kind is FrameKind {
   return kind === "business" || kind === "buc";
 }
 
+/** コンテキストに属する種類 */
+export type ContextMemberKind = "information" | "state" | "condition" | "variation";
+
+export function isContextMemberKind(kind: ElementKind): kind is ContextMemberKind {
+  return kind === "information" || kind === "state" || kind === "condition" || kind === "variation";
+}
+
 export function isIssueTargetKind(kind: ElementKind): kind is IssueTargetKind {
   return kind === "business" || kind === "activity" || kind === "usecase";
 }

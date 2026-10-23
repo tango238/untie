@@ -221,7 +221,7 @@
       }
     },
     "context": {
-      "description": "コンテキスト。情報をまとめる親カテゴリ (RDRA の information.context)。情報からだけ参照され、関係は持たない。",
+      "description": "コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。",
       "type": "object",
       "required": ["id", "kind", "name"],
       "additionalProperties": false,
@@ -251,7 +251,7 @@
     "state": {
       "description": "状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。",
       "type": "object",
-      "required": ["id", "kind", "name"],
+      "required": ["id", "kind", "name", "contextId"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
@@ -262,13 +262,17 @@
           "description": "状態グループ名 (RDRA の state.group)。任意。",
           "type": "string",
           "maxLength": 200
+        },
+        "contextId": {
+          "description": "所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
         }
       }
     },
     "variation": {
       "description": "バリエーション。種別・区分と、その値の一覧。",
       "type": "object",
-      "required": ["id", "kind", "name", "values"],
+      "required": ["id", "kind", "name", "contextId", "values"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
@@ -279,19 +283,27 @@
           "description": "値の一覧。順序を保つ。",
           "type": "array",
           "items": { "type": "string", "maxLength": 200 }
+        },
+        "contextId": {
+          "description": "所属するコンテキストの id。未分類なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
         }
       }
     },
     "condition": {
       "description": "条件。判断の条件・ルール。",
       "type": "object",
-      "required": ["id", "kind", "name"],
+      "required": ["id", "kind", "name", "contextId"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "condition" },
         "name": { "$ref": "#/$defs/name" },
-        "description": { "$ref": "#/$defs/description" }
+        "description": { "$ref": "#/$defs/description" },
+        "contextId": {
+          "description": "所属するコンテキストの id。未分類なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        }
       }
     },
     "issue": {

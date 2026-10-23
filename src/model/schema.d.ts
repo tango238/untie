@@ -173,7 +173,7 @@ export interface Usecase {
   description?: Description;
 }
 /**
- * コンテキスト。情報をまとめる親カテゴリ (RDRA の information.context)。情報からだけ参照され、関係は持たない。
+ * コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。
  */
 export interface Context {
   id: Id;
@@ -206,6 +206,10 @@ export interface State {
    * 状態グループ名 (RDRA の state.group)。任意。
    */
   group?: string;
+  /**
+   * 所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。
+   */
+  contextId: Id | null;
 }
 /**
  * バリエーション。種別・区分と、その値の一覧。
@@ -219,6 +223,10 @@ export interface Variation {
    * 値の一覧。順序を保つ。
    */
   values: string[];
+  /**
+   * 所属するコンテキストの id。未分類なら null。
+   */
+  contextId: Id | null;
 }
 /**
  * 条件。判断の条件・ルール。
@@ -228,6 +236,10 @@ export interface Condition {
   kind: "condition";
   name: Name;
   description?: Description;
+  /**
+   * 所属するコンテキストの id。未分類なら null。
+   */
+  contextId: Id | null;
 }
 /**
  * 課題。現場で困っていること。ボードには置かず、対象要素のバッジと課題一覧で見る。

@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { moveToContext } from "../model/commands";
+import { contextNotices, type ContextNotice } from "../model/contexts";
 import { traceToActors, type TraceProblem } from "../model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "../model/types";
 import { useUntieStore } from "../store";
@@ -11,6 +13,7 @@ import { revealOnFixedBoard } from "./actions";
 export function TracePanel() {
   const model = useUntieStore((s) => s.model);
   const result = useMemo(() => traceToActors(model), [model]);
+  const notices = useMemo(() => contextNotices(model), [model]);
   const byId = useMemo(() => new Map(model.elements.map((e) => [e.id, e])), [model]);
   const breaks = result.problems.filter((p) => p.isBreak);
   const downstreamOf = (breakId: string) =>
@@ -31,6 +34,16 @@ export function TracePanel() {
           <BreakRow key={p.elementId} problem={p} element={byId.get(p.elementId)!} downstream={downstreamOf(p.elementId)} />
         ))}
       </ul>
+      {notices.length > 0 && (
+        <section className="trace-info" aria-label="情報">
+          <h3 className="trace-info-title">情報: コンテキストの所属 ({notices.length})</h3>
+          <ul className="trace-rows">
+            {notices.map((n) => (
+              <NoticeRow key={n.elementId} notice={n} element={byId.get(n.elementId)!} contextName={n.suggestedId ? byId.get(n.suggestedId)?.name ?? "" : ""} />
+            ))}
+          </ul>
+        </section>
+      )}
       <details className="trace-rule">
         <summary>辿り方</summary>
         <ul>
@@ -39,7 +52,7 @@ export function TracePanel() {
           <li>作業 ← 担当のアクター／外部アクター／システム (必須。業務に属していても担当が無ければ途切れ)</li>
           <li>操作 ← 使う作業</li>
           <li>情報 ← 扱う操作、または関連する情報</li>
-          <li>コンテキスト ← 入っている情報</li>
+          <li>コンテキスト ← 入っている情報・状態・条件・バリエーション</li>
           <li>システム: 担い手なので辿り着く先。ただし作業の担当にも情報の置き場所にもなっていなければ途切れ</li>
           <li>帳票 ← 取得元・保存先として結んだ情報</li>
           <li>条件 ← 判断に使う操作</li>
@@ -49,6 +62,30 @@ export function TracePanel() {
         <p className="hint">課題は対象の要素に付くものなので、検証の対象にしません。</p>
       </details>
     </aside>
+  );
+}
+
+function NoticeRow({ notice, element, contextName }: { notice: ContextNotice; element: Element; contextName: string }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  return (
+    <li className="trace-row is-info" data-testid={`notice-${element.id}`}>
+      <div className="trace-head">
+        <span className="relation-kind">{ELEMENT_KIND_LABELS[element.kind]}</span>
+        <ElementLink element={element} />
+      </div>
+      <div className="trace-notice">{notice.message}</div>
+      {notice.suggestedId && (
+        <div>
+          <button
+            type="button"
+            className="chip-link"
+            onClick={() => dispatch((m) => moveToContext(m, { elementId: element.id, contextId: notice.suggestedId }))}
+          >
+            「{contextName || "(名前なし)"}」に移す
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 

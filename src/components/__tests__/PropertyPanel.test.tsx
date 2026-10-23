@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
+import { moveToContext } from "../../model/commands";
 import { PropertyPanel } from "../PropertyPanel";
 
 const st = () => useUntieStore.getState();
@@ -260,5 +261,20 @@ describe("PropertyPanel", () => {
     expect(
       st().model.relations.some((r) => r.kind === "actorBusiness" && r.sourceId === "actor_manager" && r.targetId === "biz_checkin"),
     ).toBe(true);
+  });
+});
+
+describe("PropertyPanel のコンテキスト", () => {
+  it("条件・状態でもコンテキストを選べ、つながりから見た候補へ 1 クリックで移せる", () => {
+    resetStore();
+    act(() => st().setCurrentBoard("fixed:condition"));
+    act(() => st().select({ type: "element", id: "cond_full" }));
+    act(() => {
+      st().dispatch((m) => moveToContext(m, { elementId: "cond_full", contextId: null }));
+    });
+    render(<PropertyPanel />);
+    expect((screen.getByLabelText("コンテキスト") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "「客室」にする" }));
+    expect(st().model.elements.find((e) => e.id === "cond_full")).toMatchObject({ contextId: "ctx_room" });
   });
 });

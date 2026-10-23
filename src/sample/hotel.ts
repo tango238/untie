@@ -88,7 +88,7 @@ const usecases: Element[] = [
   { id: "uc_update_cleaning", kind: "usecase", name: "清掃状況を更新する" },
 ];
 
-/** 情報をまとめる親カテゴリ */
+/** 役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ */
 const contexts: Element[] = [
   { id: "ctx_reservation", kind: "context", name: "予約" },
   { id: "ctx_customer", kind: "context", name: "顧客" },
@@ -106,27 +106,27 @@ const informations: Element[] = [
 ];
 
 const states: Element[] = [
-  { id: "st_res_tentative", kind: "state", name: "仮予約", group: "予約の状態" },
-  { id: "st_res_confirmed", kind: "state", name: "確定", group: "予約の状態" },
-  { id: "st_res_checkedin", kind: "state", name: "チェックイン済", group: "予約の状態" },
-  { id: "st_res_checkedout", kind: "state", name: "チェックアウト済", group: "予約の状態" },
-  { id: "st_res_cancelled", kind: "state", name: "取消", group: "予約の状態" },
-  { id: "st_room_waiting", kind: "state", name: "清掃待ち", group: "部屋の状態" },
-  { id: "st_room_cleaning", kind: "state", name: "清掃中", group: "部屋の状態" },
-  { id: "st_room_ready", kind: "state", name: "準備完了", group: "部屋の状態" },
-  { id: "st_room_inuse", kind: "state", name: "使用中", group: "部屋の状態" },
+  { id: "st_res_tentative", kind: "state", name: "仮予約", group: "予約の状態", contextId: "ctx_reservation" },
+  { id: "st_res_confirmed", kind: "state", name: "確定", group: "予約の状態", contextId: "ctx_reservation" },
+  { id: "st_res_checkedin", kind: "state", name: "チェックイン済", group: "予約の状態", contextId: "ctx_reservation" },
+  { id: "st_res_checkedout", kind: "state", name: "チェックアウト済", group: "予約の状態", contextId: "ctx_reservation" },
+  { id: "st_res_cancelled", kind: "state", name: "取消", group: "予約の状態", contextId: "ctx_reservation" },
+  { id: "st_room_waiting", kind: "state", name: "清掃待ち", group: "部屋の状態", contextId: "ctx_room" },
+  { id: "st_room_cleaning", kind: "state", name: "清掃中", group: "部屋の状態", contextId: "ctx_room" },
+  { id: "st_room_ready", kind: "state", name: "準備完了", group: "部屋の状態", contextId: "ctx_room" },
+  { id: "st_room_inuse", kind: "state", name: "使用中", group: "部屋の状態", contextId: "ctx_room" },
 ];
 
 const variations: Element[] = [
-  { id: "var_room_type", kind: "variation", name: "部屋タイプ", values: ["シングル", "ツイン", "スイート"] },
-  { id: "var_channel", kind: "variation", name: "予約経路", values: ["電話", "予約サイト", "直接来館"] },
-  { id: "var_payment_method", kind: "variation", name: "支払方法", values: ["現金", "クレジットカード", "事前決済"] },
+  { id: "var_room_type", kind: "variation", name: "部屋タイプ", values: ["シングル", "ツイン", "スイート"], contextId: "ctx_room" },
+  { id: "var_channel", kind: "variation", name: "予約経路", values: ["電話", "予約サイト", "直接来館"], contextId: "ctx_reservation" },
+  { id: "var_payment_method", kind: "variation", name: "支払方法", values: ["現金", "クレジットカード", "事前決済"], contextId: "ctx_charge" },
 ];
 
 const conditions: Element[] = [
-  { id: "cond_cancel_fee", kind: "condition", name: "取消料が発生する", description: "宿泊日が近い取消は取消料がかかる。" },
-  { id: "cond_early_checkin", kind: "condition", name: "早めのチェックインができる" },
-  { id: "cond_full", kind: "condition", name: "満室である" },
+  { id: "cond_cancel_fee", kind: "condition", name: "取消料が発生する", description: "宿泊日が近い取消は取消料がかかる。", contextId: "ctx_reservation" },
+  { id: "cond_early_checkin", kind: "condition", name: "早めのチェックインができる", contextId: "ctx_room" },
+  { id: "cond_full", kind: "condition", name: "満室である", contextId: "ctx_room" },
 ];
 
 const issues: Element[] = [
