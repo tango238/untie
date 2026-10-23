@@ -136,7 +136,7 @@ UntieModel
 
 ### 5.1 ツールバー
 
-- ボード切替 (セレクト)、ボード追加、ボード名変更。
+- ボード切替 (セレクト)、ボード追加、ボード名変更、ボード削除 (最後の 1 枚は削除できない。確認ダイアログあり)。
 - 「追加」: 種類を選ぶメニュー。選ぶと要素を作り、現在のボードの見えている範囲の中央に置き (課題は置かない)、選択状態にしてプロパティ欄にフォーカスする。
 - Undo / Redo ボタン。ショートカットは Cmd/Ctrl+Z と Shift+Cmd/Ctrl+Z。
 - 「課題一覧」: 右側に課題一覧パネルを出す (プロパティ欄と切り替え)。
@@ -199,7 +199,7 @@ UntieModel
 | `moveBuc(bucId, businessId)` | BUC の業務を変える |
 | `addRelation(sourceId, targetId)` | 両端から種類を決めて関係を作る。不可なら失敗を返す |
 | `removeRelation(id)` | 関係を消す |
-| `addBoard(name)` / `renameBoard(id, name)` | ボードの追加・名前変更 |
+| `addBoard(name)` / `renameBoard(id, name)` / `removeBoard(id)` | ボードの追加・名前変更・削除。最後の 1 枚は削除できない。削除してもボード上の要素は残る |
 | `placeOnBoard(boardId, elementId, position)` | 要素をボードに置く |
 | `removeFromBoard(boardId, elementId)` | ボードから外す |
 | `moveNode(boardId, elementId, position, size?)` | 座標・サイズを変える |
