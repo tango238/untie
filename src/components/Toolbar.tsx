@@ -3,7 +3,8 @@ import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands"
 import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
 import { openDocument, saveDocument } from "../io/document";
-import { hasUnsavedChanges, isFixedBoard, useUntieStore } from "../store";
+import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "../model/analysis";
+import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Dialog = "removeBoard" | "clearAll" | null;
@@ -38,7 +39,8 @@ export function Toolbar() {
 
   // 固定ボードでは board は undefined (名前変更・削除はできない)
   const board = boards.find((b) => b.id === currentBoardId);
-  const fixed = isFixedBoard(currentBoardId);
+  // 固定ボード・分析ボードはアプリが組み立てるので、名前変更・削除はできない
+  const fixed = isBuiltinBoard(currentBoardId);
 
   const handleAddBoard = () => {
     const result = dispatch((m) => addBoard(m, { name: nextBoardName(m.boards.map((b) => b.name)) }));
@@ -91,6 +93,13 @@ export function Toolbar() {
                     {FIXED_LAYERS.map((layer) => (
                       <option key={layer} value={fixedBoardId(layer)}>
                         {FIXED_LAYER_LABELS[layer]}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="分析ボード">
+                    {ANALYSIS_KINDS.map((kind) => (
+                      <option key={kind} value={analysisBoardId(kind)}>
+                        {ANALYSIS_LABELS[kind]}
                       </option>
                     ))}
                   </optgroup>

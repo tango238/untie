@@ -3,6 +3,7 @@ import type { CommandResult } from "../model/commands";
 import type { UntieModel } from "../model/types";
 import { moveNode, type Position, type Size } from "../model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "../model/fixedBoards";
+import { parseAnalysisBoardId } from "../model/analysis";
 import { createHotelSample } from "../sample";
 
 /** 履歴の上限 */
@@ -81,7 +82,7 @@ let toastSeq = 0;
 /** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
   let { currentBoardId, selection } = ui;
-  if (!parseFixedBoardId(currentBoardId) && !model.boards.some((b) => b.id === currentBoardId)) {
+  if (!isBuiltinBoard(currentBoardId) && !model.boards.some((b) => b.id === currentBoardId)) {
     currentBoardId = model.boards[0]?.id ?? fixedBoardId("activity");
   }
   if (selection) {
@@ -103,6 +104,16 @@ function pushPast(past: UntieModel[], snapshot: UntieModel): UntieModel[] {
 /** 固定ボードを開いているか */
 export function isFixedBoard(boardId: string): boolean {
   return parseFixedBoardId(boardId) !== null;
+}
+
+/** 分析ボードを開いているか */
+export function isAnalysisBoard(boardId: string): boolean {
+  return parseAnalysisBoardId(boardId) !== null;
+}
+
+/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード) か */
+export function isBuiltinBoard(boardId: string): boolean {
+  return isFixedBoard(boardId) || isAnalysisBoard(boardId);
 }
 
 /** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
@@ -208,7 +219,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
     markSaved: (file, model) => set({ file, savedModel: model }),
 
     setCurrentBoard: (boardId) => {
-      if (!isFixedBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
+      if (!isBuiltinBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
       set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null } }));
     },
     setFixedFilter: (layer, query) =>

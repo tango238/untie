@@ -7,3 +7,4 @@ export * from "./selectors";
 export * from "./fixedBoards";
 export * from "./trace";
 export * from "./contexts";
+export * from "./analysis";

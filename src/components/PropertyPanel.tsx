@@ -27,7 +27,7 @@ import {
   type UntieModel,
   type Variation,
 } from "../model/types";
-import { isFixedBoard, useUntieStore } from "../store";
+import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
 import { selectAndReveal } from "./actions";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
@@ -162,7 +162,10 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       )}
 
       {!structural && (
-        <p className="hint">自由ボードでは名前・説明・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。</p>
+        <p className="hint">
+          {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
+          では名前・説明・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
+        </p>
       )}
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}

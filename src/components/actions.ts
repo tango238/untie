@@ -2,7 +2,7 @@
 import { DEFAULT_FRAME_SIZE, placeOnBoard, type CommandResult } from "../model/commands";
 import { fixedBoardId, fixedLayerOf } from "../model/fixedBoards";
 import { isFrameKind } from "../model/types";
-import { isFixedBoard, useUntieStore } from "../store";
+import { isBuiltinBoard, useUntieStore } from "../store";
 import { viewCenter, canvasApi } from "./canvas/canvasApi";
 import { CARD_SIZE } from "./canvas/toFlow";
 
@@ -41,7 +41,7 @@ export function selectAndReveal(elementId: string, options: { showProperties?: b
   if (options.showProperties) st.setRightPanel("properties");
   const boardId = st.ui.currentBoardId;
   const onBoard =
-    isFixedBoard(boardId) || st.model.boards.find((b) => b.id === boardId)?.nodes.some((n) => n.elementId === elementId);
+    isBuiltinBoard(boardId) || st.model.boards.find((b) => b.id === boardId)?.nodes.some((n) => n.elementId === elementId);
   if (onBoard) canvasApi.focus?.(elementId);
 }
 
