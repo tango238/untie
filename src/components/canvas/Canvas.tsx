@@ -170,7 +170,7 @@ function CanvasInner() {
       disableKeyboardA11y
       selectionKeyCode={null}
       fitView
-      fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+      fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
       minZoom={0.1}
       maxZoom={2}
       elementsSelectable

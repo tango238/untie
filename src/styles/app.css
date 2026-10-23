@@ -61,7 +61,7 @@ button.primary:hover:not(:disabled) { background: #335f91; }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger:hover:not(:disabled) { background: #9c372e; }
 button.danger-outline { color: var(--danger); border-color: var(--danger); }
-button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.active, button.active:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.link { border: none; background: none; padding: 0; color: var(--accent); text-align: left; text-decoration: underline; }
 button.icon-button { padding: 0 6px; min-width: 24px; }
 input, select, textarea { background: #fff; border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; }
@@ -153,6 +153,18 @@ textarea { resize: vertical; width: 100%; }
 .react-flow__edge-text { font-size: 11px; fill: var(--text); }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--selected); stroke-width: 2.5; }
 .react-flow__minimap-node { fill: #b9b3a6; }
+/* ミニマップは要素の色で塗る (枠は薄く) */
+.react-flow__minimap-node.mini-actor { fill: var(--c-actor); }
+.react-flow__minimap-node.mini-externalActor { fill: var(--c-externalActor); }
+.react-flow__minimap-node.mini-business { fill: color-mix(in srgb, var(--c-business) 25%, #fff); }
+.react-flow__minimap-node.mini-buc { fill: color-mix(in srgb, var(--c-buc) 35%, #fff); }
+.react-flow__minimap-node.mini-activity { fill: var(--c-activity); }
+.react-flow__minimap-node.mini-usecase { fill: var(--c-usecase); }
+.react-flow__minimap-node.mini-information { fill: var(--c-information); }
+.react-flow__minimap-node.mini-state { fill: var(--c-state); }
+.react-flow__minimap-node.mini-variation { fill: var(--c-variation); }
+.react-flow__minimap-node.mini-condition { fill: var(--c-condition); }
+.react-flow__minimap-node.mini-issue { fill: var(--c-issue); }
 
 /* プロパティ・課題 */
 .editor { padding: 0 12px 16px; display: flex; flex-direction: column; gap: 10px; }

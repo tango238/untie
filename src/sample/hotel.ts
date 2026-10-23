@@ -294,11 +294,13 @@ function column(ids: string[], x: number, y0: number, dy: number): BoardNode[] {
 const FRAME_Y = 200;
 const FRAME_H = 420;
 const ACT_STEP = 84;
+// 横長になりすぎて文字が小さくならないよう、後半の業務は 2 段目に置く
+const FRAME_Y2 = FRAME_Y + FRAME_H + 60;
 
-function frameWithActivities(bizId: string, x: number, actIds: string[]): BoardNode[] {
+function frameWithActivities(bizId: string, x: number, actIds: string[], y = FRAME_Y): BoardNode[] {
   return [
-    { elementId: bizId, x, y: FRAME_Y, width: 260, height: FRAME_H },
-    ...column(actIds, x + 40, FRAME_Y + 56, ACT_STEP),
+    { elementId: bizId, x, y, width: 260, height: FRAME_H },
+    ...column(actIds, x + 40, y + 56, ACT_STEP),
   ];
 }
 
@@ -317,8 +319,8 @@ const overviewNodes: BoardNode[] = [
   { elementId: "buc_dining", x: 920, y: FRAME_Y + 56, width: 220, height: 200 },
   { elementId: "act_room_service", x: 940, y: FRAME_Y + 112 },
   { elementId: "act_record_extra", x: 760, y: FRAME_Y + 300 },
-  ...frameWithActivities("biz_checkout", 1200, ["act_create_bill", "act_settle", "act_collect_key"]),
-  ...frameWithActivities("biz_cleaning", 1500, ["act_instruct_cleaning", "act_clean", "act_inspect_room"]),
+  ...frameWithActivities("biz_checkout", 40, ["act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
+  ...frameWithActivities("biz_cleaning", 340, ["act_instruct_cleaning", "act_clean", "act_inspect_room"], FRAME_Y2),
 ];
 
 const flowActivities = [
