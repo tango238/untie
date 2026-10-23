@@ -1,0 +1,141 @@
+import { create } from "zustand";
+import type { CommandResult } from "../model/commands";
+import type { UntieModel } from "../model/types";
+import { moveNode, type Position, type Size } from "../model/commands";
+import { createHotelSample } from "../sample";
+
+/** 履歴の上限 */
+export const HISTORY_LIMIT = 100;
+
+export type Selection = { type: "element"; id: string } | { type: "relation"; id: string } | null;
+export type RightPanel = "properties" | "issues";
+
+export interface UiState {
+  currentBoardId: string;
+  selection: Selection;
+  rightPanel: RightPanel;
+}
+
+export interface UntieState {
+  model: UntieModel;
+  history: { past: UntieModel[]; future: UntieModel[] };
+  ui: UiState;
+  /** ドラッグ開始時点のモデル (ドラッグ中のみ非 null) */
+  dragBase: UntieModel | null;
+
+  /** コマンドを実行し、成功したら履歴に積む。失敗や変更なしは何もしない */
+  dispatch: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
+  undo: () => void;
+  redo: () => void;
+  /** ドラッグ中の一時的な座標更新 (履歴に積まない) */
+  previewNode: (boardId: string, elementId: string, position: Position, size?: Size) => void;
+  /** ドラッグ終了。ドラッグ全体を 1 件の履歴として確定する */
+  commitDrag: () => void;
+  /** ドラッグを取り消して開始時点に戻す */
+  cancelDrag: () => void;
+
+  setCurrentBoard: (boardId: string) => void;
+  select: (selection: Selection) => void;
+  setRightPanel: (panel: RightPanel) => void;
+}
+
+/** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
+function reconcileUi(ui: UiState, model: UntieModel): UiState {
+  let { currentBoardId, selection } = ui;
+  if (!model.boards.some((b) => b.id === currentBoardId)) currentBoardId = model.boards[0]?.id ?? "";
+  if (selection) {
+    const exists =
+      selection.type === "element"
+        ? model.elements.some((e) => e.id === selection!.id)
+        : model.relations.some((r) => r.id === selection!.id);
+    if (!exists) selection = null;
+  }
+  if (currentBoardId === ui.currentBoardId && selection === ui.selection) return ui;
+  return { ...ui, currentBoardId, selection };
+}
+
+function pushPast(past: UntieModel[], snapshot: UntieModel): UntieModel[] {
+  const next = [...past, snapshot];
+  return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+}
+
+/** ストアを作る (テストでは初期モデルを渡す) */
+export function createUntieStore(initial: UntieModel = createHotelSample()) {
+  return create<UntieState>()((set, get) => ({
+    model: initial,
+    history: { past: [], future: [] },
+    ui: { currentBoardId: initial.boards[0]?.id ?? "", selection: null, rightPanel: "properties" },
+    dragBase: null,
+
+    dispatch: (command) => {
+      // ドラッグ途中ならそれを先に確定する
+      if (get().dragBase) get().commitDrag();
+      const { model, history, ui } = get();
+      const result = command(model);
+      if (!result.ok || result.model === model) return result;
+      set({
+        model: result.model,
+        history: { past: pushPast(history.past, model), future: [] },
+        ui: reconcileUi(ui, result.model),
+      });
+      return result;
+    },
+
+    undo: () => {
+      if (get().dragBase) get().commitDrag();
+      const { model, history, ui } = get();
+      const prev = history.past[history.past.length - 1];
+      if (!prev) return;
+      set({
+        model: prev,
+        history: { past: history.past.slice(0, -1), future: [model, ...history.future] },
+        ui: reconcileUi(ui, prev),
+      });
+    },
+
+    redo: () => {
+      if (get().dragBase) get().commitDrag();
+      const { model, history, ui } = get();
+      const next = history.future[0];
+      if (!next) return;
+      set({
+        model: next,
+        history: { past: pushPast(history.past, model), future: history.future.slice(1) },
+        ui: reconcileUi(ui, next),
+      });
+    },
+
+    previewNode: (boardId, elementId, position, size) => {
+      const { model, dragBase } = get();
+      const result = moveNode(model, { boardId, elementId, position, size });
+      if (!result.ok) return;
+      set({ model: result.model, dragBase: dragBase ?? model });
+    },
+
+    commitDrag: () => {
+      const { model, dragBase, history } = get();
+      if (!dragBase) return;
+      if (dragBase === model) {
+        set({ dragBase: null });
+        return;
+      }
+      set({ dragBase: null, history: { past: pushPast(history.past, dragBase), future: [] } });
+    },
+
+    cancelDrag: () => {
+      const { dragBase, ui } = get();
+      if (!dragBase) return;
+      set({ model: dragBase, dragBase: null, ui: reconcileUi(ui, dragBase) });
+    },
+
+    setCurrentBoard: (boardId) => {
+      if (!get().model.boards.some((b) => b.id === boardId)) return;
+      set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null } }));
+    },
+    select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
+    setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
+  }));
+}
+
+/** アプリ全体で使う単一ストア。起動時にサンプルを読み込む */
+export const useUntieStore = createUntieStore();

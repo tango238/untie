@@ -1,0 +1,137 @@
+import { describe, expect, it } from "vitest";
+import { addElement, removeElement, updateElement } from "../../model";
+import { HISTORY_LIMIT, createUntieStore } from "..";
+import { emptyModel } from "../../model/types";
+
+const rename = (id: string, name: string) => (m: Parameters<typeof updateElement>[0]) => updateElement(m, { id, patch: { name } });
+
+describe("ストア", () => {
+  it("起動時にサンプルを読み込み、最初のボードを開く", () => {
+    const s = createUntieStore();
+    expect(s.getState().model.elements.length).toBeGreaterThan(50);
+    expect(s.getState().ui.currentBoardId).toBe("board_overview");
+    expect(s.getState().history).toEqual({ past: [], future: [] });
+  });
+
+  it("dispatch で履歴に積まれ、undo / redo で行き来できる", () => {
+    const s = createUntieStore();
+    const original = s.getState().model;
+    s.getState().dispatch(rename("actor_front", "A"));
+    s.getState().dispatch(rename("actor_front", "B"));
+    const name = () => s.getState().model.elements.find((e) => e.id === "actor_front")!.name;
+    expect(name()).toBe("B");
+    s.getState().undo();
+    expect(name()).toBe("A");
+    s.getState().undo();
+    expect(s.getState().model).toBe(original);
+    s.getState().undo(); // 履歴が尽きても何も起きない
+    expect(s.getState().model).toBe(original);
+    s.getState().redo();
+    s.getState().redo();
+    expect(name()).toBe("B");
+    s.getState().redo();
+    expect(name()).toBe("B");
+  });
+
+  it("新しい操作で redo 履歴は消える", () => {
+    const s = createUntieStore();
+    s.getState().dispatch(rename("actor_front", "A"));
+    s.getState().undo();
+    expect(s.getState().history.future).toHaveLength(1);
+    s.getState().dispatch(rename("actor_front", "C"));
+    expect(s.getState().history.future).toHaveLength(0);
+  });
+
+  it("失敗したコマンドは履歴にもモデルにも影響しない", () => {
+    const s = createUntieStore();
+    const before = s.getState().model;
+    const r = s.getState().dispatch((m) => removeElement(m, { id: "nope" }));
+    expect(r.ok).toBe(false);
+    expect(s.getState().model).toBe(before);
+    expect(s.getState().history.past).toHaveLength(0);
+  });
+
+  it("変化のないコマンドは履歴に積まない", () => {
+    const s = createUntieStore();
+    s.getState().dispatch((m) => ({ ok: true, model: m }));
+    expect(s.getState().history.past).toHaveLength(0);
+  });
+
+  it("履歴は最大 100 件", () => {
+    const s = createUntieStore(emptyModel());
+    for (let i = 0; i < HISTORY_LIMIT + 20; i++) {
+      s.getState().dispatch((m) => addElement(m, { kind: "actor", name: `a${i}` }));
+    }
+    expect(s.getState().history.past).toHaveLength(HISTORY_LIMIT);
+    for (let i = 0; i < HISTORY_LIMIT + 20; i++) s.getState().undo();
+    // 古い 20 件分は戻れない
+    expect(s.getState().model.elements).toHaveLength(20);
+    expect(s.getState().history.future).toHaveLength(HISTORY_LIMIT);
+  });
+
+  it("ドラッグ中の previewNode は履歴に積まず、commitDrag で 1 件になる", () => {
+    const s = createUntieStore();
+    const before = s.getState().model;
+    const node = () => s.getState().model.boards[0].nodes.find((n) => n.elementId === "actor_front")!;
+    for (let i = 1; i <= 10; i++) s.getState().previewNode("board_overview", "actor_front", { x: i * 10, y: i * 10 });
+    expect(node()).toMatchObject({ x: 100, y: 100 });
+    expect(s.getState().history.past).toHaveLength(0);
+    s.getState().commitDrag();
+    expect(s.getState().history.past).toEqual([before]);
+    expect(s.getState().dragBase).toBeNull();
+    s.getState().undo();
+    expect(s.getState().model).toBe(before);
+    s.getState().redo();
+    expect(node()).toMatchObject({ x: 100, y: 100 });
+  });
+
+  it("動かさずに commitDrag しても履歴は増えない。cancelDrag は元に戻す", () => {
+    const s = createUntieStore();
+    const before = s.getState().model;
+    s.getState().commitDrag();
+    expect(s.getState().history.past).toHaveLength(0);
+    s.getState().previewNode("board_overview", "actor_front", { x: 1, y: 1 });
+    s.getState().cancelDrag();
+    expect(s.getState().model).toBe(before);
+    expect(s.getState().history.past).toHaveLength(0);
+  });
+
+  it("ドラッグ途中の dispatch はドラッグを先に確定する", () => {
+    const s = createUntieStore();
+    s.getState().previewNode("board_overview", "actor_front", { x: 1, y: 1 });
+    s.getState().dispatch(rename("actor_manager", "X"));
+    expect(s.getState().history.past).toHaveLength(2);
+    s.getState().undo();
+    expect(s.getState().model.boards[0].nodes.find((n) => n.elementId === "actor_front")).toMatchObject({ x: 1, y: 1 });
+  });
+
+  it("要素を消すと選択が外れ、Undo で戻せる", () => {
+    const s = createUntieStore();
+    s.getState().select({ type: "element", id: "act_clean" });
+    s.getState().dispatch((m) => removeElement(m, { id: "act_clean" }));
+    expect(s.getState().ui.selection).toBeNull();
+    s.getState().undo();
+    expect(s.getState().model.elements.some((e) => e.id === "act_clean")).toBe(true);
+  });
+
+  it("「空にする」は 1 件の履歴で、現在のボードが残るボードに切り替わり、Undo で戻る", () => {
+    const s = createUntieStore();
+    const before = s.getState().model;
+    s.getState().setCurrentBoard("board_flow");
+    s.getState().dispatch((m) => ({ ok: true, model: { ...m, elements: [], relations: [], boards: [{ id: "b", name: "ボード 1", nodes: [] }] } }));
+    expect(s.getState().ui.currentBoardId).toBe("b");
+    s.getState().undo();
+    expect(s.getState().model).toBe(before);
+    expect(s.getState().ui.currentBoardId).toBe("board_overview");
+  });
+
+  it("UI の状態変更は履歴に入らない", () => {
+    const s = createUntieStore();
+    s.getState().setCurrentBoard("board_flow");
+    s.getState().select({ type: "element", id: "act_clean" });
+    s.getState().setRightPanel("issues");
+    expect(s.getState().history.past).toHaveLength(0);
+    s.getState().setCurrentBoard("nope");
+    expect(s.getState().ui.currentBoardId).toBe("board_flow");
+  });
+});

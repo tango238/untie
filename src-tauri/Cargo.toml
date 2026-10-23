@@ -1,0 +1,25 @@
+[package]
+name = "untie"
+version = "0.1.0"
+description = "業務可視化ツール Untie"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+# Windows でバイナリ名と衝突しないよう `_lib` を付ける
+name = "untie_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+# https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
