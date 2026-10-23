@@ -16,15 +16,12 @@ import { defaultBucOf, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
   isIssueTargetKind,
-  kindLabelOf,
-  SYSTEM_MEDIUM_LABELS,
   type Activity,
   type Buc,
   type Element,
   type Information,
   type Issue,
   type Relation,
-  type SystemMedium,
   type UntieModel,
   type Variation,
 } from "../model/types";
@@ -145,7 +142,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
     <div className={`editor kind-${element.kind}`} data-testid="element-editor">
       <div className="kind-line">
         <span className="kind-dot" />
-        {kindLabelOf(element)}
+        {ELEMENT_KIND_LABELS[element.kind]}
       </div>
       <CommitField label="名前" value={element.name} inputRef={nameRef} onCommit={(name) => update({ name })} />
       {isGuideKind(element.kind) && !(element.kind === "buc" && element.isDefault) && (
@@ -165,22 +162,6 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
         {element.kind === "information" && <InformationFields information={element} model={model} />}
-        {element.kind === "system" && (
-          <label className="field">
-            <span className="field-label">媒体</span>
-            <select
-              aria-label="媒体"
-              value={element.medium}
-              onChange={(e) => update({ medium: e.target.value as SystemMedium })}
-            >
-              {Object.entries(SYSTEM_MEDIUM_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         {element.kind === "state" && (
           <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
         )}

@@ -15,14 +15,14 @@ export interface RelationRule {
 /** 設計書 3 章の表 */
 export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "actorBusiness", sources: ["actor"], targets: ["business"], label: "主担当", undirected: false },
-  { kind: "actorActivity", sources: ["actor", "externalActor"], targets: ["activity"], label: "担当", undirected: false },
+  { kind: "actorActivity", sources: ["actor", "externalActor", "system"], targets: ["activity"], label: "担当", undirected: false },
   { kind: "activityUsecase", sources: ["activity"], targets: ["usecase"], label: "使う", undirected: false },
   { kind: "usecaseInformation", sources: ["usecase"], targets: ["information"], label: "扱う", undirected: false },
   { kind: "usecaseCondition", sources: ["usecase"], targets: ["condition"], label: "判断", undirected: false },
   { kind: "informationRelated", sources: ["information"], targets: ["information"], label: "関連", undirected: true },
   { kind: "informationVariation", sources: ["information"], targets: ["variation"], label: "種別", undirected: false },
-  { kind: "systemInformation", sources: ["system"], targets: ["information"], label: "取得元", undirected: false },
-  { kind: "informationSystem", sources: ["information"], targets: ["system"], label: "保存先", undirected: false },
+  { kind: "systemInformation", sources: ["system", "ledger"], targets: ["information"], label: "取得元", undirected: false },
+  { kind: "informationSystem", sources: ["information"], targets: ["system", "ledger"], label: "保存先", undirected: false },
   { kind: "conditionVariation", sources: ["condition"], targets: ["variation"], label: "区分", undirected: false },
   { kind: "conditionState", sources: ["condition"], targets: ["state"], label: "状態参照", undirected: false },
   { kind: "stateUsecase", sources: ["state"], targets: ["usecase"], label: "実行可", undirected: false },

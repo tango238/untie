@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { Element, RelationKind, System, UntieModel } from "./schema";
+import type { Element, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -18,13 +18,14 @@ export type {
   Relation,
   RelationKind,
   State,
+  Ledger,
   System,
   UntieModel,
   Usecase,
   Variation,
 } from "./schema";
 
-/** 要素の種類 (13 種) */
+/** 要素の種類 (14 種) */
 export type ElementKind = Element["kind"];
 
 /** 種類 K の要素の型 */
@@ -40,6 +41,7 @@ export const ELEMENT_KINDS: readonly ElementKind[] = [
   "actor",
   "externalActor",
   "system",
+  "ledger",
   "business",
   "buc",
   "activity",
@@ -72,6 +74,7 @@ export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
   actor: "アクター",
   externalActor: "外部アクター",
   system: "システム",
+  ledger: "帳票",
   business: "業務",
   buc: "活動",
   activity: "作業",
@@ -83,19 +86,6 @@ export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
   condition: "条件",
   issue: "課題",
 };
-
-/** システムの媒体 */
-export type SystemMedium = System["medium"];
-
-export const SYSTEM_MEDIUM_LABELS: Record<SystemMedium, string> = {
-  system: "システム",
-  paper: "紙媒体",
-};
-
-/** 種類の表示名。システムは媒体 (システム / 紙媒体) で出す */
-export function kindLabelOf(element: Element): string {
-  return element.kind === "system" ? SYSTEM_MEDIUM_LABELS[element.medium] : ELEMENT_KIND_LABELS[element.kind];
-}
 
 export const ISSUE_TARGET_KINDS: readonly IssueTargetKind[] = ["business", "activity", "usecase"];
 

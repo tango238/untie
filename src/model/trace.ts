@@ -1,6 +1,7 @@
-// アクター / 外部アクターまで辿れるかの検証。純粋関数だけを置く。
+// 担い手 (アクター / 外部アクター / システム) まで辿れるかの検証。純粋関数だけを置く。
 // つながりは必須にしない (上から順に書き出していく途中の状態を許す) ので、
 // 辿り着けない要素と、どこで途切れているかを一覧にして知らせる。
+// 作業は担当 (担い手) を必ず持つ。業務を通って辿れても、担当が無ければ途切れとする。
 import { ELEMENT_KIND_LABELS, type Element, type ElementKind, type UntieModel } from "./types";
 
 /** 検証の対象にしない要素 (課題は対象要素に付くもの、既定 BUC は業務と一体) */
@@ -12,11 +13,12 @@ function isTraceTarget(e: Element): boolean {
 const NO_PARENT_REASONS: Partial<Record<ElementKind, string>> = {
   business: "主担当のアクターがいません",
   buc: "業務に属していません",
-  activity: "担当のアクターがおらず、業務にも属していません",
+  activity: "担当 (アクター・外部アクター・システム) がいません",
   usecase: "どの作業にも使われていません",
   context: "情報が入っていません",
   information: "どの操作にも扱われておらず、扱われている情報とも関連していません",
-  system: "どの情報の取得元・保存先にもなっていません",
+  system: "どの作業の担当にも、どの情報の取得元・保存先にもなっていません",
+  ledger: "どの情報の取得元・保存先にもなっていません",
   condition: "どの操作の判断にも使われていません",
   variation: "どの情報・条件の種別にもなっていません",
   state: "どの操作・条件ともつながっていません",
@@ -26,25 +28,27 @@ const NO_PARENT_REASONS: Partial<Record<ElementKind, string>> = {
 export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
   business: "業務のボードでアクターの枠の「既存から足す」で入れるか、プロパティ欄の「関係を追加」で主担当のアクターを結んでください。",
   buc: "プロパティ欄で業務を選んでください。",
-  activity: "プロパティ欄の「関係を追加」で担当のアクターを結ぶか、業務を選んでください。",
+  activity: "プロパティ欄の「関係を追加」で、担当のアクター・外部アクター・システムを結んでください。",
   usecase: "操作のボードで作業の枠の「既存から足す」で入れるか、プロパティ欄の「関係を追加」で使う作業を結んでください。",
   context: "情報のプロパティ欄で、このコンテキストを選んでください。",
   information: "情報のボードのプロパティ欄の「関係を追加」で、扱う操作を結んでください。",
-  system: "プロパティ欄の「関係を追加」で、取得元・保存先として情報を結んでください。",
+  system: "プロパティ欄の「関係を追加」で、担当する作業か、取得元・保存先として情報を結んでください。",
+  ledger: "プロパティ欄の「関係を追加」で、取得元・保存先として情報を結んでください。",
   condition: "プロパティ欄の「関係を追加」で、判断に使う操作を結んでください。",
   variation: "プロパティ欄の「関係を追加」で、種別にする情報か条件を結んでください。",
   state: "プロパティ欄の「関係を追加」で、操作か条件を結んでください。",
 };
 
 /**
- * 要素ごとの「アクターに近い側」の要素。これを辿ってアクター / 外部アクターに着けばよい。
+ * 要素ごとの「担い手に近い側」の要素。これを辿ってアクター / 外部アクター / システムに着けばよい。
  * - 業務 ← 主担当のアクター
  * - 活動 (BUC) ← 業務
- * - 作業 ← 担当のアクター・外部アクター、活動 (既定 BUC を通って業務)
+ * - 作業 ← 担当のアクター・外部アクター・システム (所属の活動・業務からは辿らない)
  * - 操作 ← 使う作業
  * - 情報 ← 扱う操作、関連する情報
  * - コンテキスト ← 入っている情報
- * - システム ← 取得元・保存先として結んだ情報
+ * - 帳票 ← 取得元・保存先として結んだ情報
+ * システムは担い手なので辿り着く先になる。何とも結ばれていないシステムは別に知らせる。
  * - 条件 ← 判断に使う操作
  * - バリエーション ← 種別にしている情報・条件
  * - 状態 ← 実行可・次の状態で結んだ操作、状態を参照する条件
@@ -58,7 +62,6 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
   };
   for (const e of model.elements) {
     if (e.kind === "buc") add(e.id, e.businessId);
-    if (e.kind === "activity" && e.bucId) add(e.id, e.bucId);
     if (e.kind === "information" && e.contextId) add(e.contextId, e.id);
   }
   for (const r of model.relations) {
@@ -77,7 +80,7 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
         break;
       case "stateUsecase":
       case "systemInformation":
-        // 始点が下位 (状態 → 操作、システム → 情報) なので向きを逆にする
+        // 始点が下位 (状態 → 操作、システム・帳票 → 情報) なので向きを逆にする
         add(r.sourceId, r.targetId);
         break;
       case "informationRelated":
@@ -103,7 +106,7 @@ export interface TraceProblem {
 export interface TraceResult {
   /** 検証した要素の数 (課題と既定 BUC を除く) */
   total: number;
-  /** アクター / 外部アクターに辿り着ける要素 id */
+  /** 担い手 (アクター / 外部アクター / システム) に辿り着ける要素 id */
   reached: Set<string>;
   /** 辿り着けない要素。途切れ箇所 → それ以外の順、同じなら要素の並び順 */
   problems: TraceProblem[];
@@ -111,7 +114,10 @@ export interface TraceResult {
 
 const label = (e: Element | undefined) => (e ? `${ELEMENT_KIND_LABELS[e.kind]}「${e.name || "(名前なし)"}」` : "");
 
-/** すべての要素がアクター / 外部アクターまで辿れるかを調べる */
+/** 担い手 (アクター / 外部アクター / システム) */
+const PERFORMER_KINDS: readonly ElementKind[] = ["actor", "externalActor", "system"];
+
+/** すべての要素が担い手まで辿れるかを調べる */
 export function traceToActors(model: UntieModel): TraceResult {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
   const parents = traceParents(model);
@@ -122,7 +128,7 @@ export function traceToActors(model: UntieModel): TraceResult {
 
   // アクター / 外部アクターから下位へ広げる
   const reached = new Set<string>();
-  const queue = model.elements.filter((e) => e.kind === "actor" || e.kind === "externalActor").map((e) => e.id);
+  const queue = model.elements.filter((e) => PERFORMER_KINDS.includes(e.kind)).map((e) => e.id);
   for (const id of queue) reached.add(id);
   while (queue.length > 0) {
     const id = queue.shift()!;
@@ -134,7 +140,13 @@ export function traceToActors(model: UntieModel): TraceResult {
   }
 
   const targets = model.elements.filter(isTraceTarget);
-  const unreached = targets.filter((e) => !reached.has(e.id));
+  // システムは辿り着く先だが、作業の担当にも情報の置き場所にもなっていなければ途切れとする
+  const linkedSystems = new Set<string>();
+  for (const r of model.relations) {
+    if (r.kind === "actorActivity" || r.kind === "systemInformation") linkedSystems.add(r.sourceId);
+    if (r.kind === "informationSystem") linkedSystems.add(r.targetId);
+  }
+  const unreached = targets.filter((e) => !reached.has(e.id) || (e.kind === "system" && !linkedSystems.has(e.id)));
   const parentsOf = (id: string) => (parents.get(id) ?? []).filter((p) => byId.has(p));
 
   // 上位をさかのぼって、上位の無い要素 (途切れ箇所) を集める

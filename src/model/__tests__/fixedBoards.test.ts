@@ -27,18 +27,19 @@ describe("固定ボードの id", () => {
 });
 
 describe("fixedGroups", () => {
-  it("アクター: アクター・外部アクター・システムの 3 枠", () => {
+  it("登場人物: アクター・外部アクター・システム・帳票の 4 枠", () => {
     const gs = fixedGroups(sample(), "actor");
-    expect(gs.map((g) => g.title)).toEqual(["アクター", "外部アクター", "システム"]);
+    expect(gs.map((g) => g.title)).toEqual(["アクター", "外部アクター", "システム", "帳票"]);
     expect(gs[1]!.items).toHaveLength(3);
-    expect(names(gs[2]!.items)).toEqual(["宿泊管理システム", "会計システム", "宿泊者名簿", "清掃チェック表"]);
+    expect(names(gs[2]!.items)).toEqual(["宿泊管理システム", "会計システム"]);
+    expect(names(gs[3]!.items)).toEqual(["宿泊者名簿", "清掃チェック表"]);
   });
 
-  it("システムの枠に足すと、媒体はシステムで作る", () => {
+  it("帳票の枠に足すと帳票を作る", () => {
     const m = sample();
-    const r = addToGroup(m, fixedGroups(m, "actor")[2]!, "予約台帳");
+    const r = addToGroup(m, fixedGroups(m, "actor")[3]!, "予約台帳");
     if (!r.ok) throw new Error(r.reason);
-    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "system", medium: "system" });
+    expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "ledger", name: "予約台帳" });
   });
 
   it("コンテキスト: 1 枠に並べる。情報はコンテキストごと、未分類は中身があるときだけ", () => {

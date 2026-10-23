@@ -69,6 +69,7 @@
         "actor",
         "externalActor",
         "system",
+        "ledger",
         "business",
         "buc",
         "activity",
@@ -98,6 +99,7 @@
         { "$ref": "#/$defs/actor" },
         { "$ref": "#/$defs/externalActor" },
         { "$ref": "#/$defs/system" },
+        { "$ref": "#/$defs/ledger" },
         { "$ref": "#/$defs/business" },
         { "$ref": "#/$defs/buc" },
         { "$ref": "#/$defs/activity" },
@@ -135,20 +137,27 @@
       }
     },
     "system": {
-      "description": "システム。情報の取得元・保存先。帳簿や注文票などの紙媒体も含む (medium で区別する)。",
+      "description": "システム。自社で使う情報システム。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。",
       "type": "object",
-      "required": ["id", "kind", "name", "medium"],
+      "required": ["id", "kind", "name"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "system" },
         "name": { "$ref": "#/$defs/name" },
-        "description": { "$ref": "#/$defs/description" },
-        "medium": {
-          "description": "媒体。system はシステム、paper は紙媒体 (帳簿・注文票など)。",
-          "type": "string",
-          "enum": ["system", "paper"]
-        }
+        "description": { "$ref": "#/$defs/description" }
+      }
+    },
+    "ledger": {
+      "description": "帳票。紙の台帳・伝票など。情報の取得元・保存先 (置き場所) にだけなり、作業の担当にはならない。",
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "ledger" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" }
       }
     },
     "business": {

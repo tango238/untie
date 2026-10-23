@@ -30,7 +30,7 @@ describe("FixedBoard", () => {
     expect(st().ui.guideOpen).toBe(true);
     const current = [...guide.querySelectorAll("thead th.is-current")].map((e) => e.textContent);
     expect(current).toEqual(["作業"]);
-    expect(within(guide).getByText(/1 人が一続きでやり終える/)).toBeDefined();
+    expect(within(guide).getByText(/一続きでやり終える/)).toBeDefined();
     guide.open = false;
     fireEvent(guide, new Event("toggle"));
     expect(st().ui.guideOpen).toBe(false);

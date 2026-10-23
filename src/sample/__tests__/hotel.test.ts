@@ -15,7 +15,8 @@ describe("宿泊施設サンプル", () => {
     expect(count("business")).toBe(5);
     expect(count("actor")).toBe(4);
     expect(count("externalActor")).toBe(3);
-    expect(count("system")).toBe(4);
+    expect(count("system")).toBe(2);
+    expect(count("ledger")).toBe(2);
     expect(count("buc")).toBe(5 + 2);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);

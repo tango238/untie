@@ -13,7 +13,7 @@ import {
   type FixedSection,
 } from "../model/fixedBoards";
 import { issueSummaries } from "../model/selectors";
-import { ELEMENT_KIND_LABELS, isIssueTargetKind, kindLabelOf, type Element, type UntieModel } from "../model/types";
+import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type UntieModel } from "../model/types";
 import { useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
@@ -24,13 +24,13 @@ import { IssueBadge } from "./IssueBadge";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
-  actor: "アクター・外部アクターと、情報の取得元・保存先になるシステムを並べます。",
+  actor: "作業の担い手 (アクター・外部アクター・システム) と、情報の置き場所 (システム・帳票) を並べます。",
   business: "アクターごとに、主担当の業務を並べます。業務 = 部門や担当で分かれる仕事の大きなまとまり。",
   buc: "業務ごとに活動を並べます。活動 = 1 つの目的を果たす作業のまとまり。",
-  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人が一続きでやり終える手順。",
-  usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳簿に対して行う 1 回の操作。",
+  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人 (または 1 つのシステム) が一続きでやり終える手順。",
+  usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳票に対して行う 1 回の操作。",
   context: "情報をまとめる親カテゴリを並べます。",
-  information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステムを出します。情報 = 記録や書類に当たる情報のまとまり。",
+  information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステム・帳票を出します。情報 = 記録や書類に当たる情報のまとまり。",
   condition: "操作ごとに、判断に使う条件を並べます。条件 = はい・いいえで答えられる判断 1 つ分。",
   state: "状態グループごとに状態を並べます。状態 = 情報やモノがたどる段階。",
   variation: "情報ごとに、種別 (バリエーション) を並べます。バリエーション = 情報や条件を分ける種別と値の一覧。",
@@ -234,7 +234,7 @@ function GroupView({
   const pushToast = useUntieStore((s) => s.pushToast);
 
   const parent = group.parentId ? model.elements.find((e) => e.id === group.parentId) : undefined;
-  const parentKind = parent?.kind ?? (group.childKind === "actor" || group.childKind === "externalActor" || group.childKind === "system" ? group.childKind : undefined);
+  const parentKind = parent?.kind ?? (group.link.type === "none" && group.parentId === null && group.key === group.childKind ? group.childKind : undefined);
   const canUnlink = group.link.type === "relation";
   const candidates = linkCandidates(model, fullGroup);
   const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
@@ -342,13 +342,13 @@ function FixedCard({
   return (
     <button
       type="button"
-      className={`fixed-card kind-${element.kind}${element.kind === "system" ? ` medium-${element.medium}` : ""}${selected ? " is-selected" : ""}`}
+      className={`fixed-card kind-${element.kind}${selected ? " is-selected" : ""}`}
       data-fixed-card={element.id}
       aria-pressed={selected}
       onClick={onClick}
     >
       <span className="fixed-card-top">
-        <span className="card-kind-inline">{kindLabelOf(element)}</span>
+        <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
         {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
       </span>
       <span className="fixed-card-name">{element.name || "(名前なし)"}</span>

@@ -6,6 +6,7 @@ export const ID_PREFIXES: Record<IdKind, string> = {
   actor: "actor",
   externalActor: "ext",
   system: "sys",
+  ledger: "ldg",
   business: "biz",
   buc: "buc",
   activity: "act",

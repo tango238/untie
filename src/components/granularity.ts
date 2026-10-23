@@ -26,7 +26,7 @@ export interface GranularityGuide {
 
 export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
   actor: {
-    what: "業務を行う社内の人の役割",
+    what: "作業を受け持つ社内の人の役割",
     size: "役割の単位。同じ作業を受け持つ人は 1 つにまとめる",
     naming: "「〇〇担当」「〇〇係」などの役割名",
     examples: "フロント担当、清掃担当、支配人",
@@ -36,24 +36,34 @@ export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
     nameHint: "個人名ではなく役割名で書きます (例: フロント担当)",
   },
   externalActor: {
-    what: "顧客・取引先・外部サービスなど、社外の人や組織",
-    size: "やり取りする相手の単位",
+    what: "顧客・取引先・外部サービスなど、社外の相手",
+    size: "やり取りする相手の単位。社外のシステムもここに入れる",
     naming: "相手の呼び名",
     examples: "宿泊客、予約サイト、決済サービス",
     tooBig: "外部の人 → 相手ごとに分ける",
     tooSmall: "常連の宿泊客 → 作業が変わらなければまとめる",
-    question: "社外の相手で、作業に関わるか (情報の置き場所ならシステム)",
-    nameHint: "相手の呼び名で書きます (例: 宿泊客)",
+    question: "社外の相手で、作業に関わるか (自社で使う仕組みならシステム)",
+    nameHint: "相手の呼び名で書きます (例: 宿泊客、予約サイト)",
   },
   system: {
-    what: "情報を取り出す・残す場所。帳簿や伝票などの紙も含む",
-    size: "情報を出し入れする 1 つの道具・台帳",
-    naming: "システム名・帳簿名",
-    examples: "宿泊管理システム、宿泊者名簿",
-    tooBig: "社内システム → 製品・台帳ごとに分ける",
+    what: "自社で使う情報システム。作業を自動で受け持ち、情報の置き場所にもなる",
+    size: "1 つの製品・仕組みの単位",
+    naming: "システム名",
+    examples: "宿泊管理システム、会計システム",
+    tooBig: "社内システム → 製品ごとに分ける",
     tooSmall: "予約画面 → システムの中の 1 画面 (操作に当たる)",
-    question: "情報をここから取り出す、またはここに残すか",
-    nameHint: "システム名・帳簿名で書きます (例: 宿泊管理システム、宿泊者名簿)",
+    question: "自社で使う仕組みで、作業を受け持つか、情報を持つか (紙なら帳票、社外なら外部アクター)",
+    nameHint: "システム名で書きます (例: 宿泊管理システム)",
+  },
+  ledger: {
+    what: "紙の台帳・伝票など、情報を書き残す・読み取る紙",
+    size: "1 冊の台帳・1 種類の伝票の単位",
+    naming: "台帳・伝票の名前",
+    examples: "宿泊者名簿、清掃チェック表",
+    tooBig: "紙の書類 → 台帳・伝票ごとに分ける",
+    tooSmall: "名簿の 1 ページ → 帳票の中身",
+    question: "紙で、情報を書き残したり読み取ったりするか (作業は受け持たない)",
+    nameHint: "台帳・伝票の名前で書きます (例: 宿泊者名簿)",
   },
   business: {
     what: "部門や担当で分かれる仕事の大きなまとまり",
@@ -76,23 +86,23 @@ export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
     nameHint: "まとまりの名前で書きます (例: 客室対応)",
   },
   activity: {
-    what: "人が行う 1 つの手順",
-    size: "1 人が一続きでやり終える。途中で担当が代わるなら分ける",
-    naming: "「〇〇を△△する」(人の動き)",
+    what: "人やシステムが行う 1 つの手順",
+    size: "1 人 (または 1 つのシステム) が一続きでやり終える。途中で担当が代わるなら分ける",
+    naming: "「〇〇を△△する」(担当の動き)",
     examples: "本人確認をする、鍵を渡す",
     tooBig: "チェックインする → 活動か業務に当たる",
     tooSmall: "鍵を棚から取る → 作業の手順の一部",
-    question: "誰がやるかを 1 人に決められるか",
-    nameHint: "「〇〇を△△する」と人の動きで書きます (例: 本人確認をする)",
+    question: "誰が (どのシステムが) やるかを決められるか。担当は必ず結ぶ",
+    nameHint: "「〇〇を△△する」と担当の動きで書きます (例: 本人確認をする)",
   },
   usecase: {
-    what: "作業の中で、システムや帳簿に対して行う 1 回の操作",
+    what: "作業の中で、システムや帳票に対して行う 1 回の操作",
     size: "画面 1 つ、または記入 1 回。情報を登録・検索・更新・取消するくらいの単位",
     naming: "「〇〇を△△する」(情報に対する動き)",
     examples: "チェックインを記録する、予約を検索する",
     tooBig: "予約を管理する → 登録・変更・取消に分ける",
     tooSmall: "氏名欄に入力する → 操作の中の 1 項目",
-    question: "どのシステム・帳簿の、どの情報に触れるか言えるか (言えなければ人の作業。紙の帳簿への記入も操作に含む)",
+    question: "どのシステム・帳票の、どの情報に触れるか言えるか (言えなければ作業。帳票への記入も操作に含む)",
     nameHint: "「〇〇を△△する」と情報に対する動きで書きます (例: チェックインを記録する)",
   },
   context: {
@@ -147,7 +157,7 @@ export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
   },
 };
 
-const PEOPLE: GuideKind[] = ["actor", "externalActor", "system"];
+const PEOPLE: GuideKind[] = ["actor", "externalActor", "system", "ledger"];
 const WORK: GuideKind[] = ["buc", "activity", "usecase"];
 const DATA: GuideKind[] = ["context", "information", "variation"];
 

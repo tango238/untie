@@ -10,7 +10,7 @@ describe("traceToActors", () => {
     expect(r.total).toBeGreaterThan(40);
   });
 
-  it("担当も業務も無い作業は途切れ箇所。その作業だけが使う操作・情報は、その作業で途切れている", () => {
+  it("担当の無い作業は途切れ箇所。その作業だけが使う操作・情報は、その作業で途切れている", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "activity", name: "孤立した作業", id: "act_x" }));
     m = okModel(addElement(m, { kind: "usecase", name: "孤立した操作", id: "uc_x" }));
@@ -23,42 +23,60 @@ describe("traceToActors", () => {
       ["uc_x", false, ["act_x"]],
       ["info_x", false, ["act_x"]],
     ]);
-    expect(r.problems[0]!.reason).toMatch(/担当のアクターがおらず/);
+    expect(r.problems[0]!.reason).toBe("担当 (アクター・外部アクター・システム) がいません");
     expect(r.problems[1]!.reason).toMatch(/作業「孤立した作業」から先が途切れています/);
-    // 作業を業務に入れると、業務の主担当を通って辿り着く
+    // 業務に入れても、担当が無ければ途切れたまま (作業の担当は必須)
     m = okModel(moveActivity(m, { activityId: "act_x", bucId: "buc_dining" }));
+    expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["act_x", "uc_x", "info_x"]);
+    // システムを担当にすると辿り着く
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "act_x" }));
     expect(traceToActors(m).problems).toEqual([]);
   });
 
-  it("主担当のいない業務は途切れ箇所で、担当のいない作業もその業務で途切れる", () => {
+  it("主担当のいない業務は途切れ箇所で、その活動も業務で途切れる。担当のいる作業は辿り着く", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "business", name: "新業務", id: "biz_x" }));
     m = okModel(addElement(m, { kind: "buc", name: "新活動", id: "buc_x", init: { businessId: "biz_x" } }));
     m = okModel(addElement(m, { kind: "activity", name: "新作業", id: "act_x", init: { bucId: "buc_x" } }));
+    m = okModel(addRelation(m, { sourceId: "actor_front", targetId: "act_x" }));
     const r = traceToActors(m);
     expect(r.problems.map((p) => [p.elementId, p.isBreak, p.breakIds])).toEqual([
       ["biz_x", true, ["biz_x"]],
       ["buc_x", false, ["biz_x"]],
-      ["act_x", false, ["biz_x"]],
     ]);
-    // 作業に担当を付ければ作業は辿り着く (業務と活動は主担当がいないので途切れたまま)
-    m = okModel(addRelation(m, { sourceId: "actor_front", targetId: "act_x" }));
-    expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["biz_x", "buc_x"]);
   });
 
-  it("コンテキスト・システム・バリエーション・状態・条件も、つながりが無ければ途切れ箇所", () => {
+  it("コンテキスト・システム・帳票・バリエーション・状態・条件も、つながりが無ければ途切れ箇所", () => {
     let m = sample();
-    for (const kind of ["context", "system", "variation", "state", "condition"] as const) {
+    for (const kind of ["context", "system", "ledger", "variation", "state", "condition"] as const) {
       m = okModel(addElement(m, { kind, name: kind, id: `x_${kind}` }));
     }
     const r = traceToActors(m);
     expect(r.problems.every((p) => p.isBreak)).toBe(true);
     const reasonOf = (id: string) => r.problems.find((p) => p.elementId === id)?.reason;
     expect(reasonOf("x_context")).toBe("情報が入っていません");
-    expect(reasonOf("x_system")).toBe("どの情報の取得元・保存先にもなっていません");
+    expect(reasonOf("x_system")).toBe("どの作業の担当にも、どの情報の取得元・保存先にもなっていません");
+    expect(reasonOf("x_ledger")).toBe("どの情報の取得元・保存先にもなっていません");
     expect(reasonOf("x_variation")).toBe("どの情報・条件の種別にもなっていません");
     expect(reasonOf("x_state")).toBe("どの操作・条件ともつながっていません");
     expect(reasonOf("x_condition")).toBe("どの操作の判断にも使われていません");
+  });
+
+  it("システムは辿り着く先。作業の担当か情報の置き場所になっていれば途切れにしない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "system", name: "新システム", id: "sys_x" }));
+    expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["sys_x"]);
+    const m1 = okModel(addRelation(m, { sourceId: "sys_x", targetId: "act_settle" }));
+    expect(traceToActors(m1).problems).toEqual([]);
+    const m2 = okModel(addRelation(m, { sourceId: "info_bill", targetId: "sys_x" }));
+    expect(traceToActors(m2).problems).toEqual([]);
+  });
+
+  it("情報はシステム・帳票からは辿らない (操作に扱われていなければ途切れ)", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "information", name: "台帳だけの情報", id: "info_x" }));
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "info_x" }));
+    expect(traceToActors(m).problems.map((p) => [p.elementId, p.isBreak])).toEqual([["info_x", true]]);
   });
 
   it("関連する情報どうしでつながっているだけなら、両方を途切れ箇所にする", () => {

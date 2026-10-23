@@ -12,6 +12,7 @@
   --c-actor: #4f8a6b;
   --c-externalActor: #7b6bb0;
   --c-system: #4a6a80;
+  --c-ledger: #7d6e5a;
   --c-business: #3b6ea5;
   --c-buc: #2f8f9d;
   --c-activity: #d08a2e;
@@ -41,6 +42,7 @@ body { background: var(--bg); }
 .kind-actor { --c: var(--c-actor); }
 .kind-externalActor { --c: var(--c-externalActor); }
 .kind-system { --c: var(--c-system); }
+.kind-ledger { --c: var(--c-ledger); }
 .kind-business { --c: var(--c-business); }
 .kind-buc { --c: var(--c-buc); }
 .kind-activity { --c: var(--c-activity); }
@@ -173,6 +175,7 @@ textarea { resize: vertical; width: 100%; }
 .react-flow__minimap-node.mini-actor { fill: var(--c-actor); }
 .react-flow__minimap-node.mini-externalActor { fill: var(--c-externalActor); }
 .react-flow__minimap-node.mini-system { fill: var(--c-system); }
+.react-flow__minimap-node.mini-ledger { fill: var(--c-ledger); }
 .react-flow__minimap-node.mini-business { fill: color-mix(in srgb, var(--c-business) 25%, #fff); }
 .react-flow__minimap-node.mini-buc { fill: color-mix(in srgb, var(--c-buc) 35%, #fff); }
 .react-flow__minimap-node.mini-activity { fill: var(--c-activity); }
@@ -267,9 +270,9 @@ textarea { resize: vertical; width: 100%; }
   opacity: 0.55; cursor: not-allowed;
 }
 
-/* システム: 紙媒体は破線で区別する */
-.card-node.medium-paper, .fixed-card.medium-paper, .actor-chip.medium-paper { border-style: dashed; }
-.fixed-card.medium-paper { border-left-style: solid; }
+/* 帳票 (紙) は破線で区別する */
+.card-node.kind-ledger, .fixed-card.kind-ledger, .actor-chip.kind-ledger { border-style: dashed; }
+.fixed-card.kind-ledger { border-left-style: solid; }
 .system-chips { justify-content: flex-start; }
 .system-chip-role { font-weight: 600; margin-right: 3px; }
 

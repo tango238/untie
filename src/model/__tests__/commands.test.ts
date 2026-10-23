@@ -46,12 +46,11 @@ describe("addElement", () => {
     let m = emptyModel();
     const biz = addElement(m, { kind: "business", name: "B" });
     m = okModel(biz);
-    const kinds = ["actor", "externalActor", "system", "usecase", "context", "information", "state", "variation", "condition", "issue", "activity"] as const;
+    const kinds = ["actor", "externalActor", "system", "ledger", "usecase", "context", "information", "state", "variation", "condition", "issue", "activity"] as const;
     for (const kind of kinds) m = okModel(addElement(m, { kind, name: ` ${kind} ` }));
     expect(m.elements.find((e) => e.kind === "issue")).toMatchObject({ severity: 3, targetIds: [], name: "issue" });
     expect(m.elements.find((e) => e.kind === "variation")).toMatchObject({ values: [] });
     expect(m.elements.find((e) => e.kind === "activity")).toMatchObject({ bucId: null });
-    expect(m.elements.find((e) => e.kind === "system")).toMatchObject({ medium: "system" });
     expect(m.elements.find((e) => e.kind === "information")).toMatchObject({ contextId: null });
     expectValid(m);
   });
@@ -118,8 +117,6 @@ describe("updateElement", () => {
     expect(el(m, "var_room_type")).toMatchObject({ values: ["a", "b"] });
     m = okModel(updateElement(m, { id: "issue_manual_entry", patch: { severity: 1 } }));
     expect(el(m, "issue_manual_entry")).toMatchObject({ severity: 1 });
-    m = okModel(updateElement(m, { id: "sys_pms", patch: { medium: "paper" } }));
-    expect(el(m, "sys_pms")).toMatchObject({ medium: "paper" });
     m = okModel(updateElement(m, { id: "st_res_confirmed", patch: { group: "G" } }));
     expect(el(m, "st_res_confirmed")).toMatchObject({ group: "G" });
     expectValid(m);
@@ -132,8 +129,6 @@ describe("updateElement", () => {
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { severity: 2.5 } }), /重要度/);
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { targetIds: ["actor_front"] } }), /対象/);
     expectFail(updateElement(m, { id: "nope", patch: { name: "x" } }), /存在しません/);
-    expectFail(updateElement(m, { id: "sys_pms", patch: { medium: "tape" as never } }), /媒体/);
-    expectFail(updateElement(m, { id: "info_room", patch: { medium: "paper" } }), /変更できません/);
     expectFail(updateElement(m, { id: "act_clean", patch: { bucId: "x" } as never }), /変更できません/);
   });
 });

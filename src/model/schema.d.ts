@@ -20,6 +20,7 @@ export type Element =
   | Actor
   | ExternalActor
   | System
+  | Ledger
   | Business
   | Buc
   | Activity
@@ -106,17 +107,22 @@ export interface ExternalActor {
   description?: Description;
 }
 /**
- * システム。情報の取得元・保存先。帳簿や注文票などの紙媒体も含む (medium で区別する)。
+ * システム。自社で使う情報システム。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。
  */
 export interface System {
   id: Id;
   kind: "system";
   name: Name;
   description?: Description;
-  /**
-   * 媒体。system はシステム、paper は紙媒体 (帳簿・注文票など)。
-   */
-  medium: "system" | "paper";
+}
+/**
+ * 帳票。紙の台帳・伝票など。情報の取得元・保存先 (置き場所) にだけなり、作業の担当にはならない。
+ */
+export interface Ledger {
+  id: Id;
+  kind: "ledger";
+  name: Name;
+  description?: Description;
 }
 /**
  * 業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。

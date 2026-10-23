@@ -112,25 +112,30 @@ describe("PropertyPanel", () => {
     expect(screen.getByLabelText("状態グループ")).toBeDefined();
   });
 
-  it("システムの媒体を切り替え、情報と取得元・保存先の関係を結べる", () => {
+  it("帳票は情報と取得元・保存先で結べ、担当の候補には出ない。システムは作業の担当に結べる", () => {
     onFixedBoard();
-    selectEl("sys_guest_register");
-    render(<PropertyPanel />);
-    expect(screen.getByText("紙媒体", { selector: ".kind-line" })).toBeDefined();
-    fireEvent.change(screen.getByLabelText("媒体"), { target: { value: "system" } });
-    expect(el("sys_guest_register")).toMatchObject({ medium: "system" });
-    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "sys_guest_register>info_guest" } });
-    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "info_reservation>sys_guest_register" } });
+    selectEl("ldg_guest_register");
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.getByText("帳票", { selector: ".kind-line" })).toBeDefined();
+    const options = () => [...(screen.getByLabelText("関係を追加") as HTMLSelectElement).querySelectorAll("optgroup")].map((g) => g.label);
+    expect(options().some((l) => l.includes("担当"))).toBe(false);
+    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "ldg_guest_register>info_room" } });
+    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "info_reservation>ldg_guest_register" } });
     const kinds = st()
-      .model.relations.filter((r) => r.sourceId === "sys_guest_register" || r.targetId === "sys_guest_register")
+      .model.relations.filter((r) => r.sourceId === "ldg_guest_register" || r.targetId === "ldg_guest_register")
       .map((r) => r.kind);
     expect(kinds).toEqual(expect.arrayContaining(["systemInformation", "informationSystem"]));
+    unmount();
+    selectEl("sys_accounting");
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "sys_accounting>act_settle" } });
+    expect(st().model.relations.some((r) => r.kind === "actorActivity" && r.sourceId === "sys_accounting" && r.targetId === "act_settle")).toBe(true);
   });
 
   it("名前欄の下に書き方を出す (課題は除く)", () => {
     selectEl("act_hand_key");
     const { unmount } = render(<PropertyPanel />);
-    expect(screen.getByText(/人の動きで書きます/)).toBeDefined();
+    expect(screen.getByText(/担当の動きで書きます/)).toBeDefined();
     unmount();
     selectEl("actor_front");
     const r2 = render(<PropertyPanel />);

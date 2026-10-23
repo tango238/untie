@@ -6,11 +6,9 @@ import { relationKindFor, sameRelation } from "./relations";
 import {
   isFrameKind,
   isIssueTargetKind,
-  SYSTEM_MEDIUM_LABELS,
   type Buc,
   type Element,
   type ElementKind,
-  type SystemMedium,
   type UntieModel,
 } from "./types";
 
@@ -48,8 +46,6 @@ export interface ElementInit {
   group?: string;
   /** variation */
   values?: string[];
-  /** system (省略時は system) */
-  medium?: SystemMedium;
   /** issue */
   severity?: number;
   targetIds?: string[];
@@ -65,7 +61,6 @@ export interface ElementPatch {
   description?: string;
   group?: string;
   values?: string[];
-  medium?: SystemMedium;
   severity?: number;
   targetIds?: string[];
 }
@@ -73,7 +68,8 @@ export interface ElementPatch {
 const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> = {
   actor: [],
   externalActor: [],
-  system: ["medium"],
+  system: [],
+  ledger: [],
   business: [],
   buc: [],
   activity: [],
@@ -120,10 +116,6 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
 
 function checkSeverity(severity: number): string | null {
   return Number.isInteger(severity) && severity >= 1 && severity <= 5 ? null : "重要度は 1〜5 の整数にしてください";
-}
-
-function checkMedium(medium: string): string | null {
-  return Object.keys(SYSTEM_MEDIUM_LABELS).includes(medium) ? null : `媒体が不正です: ${medium}`;
 }
 
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
@@ -177,10 +169,6 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     const ctx = findElement(model, init.contextId);
     if (!ctx || ctx.kind !== "context") return fail(`所属先のコンテキストが存在しません: ${init.contextId}`);
   }
-  if (kind === "system" && init.medium !== undefined) {
-    const reason = checkMedium(init.medium);
-    if (reason) return fail(reason);
-  }
   if (kind === "issue") {
     const reason = checkIssueTargets(model, init.targetIds ?? []);
     if (reason) return fail(reason);
@@ -202,11 +190,10 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     case "business":
     case "usecase":
     case "context":
+    case "system":
+    case "ledger":
     case "condition":
       element = { id, kind, name, ...description };
-      break;
-    case "system":
-      element = { id, kind, name, medium: init.medium ?? "system", ...description };
       break;
     case "buc":
       element = { id, kind, name, businessId: init.businessId!, isDefault: false, ...description };
@@ -271,10 +258,6 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   for (const key of Object.keys(patch)) {
     if (!allowed.has(key)) return fail(`この要素では「${key}」を変更できません`);
   }
-  if (patch.medium !== undefined) {
-    const reason = checkMedium(patch.medium);
-    if (reason) return fail(reason);
-  }
   if (patch.severity !== undefined) {
     const reason = checkSeverity(patch.severity);
     if (reason) return fail(reason);
@@ -302,7 +285,6 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       if (patch.group === "") delete el.group;
       else el.group = patch.group;
     }
-    if (el.kind === "system" && patch.medium !== undefined) el.medium = patch.medium;
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
     if (el.kind === "issue") {
       if (patch.severity !== undefined) el.severity = patch.severity;

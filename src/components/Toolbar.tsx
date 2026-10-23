@@ -138,7 +138,7 @@ export function Toolbar() {
             type="button"
             aria-pressed={rightPanel === "trace"}
             className={rightPanel === "trace" ? "active" : ""}
-            title="すべての要素がアクター／外部アクターまで辿れるかを調べる"
+            title="すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる"
             onClick={() => setRightPanel(rightPanel === "trace" ? "properties" : "trace")}
           >
             検証{traceCount > 0 && <span className="toolbar-count">{traceCount}</span>}

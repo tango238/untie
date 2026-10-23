@@ -8,17 +8,17 @@ import {
   type Element,
   type ElementKind,
   type FrameKind,
-  type SystemMedium,
   type UntieModel,
 } from "../../model/types";
 
 /** カードの表示サイズ (CSS と合わせる)。枠の当たり判定にも使う */
 export const CARD_SIZE = DEFAULT_CARD_SIZE;
 
-export type ActorLabel = { name: string; kind: "actor" | "externalActor" };
+/** 担当 (担い手) のラベル */
+export type ActorLabel = { name: string; kind: "actor" | "externalActor" | "system" };
 
-/** 情報の取得元・保存先のシステム */
-export type SystemLabel = { name: string; medium: SystemMedium; role: "source" | "store" };
+/** 情報の取得元・保存先 (システム・帳票) */
+export type SystemLabel = { name: string; kind: "system" | "ledger"; role: "source" | "store" };
 
 export type CardNodeData = {
   elementId: string;
@@ -28,8 +28,6 @@ export type CardNodeData = {
   label?: string;
   /** 担当アクター (線の代わりにラベルで出す) */
   actors?: ActorLabel[];
-  /** システムの媒体 */
-  medium?: SystemMedium;
   issueCount: number;
   maxSeverity: number;
 };
@@ -142,7 +140,7 @@ export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
   for (const r of model.relations) {
     if (!isShownAsLabel(r.kind)) continue;
     const actor = byId.get(r.sourceId);
-    if (!actor || (actor.kind !== "actor" && actor.kind !== "externalActor")) continue;
+    if (!actor || (actor.kind !== "actor" && actor.kind !== "externalActor" && actor.kind !== "system")) continue;
     const list = result.get(r.targetId) ?? [];
     list.push({ name: actor.name || "(名前なし)", kind: actor.kind });
     result.set(r.targetId, list);
@@ -150,7 +148,7 @@ export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
   return result;
 }
 
-/** 情報 id → 取得元・保存先のシステム (取得元 → 保存先、それぞれ関係の並び順) */
+/** 情報 id → 取得元・保存先のシステム・帳票 (取得元 → 保存先、それぞれ関係の並び順) */
 export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
   const byId = elementMap(model);
   const result = new Map<string, SystemLabel[]>();
@@ -160,9 +158,9 @@ export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
       if (r.kind !== kind) continue;
       const [sysId, infoId] = role === "source" ? [r.sourceId, r.targetId] : [r.targetId, r.sourceId];
       const sys = byId.get(sysId);
-      if (!sys || sys.kind !== "system") continue;
+      if (!sys || (sys.kind !== "system" && sys.kind !== "ledger")) continue;
       const list = result.get(infoId) ?? [];
-      list.push({ name: sys.name || "(名前なし)", medium: sys.medium, role });
+      list.push({ name: sys.name || "(名前なし)", kind: sys.kind, role });
       result.set(infoId, list);
     }
   }
@@ -236,7 +234,6 @@ export function buildFlowNodes(model: UntieModel, boardId: string, options: Buil
           name: el.name,
           ...(label ? { label } : {}),
           ...(actorsOf.has(el.id) ? { actors: actorsOf.get(el.id) } : {}),
-          ...(el.kind === "system" ? { medium: el.medium } : {}),
           issueCount: summary?.count ?? 0,
           maxSeverity: summary?.maxSeverity ?? 0,
         },

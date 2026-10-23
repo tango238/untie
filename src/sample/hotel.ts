@@ -17,12 +17,12 @@ const externalActors: Element[] = [
   { id: "ext_payment", kind: "externalActor", name: "決済サービス" },
 ];
 
-/** 情報の取得元・保存先。帳簿や記入表などの紙媒体も含む */
+/** 自社で使うシステム (作業の担当にも、情報の置き場所にもなる) と、紙の帳票 (情報の置き場所) */
 const systems: Element[] = [
-  { id: "sys_pms", kind: "system", name: "宿泊管理システム", medium: "system" },
-  { id: "sys_accounting", kind: "system", name: "会計システム", medium: "system" },
-  { id: "sys_guest_register", kind: "system", name: "宿泊者名簿", medium: "paper" },
-  { id: "sys_cleaning_sheet", kind: "system", name: "清掃チェック表", medium: "paper" },
+  { id: "sys_pms", kind: "system", name: "宿泊管理システム" },
+  { id: "sys_accounting", kind: "system", name: "会計システム" },
+  { id: "ldg_guest_register", kind: "ledger", name: "宿泊者名簿" },
+  { id: "ldg_cleaning_sheet", kind: "ledger", name: "清掃チェック表" },
 ];
 
 const businessDefs: [id: string, name: string][] = [
@@ -62,6 +62,7 @@ const activities: Element[] = [
   { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care" },
   { id: "act_room_service", kind: "activity", name: "ルームサービスを提供する", bucId: "buc_dining" },
   { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: dflt("biz_stay") },
+  { id: "act_calc_charge", kind: "activity", name: "宿泊料金を計算する", bucId: dflt("biz_checkout") },
   { id: "act_create_bill", kind: "activity", name: "請求を作成する", bucId: dflt("biz_checkout") },
   { id: "act_settle", kind: "activity", name: "精算する", bucId: dflt("biz_checkout") },
   { id: "act_collect_key", kind: "activity", name: "鍵を回収する", bucId: dflt("biz_checkout") },
@@ -78,6 +79,7 @@ const usecases: Element[] = [
   { id: "uc_cancel_reservation", kind: "usecase", name: "予約を取り消す" },
   { id: "uc_record_checkin", kind: "usecase", name: "チェックインを記録する" },
   { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する" },
+  { id: "uc_calc_charge", kind: "usecase", name: "請求金額を計算する" },
   { id: "uc_register_extra", kind: "usecase", name: "追加料金を登録する" },
   { id: "uc_issue_invoice", kind: "usecase", name: "請求書を発行する" },
   { id: "uc_record_payment", kind: "usecase", name: "決済を記録する" },
@@ -189,6 +191,8 @@ const pairs: [source: string, target: string][] = [
   ["actor_front", "act_room_service"],
   ["actor_front", "act_record_extra"],
   ["actor_front", "act_create_bill"],
+  // システムが担当する作業 (自動で行う)
+  ["sys_pms", "act_calc_charge"],
   ["actor_front", "act_settle"],
   ["ext_payment", "act_settle"],
   ["actor_front", "act_collect_key"],
@@ -206,6 +210,7 @@ const pairs: [source: string, target: string][] = [
   ["act_assign_room", "uc_assign_room"],
   ["act_record_extra", "uc_register_extra"],
   ["act_create_bill", "uc_issue_invoice"],
+  ["act_calc_charge", "uc_calc_charge"],
   ["act_settle", "uc_record_payment"],
   ["act_collect_key", "uc_record_checkout"],
   ["act_instruct_cleaning", "uc_update_cleaning"],
@@ -223,6 +228,8 @@ const pairs: [source: string, target: string][] = [
   ["uc_assign_room", "info_room"],
   ["uc_assign_room", "info_reservation"],
   ["uc_register_extra", "info_bill"],
+  ["uc_calc_charge", "info_bill"],
+  ["uc_calc_charge", "info_plan"],
   ["uc_issue_invoice", "info_bill"],
   ["uc_issue_invoice", "info_plan"],
   ["uc_record_payment", "info_bill"],
@@ -250,10 +257,10 @@ const pairs: [source: string, target: string][] = [
   // informationSystem (情報 → システム: 保存先)
   ["info_reservation", "sys_pms"],
   ["info_guest", "sys_pms"],
-  ["info_guest", "sys_guest_register"],
+  ["info_guest", "ldg_guest_register"],
   ["info_room", "sys_pms"],
   ["info_bill", "sys_accounting"],
-  ["info_cleaning_record", "sys_cleaning_sheet"],
+  ["info_cleaning_record", "ldg_cleaning_sheet"],
   // informationVariation
   ["info_room", "var_room_type"],
   ["info_reservation", "var_channel"],
@@ -346,7 +353,7 @@ const overviewNodes: BoardNode[] = [
   { elementId: "buc_dining", x: 920, y: FRAME_Y + 56, width: 220, height: 200 },
   { elementId: "act_room_service", x: 940, y: FRAME_Y + 112 },
   { elementId: "act_record_extra", x: 760, y: FRAME_Y + 300 },
-  ...frameWithActivities("biz_checkout", 40, ["act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
+  ...frameWithActivities("biz_checkout", 40, ["act_calc_charge", "act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
   ...frameWithActivities("biz_cleaning", 340, ["act_instruct_cleaning", "act_clean", "act_inspect_room"], FRAME_Y2),
 ];
 
@@ -359,6 +366,7 @@ const flowActivities = [
   "act_assign_room",
   "act_hand_key",
   "act_record_extra",
+  "act_calc_charge",
   "act_create_bill",
   "act_settle",
   "act_collect_key",
