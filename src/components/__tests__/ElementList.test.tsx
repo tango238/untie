@@ -85,4 +85,9 @@ describe("ElementList", () => {
     placeElement("act_verify_identity", { x: -900, y: 1500 });
     expect(st().model.elements.find((e) => e.id === "act_verify_identity")).toMatchObject({ bucId: "buc_default_checkin" });
   });
+
+  it("BUC の行には所属する業務名を「業務:」付きで出す", () => {
+    render(<ElementList />);
+    expect(within(screen.getByTestId("row-buc_room_care")).getByText("業務: 滞在中の対応")).toBeDefined();
+  });
 });

@@ -31,7 +31,11 @@ export function ElementList() {
     });
 
   const subtitle = (e: Element): string | null => {
-    if (e.kind === "buc") return model.elements.find((x) => x.id === e.businessId)?.name ?? null;
+    // 所属する業務 (上位) の名前。BUC の下位に見えないよう「業務:」を付ける
+    if (e.kind === "buc") {
+      const biz = model.elements.find((x) => x.id === e.businessId);
+      return biz ? `業務: ${biz.name}` : null;
+    }
     return null;
   };
 
