@@ -332,3 +332,27 @@ describe("PropertyPanel の時間", () => {
     expect(el("act_verify_identity")).not.toHaveProperty("hours");
   });
 });
+
+describe("PropertyPanel の固定ボードへ移るリンク", () => {
+  it("要素の固定ボードと上下のレイヤーへ移るリンクを出し、移った先でも要素を選んだままにする", () => {
+    resetStore();
+    act(() => st().setCurrentBoard("fixed:activity"));
+    act(() => st().select({ type: "element", id: "act_hand_key" }));
+    render(<PropertyPanel />);
+    const nav = screen.getByRole("navigation", { name: "固定ボードへ移る" });
+    const labels = within(nav).getAllByRole("button").map((b) => b.textContent);
+    expect(labels).toEqual(["↑ 活動", "↑ 登場人物", "作業", "↓ 操作"]);
+    // 今のボードは押せない
+    expect((within(nav).getByRole("button", { name: /この要素の固定ボード「作業」/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(nav).getByRole("button", { name: /下のレイヤーの固定ボード「操作」/ }));
+    expect(st().ui.currentBoardId).toBe("fixed:usecase");
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_hand_key" });
+  });
+
+  it("課題には出さない", () => {
+    resetStore();
+    act(() => st().select({ type: "element", id: "issue_manual_entry" }));
+    render(<PropertyPanel />);
+    expect(screen.queryByRole("navigation", { name: "固定ボードへ移る" })).toBeNull();
+  });
+});

@@ -54,6 +54,23 @@ export function fixedLayerOf(kind: ElementKind): FixedLayer | null {
   }
 }
 
+/**
+ * 固定ボードの上下のレイヤー (詳細化の向き)。プロパティ欄から隣のボードへ移るのに使う。
+ * 登場人物 → 業務 → 活動 → 作業 → 操作 → 情報・条件 → バリエーション・状態。コンテキストは情報の上
+ */
+export const LAYER_NEIGHBORS: Record<FixedLayer, { up: FixedLayer[]; down: FixedLayer[] }> = {
+  actor: { up: [], down: ["business", "activity"] },
+  business: { up: ["actor"], down: ["buc"] },
+  buc: { up: ["business"], down: ["activity"] },
+  activity: { up: ["buc", "actor"], down: ["usecase"] },
+  usecase: { up: ["activity"], down: ["information", "condition"] },
+  context: { up: [], down: ["information"] },
+  information: { up: ["usecase", "context"], down: ["variation"] },
+  condition: { up: ["usecase"], down: ["state", "variation"] },
+  state: { up: ["condition", "usecase"], down: [] },
+  variation: { up: ["information", "condition"], down: [] },
+};
+
 const PREFIX = "fixed:";
 
 export function fixedBoardId(layer: FixedLayer): string {

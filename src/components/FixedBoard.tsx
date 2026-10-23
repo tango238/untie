@@ -186,8 +186,13 @@ function SectionView({ section, model, children }: { section: FixedSection; mode
   const select = useUntieStore((s) => s.select);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const parent = section.parentId ? model.elements.find((e) => e.id === section.parentId) : undefined;
+  const selected = useUntieStore((s) => !!parent && s.ui.selection?.type === "element" && s.ui.selection.id === parent.id);
   return (
-    <section className={`fixed-section${parent ? ` kind-${parent.kind}` : ""}`} aria-label={section.title}>
+    <section
+      className={`fixed-section${parent ? ` kind-${parent.kind}` : ""}${selected ? " is-selected" : ""}`}
+      aria-label={section.title}
+      data-fixed-group={section.key}
+    >
       <h3 className="fixed-section-head">
         {parent ? (
           <button
@@ -257,7 +262,11 @@ function GroupView({
   };
 
   return (
-    <section className={`fixed-group${parentKind ? ` kind-${parentKind}` : ""}`} aria-label={group.title}>
+    <section
+      className={`fixed-group${parentKind ? ` kind-${parentKind}` : ""}${parent && selectedId === parent.id ? " is-selected" : ""}`}
+      aria-label={group.title}
+      data-fixed-group={group.key}
+    >
       <header className="fixed-group-head">
         {parent ? (
           <button type="button" className="fixed-group-title link-plain" onClick={() => choose(parent.id)}>

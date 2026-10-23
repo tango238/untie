@@ -112,3 +112,13 @@ describe("FixedBoard の時間", () => {
     expect(only.textContent).not.toContain("作業 ");
   });
 });
+
+describe("FixedBoard の選択の引き継ぎ", () => {
+  it("選んだ要素が枠の見出しになっているボードでは、その枠を選択中として出す", () => {
+    act(() => st().setCurrentBoard("fixed:usecase"));
+    act(() => st().select({ type: "element", id: "act_hand_key" }));
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getByRole("region", { name: "鍵を渡す" }).className).toContain("is-selected");
+    expect(screen.getByRole("region", { name: "到着を確認する" }).className).not.toContain("is-selected");
+  });
+});

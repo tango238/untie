@@ -13,6 +13,7 @@ import {
 } from "../model/commands";
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "../model/relations";
 import { suggestContext } from "../model/contexts";
+import { FIXED_LAYER_LABELS, LAYER_NEIGHBORS, fixedBoardId, fixedLayerOf, type FixedLayer } from "../model/fixedBoards";
 import { activityHours, defaultBucOf, formatHours, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
@@ -28,7 +29,7 @@ import {
   type Variation,
 } from "../model/types";
 import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
-import { selectAndReveal } from "./actions";
+import { goToLayer, selectAndReveal } from "./actions";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
 import { HoursField } from "./Hours";
@@ -148,6 +149,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         <span className="kind-dot" />
         {ELEMENT_KIND_LABELS[element.kind]}
       </div>
+      <LayerNav element={element} boardId={boardId} />
       <CommitField label="名前" value={element.name} inputRef={nameRef} onCommit={(name) => update({ name })} />
       {isGuideKind(element.kind) && !(element.kind === "buc" && element.isDefault) && (
         <p className="hint name-hint">{GRANULARITY[element.kind].nameHint}</p>
@@ -274,6 +276,36 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 }
 
 const handledFocus = { nonce: 0 };
+
+/** この要素の固定ボードと、その上下のレイヤーの固定ボードへ移るリンク */
+function LayerNav({ element, boardId }: { element: Element; boardId: string }) {
+  const own = fixedLayerOf(element.kind);
+  if (!own) return null;
+  const { up, down } = LAYER_NEIGHBORS[own];
+  const link = (layer: FixedLayer, dir: "up" | "own" | "down") => {
+    const current = boardId === fixedBoardId(layer);
+    return (
+      <button
+        key={`${dir}-${layer}`}
+        type="button"
+        className={`layer-link is-${dir}${current ? " is-current" : ""}`}
+        disabled={current}
+        aria-label={`${dir === "up" ? "上のレイヤー" : dir === "down" ? "下のレイヤー" : "この要素"}の固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
+        onClick={() => goToLayer(layer, element.id)}
+      >
+        {dir === "up" ? "↑ " : dir === "down" ? "↓ " : ""}
+        {FIXED_LAYER_LABELS[layer]}
+      </button>
+    );
+  };
+  return (
+    <nav className="layer-nav" aria-label="固定ボードへ移る">
+      {up.map((l) => link(l, "up"))}
+      {link(own, "own")}
+      {down.map((l) => link(l, "down"))}
+    </nav>
+  );
+}
 
 // ---------------------------------------------------------------- 種類固有
 
