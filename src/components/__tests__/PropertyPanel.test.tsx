@@ -127,12 +127,16 @@ describe("PropertyPanel", () => {
     expect(kinds).toEqual(expect.arrayContaining(["systemInformation", "informationSystem"]));
   });
 
-  it("活動・作業・操作では名前欄の下に書き方を出す", () => {
+  it("名前欄の下に書き方を出す (課題は除く)", () => {
     selectEl("act_hand_key");
     const { unmount } = render(<PropertyPanel />);
     expect(screen.getByText(/人の動きで書きます/)).toBeDefined();
     unmount();
     selectEl("actor_front");
+    const r2 = render(<PropertyPanel />);
+    expect(screen.getByText(/役割名で書きます/)).toBeDefined();
+    r2.unmount();
+    selectEl("issue_manual_entry");
     render(<PropertyPanel />);
     expect(screen.queryByText(/で書きます/)).toBeNull();
   });

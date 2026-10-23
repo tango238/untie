@@ -19,21 +19,21 @@ import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
 import { SystemChips } from "./canvas/SystemChips";
 import { actorLabels, systemLabels, type SystemLabel } from "./canvas/toFlow";
-import { GRANULARITY, GUIDE_KINDS, isGuideKind, type GranularityGuide, type GuideKind } from "./granularity";
+import { GRANULARITY, LAYER_GUIDES, type GranularityGuide, type GuideKind } from "./granularity";
 import { IssueBadge } from "./IssueBadge";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
   actor: "アクター・外部アクターと、情報の取得元・保存先になるシステムを並べます。",
-  business: "アクターごとに、主担当の業務を並べます。",
+  business: "アクターごとに、主担当の業務を並べます。業務 = 部門や担当で分かれる仕事の大きなまとまり。",
   buc: "業務ごとに活動を並べます。活動 = 1 つの目的を果たす作業のまとまり。",
   activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人が一続きでやり終える手順。",
   usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳簿に対して行う 1 回の操作。",
   context: "情報をまとめる親カテゴリを並べます。",
-  information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステムを出します。",
-  condition: "操作ごとに、判断に使う条件を並べます。",
-  state: "状態グループごとに状態を並べます。",
-  variation: "情報ごとに、種別 (バリエーション) を並べます。",
+  information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステムを出します。情報 = 記録や書類に当たる情報のまとまり。",
+  condition: "操作ごとに、判断に使う条件を並べます。条件 = はい・いいえで答えられる判断 1 つ分。",
+  state: "状態グループごとに状態を並べます。状態 = 情報やモノがたどる段階。",
+  variation: "情報ごとに、種別 (バリエーション) を並べます。バリエーション = 情報や条件を分ける種別と値の一覧。",
 };
 
 function cardSelector(id: string) {
@@ -80,7 +80,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
           onChange={(e) => setFixedFilter(layer, e.target.value)}
         />
       </div>
-      {isGuideKind(layer) && <GuidePanel current={layer} />}
+      <GuidePanel {...LAYER_GUIDES[layer]} />
       {hint && <p className="hint">{hint}</p>}
       {query.trim() !== "" && groups.length === 0 && <p className="hint">「{query.trim()}」に一致する要素はありません。</p>}
       {splitSections(groups).map(({ section, groups: gs }) => {
@@ -121,25 +121,25 @@ const GUIDE_ROWS: { key: keyof GranularityGuide; label: string }[] = [
   { key: "tooSmall", label: "細かすぎる例" },
 ];
 
-/** 活動・作業・操作の書き方と粒度を 3 段並べて見せる。今のボードの段を強調する */
-function GuidePanel({ current }: { current: GuideKind }) {
+/** ボードで扱う要素と、取り違えやすい要素の書き方と粒度を並べて見せる。今のボードの種類を強調する */
+function GuidePanel({ kinds, current }: { kinds: GuideKind[]; current?: GuideKind }) {
   const open = useUntieStore((s) => s.ui.guideOpen ?? false);
   const setGuideOpen = useUntieStore((s) => s.setGuideOpen);
   return (
     <details
-      className="fixed-guide"
+      className={`fixed-guide${current ? "" : " no-current"}`}
       open={open}
       onToggle={(e) => {
         const next = (e.currentTarget as HTMLDetailsElement).open;
         if (next !== open) setGuideOpen(next);
       }}
     >
-      <summary>書き方のヒント (活動・作業・操作の粒度)</summary>
+      <summary>書き方のヒント ({kinds.map((k) => ELEMENT_KIND_LABELS[k]).join("・")}の粒度)</summary>
       <table className="guide-table">
         <thead>
           <tr>
             <th scope="col" />
-            {GUIDE_KINDS.map((k) => (
+            {kinds.map((k) => (
               <th key={k} scope="col" className={k === current ? "is-current" : undefined}>
                 {ELEMENT_KIND_LABELS[k]}
               </th>
@@ -150,7 +150,7 @@ function GuidePanel({ current }: { current: GuideKind }) {
           {GUIDE_ROWS.map((row) => (
             <tr key={row.key}>
               <th scope="row">{row.label}</th>
-              {GUIDE_KINDS.map((k) => (
+              {kinds.map((k) => (
                 <td key={k} className={k === current ? "is-current" : undefined}>
                   {GRANULARITY[k][row.key]}
                 </td>
@@ -160,7 +160,7 @@ function GuidePanel({ current }: { current: GuideKind }) {
         </tbody>
       </table>
       <ul className="guide-questions">
-        {GUIDE_KINDS.map((k) => (
+        {kinds.map((k) => (
           <li key={k} className={k === current ? "is-current" : undefined}>
             <b>{ELEMENT_KIND_LABELS[k]}</b>: {GRANULARITY[k].question}
           </li>

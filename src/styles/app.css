@@ -286,3 +286,5 @@ textarea { resize: vertical; width: 100%; }
 .guide-questions { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
 .guide-questions .is-current { color: var(--text); }
 .name-hint { margin-top: -4px; }
+.guide-table thead th:first-child { width: 7.5em; }
+.fixed-guide.no-current .guide-questions { color: var(--text); }

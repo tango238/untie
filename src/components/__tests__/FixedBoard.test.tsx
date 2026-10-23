@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
+import { FIXED_LAYERS } from "../../model/fixedBoards";
 import { FixedBoard } from "../FixedBoard";
 
 const st = () => useUntieStore.getState();
@@ -38,9 +39,16 @@ describe("FixedBoard", () => {
     expect(screen.getByText(/書き方のヒント/).closest("details")!.open).toBe(false);
   });
 
-  it("他のボードには書き方のヒントを出さない", () => {
+  it("どの固定ボードにも書き方のヒントを出す。登場人物は 3 種類とも並ぶので強調しない", () => {
+    for (const layer of FIXED_LAYERS) {
+      const { unmount } = render(<FixedBoard layer={layer} />);
+      expect(screen.getByText(/書き方のヒント/)).toBeDefined();
+      unmount();
+    }
     render(<FixedBoard layer="actor" />);
-    expect(screen.queryByText(/書き方のヒント/)).toBeNull();
+    const guide = screen.getByText(/書き方のヒント/).closest("details")!;
+    expect(guide.querySelector("summary")!.textContent).toContain("アクター・外部アクター・システム");
+    expect(guide.querySelectorAll(".is-current")).toHaveLength(0);
   });
 
   it("絞り込みで一致する要素だけを出す", () => {
