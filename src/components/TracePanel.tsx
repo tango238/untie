@@ -4,7 +4,10 @@ import { ELEMENT_KIND_LABELS, type Element } from "../model/types";
 import { useUntieStore } from "../store";
 import { revealOnFixedBoard } from "./actions";
 
-/** すべての要素がアクター / 外部アクターまで辿れるかを、途切れている箇所ごとに出す */
+/**
+ * すべての要素がアクター / 外部アクターまで辿れるかを、途切れている箇所ごとに出す。
+ * 直す場所で迷わないよう、リンクにするのは途切れ箇所の要素だけにし、その先の要素は件数だけを出す
+ */
 export function TracePanel() {
   const model = useUntieStore((s) => s.model);
   const result = useMemo(() => traceToActors(model), [model]);
@@ -70,14 +73,19 @@ function BreakRow({ problem, element, downstream }: { problem: TraceProblem; ele
         <ElementLink element={element} />
       </div>
       <div className="trace-reason">{problem.reason}</div>
+      {problem.fix && <div className="trace-fix">{problem.fix}</div>}
       {downstream.length > 0 && (
-        <div className="trace-downstream">
-          <span className="hint">この先で辿り着けない要素 ({downstream.length}):</span>
-          {downstream.map((d) => (
-            <ElementLink key={d.id} element={d} />
-          ))}
+        <div className="trace-downstream hint" title={downstream.map((d) => d.name || "(名前なし)").join("、")}>
+          この箇所の先で、ほかに {downstream.length} 件 ({downstreamKinds(downstream)}) も辿り着けません。
         </div>
       )}
     </li>
   );
+}
+
+/** 「作業 1・操作 2」のような種類ごとの件数 */
+function downstreamKinds(elements: Element[]): string {
+  const counts = new Map<string, number>();
+  for (const e of elements) counts.set(ELEMENT_KIND_LABELS[e.kind], (counts.get(ELEMENT_KIND_LABELS[e.kind]) ?? 0) + 1);
+  return [...counts].map(([k, n]) => `${k} ${n}`).join("・");
 }

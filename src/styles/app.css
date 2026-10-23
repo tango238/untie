@@ -296,7 +296,8 @@ textarea { resize: vertical; width: 100%; }
 .trace-row { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
 .trace-head { display: flex; align-items: center; gap: 6px; }
 .trace-reason { font-size: 12px; color: var(--danger); }
-.trace-downstream { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; }
+.trace-fix { font-size: 12px; line-height: 1.5; }
+.trace-downstream { font-size: 11px; }
 .trace-panel .chip-link { display: inline-flex; align-items: center; }
 .trace-panel .chip-link .kind-dot { width: 7px; height: 7px; margin-right: 4px; }
 .trace-rule { margin: 10px 12px; font-size: 12px; }

@@ -22,6 +22,20 @@ const NO_PARENT_REASONS: Partial<Record<ElementKind, string>> = {
   state: "どの操作・条件ともつながっていません",
 };
 
+/** 途切れ箇所の直し方 (その要素自身を編集して直せること) */
+export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
+  business: "業務のボードでアクターの枠の「既存から足す」で入れるか、プロパティ欄の「関係を追加」で主担当のアクターを結んでください。",
+  buc: "プロパティ欄で業務を選んでください。",
+  activity: "プロパティ欄の「関係を追加」で担当のアクターを結ぶか、業務を選んでください。",
+  usecase: "操作のボードで作業の枠の「既存から足す」で入れるか、プロパティ欄の「関係を追加」で使う作業を結んでください。",
+  context: "情報のプロパティ欄で、このコンテキストを選んでください。",
+  information: "情報のボードのプロパティ欄の「関係を追加」で、扱う操作を結んでください。",
+  system: "プロパティ欄の「関係を追加」で、取得元・保存先として情報を結んでください。",
+  condition: "プロパティ欄の「関係を追加」で、判断に使う操作を結んでください。",
+  variation: "プロパティ欄の「関係を追加」で、種別にする情報か条件を結んでください。",
+  state: "プロパティ欄の「関係を追加」で、操作か条件を結んでください。",
+};
+
 /**
  * 要素ごとの「アクターに近い側」の要素。これを辿ってアクター / 外部アクターに着けばよい。
  * - 業務 ← 主担当のアクター
@@ -80,6 +94,8 @@ export interface TraceProblem {
   /** ここで途切れている (上位が無い) か */
   isBreak: boolean;
   reason: string;
+  /** 途切れ箇所の直し方 (途切れ箇所だけ) */
+  fix?: string;
   /** 途切れている箇所の要素 id (自分が途切れ箇所なら自分) */
   breakIds: string[];
 }
@@ -146,7 +162,13 @@ export function traceToActors(model: UntieModel): TraceResult {
     const ps = parentsOf(e.id);
     const breakIds = breaksOf(e.id);
     if (ps.length === 0) {
-      return { elementId: e.id, isBreak: true, reason: NO_PARENT_REASONS[e.kind] ?? "上位とつながっていません", breakIds: [e.id] };
+      return {
+        elementId: e.id,
+        isBreak: true,
+        reason: NO_PARENT_REASONS[e.kind] ?? "上位とつながっていません",
+        ...(FIX_HINTS[e.kind] ? { fix: FIX_HINTS[e.kind] } : {}),
+        breakIds: [e.id],
+      };
     }
     if (breakIds.length === 0) {
       // 上位はあるが、互いにつながっているだけで外へ出られない (関連する情報どうしなど)
@@ -154,6 +176,7 @@ export function traceToActors(model: UntieModel): TraceResult {
         elementId: e.id,
         isBreak: true,
         reason: `${NO_PARENT_REASONS[e.kind] ?? "上位とつながっていません"} (つながっている${ps.map((p) => label(byId.get(p))).join("、")}も辿り着けません)`,
+        ...(FIX_HINTS[e.kind] ? { fix: FIX_HINTS[e.kind] } : {}),
         breakIds: [e.id],
       };
     }
