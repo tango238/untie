@@ -12,9 +12,23 @@ const st = () => useUntieStore.getState();
 beforeEach(() => resetStore());
 
 describe("Toolbar", () => {
-  it("保存しない旨の注意書きを常に出す", () => {
+  it("ファイルの状態を出す。編集すると未保存の印、保存すると消える", () => {
     render(<Toolbar />);
-    expect(screen.getByRole("note").textContent).toContain("保存しません");
+    const status = () => screen.getByRole("status", { name: "ファイルの状態" }).textContent;
+    expect(status()).toContain("サンプル");
+    expect(status()).not.toContain("保存していない変更");
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "x" }));
+    });
+    expect(status()).toContain("保存していない変更");
+    act(() => st().markSaved({ path: "/tmp/a.json", name: "a.json" }, st().model));
+    expect(status()).toContain("ファイル: a.json");
+    expect(status()).not.toContain("保存していない変更");
+    // 取り消すと保存したときと違うので未保存、やり直すと保存したときに戻る
+    act(() => st().undo());
+    expect(status()).toContain("保存していない変更");
+    act(() => st().redo());
+    expect(status()).not.toContain("保存していない変更");
   });
 
   it("ボードを切り替えられる", () => {

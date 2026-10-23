@@ -1,14 +1,16 @@
 // スキーマ検証 (ajv, 2020-12) + 参照整合性の検査。
-import Ajv2020, { type ErrorObject } from "ajv/dist/2020";
-import schema from "../../schema/untie.schema.json";
+import type { ErrorObject } from "ajv";
+// 検証関数は事前に生成しておく (アプリの CSP が eval を許さないため、実行時に ajv.compile() できない)
+import * as generated from "./schemaValidator.gen.js";
 import { relationKindFor, sameRelation } from "./relations";
 import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind } from "./types";
 import type { Element, UntieModel } from "./types";
 
 export type ValidationResult = { ok: true; model: UntieModel } | { ok: false; errors: string[] };
 
-const ajv = new Ajv2020({ allErrors: true, strict: false });
-const validateSchema = ajv.compile(schema);
+type Validator = ((data: unknown) => boolean) & { errors?: ErrorObject[] | null };
+const validators = generated as unknown as Record<string, Validator | undefined>;
+const validateSchema = validators.validateModelSchema!;
 
 /** instancePath (/elements/3/name) を elements[3].name の形にする */
 function pathLabel(instancePath: string): string {
@@ -56,8 +58,8 @@ function describeError(e: ErrorObject): string {
 }
 
 /** 種類ごとの要素スキーマの検証関数 */
-function elementValidator(kind: string) {
-  return ajv.getSchema(`${schema.$id}#/$defs/${kind}`);
+function elementValidator(kind: string): Validator | undefined {
+  return validators[`validate_${kind}`];
 }
 
 /**

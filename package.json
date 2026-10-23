@@ -9,11 +9,14 @@
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "gen:types": "json2ts -i schema/untie.schema.json -o src/model/schema.d.ts",
-    "check:types": "pnpm gen:types && git diff --exit-code src/model/schema.d.ts"
+    "gen:types": "json2ts -i schema/untie.schema.json -o src/model/schema.d.ts && node scripts/gen-validator.mjs",
+    "check:types": "pnpm gen:types && git diff --exit-code src/model/schema.d.ts src/model/schemaValidator.gen.js",
+    "gen:validator": "node scripts/gen-validator.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-opener": "^2.7.2",
     "@xyflow/react": "^12.12.0",
     "ajv": "^8.20.0",
     "immer": "^11.2.7",

@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands";
 import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
-import { isFixedBoard, useUntieStore } from "../store";
+import { openDocument, saveDocument } from "../io/document";
+import { hasUnsavedChanges, isFixedBoard, useUntieStore } from "../store";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Dialog = "removeBoard" | "clearAll" | null;
@@ -21,6 +22,8 @@ export function Toolbar() {
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const model = useUntieStore((s) => s.model);
   const traceCount = useMemo(() => traceToActors(model).problems.length, [model]);
+  const file = useUntieStore((s) => s.file);
+  const dirty = useUntieStore(hasUnsavedChanges);
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
   const setCurrentBoard = useUntieStore((s) => s.setCurrentBoard);
@@ -57,6 +60,18 @@ export function Toolbar() {
     <header className="toolbar">
       <div className="toolbar-row">
         <h1 className="app-name">Untie</h1>
+
+        <div className="toolbar-group">
+          <button type="button" title="開く (Cmd/Ctrl+O)" onClick={() => void openDocument()}>
+            開く
+          </button>
+          <button type="button" title="保存 (Cmd/Ctrl+S)" onClick={() => void saveDocument()}>
+            保存
+          </button>
+          <button type="button" title="別名で保存 (Shift+Cmd/Ctrl+S)" onClick={() => void saveDocument(true)}>
+            別名で保存
+          </button>
+        </div>
 
         <div className="toolbar-group">
           {renaming === null ? (
@@ -157,8 +172,9 @@ export function Toolbar() {
         </div>
       </div>
 
-      <div className="notice" role="note">
-        ⚠ このアプリは保存しません。起動時にサンプルが読み込まれ、終了すると消えます。
+      <div className={`notice${dirty ? " is-dirty" : ""}`} role="status" aria-label="ファイルの状態">
+        {file ? `ファイル: ${file.name}` : "サンプル (まだ保存していません)"}
+        {dirty && <span className="notice-dirty">● 保存していない変更があります</span>}
       </div>
 
       {dialog === "removeBoard" && board && (

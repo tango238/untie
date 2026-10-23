@@ -31,8 +31,18 @@ export interface ToastItem {
   tone: ToastTone;
 }
 
+/** 開いているファイル。path は保存先 (ブラウザでは無い)、name は表示名 */
+export interface DocumentFile {
+  path: string | null;
+  name: string;
+}
+
 export interface UntieState {
   model: UntieModel;
+  /** 開いているファイル (サンプルや新規なら null) */
+  file: DocumentFile | null;
+  /** 最後に保存・読み込みしたときのモデル。model と同じ参照なら未保存の変更は無い */
+  savedModel: UntieModel | null;
   history: { past: UntieModel[]; future: UntieModel[] };
   ui: UiState;
   /** ドラッグ開始時点のモデル (ドラッグ中のみ非 null) */
@@ -52,6 +62,10 @@ export interface UntieState {
   /** ドラッグを取り消して開始時点に戻す */
   cancelDrag: () => void;
 
+  /** 読み込んだモデルに置き換える。履歴と選択は捨てる */
+  loadDocument: (model: UntieModel, file: DocumentFile) => void;
+  /** model を保存したことを記録する (保存中に編集が進んでいれば、その分は未保存のまま) */
+  markSaved: (file: DocumentFile, model: UntieModel) => void;
   setCurrentBoard: (boardId: string) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
   setGuideOpen: (open: boolean) => void;
@@ -95,6 +109,8 @@ export function isFixedBoard(boardId: string): boolean {
 export function createUntieStore(initial: UntieModel = createHotelSample(), startBoardId = initial.boards[0]?.id ?? "") {
   return create<UntieState>()((set, get) => ({
     model: initial,
+    file: null,
+    savedModel: null,
     history: { past: [], future: [] },
     ui: { currentBoardId: startBoardId, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
     dragBase: null,
@@ -180,6 +196,17 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
       set({ model: dragBase, dragBase: null, ui: reconcileUi(ui, dragBase) });
     },
 
+    loadDocument: (model, file) =>
+      set((s) => ({
+        model,
+        file,
+        savedModel: model,
+        history: { past: [], future: [] },
+        dragBase: null,
+        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties" },
+      })),
+    markSaved: (file, model) => set({ file, savedModel: model }),
+
     setCurrentBoard: (boardId) => {
       if (!isFixedBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
       set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null } }));
@@ -198,3 +225,9 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
 
 /** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、アクティビティの固定ボードを開く */
 export const useUntieStore = createUntieStore(createHotelSample(), fixedBoardId("activity"));
+
+/** 保存していない変更があるか (サンプルや新規は、一度も保存していなければ変更ありとみなさない) */
+export function hasUnsavedChanges(state: Pick<UntieState, "model" | "savedModel" | "file" | "history">): boolean {
+  if (state.savedModel) return state.model !== state.savedModel;
+  return state.history.past.length > 0;
+}

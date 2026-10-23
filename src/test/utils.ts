@@ -21,6 +21,8 @@ export function sampleWithActorCards(): UntieModel {
 export function resetStore(model = sampleWithActorCards()) {
   useUntieStore.setState({
     model,
+    file: null,
+    savedModel: null,
     history: { past: [], future: [] },
     dragBase: null,
     toasts: [],

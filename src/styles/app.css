@@ -83,7 +83,8 @@ textarea { resize: vertical; width: 100%; }
 .toolbar-label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .toolbar-spacer { flex: 1; }
 .rename-form { display: flex; gap: 6px; align-items: center; }
-.notice { background: #fff4d6; color: #6b5200; padding: 4px 12px; border-top: 1px solid #ecd9a0; font-size: 12px; }
+.notice { background: #f3f1ec; color: var(--muted); padding: 4px 12px; border-top: 1px solid var(--border); font-size: 12px; }
+.notice.is-dirty { background: #fff4d6; color: #6b5200; border-top-color: #ecd9a0; }
 .menu-wrap { position: relative; }
 .menu {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 180px; background: #fff;
@@ -311,3 +312,4 @@ textarea { resize: vertical; width: 100%; }
 .trace-notice { font-size: 12px; line-height: 1.5; }
 .context-suggest { margin: 4px 0 0; }
 .context-apply { color: var(--accent); margin-left: 4px; text-decoration: underline; }
+.notice-dirty { margin-left: 12px; color: #a0522d; font-weight: 600; }

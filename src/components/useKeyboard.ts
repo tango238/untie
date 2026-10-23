@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { removeFromBoard } from "../model/commands";
+import { openDocument, saveDocument } from "../io/document";
 import { isFixedBoard, useUntieStore } from "../store";
 
 function isEditable(target: EventTarget | null): boolean {
@@ -8,8 +9,22 @@ function isEditable(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (target instanceof HTMLElement && target.isContentEditable);
 }
 
-/** Cmd/Ctrl+Z (Undo)、Shift+Cmd/Ctrl+Z (Redo)、Delete/Backspace (自由ボードから外す) */
+/** Cmd/Ctrl+S (保存)、Shift+Cmd/Ctrl+S (別名で保存)、Cmd/Ctrl+O (開く)、Cmd/Ctrl+Z (Undo)、Shift+Cmd/Ctrl+Z (Redo)、Delete/Backspace (自由ボードから外す) */
 export function handleKeyDown(e: KeyboardEvent) {
+  // 保存・開くは入力欄の中でも効かせる
+  if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+    const key = e.key.toLowerCase();
+    if (key === "s") {
+      e.preventDefault();
+      void saveDocument(e.shiftKey);
+      return;
+    }
+    if (key === "o" && !e.shiftKey) {
+      e.preventDefault();
+      void openDocument();
+      return;
+    }
+  }
   // 入力欄・ダイアログの中では扱わない
   if (isEditable(e.target)) return;
   if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;

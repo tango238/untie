@@ -8,10 +8,12 @@ import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./components/useKeyboard";
 import { parseFixedBoardId } from "./model/fixedBoards";
+import { useCloseGuard } from "./io/useCloseGuard";
 import { useUntieStore } from "./store";
 
 export default function App() {
   useKeyboard();
+  useCloseGuard();
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   return (
