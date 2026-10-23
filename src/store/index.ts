@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { CommandResult } from "../model/commands";
 import type { UntieModel } from "../model/types";
 import { moveNode, type Position, type Size } from "../model/commands";
+import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "../model/fixedBoards";
 import { createHotelSample } from "../sample";
 
 /** 履歴の上限 */
@@ -11,7 +12,10 @@ export type Selection = { type: "element"; id: string } | { type: "relation"; id
 export type RightPanel = "properties" | "issues";
 
 export interface UiState {
+  /** 自由ボード (モデルのボード) の id か、固定ボードの id ("fixed:<レイヤー>") */
   currentBoardId: string;
+  /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
+  fixedFilters?: Partial<Record<FixedLayer, string>>;
   selection: Selection;
   rightPanel: RightPanel;
   /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
@@ -47,6 +51,7 @@ export interface UntieState {
   cancelDrag: () => void;
 
   setCurrentBoard: (boardId: string) => void;
+  setFixedFilter: (layer: FixedLayer, query: string) => void;
   select: (selection: Selection) => void;
   setRightPanel: (panel: RightPanel) => void;
   requestNameFocus: () => void;
@@ -59,7 +64,9 @@ let toastSeq = 0;
 /** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
   let { currentBoardId, selection } = ui;
-  if (!model.boards.some((b) => b.id === currentBoardId)) currentBoardId = model.boards[0]?.id ?? "";
+  if (!parseFixedBoardId(currentBoardId) && !model.boards.some((b) => b.id === currentBoardId)) {
+    currentBoardId = model.boards[0]?.id ?? fixedBoardId("activity");
+  }
   if (selection) {
     const exists =
       selection.type === "element"
@@ -76,12 +83,17 @@ function pushPast(past: UntieModel[], snapshot: UntieModel): UntieModel[] {
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
 }
 
-/** ストアを作る (テストでは初期モデルを渡す) */
-export function createUntieStore(initial: UntieModel = createHotelSample()) {
+/** 固定ボードを開いているか */
+export function isFixedBoard(boardId: string): boolean {
+  return parseFixedBoardId(boardId) !== null;
+}
+
+/** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
+export function createUntieStore(initial: UntieModel = createHotelSample(), startBoardId = initial.boards[0]?.id ?? "") {
   return create<UntieState>()((set, get) => ({
     model: initial,
     history: { past: [], future: [] },
-    ui: { currentBoardId: initial.boards[0]?.id ?? "", selection: null, rightPanel: "properties", nameFocusNonce: 0 },
+    ui: { currentBoardId: startBoardId, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
     dragBase: null,
     toasts: [],
 
@@ -166,9 +178,11 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
     },
 
     setCurrentBoard: (boardId) => {
-      if (!get().model.boards.some((b) => b.id === boardId)) return;
+      if (!isFixedBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
       set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null } }));
     },
+    setFixedFilter: (layer, query) =>
+      set((s) => ({ ui: { ...s.ui, fixedFilters: { ...s.ui.fixedFilters, [layer]: query } } })),
     select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
     setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
     requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),
@@ -178,5 +192,5 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
   }));
 }
 
-/** アプリ全体で使う単一ストア。起動時にサンプルを読み込む */
-export const useUntieStore = createUntieStore();
+/** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、アクティビティの固定ボードを開く */
+export const useUntieStore = createUntieStore(createHotelSample(), fixedBoardId("activity"));

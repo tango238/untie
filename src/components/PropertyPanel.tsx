@@ -10,7 +10,7 @@ import {
   setIssueTargets,
   updateElement,
 } from "../model/commands";
-import { relationKindFor, relationLabel, relationRule } from "../model/relations";
+import { relationKindFor, relationLabel, relationRule, sameRelation } from "../model/relations";
 import { defaultBucOf, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
@@ -23,7 +23,7 @@ import {
   type UntieModel,
   type Variation,
 } from "../model/types";
-import { useUntieStore } from "../store";
+import { isFixedBoard, useUntieStore } from "../store";
 import { selectAndReveal } from "./actions";
 import { CommitField } from "./CommitField";
 
@@ -60,7 +60,6 @@ export function PropertyPanel() {
 // ---------------------------------------------------------------- 線
 
 function RelationEditor({ relation, model }: { relation: Relation; model: UntieModel }) {
-  const dispatch = useUntieStore((s) => s.dispatch);
   const source = model.elements.find((e) => e.id === relation.sourceId);
   const target = model.elements.find((e) => e.id === relation.targetId);
   const rule = relationRule(relation.kind);
@@ -87,11 +86,7 @@ function RelationEditor({ relation, model }: { relation: Relation; model: UntieM
           </button>
         )}
       </div>
-      <div className="actions">
-        <button type="button" className="danger" onClick={() => dispatch((m) => removeRelation(m, { id: relation.id }))}>
-          削除
-        </button>
-      </div>
+      <p className="hint">関係の追加・削除は固定ボードで、要素を選んで行います。</p>
     </div>
   );
 }
@@ -107,6 +102,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const requestNameFocus = useUntieStore((s) => s.requestNameFocus);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const nameRef = useRef<HTMLInputElement>(null);
+  // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
+  const structural = isFixedBoard(boardId);
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
   // 処理済みの番号をモジュールに持ち、増えているときだけ発火する
@@ -152,22 +149,27 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         onCommit={(description) => update({ description })}
       />
 
-      {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
-      {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
-      {element.kind === "information" && (
-        <CommitField label="分類" value={element.context ?? ""} onCommit={(context) => update({ context })} />
+      {!structural && (
+        <p className="hint">自由ボードでは名前と説明だけを変えられます。所属・関係・削除は固定ボードで行います。</p>
       )}
-      {element.kind === "state" && (
-        <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
-      )}
-      {element.kind === "variation" && (
-        <VariationValues variation={element} onChange={(values) => update({ values })} />
-      )}
-      {element.kind === "issue" && <IssueFields issue={element} model={model} />}
+      <fieldset className="plain-fieldset" disabled={!structural}>
+        {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
+        {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
+        {element.kind === "information" && (
+          <CommitField label="分類" value={element.context ?? ""} onCommit={(context) => update({ context })} />
+        )}
+        {element.kind === "state" && (
+          <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
+        )}
+        {element.kind === "variation" && (
+          <VariationValues variation={element} onChange={(values) => update({ values })} />
+        )}
+        {element.kind === "issue" && <IssueFields issue={element} model={model} />}
+      </fieldset>
 
       <section className="subsection">
         <h3>関係</h3>
-        {(element.kind === "business" || element.kind === "activity") && <ActorAdder element={element} model={model} />}
+        {structural && <RelationAdder element={element} model={model} />}
         {relations.length === 0 ? (
           <p className="hint">この要素につながる線はありません。</p>
         ) : (
@@ -185,14 +187,16 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                   <button type="button" className="link" onClick={() => other && selectAndReveal(other.id)}>
                     {other?.name || "(名前なし)"}
                   </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
-                    onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}
-                  >
-                    ×
-                  </button>
+                  {structural && (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
+                      onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}
+                    >
+                      ×
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -217,14 +221,16 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
               ))}
             </ul>
           )}
-          <button type="button" onClick={addIssue}>
-            課題を追加
-          </button>
+          {structural && (
+            <button type="button" onClick={addIssue}>
+              課題を追加
+            </button>
+          )}
         </section>
       )}
 
       <div className="actions">
-        {onBoard && (
+        {!structural && onBoard && (
           <button
             type="button"
             onClick={() => dispatch((m) => removeFromBoard(m, { boardId, elementId: element.id }))}
@@ -232,16 +238,18 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             ボードから外す
           </button>
         )}
-        <button
-          type="button"
-          className="danger"
-          onClick={() => {
-            const r = dispatch((m) => removeElement(m, { id: element.id }));
-            if (!r.ok) pushToast(r.reason, "error");
-          }}
-        >
-          削除
-        </button>
+        {structural && (
+          <button
+            type="button"
+            className="danger"
+            onClick={() => {
+              const r = dispatch((m) => removeElement(m, { id: element.id }));
+              if (!r.ok) pushToast(r.reason, "error");
+            }}
+          >
+            削除
+          </button>
+        )}
       </div>
     </div>
   );
@@ -251,31 +259,53 @@ const handledFocus = { nonce: 0 };
 
 // ---------------------------------------------------------------- 種類固有
 
-/** 業務・アクティビティに担当アクターを足す。キャンバスでは線ではなくラベルで出る */
-function ActorAdder({ element, model }: { element: Element; model: UntieModel }) {
+/** この要素と結べる要素を選んで関係を足す (両端の種類から関係が決まる)。固定ボードだけで出す */
+function RelationAdder({ element, model }: { element: Element; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
-  const assigned = new Set(model.relations.filter((r) => r.targetId === element.id).map((r) => r.sourceId));
-  const candidates = model.elements.filter(
-    (e) => (e.kind === "actor" || e.kind === "externalActor") && !assigned.has(e.id) && relationKindFor(e.kind, element.kind),
-  );
-  if (candidates.length === 0) return null;
+  const options: { value: string; group: string; label: string }[] = [];
+  for (const other of model.elements) {
+    if (other.id === element.id || (other.kind === "buc" && other.isDefault)) continue;
+    // 自分が始点 → 相手が始点の順に調べ、同じ相手は 1 回だけ出す (無向の関連)
+    for (const [sourceId, targetId, kind] of [
+      [element.id, other.id, relationKindFor(element.kind, other.kind)],
+      [other.id, element.id, relationKindFor(other.kind, element.kind)],
+    ] as const) {
+      if (!kind) continue;
+      if (model.relations.some((r) => sameRelation(r, { kind, sourceId, targetId }))) break;
+      const dir = relationRule(kind).undirected ? "↔" : sourceId === element.id ? "→" : "←";
+      options.push({
+        value: `${sourceId}>${targetId}`,
+        group: `${relationLabel(kind)} ${dir} ${ELEMENT_KIND_LABELS[other.kind]}`,
+        label: other.name || "(名前なし)",
+      });
+      break;
+    }
+  }
+  if (options.length === 0) return null;
+  const groups = [...new Set(options.map((o) => o.group))];
   return (
     <select
-      aria-label="担当アクターを追加"
+      aria-label="関係を追加"
       value=""
       onChange={(ev) => {
-        const sourceId = ev.target.value;
-        if (!sourceId) return;
-        const r = dispatch((m) => addRelation(m, { sourceId, targetId: element.id }));
+        const [sourceId, targetId] = ev.target.value.split(">");
+        if (!sourceId || !targetId) return;
+        const r = dispatch((m) => addRelation(m, { sourceId, targetId }));
         if (!r.ok) pushToast(r.reason, "error");
       }}
     >
-      <option value="">{element.kind === "business" ? "主担当アクターを追加…" : "担当アクターを追加…"}</option>
-      {candidates.map((e) => (
-        <option key={e.id} value={e.id}>
-          {e.name || "(名前なし)"}
-        </option>
+      <option value="">関係を追加…</option>
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {options
+            .filter((o) => o.group === g)
+            .map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+        </optgroup>
       ))}
     </select>
   );

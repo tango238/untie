@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { removeFromBoard, removeRelation } from "../model/commands";
-import { useUntieStore } from "../store";
+import { removeFromBoard } from "../model/commands";
+import { isFixedBoard, useUntieStore } from "../store";
 
 function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
@@ -8,7 +8,7 @@ function isEditable(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (target instanceof HTMLElement && target.isContentEditable);
 }
 
-/** Cmd/Ctrl+Z (Undo)、Shift+Cmd/Ctrl+Z (Redo)、Delete/Backspace (ボードから外す・線を消す) */
+/** Cmd/Ctrl+Z (Undo)、Shift+Cmd/Ctrl+Z (Redo)、Delete/Backspace (自由ボードから外す) */
 export function handleKeyDown(e: KeyboardEvent) {
   // 入力欄・ダイアログの中では扱わない
   if (isEditable(e.target)) return;
@@ -31,19 +31,15 @@ export function handleKeyDown(e: KeyboardEvent) {
     const t = e.target;
     const inCanvas = t === document.body || (t instanceof Element && t.closest(".react-flow") !== null);
     if (!inCanvas) return;
+    // 関係は自由ボードでは消せない。固定ボードには「ボードから外す」が無い
     const sel = st.ui.selection;
-    if (!sel) return;
-    if (sel.type === "relation") {
-      e.preventDefault();
-      st.dispatch((m) => removeRelation(m, { id: sel.id }));
-    } else {
-      const onBoard = st.model.boards
-        .find((b) => b.id === st.ui.currentBoardId)
-        ?.nodes.some((n) => n.elementId === sel.id);
-      if (!onBoard) return;
-      e.preventDefault();
-      st.dispatch((m) => removeFromBoard(m, { boardId: st.ui.currentBoardId, elementId: sel.id }));
-    }
+    if (!sel || sel.type !== "element" || isFixedBoard(st.ui.currentBoardId)) return;
+    const onBoard = st.model.boards
+      .find((b) => b.id === st.ui.currentBoardId)
+      ?.nodes.some((n) => n.elementId === sel.id);
+    if (!onBoard) return;
+    e.preventDefault();
+    st.dispatch((m) => removeFromBoard(m, { boardId: st.ui.currentBoardId, elementId: sel.id }));
   }
 }
 

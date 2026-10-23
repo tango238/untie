@@ -6,18 +6,13 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useReactFlow,
-  type Connection,
-  type Edge,
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
-import { addRelation } from "../../model/commands";
-import { relationKindFor } from "../../model/relations";
 import { useUntieStore } from "../../store";
 import { placeElement } from "../actions";
 import { ELEMENT_DRAG_TYPE, canvasApi } from "./canvasApi";
 import { CardNode } from "./CardNode";
-import { actorDropTarget, applyDropDecision, decideDrop } from "./drop";
 import { applyFlowChanges } from "./flowChanges";
 import { FrameNode } from "./FrameNode";
 import {
@@ -92,30 +87,9 @@ function CanvasInner() {
     useUntieStore.getState().select({ type: "element", id: node.id });
   }, []);
 
-  const onNodeDragStop = useCallback((_: unknown, node: FlowNode) => {
-    const st = useUntieStore.getState();
-    const bid = st.ui.currentBoardId;
-    const decision = decideDrop(st.model, bid, node.id);
-    if (decision.type === "none") {
-      st.commitDrag();
-      return;
-    }
-    st.commitDrag((m) => applyDropDecision(m, bid, decision));
-    if (decision.type === "clamp") st.pushToast("BUC は業務の枠の中に置いてください", "info");
-  }, []);
-
-  const onConnect = useCallback((c: Connection) => {
-    if (!c.source || !c.target) return;
-    const result = useUntieStore.getState().dispatch((m) => addRelation(m, { sourceId: c.source, targetId: c.target }));
-    if (!result.ok) useUntieStore.getState().pushToast(result.reason, "error");
-  }, []);
-
-  const isValidConnection = useCallback((c: Connection | Edge) => {
-    if (!c.source || !c.target || c.source === c.target) return false;
-    const els = useUntieStore.getState().model.elements;
-    const s = els.find((e) => e.id === c.source);
-    const t = els.find((e) => e.id === c.target);
-    return !!s && !!t && relationKindFor(s.kind, t.kind) !== null;
+  // 自由ボードでは所属・関係を変えないので、ドラッグは位置 (枠なら子孫も) の変更だけを 1 件の履歴にする
+  const onNodeDragStop = useCallback(() => {
+    useUntieStore.getState().commitDrag();
   }, []);
 
   const onDragOver = useCallback((e: DragEvent) => {
@@ -133,16 +107,6 @@ function CanvasInner() {
       const el = st.model.elements.find((x) => x.id === elementId);
       if (!el) return;
       const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      // アクターを業務の枠・アクティビティに落としたら、カードを置かずに担当をつける
-      if (el.kind === "actor" || el.kind === "externalActor") {
-        const targetId = actorDropTarget(st.model, st.ui.currentBoardId, elementId, p);
-        if (targetId) {
-          const r = st.dispatch((m) => addRelation(m, { sourceId: elementId, targetId }));
-          if (!r.ok) st.pushToast(r.reason, "info");
-          st.select({ type: "element", id: targetId });
-          return;
-        }
-      }
       const isFrame = el.kind === "business" || el.kind === "buc";
       const position = isFrame ? p : { x: p.x - CARD_SIZE.width / 2, y: p.y - CARD_SIZE.height / 2 };
       const result = placeElement(elementId, position);
@@ -160,8 +124,6 @@ function CanvasInner() {
       onNodesChange={onNodesChange}
       onNodeDragStart={onNodeDragStart}
       onNodeDragStop={onNodeDragStop}
-      onConnect={onConnect}
-      isValidConnection={isValidConnection}
       onNodeClick={(_, n) => {
         const st = useUntieStore.getState();
         st.select({ type: "element", id: n.id });
@@ -184,7 +146,7 @@ function CanvasInner() {
       minZoom={0.1}
       maxZoom={2}
       elementsSelectable
-      nodesConnectable
+      nodesConnectable={false}
       zoomOnDoubleClick={false}
     >
       <Background gap={20} />

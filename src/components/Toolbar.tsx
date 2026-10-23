@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands";
-import { ELEMENT_KINDS, ELEMENT_KIND_LABELS } from "../model/types";
-import { useUntieStore } from "../store";
-import { addElementAtCenter } from "./actions";
+import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
+import { isFixedBoard, useUntieStore } from "../store";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Dialog = "removeBoard" | "clearAll" | null;
@@ -28,22 +27,12 @@ export function Toolbar() {
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const pushToast = useUntieStore((s) => s.pushToast);
 
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
+  // 固定ボードでは board は undefined (名前変更・削除はできない)
   const board = boards.find((b) => b.id === currentBoardId);
-
-  // メニューの外をクリックしたら閉じる
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [menuOpen]);
+  const fixed = isFixedBoard(currentBoardId);
 
   const handleAddBoard = () => {
     const result = dispatch((m) => addBoard(m, { name: nextBoardName(m.boards.map((b) => b.name)) }));
@@ -80,20 +69,29 @@ export function Toolbar() {
                     e.target.blur();
                   }}
                 >
-                  {boards.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
+                  <optgroup label="固定ボード">
+                    {FIXED_LAYERS.map((layer) => (
+                      <option key={layer} value={fixedBoardId(layer)}>
+                        {FIXED_LAYER_LABELS[layer]}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="自由ボード">
+                    {boards.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
-              <button type="button" onClick={handleAddBoard}>
+              <button type="button" title="自由ボードを追加" onClick={handleAddBoard}>
                 ＋ボード
               </button>
-              <button type="button" onClick={() => setRenaming(board?.name ?? "")}>
+              <button type="button" disabled={fixed} onClick={() => setRenaming(board?.name ?? "")}>
                 名前変更
               </button>
-              <button type="button" disabled={boards.length <= 1} onClick={() => setDialog("removeBoard")}>
+              <button type="button" disabled={fixed || boards.length <= 1} onClick={() => setDialog("removeBoard")}>
                 ボード削除
               </button>
             </>
@@ -127,35 +125,6 @@ export function Toolbar() {
         <div className="toolbar-spacer" />
 
         <div className="toolbar-group">
-          <div className="menu-wrap" ref={menuRef}>
-            <button
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((v) => !v)}
-            >
-              ＋追加 ▾
-            </button>
-            {menuOpen && (
-              <div className="menu" role="menu">
-                {ELEMENT_KINDS.map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    role="menuitem"
-                    className={`menu-item kind-${kind}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      addElementAtCenter(kind);
-                    }}
-                  >
-                    <span className="kind-dot" />
-                    {ELEMENT_KIND_LABELS[kind]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <button type="button" aria-label="元に戻す" title="元に戻す (Cmd/Ctrl+Z)" disabled={!canUndo} onClick={undo}>
             ↶
           </button>

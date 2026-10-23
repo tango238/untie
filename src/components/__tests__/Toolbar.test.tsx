@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { removeBoard } from "../../model/commands";
 import { useUntieStore } from "../../store";
@@ -93,32 +93,19 @@ describe("Toolbar", () => {
     expect((screen.getByRole("button", { name: "ボード削除" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("「追加」メニューに 11 種が並び、選ぶと要素を作って選択する", () => {
+  it("ボードの選択肢は固定ボード 9 枚と自由ボードに分かれる。固定ボードでは名前変更・削除ができない", () => {
     render(<Toolbar />);
-    fireEvent.click(screen.getByRole("button", { name: /＋追加/ }));
-    expect(screen.getAllByRole("menuitem")).toHaveLength(11);
-    fireEvent.click(screen.getByRole("menuitem", { name: "アクター" }));
-    const sel = st().ui.selection!;
-    expect(sel.type).toBe("element");
-    const created = st().model.elements.find((e) => e.id === sel.id)!;
-    expect(created).toMatchObject({ kind: "actor", name: "新しいアクター" });
-    expect(st().model.boards[0]!.nodes.some((n) => n.elementId === created.id)).toBe(true);
-    expect(st().ui.nameFocusNonce).toBe(1);
-    expect(screen.queryByRole("menu")).toBeNull();
-  });
-
-  it("課題はボードに置かない。BUC は業務が無いと作れない", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByRole("button", { name: /＋追加/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "課題" }));
-    const issue = st().model.elements.find((e) => e.id === st().ui.selection!.id)!;
-    expect(issue.kind).toBe("issue");
-    expect(st().model.boards.every((b) => b.nodes.every((n) => n.elementId !== issue.id))).toBe(true);
-
-    resetStore({ ...st().model, elements: [], relations: [] });
-    fireEvent.click(screen.getByRole("button", { name: /＋追加/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "BUC" }));
-    expect(st().toasts[0]!.message).toContain("業務");
+    const select = screen.getByLabelText("ボード") as HTMLSelectElement;
+    const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
+    expect(groups).toEqual(["固定ボード", "自由ボード"]);
+    expect(select.querySelectorAll('optgroup[label="固定ボード"] option')).toHaveLength(9);
+    fireEvent.change(select, { target: { value: "fixed:buc" } });
+    expect(st().ui.currentBoardId).toBe("fixed:buc");
+    expect((screen.getByRole("button", { name: "名前変更" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "ボード削除" }) as HTMLButtonElement).disabled).toBe(true);
+    // ＋ボードは自由ボードを足して切り替える
+    fireEvent.click(screen.getByRole("button", { name: "＋ボード" }));
+    expect(st().model.boards.some((b) => b.id === st().ui.currentBoardId)).toBe(true);
   });
 
   it("Undo / Redo ボタンは履歴に応じて有効になり、操作できる", () => {
@@ -126,15 +113,15 @@ describe("Toolbar", () => {
     const undo = screen.getByRole("button", { name: "元に戻す" }) as HTMLButtonElement;
     const redo = screen.getByRole("button", { name: "やり直す" }) as HTMLButtonElement;
     expect(undo.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: /＋追加/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "条件" }));
+    act(() => {
+      st().dispatch((m) => ({ ok: true, model: { ...m, meta: { ...m.meta, name: "変更" } } }));
+    });
     expect(undo.disabled).toBe(false);
-    const count = st().model.elements.length;
     fireEvent.click(undo);
-    expect(st().model.elements.length).toBe(count - 1);
+    expect(st().model.meta.name).not.toBe("変更");
     expect(redo.disabled).toBe(false);
     fireEvent.click(redo);
-    expect(st().model.elements.length).toBe(count);
+    expect(st().model.meta.name).toBe("変更");
   });
 
   it("「課題一覧」で右パネルを切り替える", () => {
@@ -195,7 +182,7 @@ describe("キーボードショートカット", () => {
     input.remove();
   });
 
-  it("Delete で選択中のノードをボードから外し、線なら関係を消す", () => {
+  it("Delete で選択中のノードを自由ボードから外す。線 (関係) は消さない", () => {
     st().select({ type: "element", id: "actor_front" });
     key({ key: "Delete" });
     expect(st().model.boards[0]!.nodes.some((n) => n.elementId === "actor_front")).toBe(false);
@@ -203,7 +190,15 @@ describe("キーボードショートカット", () => {
     const rel = st().model.relations[0]!;
     st().select({ type: "relation", id: rel.id });
     key({ key: "Backspace" });
-    expect(st().model.relations.some((r) => r.id === rel.id)).toBe(false);
+    expect(st().model.relations.some((r) => r.id === rel.id)).toBe(true);
+  });
+
+  it("固定ボードでは Delete は何もしない", () => {
+    st().setCurrentBoard("fixed:activity");
+    st().select({ type: "element", id: "act_hand_key" });
+    const before = st().model;
+    key({ key: "Delete" });
+    expect(st().model).toBe(before);
   });
 
   it("Ctrl+Y で Redo", () => {
@@ -222,19 +217,4 @@ describe("キーボードショートカット", () => {
     row.remove();
   });
 
-  it("線 (SVG の <g>) にフォーカス中の Delete は有効で、関係が消える", () => {
-    const flow = document.createElement("div");
-    flow.className = "react-flow";
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("class", "react-flow__edge");
-    svg.appendChild(g);
-    flow.appendChild(svg);
-    document.body.appendChild(flow);
-    const rel = st().model.relations[0]!;
-    st().select({ type: "relation", id: rel.id });
-    key({ key: "Delete" }, g as unknown as HTMLElement);
-    expect(st().model.relations.some((r) => r.id === rel.id)).toBe(false);
-    flow.remove();
-  });
 });

@@ -158,7 +158,8 @@ textarea { resize: vertical; width: 100%; }
   border: 1px solid color-mix(in srgb, var(--c) 45%, #fff);
 }
 
-.react-flow__handle { width: 9px; height: 9px; background: var(--c, #888); border: 1.5px solid #fff; }
+/* 自由ボードでは線を引けないので、接続ハンドルは線の端点としてだけ使い、見せない */
+.react-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; opacity: 0; pointer-events: none; border: none; }
 .react-flow__edge-textbg { fill: #efece6; }
 .react-flow__edge-text { font-size: 11px; fill: var(--text); }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--selected); stroke-width: 2.5; }
@@ -213,3 +214,42 @@ textarea { resize: vertical; width: 100%; }
 .toast.tone-error { background: var(--danger); }
 .toast-close { background: none; border: none; color: inherit; padding: 0 4px; }
 .toast-close:hover:not(:disabled) { background: rgba(255,255,255,0.2); }
+
+/* 固定ボード (自動で並ぶ。位置は動かせない) */
+.fixed-board { position: absolute; inset: 0; overflow: auto; background: #efece6; padding: 12px 16px 24px; }
+.fixed-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.fixed-title { margin: 0; font-size: 16px; }
+.fixed-hint { color: var(--muted); font-size: 12px; }
+.fixed-filter { margin-left: auto; width: 220px; }
+.fixed-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+.fixed-group {
+  border: 2px solid var(--c, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--c, #999) 8%, #fff);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.fixed-group-head {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--c, #999) 35%, transparent);
+}
+.fixed-group-title { font-weight: 600; }
+.link-plain { border: none; background: none; padding: 0; text-align: left; color: inherit; }
+.link-plain:hover:not(:disabled) { background: none; text-decoration: underline; }
+.fixed-group-sub { font-size: 11px; color: var(--muted); }
+.fixed-group-count { margin-left: auto; font-size: 11px; color: var(--muted); }
+.fixed-cards { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.fixed-card-row { display: flex; align-items: center; gap: 4px; }
+.fixed-card {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left;
+  background: #fff; border: 1.5px solid var(--c, var(--border)); border-left-width: 5px; border-radius: 6px; padding: 4px 8px 6px;
+}
+.fixed-card.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.fixed-card-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.card-kind-inline { font-size: 10px; color: var(--c); font-weight: 600; }
+.fixed-card-name { font-weight: 600; word-break: break-all; }
+.fixed-card .actor-chips { justify-content: flex-start; }
+.fixed-unlink { color: var(--muted); }
+.fixed-add { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; }
+.fixed-add select { flex: 1; min-width: 0; }
+.plain-fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.plain-fieldset:disabled select, .plain-fieldset:disabled input, .plain-fieldset:disabled textarea, .plain-fieldset:disabled button {
+  opacity: 0.55; cursor: not-allowed;
+}

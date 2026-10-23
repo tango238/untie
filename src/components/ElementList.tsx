@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { issueSummaries, listableElements } from "../model/selectors";
 import { ELEMENT_KINDS, ELEMENT_KIND_LABELS, type Element, type ElementKind } from "../model/types";
-import { useUntieStore } from "../store";
+import { isFixedBoard, useUntieStore } from "../store";
 import { placeElementAtCenter, selectAndReveal } from "./actions";
 import { ELEMENT_DRAG_TYPE } from "./canvas/canvasApi";
 import { IssueBadge } from "./IssueBadge";
@@ -10,6 +10,8 @@ export function ElementList() {
   const model = useUntieStore((s) => s.model);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
   const selection = useUntieStore((s) => s.ui.selection);
+  // 要素を置けるのは自由ボードだけ (固定ボードは自動で並ぶ)
+  const freeBoard = !isFixedBoard(boardId);
   const [collapsed, setCollapsed] = useState<Set<ElementKind>>(new Set());
 
   const onBoard = useMemo(
@@ -62,7 +64,7 @@ export function ElementList() {
                 {items.map((e) => {
                   const placed = onBoard.has(e.id);
                   const summary = summaries.get(e.id);
-                  const placeable = e.kind !== "issue";
+                  const placeable = freeBoard && e.kind !== "issue";
                   const selected = selection?.type === "element" && selection.id === e.id;
                   return (
                     <li
@@ -89,7 +91,7 @@ export function ElementList() {
                         {subtitle(e) && <span className="row-sub">{subtitle(e)}</span>}
                       </button>
                       {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
-                      {placed && (
+                      {freeBoard && placed && (
                         <span className="placed-mark" title="現在のボードにあります" aria-label="ボードにあります">
                           ●
                         </span>

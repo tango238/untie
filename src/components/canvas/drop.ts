@@ -1,9 +1,8 @@
-// ドラッグ終了時の「どの枠に入ったか」の判定。純粋関数。
-import { DEFAULT_FRAME_SIZE, moveActivity, moveBuc, moveNode, type CommandResult } from "../../model/commands";
-import { relationKindFor } from "../../model/relations";
-import { defaultBucOf } from "../../model/selectors";
+// 自由ボードのノードの矩形と、枠の移動。純粋関数。
+// 自由ボードでは所属・関係を変えないので、枠に入れたり出したりしても所属は変わらない。
+import { DEFAULT_FRAME_SIZE, moveNode, type CommandResult } from "../../model/commands";
 import { isFrameKind, type UntieModel } from "../../model/types";
-import { CARD_SIZE, descendantElementIds, parentFrameElementId, type Point } from "./toFlow";
+import { CARD_SIZE, descendantElementIds, type Point } from "./toFlow";
 
 export interface Rect {
   x: number;
@@ -20,94 +19,6 @@ export function nodeRect(model: UntieModel, boardId: string, elementId: string):
   if (!bn || !el) return null;
   const size = isFrameKind(el.kind) ? DEFAULT_FRAME_SIZE[el.kind] : CARD_SIZE;
   return { x: bn.x, y: bn.y, width: bn.width ?? size.width, height: bn.height ?? size.height };
-}
-
-export function rectCenter(r: Rect): Point {
-  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-}
-
-function contains(r: Rect, p: Point): boolean {
-  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
-}
-
-export interface FrameHit {
-  id: string;
-  kind: "business" | "buc";
-}
-
-/**
- * 点を含む枠を返す。BUC の小枠を優先し (小さい順)、なければ業務の枠。
- * kinds で対象を絞れる (BUC の判定では業務の枠だけを見る)。
- */
-export function frameAt(
-  model: UntieModel,
-  boardId: string,
-  point: Point,
-  options: { kinds?: readonly ("business" | "buc")[]; excludeId?: string } = {},
-): FrameHit | null {
-  const board = model.boards.find((b) => b.id === boardId);
-  if (!board) return null;
-  const kinds = options.kinds ?? ["buc", "business"];
-  const hits: { hit: FrameHit; area: number }[] = [];
-  for (const bn of board.nodes) {
-    if (bn.elementId === options.excludeId) continue;
-    const el = model.elements.find((e) => e.id === bn.elementId);
-    if (!el || (el.kind !== "business" && el.kind !== "buc")) continue;
-    if (!kinds.includes(el.kind)) continue;
-    const rect = nodeRect(model, boardId, el.id)!;
-    if (contains(rect, point)) hits.push({ hit: { id: el.id, kind: el.kind }, area: rect.width * rect.height });
-  }
-  // BUC を先に、同じ種類なら面積の小さい方
-  hits.sort((a, b) => (a.hit.kind === b.hit.kind ? a.area - b.area : a.hit.kind === "buc" ? -1 : 1));
-  return hits[0]?.hit ?? null;
-}
-
-export type DropDecision =
-  | { type: "none" }
-  | { type: "moveActivity"; activityId: string; bucId: string | null }
-  | { type: "moveBuc"; bucId: string; businessId: string }
-  /** BUC の小枠が業務の枠の外に出たので、元の業務の枠の中へ戻す */
-  | { type: "clamp"; elementId: string; position: Point };
-
-/** 枠に入っている位置から、その点の所属先 BUC の id (枠が無ければ null) を決める */
-export function bucIdAt(model: UntieModel, boardId: string, point: Point): string | null {
-  const hit = frameAt(model, boardId, point);
-  if (!hit) return null;
-  if (hit.kind === "buc") return hit.id;
-  return defaultBucOf(model, hit.id)?.id ?? null;
-}
-
-/** ドラッグ終了時の所属変更を判定する (設計書 4.1) */
-export function decideDrop(model: UntieModel, boardId: string, elementId: string): DropDecision {
-  const el = model.elements.find((e) => e.id === elementId);
-  const rect = nodeRect(model, boardId, elementId);
-  if (!el || !rect) return { type: "none" };
-  const center = rectCenter(rect);
-
-  if (el.kind === "activity") {
-    const hit = frameAt(model, boardId, center);
-    const currentParent = parentFrameElementId(model, boardId, el.id);
-    // 見た目の親が変わらないなら所属は触らない (BUC の枠が無いボードでの誤変更を避ける)
-    if ((hit?.id ?? null) === currentParent) return { type: "none" };
-    const bucId = bucIdAt(model, boardId, center);
-    if (bucId === el.bucId) return { type: "none" };
-    return { type: "moveActivity", activityId: el.id, bucId };
-  }
-
-  if (el.kind === "buc" && !el.isDefault) {
-    const hit = frameAt(model, boardId, center, { kinds: ["business"] });
-    if (hit) {
-      return hit.id === el.businessId ? { type: "none" } : { type: "moveBuc", bucId: el.id, businessId: hit.id };
-    }
-    // 業務の枠の外: 元の業務の枠がこのボードにあれば中へ戻す
-    const own = nodeRect(model, boardId, el.businessId);
-    if (!own) return { type: "none" };
-    const x = Math.min(Math.max(rect.x, own.x), own.x + Math.max(0, own.width - rect.width));
-    const y = Math.min(Math.max(rect.y, own.y), own.y + Math.max(0, own.height - rect.height));
-    return { type: "clamp", elementId: el.id, position: { x, y } };
-  }
-
-  return { type: "none" };
 }
 
 /** 枠を動かすとき、ぶら下がる要素も同じ量だけ動かす (モデルの座標は絶対座標のため) */
@@ -131,51 +42,4 @@ export function moveFrameWithDescendants(
     current = res.model;
   }
   return { ok: true, model: current };
-}
-
-/** 判定結果をモデルに適用する (ドラッグ終了時・配置時に共通) */
-export function applyDropDecision(model: UntieModel, boardId: string, decision: DropDecision): CommandResult {
-  switch (decision.type) {
-    case "moveActivity":
-      return moveActivity(model, { activityId: decision.activityId, bucId: decision.bucId });
-    case "moveBuc":
-      return moveBuc(model, { bucId: decision.bucId, businessId: decision.businessId });
-    case "clamp":
-      return moveFrameWithDescendants(model, boardId, decision.elementId, decision.position);
-    default:
-      return { ok: true, model };
-  }
-}
-
-/**
- * 一覧からのドロップ・「置く」で要素をボードに置いた直後の所属判定。
- * 枠の上に置いたときだけ所属を合わせ、枠の外に置いても所属は変えない。
- */
-export function decidePlacement(model: UntieModel, boardId: string, elementId: string): DropDecision {
-  const rect = nodeRect(model, boardId, elementId);
-  if (!rect) return { type: "none" };
-  const decision = decideDrop(model, boardId, elementId);
-  if (decision.type === "clamp") return { type: "none" };
-  if (decision.type === "moveActivity" && !frameAt(model, boardId, rectCenter(rect))) return { type: "none" };
-  return decision;
-}
-
-/**
- * 要素一覧からアクターを落とした点にある、担当をつけられる要素の id。
- * アクティビティのカードを優先し、次に業務の枠。どれも無ければ null (カードとして置く)。
- */
-export function actorDropTarget(model: UntieModel, boardId: string, actorId: string, point: Point): string | null {
-  const board = model.boards.find((b) => b.id === boardId);
-  const actor = model.elements.find((e) => e.id === actorId);
-  if (!board || !actor) return null;
-  let frame: string | null = null;
-  for (const n of board.nodes) {
-    const el = model.elements.find((e) => e.id === n.elementId);
-    if (!el || !relationKindFor(actor.kind, el.kind)) continue;
-    const r = nodeRect(model, boardId, el.id);
-    if (!r || !contains(r, point)) continue;
-    if (!isFrameKind(el.kind)) return el.id;
-    frame ??= el.id;
-  }
-  return frame;
 }
