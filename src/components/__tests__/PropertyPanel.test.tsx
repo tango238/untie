@@ -311,3 +311,24 @@ describe("PropertyPanel のリンク", () => {
     expect((el("act_clean") as { links: unknown[] }).links).toHaveLength(1);
   });
 });
+
+describe("PropertyPanel の時間", () => {
+  it("作業に時間を入れられ、操作の合計は分けて出す。小数点第二位はエラーで元に戻す", () => {
+    resetStore();
+    act(() => st().select({ type: "element", id: "act_verify_identity" }));
+    render(<PropertyPanel />);
+    const input = screen.getByLabelText("時間") as HTMLInputElement;
+    expect(input.value).toBe("0.1");
+    expect(screen.getByText(/操作の合計: 0.2 時間 \(チェックインを記録する 0.2 時間\)/)).toBeDefined();
+    fireEvent.change(input, { target: { value: "0.5" } });
+    fireEvent.blur(input);
+    expect(el("act_verify_identity")).toMatchObject({ hours: 0.5 });
+    fireEvent.change(input, { target: { value: "0.55" } });
+    fireEvent.blur(input);
+    expect(el("act_verify_identity")).toMatchObject({ hours: 0.5 });
+    expect((screen.getByLabelText("時間") as HTMLInputElement).value).toBe("0.5");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(el("act_verify_identity")).not.toHaveProperty("hours");
+  });
+});

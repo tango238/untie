@@ -50,3 +50,31 @@ export function listableElements(model: UntieModel): Element[] {
 export function defaultBucOf(model: UntieModel, businessId: string): Element | undefined {
   return model.elements.find((e) => e.kind === "buc" && e.isDefault && e.businessId === businessId);
 }
+
+export interface ActivityHours {
+  /** 作業自身に入れた時間 */
+  own?: number;
+  /** 使う操作に入れた時間の合計 (時間の入った操作が 1 つも無ければ undefined) */
+  usecases?: number;
+}
+
+/** 作業の時間。作業自身の時間と、使う操作の時間の合計を分けて返す */
+export function activityHours(model: UntieModel, activityId: string): ActivityHours {
+  const act = model.elements.find((e) => e.id === activityId);
+  if (!act || act.kind !== "activity") return {};
+  const ucIds = new Set(model.relations.filter((r) => r.kind === "activityUsecase" && r.sourceId === activityId).map((r) => r.targetId));
+  let sum: number | undefined;
+  for (const e of model.elements) {
+    if (e.kind === "usecase" && ucIds.has(e.id) && e.hours !== undefined) sum = (sum ?? 0) + e.hours;
+  }
+  return {
+    ...(act.hours !== undefined ? { own: act.hours } : {}),
+    // 小数の足し算の誤差を丸める
+    ...(sum !== undefined ? { usecases: Math.round(sum * 10) / 10 } : {}),
+  };
+}
+
+/** 時間の表示 (小数点第一位まで) */
+export function formatHours(hours: number): string {
+  return `${hours.toFixed(1)} 時間`;
+}

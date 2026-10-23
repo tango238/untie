@@ -57,7 +57,7 @@ const activities: Element[] = [
   { id: "act_confirm_reservation", kind: "activity", name: "予約内容を確認する", bucId: dflt("biz_reservation") },
   { id: "act_change_cancel", kind: "activity", name: "予約を変更・取消する", bucId: dflt("biz_reservation") },
   { id: "act_confirm_arrival", kind: "activity", name: "到着を確認する", bucId: dflt("biz_checkin") },
-  { id: "act_verify_identity", kind: "activity", name: "本人確認をする", bucId: dflt("biz_checkin") },
+  { id: "act_verify_identity", kind: "activity", name: "本人確認をする", bucId: dflt("biz_checkin"), hours: 0.1 },
   { id: "act_assign_room", kind: "activity", name: "部屋を割り当てる", bucId: dflt("biz_checkin") },
   {
     id: "act_hand_key",
@@ -78,23 +78,24 @@ const activities: Element[] = [
   { id: "act_settle", kind: "activity", name: "精算する", bucId: dflt("biz_checkout") },
   { id: "act_collect_key", kind: "activity", name: "鍵を回収する", bucId: dflt("biz_checkout") },
   { id: "act_instruct_cleaning", kind: "activity", name: "清掃を指示する", bucId: dflt("biz_cleaning") },
-  { id: "act_clean", kind: "activity", name: "清掃する", bucId: dflt("biz_cleaning") },
+  { id: "act_clean", kind: "activity", name: "清掃する", bucId: dflt("biz_cleaning"), hours: 0.5 },
   { id: "act_inspect_room", kind: "activity", name: "部屋を点検する", bucId: dflt("biz_cleaning") },
 ];
 
 const usecases: Element[] = [
   { id: "uc_register_reservation", kind: "usecase", name: "予約を登録する" },
   { id: "uc_confirm_reservation", kind: "usecase", name: "予約を確定する" },
-  { id: "uc_search_reservation", kind: "usecase", name: "予約を検索する" },
+  { id: "uc_search_reservation", kind: "usecase", name: "予約を検索する", hours: 0.1 },
   { id: "uc_change_reservation", kind: "usecase", name: "予約を変更する" },
   { id: "uc_cancel_reservation", kind: "usecase", name: "予約を取り消す" },
   {
     id: "uc_record_checkin",
     kind: "usecase",
     name: "チェックインを記録する",
+    hours: 0.2,
     links: [{ title: "宿泊管理システム操作手順 (チェックイン)", url: "https://example.com/manual/pms-checkin" }],
   },
-  { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する" },
+  { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する", hours: 0.1 },
   { id: "uc_calc_charge", kind: "usecase", name: "請求金額を計算する" },
   { id: "uc_register_extra", kind: "usecase", name: "追加料金を登録する" },
   { id: "uc_issue_invoice", kind: "usecase", name: "請求書を発行する" },

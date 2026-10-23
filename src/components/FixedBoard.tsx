@@ -20,6 +20,7 @@ import { canvasApi } from "./canvas/canvasApi";
 import { SystemChips } from "./canvas/SystemChips";
 import { actorLabels, systemLabels, type SystemLabel } from "./canvas/toFlow";
 import { GRANULARITY, LAYER_GUIDES, type GranularityGuide, type GuideKind } from "./granularity";
+import { HoursLabel } from "./Hours";
 import { IssueBadge } from "./IssueBadge";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
@@ -273,6 +274,7 @@ function GroupView({
           <li key={e.id} className="fixed-card-row">
             <FixedCard
               element={e}
+              model={model}
               selected={selectedId === e.id}
               summary={isIssueTargetKind(e.kind) ? summaries.get(e.id) : undefined}
               actors={actors.get(e.id)}
@@ -326,6 +328,7 @@ function GroupView({
 
 function FixedCard({
   element,
+  model,
   selected,
   summary,
   actors,
@@ -333,6 +336,7 @@ function FixedCard({
   onClick,
 }: {
   element: Element;
+  model: UntieModel;
   selected: boolean;
   summary?: { count: number; maxSeverity: number };
   actors?: ReturnType<typeof actorLabels> extends Map<string, infer V> ? V : never;
@@ -359,6 +363,7 @@ function FixedCard({
         </span>
       </span>
       <span className="fixed-card-name">{element.name || "(名前なし)"}</span>
+      <HoursLabel element={element} model={model} />
       {actors && <ActorChips actors={actors} />}
       {systems && <SystemChips systems={systems} />}
     </button>

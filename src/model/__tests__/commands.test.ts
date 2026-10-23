@@ -132,6 +132,19 @@ describe("updateElement", () => {
     expectValid(m);
   });
 
+  it("作業・操作に時間 (小数点第一位まで) を入れられ、null で消える。負の数・第二位以下は失敗する", () => {
+    let m = okModel(updateElement(sample(), { id: "act_clean", patch: { hours: 1.5 } }));
+    expect(el(m, "act_clean")).toMatchObject({ hours: 1.5 });
+    m = okModel(updateElement(m, { id: "uc_update_cleaning", patch: { hours: 0.3 } }));
+    expect(el(m, "uc_update_cleaning")).toMatchObject({ hours: 0.3 });
+    m = okModel(updateElement(m, { id: "act_clean", patch: { hours: null } }));
+    expect(el(m, "act_clean")).not.toHaveProperty("hours");
+    expectFail(updateElement(m, { id: "act_clean", patch: { hours: -1 } }), /0 以上/);
+    expectFail(updateElement(m, { id: "act_clean", patch: { hours: 0.25 } }), /小数点第一位/);
+    expectFail(updateElement(m, { id: "info_room", patch: { hours: 1 } }), /変更できません/);
+    expectValid(m);
+  });
+
   it("その種類にない項目や不正な値は失敗する", () => {
     const m = sample();
     expectFail(updateElement(m, { id: "actor_front", patch: { severity: 3 } }), /変更できません/);

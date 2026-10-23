@@ -63,6 +63,8 @@ export interface ElementPatch {
   description?: string;
   /** activity / usecase */
   links?: Link[];
+  /** activity / usecase。かかる時間 (時間単位、小数点第一位まで)。null で消す */
+  hours?: number | null;
   group?: string;
   values?: string[];
   severity?: number;
@@ -76,8 +78,8 @@ const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> =
   ledger: [],
   business: [],
   buc: [],
-  activity: ["links"],
-  usecase: ["links"],
+  activity: ["links", "hours"],
+  usecase: ["links", "hours"],
   context: [],
   information: [],
   state: ["group"],
@@ -120,6 +122,13 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
 
 function checkSeverity(severity: number): string | null {
   return Number.isInteger(severity) && severity >= 1 && severity <= 5 ? null : "重要度は 1〜5 の整数にしてください";
+}
+
+/** 時間は 0 以上で、小数点第一位まで */
+export function checkHours(hours: number): string | null {
+  if (!Number.isFinite(hours) || hours < 0 || hours > 100000) return "時間は 0 以上の数で入力してください";
+  if (Math.abs(Math.round(hours * 10) - hours * 10) > 1e-6) return "時間は小数点第一位まで入力してください";
+  return null;
 }
 
 function checkLinks(links: Link[]): string | null {
@@ -283,6 +292,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     const reason = checkLinks(patch.links);
     if (reason) return fail(reason);
   }
+  if (patch.hours !== undefined && patch.hours !== null) {
+    const reason = checkHours(patch.hours);
+    if (reason) return fail(reason);
+  }
   if (patch.severity !== undefined) {
     const reason = checkSeverity(patch.severity);
     if (reason) return fail(reason);
@@ -316,6 +329,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       }
     }
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
+    if ((el.kind === "activity" || el.kind === "usecase") && patch.hours !== undefined) {
+      if (patch.hours === null) delete el.hours;
+      else el.hours = Math.round(patch.hours * 10) / 10;
+    }
     if ((el.kind === "activity" || el.kind === "usecase") && patch.links !== undefined) {
       const links = patch.links.map((l) => ({ title: l.title.trim() || l.url.trim(), url: l.url.trim() }));
       if (links.length === 0) delete el.links;

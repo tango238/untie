@@ -100,3 +100,15 @@ describe("FixedBoard", () => {
     expect(st().ui.selection).toEqual({ type: "element", id: "act_room_service" });
   });
 });
+
+describe("FixedBoard の時間", () => {
+  it("作業のカードに、作業自身の時間と操作の合計を分けて出す", () => {
+    render(<FixedBoard layer="activity" />);
+    const card = document.querySelector('[data-fixed-card="act_verify_identity"]')!;
+    expect(card.textContent).toContain("作業 0.1 時間");
+    expect(card.textContent).toContain("操作の合計 0.2 時間");
+    const only = document.querySelector('[data-fixed-card="act_assign_room"]')!;
+    expect(only.textContent).toContain("操作の合計 0.1 時間");
+    expect(only.textContent).not.toContain("作業 ");
+  });
+});

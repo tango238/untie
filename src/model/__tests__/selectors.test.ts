@@ -33,3 +33,23 @@ describe("selectors", () => {
     expect(list.filter((e) => e.kind === "buc").map((e) => e.id).sort()).toEqual(["buc_dining", "buc_room_care"]);
   });
 });
+
+describe("activityHours", () => {
+  it("作業自身の時間と、使う操作の時間の合計を分けて返す。時間の入った操作が無ければ合計は無い", async () => {
+    const { activityHours, formatHours } = await import("../selectors");
+    const { updateElement } = await import("../commands");
+    const { okModel, sample } = await import("./helpers");
+    let m = sample();
+    // 本人確認をする: 作業 0.1、操作「チェックインを記録する」0.2
+    expect(activityHours(m, "act_verify_identity")).toEqual({ own: 0.1, usecases: 0.2 });
+    // 部屋を割り当てる: 操作だけ
+    expect(activityHours(m, "act_assign_room")).toEqual({ usecases: 0.1 });
+    // 鍵を渡す: どちらも無い
+    expect(activityHours(m, "act_hand_key")).toEqual({});
+    // 予約内容を確認する: 予約を検索する 0.1 + 予約を確定する 0.2 = 0.3 (小数の誤差を丸める)
+    m = okModel(updateElement(m, { id: "uc_confirm_reservation", patch: { hours: 0.2 } }));
+    expect(activityHours(m, "act_confirm_reservation")).toEqual({ usecases: 0.3 });
+    expect(formatHours(0.3)).toBe("0.3 時間");
+    expect(formatHours(2)).toBe("2.0 時間");
+  });
+});

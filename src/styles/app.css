@@ -367,3 +367,8 @@ textarea { resize: vertical; width: 100%; }
 .an-bar-fill.sev-4 { background: var(--sev-4); }
 .an-bar-fill.sev-5 { background: var(--sev-5); }
 .an-matrix thead .an-sub, .an-matrix tbody th .an-sub { display: block; margin: 0; }
+.hours-label { font-size: 11px; color: #5d6b4a; margin-left: 4px; white-space: nowrap; }
+.hours-label.is-block { display: block; margin-left: 0; }
+.fixed-card .hours-label { margin-left: 0; }
+.hours-sep { color: var(--muted); }
+.hours-breakdown { margin-top: -4px; }

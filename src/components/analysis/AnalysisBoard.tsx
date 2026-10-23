@@ -20,6 +20,7 @@ import { ELEMENT_KIND_LABELS, type Element, type Link, type Relation, type Untie
 import { useUntieStore } from "../../store";
 import { openExternalUrl } from "../../io/file";
 import { canvasApi } from "../canvas/canvasApi";
+import { HoursLabel } from "../Hours";
 
 /** 分析ボードの見出しに出す説明 */
 const DESCRIPTIONS: Record<AnalysisKind, string> = {
@@ -186,6 +187,7 @@ function ActivityTable({ model, sections }: { model: UntieModel; sections: Activ
         <tr>
           <th>業務 / 活動</th>
           <th>作業</th>
+          <th>時間</th>
           <th>作業のリンク</th>
           <th>使う操作とそのリンク</th>
         </tr>
@@ -201,6 +203,9 @@ function ActivityTable({ model, sections }: { model: UntieModel; sections: Activ
                   <El element={a} />
                 </td>
                 <td>
+                  <HoursLabel element={a} model={model} className="hours-label is-block" />
+                </td>
+                <td>
                   <Links links={a.links} />
                 </td>
                 <td>
@@ -211,6 +216,7 @@ function ActivityTable({ model, sections }: { model: UntieModel; sections: Activ
                       {ucs.map((u) => (
                         <li key={u.id}>
                           <El element={u} />
+                          <HoursLabel element={u} model={model} />
                           {u.links && u.links.length > 0 && <Links links={u.links} />}
                         </li>
                       ))}
@@ -513,13 +519,23 @@ function WorkFlowView({ model }: { model: UntieModel }) {
                       <>
                         <td rowSpan={ucs.length}>
                           <El element={row.activity} />
+                          <HoursLabel element={row.activity} model={model} className="hours-label is-block" />
                         </td>
                         <td rowSpan={ucs.length}>
                           <Els elements={row.performers} empty="担当なし" />
                         </td>
                       </>
                     )}
-                    <td>{u ? <El element={u.usecase} /> : <span className="an-empty">—</span>}</td>
+                    <td>
+                      {u ? (
+                        <>
+                          <El element={u.usecase} />
+                          <HoursLabel element={u.usecase} model={model} />
+                        </>
+                      ) : (
+                        <span className="an-empty">—</span>
+                      )}
+                    </td>
                     <td>{u && <Els elements={u.informations} />}</td>
                     <td>{u && <Els elements={u.conditions} />}</td>
                     <td>

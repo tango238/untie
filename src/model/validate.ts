@@ -143,6 +143,9 @@ export function checkIntegrity(model: UntieModel): string[] {
       else if (biz.kind !== "business") errors.push(`${label(e)} の businessId ${e.businessId} は業務ではありません`);
       if (e.isDefault) defaultCount.set(e.businessId, (defaultCount.get(e.businessId) ?? 0) + 1);
     }
+    if ((e.kind === "activity" || e.kind === "usecase") && e.hours !== undefined && Math.abs(Math.round(e.hours * 10) - e.hours * 10) > 1e-6) {
+      errors.push(`${label(e)} の時間 ${e.hours} は小数点第一位までにしてください`);
+    }
     if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId !== null) {
       const ctx = byId.get(e.contextId);
       if (!ctx) errors.push(`${label(e)} のコンテキスト ${e.contextId} が存在しません`);

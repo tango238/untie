@@ -13,7 +13,7 @@ import {
 } from "../model/commands";
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "../model/relations";
 import { suggestContext } from "../model/contexts";
-import { defaultBucOf, issuesTargeting } from "../model/selectors";
+import { activityHours, defaultBucOf, formatHours, issuesTargeting } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
   isContextMemberKind,
@@ -31,6 +31,7 @@ import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
 import { selectAndReveal } from "./actions";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
+import { HoursField } from "./Hours";
 import { GRANULARITY, isGuideKind } from "./granularity";
 
 export function PropertyPanel() {
@@ -158,13 +159,17 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         onCommit={(description) => update({ description })}
       />
       {(element.kind === "activity" || element.kind === "usecase") && (
-        <LinksEditor links={element.links ?? []} onChange={(links) => update({ links })} />
+        <>
+          <HoursField value={element.hours} onCommit={(hours) => update({ hours })} onError={(r) => pushToast(r, "error")} />
+          {element.kind === "activity" && <ActivityHoursBreakdown activityId={element.id} model={model} />}
+          <LinksEditor links={element.links ?? []} onChange={(links) => update({ links })} />
+        </>
       )}
 
       {!structural && (
         <p className="hint">
           {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
-          では名前・説明・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
+          では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
         </p>
       )}
       <fieldset className="plain-fieldset" disabled={!structural}>
@@ -434,6 +439,20 @@ function ContextField({ element, model }: { element: Element; model: UntieModel 
         </p>
       )}
     </div>
+  );
+}
+
+/** 作業の時間の内訳。使う操作の時間の合計を、作業自身の時間とは分けて出す */
+function ActivityHoursBreakdown({ activityId, model }: { activityId: string; model: UntieModel }) {
+  const h = activityHours(model, activityId);
+  if (h.usecases === undefined) return null;
+  const ucIds = new Set(model.relations.filter((r) => r.kind === "activityUsecase" && r.sourceId === activityId).map((r) => r.targetId));
+  const parts = model.elements.filter((e) => e.kind === "usecase" && ucIds.has(e.id) && e.hours !== undefined);
+  return (
+    <p className="hint hours-breakdown">
+      操作の合計: {formatHours(h.usecases)} (
+      {parts.map((u) => `${u.name} ${u.kind === "usecase" ? formatHours(u.hours!) : ""}`).join("、")})
+    </p>
   );
 }
 

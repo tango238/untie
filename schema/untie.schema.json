@@ -210,6 +210,12 @@
           "description": "マニュアルなどへのリンク。順序を保つ。",
           "type": "array",
           "items": { "$ref": "#/$defs/link" }
+        },
+        "hours": {
+          "description": "かかる時間 (時間単位、小数点第一位まで)。任意。",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
         }
       }
     },
@@ -227,6 +233,12 @@
           "description": "マニュアルなどへのリンク。順序を保つ。",
           "type": "array",
           "items": { "$ref": "#/$defs/link" }
+        },
+        "hours": {
+          "description": "かかる時間 (時間単位、小数点第一位まで)。任意。",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
         }
       }
     },
