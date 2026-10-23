@@ -4,6 +4,7 @@ import type { UntieModel } from "../model/types";
 import { moveNode, type Position, type Size } from "../model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "../model/fixedBoards";
 import { parseAnalysisBoardId } from "../model/analysis";
+import type { GlobalFilter } from "../model/lineage";
 import { createHotelSample } from "../sample";
 
 /** 履歴の上限 */
@@ -17,6 +18,8 @@ export interface UiState {
   currentBoardId: string;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
+  /** 固定ボード共通のグローバルフィルター (レイヤーごとに選んだ要素 id。保存しない・履歴に積まない) */
+  globalFilter?: GlobalFilter;
   /** 固定ボードの「書き方のヒント」を開いているか (未設定は閉じる。履歴に積まない) */
   guideOpen?: boolean;
   selection: Selection;
@@ -70,6 +73,8 @@ export interface UntieState {
   setCurrentBoard: (boardId: string) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
   setGuideOpen: (open: boolean) => void;
+  setGlobalFilter: (layer: FixedLayer, ids: string[]) => void;
+  resetGlobalFilter: () => void;
   select: (selection: Selection) => void;
   setRightPanel: (panel: RightPanel) => void;
   requestNameFocus: () => void;
@@ -214,7 +219,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
         savedModel: model,
         history: { past: [], future: [] },
         dragBase: null,
-        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties" },
+        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties", globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
@@ -225,6 +230,9 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
     setFixedFilter: (layer, query) =>
       set((s) => ({ ui: { ...s.ui, fixedFilters: { ...s.ui.fixedFilters, [layer]: query } } })),
     setGuideOpen: (guideOpen) => set((s) => ({ ui: { ...s.ui, guideOpen } })),
+    setGlobalFilter: (layer, ids) =>
+      set((s) => ({ ui: { ...s.ui, globalFilter: { ...s.ui.globalFilter, [layer]: [...new Set(ids)] } } })),
+    resetGlobalFilter: () => set((s) => ({ ui: { ...s.ui, globalFilter: {} } })),
     select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
     setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
     requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),

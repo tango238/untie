@@ -4,6 +4,7 @@ import {
   addToGroup,
   emptyLayerHint,
   filterGroups,
+  scopeGroups,
   fixedGroups,
   linkCandidates,
   linkToGroup,
@@ -21,7 +22,9 @@ import { SystemChips } from "./canvas/SystemChips";
 import { actorLabels, systemLabels, type SystemLabel } from "./canvas/toFlow";
 import { GRANULARITY, LAYER_GUIDES, type GranularityGuide, type GuideKind } from "./granularity";
 import { HoursLabel } from "./Hours";
+import { GlobalFilterBar } from "./GlobalFilterBar";
 import { IssueBadge } from "./IssueBadge";
+import { globalFilterScope } from "../model/lineage";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
@@ -49,7 +52,9 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
   const setFixedFilter = useUntieStore((s) => s.setFixedFilter);
 
   const allGroups = useMemo(() => fixedGroups(model, layer), [model, layer]);
-  const groups = useMemo(() => filterGroups(allGroups, query), [allGroups, query]);
+  const globalFilter = useUntieStore((s) => s.ui.globalFilter);
+  const scope = useMemo(() => globalFilterScope(model, globalFilter), [model, globalFilter]);
+  const groups = useMemo(() => filterGroups(scopeGroups(allGroups, scope), query), [allGroups, scope, query]);
   const summaries = useMemo(() => issueSummaries(model), [model]);
   const actors = useMemo(() => actorLabels(model), [model]);
   const systems = useMemo(() => systemLabels(model), [model]);
@@ -69,6 +74,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
 
   return (
     <div className="fixed-board" data-testid="fixed-board">
+      <GlobalFilterBar />
       <div className="fixed-head">
         <h2 className="fixed-title">{FIXED_LAYER_LABELS[layer]}</h2>
         <span className="fixed-hint">{LAYER_HINTS[layer]}</span>
@@ -84,6 +90,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
       <GuidePanel {...LAYER_GUIDES[layer]} />
       {hint && <p className="hint">{hint}</p>}
       {query.trim() !== "" && groups.length === 0 && <p className="hint">「{query.trim()}」に一致する要素はありません。</p>}
+      {scope && query.trim() === "" && groups.length === 0 && <p className="hint">グローバルフィルターに合う要素はありません。</p>}
       {splitSections(groups).map(({ section, groups: gs }) => {
         const grid = (
           <div className="fixed-groups">

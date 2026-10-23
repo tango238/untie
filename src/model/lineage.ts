@@ -97,7 +97,15 @@ function groupByLayer(model: UntieModel, ids: Set<string>, exclude: FixedLayer |
   return FIXED_LAYERS.filter((l) => rows.has(l)).map((layer) => ({ layer, elements: rows.get(layer)! }));
 }
 
-/** 要素から上と下へ辿った要素を、レイヤーごとにまとめる (自分と同じレイヤーは除く) */
+/** コンテキストに属する要素 (情報・状態・条件・バリエーション) */
+function membersOf(model: UntieModel, contextId: string): string[] {
+  return model.elements.filter((e) => isContextMemberKind(e.kind) && "contextId" in e && e.contextId === contextId).map((e) => e.id);
+}
+
+/**
+ * 要素から上と下へ辿った要素を、レイヤーごとにまとめる (自分と同じレイヤーは除く)。
+ * コンテキストは分類なので、上へは属する要素から辿る (そうしないと操作・作業・担い手に届かない)
+ */
 export function lineage(model: UntieModel, elementId: string): Lineage {
   const el = model.elements.find((e) => e.id === elementId);
   if (!el) return { up: [], down: [] };
@@ -105,5 +113,62 @@ export function lineage(model: UntieModel, elementId: string): Lineage {
   const down = new Map<string, string[]>();
   for (const [from, tos] of up) for (const to of tos) down.set(to, [...(down.get(to) ?? []), from]);
   const own = fixedLayerOf(el.kind);
-  return { up: groupByLayer(model, walk(el.id, up), own), down: groupByLayer(model, walk(el.id, down), own) };
+  const upIds = walk(el.id, up);
+  if (el.kind === "context") for (const m of membersOf(model, el.id)) for (const id of walk(m, up)) upIds.add(id);
+  upIds.delete(el.id);
+  return { up: groupByLayer(model, upIds, own), down: groupByLayer(model, walk(el.id, down), own) };
+}
+
+/** 要素から上と下へ辿って届く要素 (自分を含む) */
+export function reachable(model: UntieModel, elementId: string): Set<string> {
+  const up = upEdges(model);
+  const down = new Map<string, string[]>();
+  for (const [from, tos] of up) for (const to of tos) down.set(to, [...(down.get(to) ?? []), from]);
+  const result = new Set([elementId, ...walk(elementId, up), ...walk(elementId, down)]);
+  // コンテキストは分類なので、属する要素から上へも辿る
+  const el = model.elements.find((e) => e.id === elementId);
+  if (el?.kind === "context") for (const m of membersOf(model, el.id)) for (const id of walk(m, up)) result.add(id);
+  return result;
+}
+
+/** グローバルフィルター: レイヤーごとに選んだ要素 id */
+export type GlobalFilter = Partial<Record<FixedLayer, string[]>>;
+
+/** フィルターで選んでいる要素の数 (存在しない要素は数えない) */
+export function globalFilterCount(model: UntieModel, filter: GlobalFilter | undefined): number {
+  if (!filter) return 0;
+  const ids = new Set(model.elements.map((e) => e.id));
+  return Object.values(filter).reduce((n, list) => n + (list ?? []).filter((id) => ids.has(id)).length, 0);
+}
+
+/**
+ * グローバルフィルターに合う要素。フィルターが空なら null (絞り込まない)。
+ * レイヤーの中では「どれかにつながる」(OR)、レイヤーどうしは「すべてにつながる」(AND)。
+ * つながるかはトレースと同じく上下へ辿って決める。そのうえで、合う要素が属するコンテキストと、
+ * 合う情報の置き場所 (システム・帳票) も含める (これらは情報より上に辿るので、下へ辿っても届かないため)
+ */
+export function globalFilterScope(model: UntieModel, filter: GlobalFilter | undefined): Set<string> | null {
+  if (!filter) return null;
+  const exists = new Set(model.elements.map((e) => e.id));
+  let scope: Set<string> | null = null;
+  for (const layer of FIXED_LAYERS) {
+    const selected = (filter[layer] ?? []).filter((id) => exists.has(id));
+    if (selected.length === 0) continue;
+    const union = new Set<string>();
+    for (const id of selected) for (const r of reachable(model, id)) union.add(r);
+    const prev: Set<string> | null = scope;
+    scope = prev === null ? union : new Set([...prev].filter((id: string) => union.has(id)));
+  }
+  if (scope === null) return null;
+  const extra = new Set<string>();
+  for (const e of model.elements) {
+    if (!scope.has(e.id)) continue;
+    if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId) extra.add(e.contextId);
+  }
+  for (const r of model.relations) {
+    if (r.kind === "systemInformation" && scope.has(r.targetId)) extra.add(r.sourceId);
+    if (r.kind === "informationSystem" && scope.has(r.sourceId)) extra.add(r.targetId);
+  }
+  for (const id of extra) scope.add(id);
+  return scope;
 }

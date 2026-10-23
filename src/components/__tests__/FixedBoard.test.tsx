@@ -54,7 +54,7 @@ describe("FixedBoard", () => {
   it("絞り込みで一致する要素だけを出す", () => {
     render(<FixedBoard layer="activity" />);
     fireEvent.change(screen.getByLabelText("絞り込み"), { target: { value: "鍵" } });
-    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(["チェックイン", "チェックアウト"]);
+    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label")).filter((l) => l !== "グローバルフィルター")).toEqual(["チェックイン", "チェックアウト"]);
     expect(st().ui.fixedFilters?.activity).toBe("鍵");
     fireEvent.change(screen.getByLabelText("絞り込み"), { target: { value: "該当なし" } });
     expect(screen.getByText(/一致する要素はありません/)).toBeDefined();
@@ -120,5 +120,25 @@ describe("FixedBoard の選択の引き継ぎ", () => {
     render(<FixedBoard layer="usecase" />);
     expect(screen.getByRole("region", { name: "鍵を渡す" }).className).toContain("is-selected");
     expect(screen.getByRole("region", { name: "到着を確認する" }).className).not.toContain("is-selected");
+  });
+});
+
+describe("グローバルフィルター", () => {
+  it("あるボードで選んだフィルターが、ほかの固定ボードにも効く。チップで外せ、リセットで全部消える", () => {
+    const { unmount } = render(<FixedBoard layer="activity" />);
+    fireEvent.click(screen.getByRole("button", { name: /グローバルフィルター/ }));
+    fireEvent.change(screen.getByLabelText("グローバルフィルターに登場人物を足す"), { target: { value: "actor_housekeeping" } });
+    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label")).filter((l) => l !== "グローバルフィルター")).toEqual(["清掃・準備"]);
+    unmount();
+    // 操作のボードを開いても効いている
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getAllByText("清掃状況を更新する", { selector: ".fixed-card-name" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText("予約を登録する", { selector: ".fixed-card-name" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "フィルターから「清掃担当」を外す" }));
+    expect(st().ui.globalFilter?.actor).toEqual([]);
+    expect(screen.getByText("予約を登録する", { selector: ".fixed-card-name" })).toBeDefined();
+    act(() => st().setGlobalFilter("business", ["biz_checkin"]));
+    fireEvent.click(screen.getByRole("button", { name: "リセット" }));
+    expect(st().ui.globalFilter).toEqual({});
   });
 });

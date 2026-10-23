@@ -37,3 +37,59 @@ describe("lineage (トレース)", () => {
     expect(lineage(sample(), "nope")).toEqual({ up: [], down: [] });
   });
 });
+
+describe("globalFilterScope (グローバルフィルター)", async () => {
+  const { globalFilterScope, globalFilterCount } = await import("../lineage");
+  const { fixedGroups, scopeGroups } = await import("../fixedBoards");
+
+  it("空なら null (絞り込まない)。存在しない要素は無視する", () => {
+    const m = sample();
+    expect(globalFilterScope(m, undefined)).toBeNull();
+    expect(globalFilterScope(m, { actor: [] })).toBeNull();
+    expect(globalFilterScope(m, { actor: ["nope"] })).toBeNull();
+    expect(globalFilterCount(m, { actor: ["actor_front", "nope"], business: ["biz_stay"] })).toBe(2);
+  });
+
+  it("選んだ要素につながる要素だけを残す。レイヤーの中は OR、レイヤーどうしは AND", () => {
+    const m = sample();
+    const housekeeping = globalFilterScope(m, { actor: ["actor_housekeeping"] })!;
+    expect(housekeeping.has("act_clean")).toBe(true);
+    // 主担当の業務 (清掃・準備) の作業も、トレースと同じく含む
+    expect(housekeeping.has("act_instruct_cleaning")).toBe(true);
+    expect(housekeeping.has("act_hand_key")).toBe(false);
+    expect(housekeeping.has("actor_front")).toBe(false);
+    const either = globalFilterScope(m, { actor: ["actor_housekeeping", "actor_reservation"] })!;
+    expect(either.has("act_clean") && either.has("act_accept_reservation")).toBe(true);
+    // フロント担当 かつ 業務「チェックアウト」
+    const both = globalFilterScope(m, { actor: ["actor_front"], business: ["biz_checkout"] })!;
+    expect(both.has("act_settle")).toBe(true);
+    expect(both.has("act_hand_key")).toBe(false);
+    // 担当は宿泊管理システムだが、フロント担当が主担当の業務「チェックアウト」の作業なので含む
+    expect(both.has("act_calc_charge")).toBe(true);
+  });
+
+  it("コンテキストを選ぶと、属する要素につながる操作・作業・担い手も残す", () => {
+    const m = sample();
+    const s = globalFilterScope(m, { actor: ["actor_reservation"], context: ["ctx_customer"] })!;
+    // 予約担当 かつ 顧客 (宿泊客の情報) → 予約を受け付ける (予約を登録する が宿泊客を扱う)
+    expect(s.has("act_accept_reservation")).toBe(true);
+    expect(s.has("info_guest")).toBe(true);
+    expect(s.has("act_confirm_reservation")).toBe(false);
+    expect(view(lineage(m, "ctx_customer").up).usecase).toEqual(["予約を登録する", "チェックインを記録する"]);
+  });
+
+  it("合う要素のコンテキストと、合う情報の置き場所も含める", () => {
+    const s = globalFilterScope(sample(), { actor: ["actor_housekeeping"] })!;
+    expect(s.has("info_cleaning_record")).toBe(true);
+    expect(s.has("ctx_room")).toBe(true);
+    expect(s.has("ldg_cleaning_sheet")).toBe(true);
+  });
+
+  it("固定ボードの枠は、中身か見出しが合うものだけ残す", () => {
+    const m = sample();
+    const scope = globalFilterScope(m, { actor: ["actor_housekeeping"] });
+    const gs = scopeGroups(fixedGroups(m, "activity"), scope);
+    expect(gs.map((g) => g.title)).toEqual(["清掃・準備"]);
+    expect(gs[0]!.items.map((e) => e.id)).toEqual(["act_instruct_cleaning", "act_clean", "act_inspect_room"]);
+  });
+});

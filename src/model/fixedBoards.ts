@@ -318,6 +318,20 @@ export function filterGroups(groups: FixedGroup[], query: string): FixedGroup[] 
   return result;
 }
 
+/**
+ * グローバルフィルターに合う要素だけを残す (scope が null なら何もしない)。
+ * 見出しの要素が合う枠は、中身が無くても残す (そこへ足せるように)。それ以外の枠は中身が無ければ出さない
+ */
+export function scopeGroups(groups: FixedGroup[], scope: Set<string> | null): FixedGroup[] {
+  if (!scope) return groups;
+  const result: FixedGroup[] = [];
+  for (const g of groups) {
+    const items = g.items.filter((e) => scope.has(e.id));
+    if (items.length > 0 || (g.parentId !== null && scope.has(g.parentId))) result.push({ ...g, items });
+  }
+  return result;
+}
+
 /** 枠に新しい要素を作って結びつける (作成と結びつけで 1 件の履歴) */
 export function addToGroup(model: UntieModel, group: FixedGroup, name?: string): CommandResult<{ id: string }> {
   const kind = group.childKind;

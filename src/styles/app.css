@@ -387,3 +387,17 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .trace-more { font-size: 11px; color: var(--accent); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .trace-table .layer-link { white-space: nowrap; }
+
+/* グローバルフィルター (固定ボード共通) */
+.global-filter { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; }
+.global-filter.is-active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.global-filter-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.global-filter-toggle { border: none; background: none; padding: 0; font-weight: 600; font-size: 12px; color: var(--text); }
+.global-filter-toggle:hover:not(:disabled) { background: none; text-decoration: underline; }
+.global-filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.global-filter-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 0 0 0 6px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--c) 45%, #fff); background: color-mix(in srgb, var(--c) 10%, #fff); }
+.global-filter-chip .icon-button { border: none; background: none; padding: 0 6px; font-size: 11px; }
+.global-filter-chip-layer { color: var(--muted); }
+.global-filter-reset { margin-left: auto; font-size: 12px; }
+.global-filter-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
+.global-filter-field { display: flex; flex-direction: column; gap: 2px; }
