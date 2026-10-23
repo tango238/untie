@@ -16,7 +16,7 @@ export interface UiState {
   currentBoardId: string;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
-  /** 固定ボードの「書き方のヒント」を開いているか (未設定は開く。履歴に積まない) */
+  /** 固定ボードの「書き方のヒント」を開いているか (未設定は閉じる。履歴に積まない) */
   guideOpen?: boolean;
   selection: Selection;
   rightPanel: RightPanel;

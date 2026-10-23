@@ -123,7 +123,7 @@ const GUIDE_ROWS: { key: keyof GranularityGuide; label: string }[] = [
 
 /** 活動・作業・操作の書き方と粒度を 3 段並べて見せる。今のボードの段を強調する */
 function GuidePanel({ current }: { current: GuideKind }) {
-  const open = useUntieStore((s) => s.ui.guideOpen ?? true);
+  const open = useUntieStore((s) => s.ui.guideOpen ?? false);
   const setGuideOpen = useUntieStore((s) => s.setGuideOpen);
   return (
     <details

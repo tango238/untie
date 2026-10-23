@@ -20,10 +20,13 @@ describe("FixedBoard", () => {
     expect(checkin.getByLabelText("担当: フロント担当、宿泊客")).toBeDefined();
   });
 
-  it("活動・作業・操作のボードには 3 段を並べた書き方のヒントを出し、今の段を強調する。閉じた状態を覚える", () => {
+  it("活動・作業・操作のボードには 3 段を並べた書き方のヒントを出し、今の段を強調する。最初は閉じ、開閉を覚える", () => {
     const { unmount } = render(<FixedBoard layer="activity" />);
     const guide = screen.getByText(/書き方のヒント/).closest("details")!;
-    expect(guide.open).toBe(true);
+    expect(guide.open).toBe(false);
+    guide.open = true;
+    fireEvent(guide, new Event("toggle"));
+    expect(st().ui.guideOpen).toBe(true);
     const current = [...guide.querySelectorAll("thead th.is-current")].map((e) => e.textContent);
     expect(current).toEqual(["作業"]);
     expect(within(guide).getByText(/1 人が一続きでやり終える/)).toBeDefined();
