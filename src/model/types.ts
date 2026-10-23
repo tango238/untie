@@ -37,8 +37,8 @@ export type IssueTargetKind = "business" | "activity" | "usecase";
 export const ELEMENT_KINDS: readonly ElementKind[] = [
   "actor",
   "externalActor",
-  "buc",
   "business",
+  "buc",
   "activity",
   "usecase",
   "information",
