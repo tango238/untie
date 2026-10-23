@@ -1,12 +1,26 @@
+import { Canvas } from "./components/canvas/Canvas";
+import { ElementList } from "./components/ElementList";
+import { IssuePanel } from "./components/IssuePanel";
+import { PropertyPanel } from "./components/PropertyPanel";
+import { ToastHost } from "./components/Toast";
+import { Toolbar } from "./components/Toolbar";
+import { useKeyboard } from "./components/useKeyboard";
 import { useUntieStore } from "./store";
 
-// 仮画面。UI は次の段で作る。
 export default function App() {
-  const count = useUntieStore((s) => s.model.elements.length);
+  useKeyboard();
+  const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   return (
-    <main style={{ padding: 24, fontFamily: "sans-serif" }}>
-      <h1>Untie</h1>
-      <p>サンプルの要素数: {count}</p>
-    </main>
+    <div className="app">
+      <Toolbar />
+      <div className="main">
+        <ElementList />
+        <main className="canvas-area">
+          <Canvas />
+        </main>
+        <div className="right-panel">{rightPanel === "issues" ? <IssuePanel /> : <PropertyPanel />}</div>
+      </div>
+      <ToastHost />
+    </div>
   );
 }

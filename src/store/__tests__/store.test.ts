@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addElement, removeElement, updateElement } from "../../model";
+import { addElement, moveActivity, moveNode, removeBoard, removeElement, updateElement } from "../../model";
 import { HISTORY_LIMIT, createUntieStore } from "..";
 import { emptyModel } from "../../model/types";
 
@@ -133,5 +133,43 @@ describe("ストア", () => {
     expect(s.getState().history.past).toHaveLength(0);
     s.getState().setCurrentBoard("nope");
     expect(s.getState().ui.currentBoardId).toBe("board_flow");
+  });
+
+  it("commitDrag にコマンドを渡すと、ドラッグと所属変更が 1 件の履歴になる", () => {
+    const s = createUntieStore();
+    const before = s.getState().model;
+    s.getState().previewNode("board_overview", "act_verify_identity", { x: 5, y: 5 });
+    s.getState().commitDrag((m) => moveActivity(m, { activityId: "act_verify_identity", bucId: null }));
+    expect(s.getState().history.past).toEqual([before]);
+    const act = s.getState().model.elements.find((e) => e.id === "act_verify_identity");
+    expect(act).toMatchObject({ bucId: null });
+    s.getState().undo();
+    expect(s.getState().model).toBe(before);
+  });
+
+  it("previewCommand は履歴に積まず、commitDrag で確定する", () => {
+    const s = createUntieStore();
+    s.getState().previewCommand((m) => moveNode(m, { boardId: "board_overview", elementId: "actor_front", position: { x: 9, y: 9 } }));
+    expect(s.getState().history.past).toHaveLength(0);
+    s.getState().commitDrag();
+    expect(s.getState().history.past).toHaveLength(1);
+  });
+
+  it("トーストは積まれ、dismissToast で消える。名前フォーカス要求の番号が増える", () => {
+    const s = createUntieStore();
+    s.getState().pushToast("a");
+    s.getState().pushToast("b", "error");
+    expect(s.getState().toasts.map((t) => [t.message, t.tone])).toEqual([["a", "info"], ["b", "error"]]);
+    s.getState().dismissToast(s.getState().toasts[0]!.id);
+    expect(s.getState().toasts).toHaveLength(1);
+    s.getState().requestNameFocus();
+    expect(s.getState().ui.nameFocusNonce).toBe(1);
+  });
+
+  it("ボードを消すと、開いていたボードは先頭へ移る", () => {
+    const s = createUntieStore();
+    s.getState().setCurrentBoard("board_flow");
+    s.getState().dispatch((m) => removeBoard(m, { id: "board_flow" }));
+    expect(s.getState().ui.currentBoardId).toBe("board_overview");
   });
 });

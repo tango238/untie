@@ -431,6 +431,20 @@ export function renameBoard(model: UntieModel, payload: RenameBoardPayload): Com
   return { ok: true, model: next };
 }
 
+export interface RemoveBoardPayload {
+  id: string;
+}
+
+/** ボードを消す。最後の 1 枚は消せない。ボード上にあった要素や関係は残る */
+export function removeBoard(model: UntieModel, payload: RemoveBoardPayload): CommandResult {
+  if (!model.boards.some((b) => b.id === payload.id)) return fail(`ボードが存在しません: ${payload.id}`);
+  if (model.boards.length <= 1) return fail("最後の 1 枚のボードは削除できません");
+  const next = produce(model, (draft) => {
+    draft.boards = draft.boards.filter((b) => b.id !== payload.id) as typeof draft.boards;
+  });
+  return { ok: true, model: next };
+}
+
 export interface PlaceOnBoardPayload {
   boardId: string;
   elementId: string;

@@ -9,6 +9,7 @@ import {
   moveBuc,
   moveNode,
   placeOnBoard,
+  removeBoard,
   removeElement,
   removeFromBoard,
   removeRelation,
@@ -272,6 +273,18 @@ describe("ボードとノード", () => {
     expect(m.boards.slice(-1)[0]!.name).toBe("改名");
     expectFail(renameBoard(m, { id: "nope", name: "x" }), /ボード/);
     expectFail(addBoard(m, { name: "x", id: "board_flow" }), /重複/);
+  });
+
+  it("removeBoard はボードだけを消し、要素と関係は残す。最後の 1 枚は消せない", () => {
+    const m0 = sample();
+    const m = okModel(removeBoard(m0, { id: "board_flow" }));
+    expect(m.boards.map((b) => b.id)).not.toContain("board_flow");
+    expect(m.elements).toBe(m0.elements);
+    expect(m.relations).toBe(m0.relations);
+    expectValid(m);
+    expectFail(removeBoard(m0, { id: "nope" }), /ボード/);
+    const only = emptyModel();
+    expectFail(removeBoard(only, { id: only.boards[0].id }), /最後/);
   });
 
   it("placeOnBoard は課題・既定 BUC・二重配置・不正な指定を拒否する", () => {

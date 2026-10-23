@@ -14,6 +14,15 @@ export interface UiState {
   currentBoardId: string;
   selection: Selection;
   rightPanel: RightPanel;
+  /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
+  nameFocusNonce: number;
+}
+
+export type ToastTone = "info" | "error";
+export interface ToastItem {
+  id: number;
+  message: string;
+  tone: ToastTone;
 }
 
 export interface UntieState {
@@ -22,6 +31,7 @@ export interface UntieState {
   ui: UiState;
   /** ドラッグ開始時点のモデル (ドラッグ中のみ非 null) */
   dragBase: UntieModel | null;
+  toasts: ToastItem[];
 
   /** コマンドを実行し、成功したら履歴に積む。失敗や変更なしは何もしない */
   dispatch: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
@@ -29,15 +39,22 @@ export interface UntieState {
   redo: () => void;
   /** ドラッグ中の一時的な座標更新 (履歴に積まない) */
   previewNode: (boardId: string, elementId: string, position: Position, size?: Size) => void;
+  /** ドラッグ中の一時的な変更 (複数ノードをまとめて動かすとき)。履歴に積まない */
+  previewCommand: (command: (model: UntieModel) => CommandResult) => void;
   /** ドラッグ終了。ドラッグ全体を 1 件の履歴として確定する */
-  commitDrag: () => void;
+  commitDrag: (command?: (model: UntieModel) => CommandResult) => void;
   /** ドラッグを取り消して開始時点に戻す */
   cancelDrag: () => void;
 
   setCurrentBoard: (boardId: string) => void;
   select: (selection: Selection) => void;
   setRightPanel: (panel: RightPanel) => void;
+  requestNameFocus: () => void;
+  pushToast: (message: string, tone?: ToastTone) => void;
+  dismissToast: (id: number) => void;
 }
+
+let toastSeq = 0;
 
 /** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
@@ -64,8 +81,9 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
   return create<UntieState>()((set, get) => ({
     model: initial,
     history: { past: [], future: [] },
-    ui: { currentBoardId: initial.boards[0]?.id ?? "", selection: null, rightPanel: "properties" },
+    ui: { currentBoardId: initial.boards[0]?.id ?? "", selection: null, rightPanel: "properties", nameFocusNonce: 0 },
     dragBase: null,
+    toasts: [],
 
     dispatch: (command) => {
       // ドラッグ途中ならそれを先に確定する
@@ -112,14 +130,32 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
       set({ model: result.model, dragBase: dragBase ?? model });
     },
 
-    commitDrag: () => {
-      const { model, dragBase, history } = get();
-      if (!dragBase) return;
-      if (dragBase === model) {
+    previewCommand: (command) => {
+      const { model, dragBase } = get();
+      const result = command(model);
+      if (!result.ok || result.model === model) return;
+      set({ model: result.model, dragBase: dragBase ?? model });
+    },
+
+    commitDrag: (command) => {
+      const { model, dragBase, history, ui } = get();
+      // ドラッグ終了時に所属変更などを同じ 1 件の履歴にまとめる
+      let finalModel = model;
+      if (command) {
+        const result = command(model);
+        if (result.ok) finalModel = result.model;
+      }
+      const base = dragBase ?? model;
+      if (base === finalModel) {
         set({ dragBase: null });
         return;
       }
-      set({ dragBase: null, history: { past: pushPast(history.past, dragBase), future: [] } });
+      set({
+        model: finalModel,
+        dragBase: null,
+        history: { past: pushPast(history.past, base), future: [] },
+        ui: reconcileUi(ui, finalModel),
+      });
     },
 
     cancelDrag: () => {
@@ -134,6 +170,10 @@ export function createUntieStore(initial: UntieModel = createHotelSample()) {
     },
     select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
     setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
+    requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),
+    pushToast: (message, tone = "info") =>
+      set((s) => ({ toasts: [...s.toasts.slice(-4), { id: ++toastSeq, message, tone }] })),
+    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   }));
 }
 
