@@ -63,6 +63,22 @@ describe("fixedGroups", () => {
     expect(names(group(m, "usecase", "act_confirm_arrival").items)).toEqual(["予約を検索する"]);
   });
 
+  it("ユースケース: アクティビティの枠を BUC の段落に分け、BUC の順に並べる。中身の無い BUC は出さない", () => {
+    const m = sample();
+    const gs = fixedGroups(m, "usecase");
+    const sectionKeys = [...new Set(gs.map((g) => g.section?.key))];
+    const bucOrder = fixedGroups(m, "activity").map((g) => g.key);
+    // 段落は活動のボードと同じ並び (既定 BUC → BUC)
+    expect(sectionKeys.filter((k) => k !== "__none")).toEqual(bucOrder.filter((k) => sectionKeys.includes(k)));
+    // 同じ段落の枠は続けて並ぶ
+    const runs = gs.filter((g, i) => i === 0 || g.section?.key !== gs[i - 1]!.section?.key).length;
+    expect(runs).toBe(sectionKeys.length);
+    const dining = gs.filter((g) => g.section?.key === "buc_dining");
+    expect(dining[0]!.section).toMatchObject({ title: "飲食提供", parentId: "buc_dining" });
+    expect(dining.map((g) => g.parentId)).toContain("act_room_service");
+    expect(group(m, "usecase", "act_confirm_reservation").section).toMatchObject({ key: "buc_default_reservation", title: "予約受付" });
+  });
+
   it("状態: 状態グループごと。「グループなし」は常に出す", () => {
     const gs = fixedGroups(sample(), "state");
     expect(gs.map((g) => g.title)).toEqual(["予約の状態", "部屋の状態", "グループなし"]);
@@ -72,7 +88,7 @@ describe("fixedGroups", () => {
     const m = emptyModel();
     expect(fixedGroups(m, "buc")).toEqual([]);
     expect(fixedGroups(m, "activity").map((g) => g.title)).toEqual(["未所属"]);
-    expect(fixedGroups(m, "usecase").map((g) => g.title)).toEqual(["アクティビティなし"]);
+    expect(fixedGroups(m, "usecase").map((g) => [g.title, g.section?.key])).toEqual([["アクティビティなし", "__none"]]);
   });
 });
 

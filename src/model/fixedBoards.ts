@@ -6,7 +6,6 @@ import { defaultBucOf } from "./selectors";
 import {
   ELEMENT_KIND_LABELS,
   type Activity,
-  type Buc,
   type Element,
   type ElementKind,
   type State,
@@ -64,6 +63,15 @@ export type GroupLink =
   /** 状態の状態グループ (undefined はグループなし) */
   | { type: "stateGroup"; group: string | undefined };
 
+/** 枠をまとめる段落 (ユースケースのボードの BUC など)。見出しと区切りで分けて出す */
+export interface FixedSection {
+  key: string;
+  title: string;
+  subtitle?: string;
+  /** 見出しの元になった要素。クリックで選べる */
+  parentId: string | null;
+}
+
 export interface FixedGroup {
   key: string;
   title: string;
@@ -75,6 +83,8 @@ export interface FixedGroup {
   childKind: ElementKind;
   link: GroupLink;
   items: Element[];
+  /** 属する段落。無ければ段落に分けない */
+  section?: FixedSection;
 }
 
 const byKind = <K extends ElementKind>(model: UntieModel, kind: K) =>
@@ -112,13 +122,20 @@ function relationGroups(
   return groups;
 }
 
-/** アクティビティの見出しの補足: 「業務名」または「業務名 / BUC 名」 */
-function activityOwner(model: UntieModel, activity: Element): string | undefined {
-  if (activity.kind !== "activity" || !activity.bucId) return "未所属";
-  const buc = model.elements.find((e) => e.id === activity.bucId) as Buc | undefined;
-  if (!buc) return undefined;
-  const biz = model.elements.find((e) => e.id === buc.businessId);
-  return buc.isDefault ? biz?.name : `${biz?.name ?? ""} / ${buc.name}`;
+/**
+ * アクティビティの所属先 (BUC) を、業務ごとに「業務に直接 (既定 BUC) → その業務の BUC」の順に並べる。
+ * 既定 BUC は業務の名前で出す。
+ */
+function bucSections(model: UntieModel): FixedSection[] {
+  const sections: FixedSection[] = [];
+  for (const biz of byKind(model, "business")) {
+    const def = defaultBucOf(model, biz.id);
+    if (def) sections.push({ key: def.id, title: biz.name || "(名前なし)", subtitle: "業務 (BUC なし)", parentId: biz.id });
+    for (const buc of byKind(model, "buc").filter((b) => b.businessId === biz.id && !b.isDefault)) {
+      sections.push({ key: buc.id, title: buc.name || "(名前なし)", subtitle: `BUC (業務: ${biz.name})`, parentId: buc.id });
+    }
+  }
+  return sections;
 }
 
 /** 固定ボードの枠を組み立てる */
@@ -153,33 +170,15 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
 
     case "activity": {
       const activities = byKind(model, "activity");
-      const groups: FixedGroup[] = [];
-      for (const biz of byKind(model, "business")) {
-        // 業務に直接属するアクティビティ (既定 BUC) → その業務の BUC の順
-        const def = defaultBucOf(model, biz.id);
-        if (def) {
-          groups.push({
-            key: def.id,
-            title: biz.name || "(名前なし)",
-            subtitle: "業務 (BUC なし)",
-            parentId: biz.id,
-            childKind: "activity",
-            link: { type: "buc", bucId: def.id },
-            items: activities.filter((a) => a.bucId === def.id),
-          });
-        }
-        for (const buc of byKind(model, "buc").filter((b) => b.businessId === biz.id && !b.isDefault)) {
-          groups.push({
-            key: buc.id,
-            title: buc.name || "(名前なし)",
-            subtitle: `BUC (業務: ${biz.name})`,
-            parentId: buc.id,
-            childKind: "activity",
-            link: { type: "buc", bucId: buc.id },
-            items: activities.filter((a) => a.bucId === buc.id),
-          });
-        }
-      }
+      const groups: FixedGroup[] = bucSections(model).map((sec) => ({
+        key: sec.key,
+        title: sec.title,
+        ...(sec.subtitle ? { subtitle: sec.subtitle } : {}),
+        parentId: sec.parentId,
+        childKind: "activity" as const,
+        link: { type: "buc", bucId: sec.key },
+        items: activities.filter((a) => a.bucId === sec.key),
+      }));
       const orphans = activities.filter((a: Activity) => !a.bucId);
       if (orphans.length > 0 || groups.length === 0) {
         groups.push({ key: "__none", title: "未所属", parentId: null, childKind: "activity", link: { type: "buc", bucId: null }, items: orphans });
@@ -187,11 +186,24 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
       return groups;
     }
 
-    case "usecase":
-      return relationGroups(model, "activity", "usecase", "アクティビティなし", (a) => {
-        const owner = activityOwner(model, a);
-        return owner ? `アクティビティ (${owner})` : "アクティビティ";
-      });
+    case "usecase": {
+      // アクティビティの枠を、所属する BUC の段落に分けて BUC の順に並べる。中身の無い BUC は出さない
+      const groups = relationGroups(model, "activity", "usecase", "アクティビティなし", () => "アクティビティ");
+      const bucOf = new Map(byKind(model, "activity").map((a) => [a.id, a.bucId]));
+      const sections: FixedSection[] = [
+        ...bucSections(model),
+        { key: "__unassigned", title: "未所属", subtitle: "BUC に属さないアクティビティ", parentId: null },
+        { key: "__none", title: "アクティビティなし", subtitle: "どのアクティビティにも使われていないユースケース", parentId: null },
+      ];
+      const sectionKeyOf = (g: FixedGroup) => {
+        if (g.parentId === null) return "__none";
+        const bucId = bucOf.get(g.parentId);
+        return bucId && sections.some((x) => x.key === bucId) ? bucId : "__unassigned";
+      };
+      return sections.flatMap((section) =>
+        groups.filter((g) => sectionKeyOf(g) === section.key).map((g) => ({ ...g, section })),
+      );
+    }
 
     case "information":
       return relationGroups(model, "usecase", "information", "ユースケースなし");
@@ -234,7 +246,7 @@ export function emptyLayerHint(layer: FixedLayer): string | null {
 }
 
 /**
- * 名前で絞り込む。見出しが一致した枠は中身をすべて出し、それ以外は一致した要素だけを出す。
+ * 名前で絞り込む。見出し (または段落の見出し) が一致した枠は中身をすべて出し、それ以外は一致した要素だけを出す。
  * 何も一致しない枠は出さない。
  */
 export function filterGroups(groups: FixedGroup[], query: string): FixedGroup[] {
@@ -243,7 +255,7 @@ export function filterGroups(groups: FixedGroup[], query: string): FixedGroup[] 
   const hit = (s: string | undefined) => !!s && s.toLowerCase().includes(q);
   const result: FixedGroup[] = [];
   for (const g of groups) {
-    if (hit(g.title)) {
+    if (hit(g.title) || hit(g.section?.title)) {
       result.push(g);
       continue;
     }

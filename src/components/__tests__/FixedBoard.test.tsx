@@ -52,6 +52,15 @@ describe("FixedBoard", () => {
     expect(st().model.elements.some((e) => e.id === "uc_record_checkin")).toBe(true);
   });
 
+  it("ユースケースのボードは BUC ごとの段落に分け、段落の見出しで BUC を選べる", () => {
+    render(<FixedBoard layer="usecase" />);
+    const section = screen.getByRole("region", { name: "飲食提供" });
+    expect(section.className).toContain("fixed-section");
+    expect(within(section).getByRole("region", { name: "ルームサービスを提供する" })).toBeDefined();
+    fireEvent.click(within(section).getByRole("button", { name: "飲食提供" }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "buc_dining" });
+  });
+
   it("カードや枠の見出しをクリックすると、その要素を選ぶ", () => {
     render(<FixedBoard layer="activity" />);
     fireEvent.click(within(groupEl("飲食提供")).getByRole("button", { name: "飲食提供" }));

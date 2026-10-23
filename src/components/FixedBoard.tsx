@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import {
   FIXED_LAYER_LABELS,
   addToGroup,
@@ -10,6 +10,7 @@ import {
   unlinkFromGroup,
   type FixedGroup,
   type FixedLayer,
+  type FixedSection,
 } from "../model/fixedBoards";
 import { issueSummaries } from "../model/selectors";
 import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type UntieModel } from "../model/types";
@@ -25,7 +26,7 @@ const LAYER_HINTS: Record<FixedLayer, string> = {
   business: "アクターごとに、主担当の業務を並べます。",
   buc: "業務ごとに BUC を並べます。",
   activity: "BUC ごとに (BUC の無い業務は業務ごとに) アクティビティを並べます。",
-  usecase: "アクティビティごとに、使うユースケースを並べます。",
+  usecase: "BUC ごとに区切り、アクティビティごとに使うユースケースを並べます。",
   information: "ユースケースごとに、扱う情報を並べます。",
   condition: "ユースケースごとに、判断に使う条件を並べます。",
   state: "状態グループごとに状態を並べます。",
@@ -77,20 +78,70 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
       </div>
       {hint && <p className="hint">{hint}</p>}
       {query.trim() !== "" && groups.length === 0 && <p className="hint">「{query.trim()}」に一致する要素はありません。</p>}
-      <div className="fixed-groups">
-        {groups.map((g) => (
-          <GroupView
-            key={g.key}
-            group={g}
-            fullGroup={allGroups.find((x) => x.key === g.key) ?? g}
-            model={model}
-            selectedId={selectedId}
-            summaries={summaries}
-            actors={actors}
-          />
-        ))}
-      </div>
+      {splitSections(groups).map(({ section, groups: gs }) => {
+        const grid = (
+          <div className="fixed-groups">
+            {gs.map((g) => (
+              <GroupView
+                key={g.key}
+                group={g}
+                fullGroup={allGroups.find((x) => x.key === g.key) ?? g}
+                model={model}
+                selectedId={selectedId}
+                summaries={summaries}
+                actors={actors}
+              />
+            ))}
+          </div>
+        );
+        return section ? (
+          <SectionView key={section.key} section={section} model={model}>
+            {grid}
+          </SectionView>
+        ) : (
+          <div key="__plain">{grid}</div>
+        );
+      })}
     </div>
+  );
+}
+
+/** 続きの枠を段落ごとにまとめる (段落の無い枠は 1 つにまとめる) */
+function splitSections(groups: FixedGroup[]): { section?: FixedSection; groups: FixedGroup[] }[] {
+  const out: { section?: FixedSection; groups: FixedGroup[] }[] = [];
+  for (const g of groups) {
+    const last = out[out.length - 1];
+    if (last && last.section?.key === g.section?.key) last.groups.push(g);
+    else out.push({ ...(g.section ? { section: g.section } : {}), groups: [g] });
+  }
+  return out;
+}
+
+function SectionView({ section, model, children }: { section: FixedSection; model: UntieModel; children: ReactNode }) {
+  const select = useUntieStore((s) => s.select);
+  const setRightPanel = useUntieStore((s) => s.setRightPanel);
+  const parent = section.parentId ? model.elements.find((e) => e.id === section.parentId) : undefined;
+  return (
+    <section className={`fixed-section${parent ? ` kind-${parent.kind}` : ""}`} aria-label={section.title}>
+      <h3 className="fixed-section-head">
+        {parent ? (
+          <button
+            type="button"
+            className="fixed-section-title link-plain"
+            onClick={() => {
+              select({ type: "element", id: parent.id });
+              setRightPanel("properties");
+            }}
+          >
+            {section.title}
+          </button>
+        ) : (
+          <span className="fixed-section-title">{section.title}</span>
+        )}
+        {section.subtitle && <span className="fixed-section-sub">{section.subtitle}</span>}
+      </h3>
+      {children}
+    </section>
   );
 }
 

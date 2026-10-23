@@ -223,6 +223,12 @@ textarea { resize: vertical; width: 100%; }
 .fixed-hint { color: var(--muted); font-size: 12px; }
 .fixed-filter { margin-left: auto; width: 220px; }
 .fixed-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+.fixed-section { padding-top: 10px; margin-top: 14px; border-top: 2px solid #d6d0c4; }
+.fixed-section:first-of-type { margin-top: 0; }
+.fixed-section-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 14px; }
+.fixed-section-head .fixed-section-title { font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fff; border-left: 4px solid #9a8f7b; }
+.fixed-section[class*="kind-"] .fixed-section-head .fixed-section-title { border-left-color: var(--c); }
+.fixed-section-sub { font-size: 11px; font-weight: 400; color: var(--muted); }
 .fixed-group {
   border: 2px solid var(--c, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--c, #999) 8%, #fff);
   display: flex; flex-direction: column; min-width: 0;
