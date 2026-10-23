@@ -28,7 +28,7 @@ export const FIXED_LAYERS = [
 export type FixedLayer = (typeof FIXED_LAYERS)[number];
 
 export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
-  actor: "アクター",
+  actor: "登場人物",
   business: "業務",
   buc: "活動",
   activity: "作業",
