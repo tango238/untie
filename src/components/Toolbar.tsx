@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands";
 import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
+import { traceToActors } from "../model/trace";
 import { isFixedBoard, useUntieStore } from "../store";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -18,6 +19,8 @@ export function Toolbar() {
   const boards = useUntieStore((s) => s.model.boards);
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
+  const model = useUntieStore((s) => s.model);
+  const traceCount = useMemo(() => traceToActors(model).problems.length, [model]);
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
   const setCurrentBoard = useUntieStore((s) => s.setCurrentBoard);
@@ -130,6 +133,15 @@ export function Toolbar() {
           </button>
           <button type="button" aria-label="やり直す" title="やり直す (Shift+Cmd/Ctrl+Z)" disabled={!canRedo} onClick={redo}>
             ↷
+          </button>
+          <button
+            type="button"
+            aria-pressed={rightPanel === "trace"}
+            className={rightPanel === "trace" ? "active" : ""}
+            title="すべての要素がアクター／外部アクターまで辿れるかを調べる"
+            onClick={() => setRightPanel(rightPanel === "trace" ? "properties" : "trace")}
+          >
+            検証{traceCount > 0 && <span className="toolbar-count">{traceCount}</span>}
           </button>
           <button
             type="button"

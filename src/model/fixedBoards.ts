@@ -40,6 +40,19 @@ export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
   variation: "バリエーション",
 };
 
+/** 要素の種類を作成・編集する固定ボード (課題は固定ボードに出ない) */
+export function fixedLayerOf(kind: ElementKind): FixedLayer | null {
+  switch (kind) {
+    case "externalActor":
+    case "system":
+      return "actor";
+    case "issue":
+      return null;
+    default:
+      return kind;
+  }
+}
+
 const PREFIX = "fixed:";
 
 export function fixedBoardId(layer: FixedLayer): string {

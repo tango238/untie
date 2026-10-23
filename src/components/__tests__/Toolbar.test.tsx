@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { removeBoard } from "../../model/commands";
+import { addElement, removeBoard } from "../../model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { handleKeyDown } from "../useKeyboard";
@@ -217,4 +217,16 @@ describe("キーボードショートカット", () => {
     row.remove();
   });
 
+  it("「検証」で検証パネルを開閉し、辿り着けない要素の数を出す", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "空のコンテキスト" }));
+    });
+    render(<Toolbar />);
+    const btn = screen.getByRole("button", { name: /^検証/ });
+    expect(btn.textContent).toBe("検証1");
+    fireEvent.click(btn);
+    expect(st().ui.rightPanel).toBe("trace");
+    fireEvent.click(btn);
+    expect(st().ui.rightPanel).toBe("properties");
+  });
 });

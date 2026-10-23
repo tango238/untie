@@ -5,3 +5,4 @@ export * from "./commands";
 export * from "./validate";
 export * from "./selectors";
 export * from "./fixedBoards";
+export * from "./trace";

@@ -9,7 +9,7 @@ import { createHotelSample } from "../sample";
 export const HISTORY_LIMIT = 100;
 
 export type Selection = { type: "element"; id: string } | { type: "relation"; id: string } | null;
-export type RightPanel = "properties" | "issues";
+export type RightPanel = "properties" | "issues" | "trace";
 
 export interface UiState {
   /** 自由ボード (モデルのボード) の id か、固定ボードの id ("fixed:<レイヤー>") */

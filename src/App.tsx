@@ -2,6 +2,7 @@ import { Canvas } from "./components/canvas/Canvas";
 import { ElementList } from "./components/ElementList";
 import { FixedBoard } from "./components/FixedBoard";
 import { IssuePanel } from "./components/IssuePanel";
+import { TracePanel } from "./components/TracePanel";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
@@ -22,7 +23,7 @@ export default function App() {
         <main className="canvas-area">
           {fixedLayer ? <FixedBoard key={fixedLayer} layer={fixedLayer} /> : <Canvas />}
         </main>
-        <div className="right-panel">{rightPanel === "issues" ? <IssuePanel /> : <PropertyPanel />}</div>
+        <div className="right-panel">{rightPanel === "issues" ? <IssuePanel /> : rightPanel === "trace" ? <TracePanel /> : <PropertyPanel />}</div>
       </div>
       <ToastHost />
     </div>

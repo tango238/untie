@@ -1,5 +1,6 @@
 // 複数のコンポーネントから使う、ストアとキャンバスをまたぐ操作。
 import { DEFAULT_FRAME_SIZE, placeOnBoard, type CommandResult } from "../model/commands";
+import { fixedBoardId, fixedLayerOf } from "../model/fixedBoards";
 import { isFrameKind } from "../model/types";
 import { isFixedBoard, useUntieStore } from "../store";
 import { viewCenter, canvasApi } from "./canvas/canvasApi";
@@ -42,4 +43,17 @@ export function selectAndReveal(elementId: string, options: { showProperties?: b
   const onBoard =
     isFixedBoard(boardId) || st.model.boards.find((b) => b.id === boardId)?.nodes.some((n) => n.elementId === elementId);
   if (onBoard) canvasApi.focus?.(elementId);
+}
+
+/** 要素を編集できる固定ボードへ移り、選択してプロパティ欄に出す */
+export function revealOnFixedBoard(elementId: string): void {
+  const st = useUntieStore.getState();
+  const el = st.model.elements.find((e) => e.id === elementId);
+  const layer = el ? fixedLayerOf(el.kind) : null;
+  if (!el || !layer) return;
+  st.setCurrentBoard(fixedBoardId(layer));
+  st.select({ type: "element", id: elementId });
+  st.setRightPanel("properties");
+  // 描画後にスクロール
+  setTimeout(() => canvasApi.focus?.(elementId), 50);
 }
