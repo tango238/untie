@@ -19,15 +19,16 @@ import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
 import { SystemChips } from "./canvas/SystemChips";
 import { actorLabels, systemLabels, type SystemLabel } from "./canvas/toFlow";
+import { GRANULARITY, GUIDE_KINDS, isGuideKind, type GranularityGuide, type GuideKind } from "./granularity";
 import { IssueBadge } from "./IssueBadge";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
   actor: "アクター・外部アクターと、情報の取得元・保存先になるシステムを並べます。",
   business: "アクターごとに、主担当の業務を並べます。",
-  buc: "業務ごとに活動を並べます。",
-  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。",
-  usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。",
+  buc: "業務ごとに活動を並べます。活動 = 1 つの目的を果たす作業のまとまり。",
+  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人が一続きでやり終える手順。",
+  usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳簿に対して行う 1 回の操作。",
   context: "情報をまとめる親カテゴリを並べます。",
   information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステムを出します。",
   condition: "操作ごとに、判断に使う条件を並べます。",
@@ -79,6 +80,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
           onChange={(e) => setFixedFilter(layer, e.target.value)}
         />
       </div>
+      {isGuideKind(layer) && <GuidePanel current={layer} />}
       {hint && <p className="hint">{hint}</p>}
       {query.trim() !== "" && groups.length === 0 && <p className="hint">「{query.trim()}」に一致する要素はありません。</p>}
       {splitSections(groups).map(({ section, groups: gs }) => {
@@ -107,6 +109,64 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
         );
       })}
     </div>
+  );
+}
+
+const GUIDE_ROWS: { key: keyof GranularityGuide; label: string }[] = [
+  { key: "what", label: "何を書くか" },
+  { key: "size", label: "粒度の目安" },
+  { key: "naming", label: "書き方" },
+  { key: "examples", label: "例" },
+  { key: "tooBig", label: "大きすぎる例" },
+  { key: "tooSmall", label: "細かすぎる例" },
+];
+
+/** 活動・作業・操作の書き方と粒度を 3 段並べて見せる。今のボードの段を強調する */
+function GuidePanel({ current }: { current: GuideKind }) {
+  const open = useUntieStore((s) => s.ui.guideOpen ?? true);
+  const setGuideOpen = useUntieStore((s) => s.setGuideOpen);
+  return (
+    <details
+      className="fixed-guide"
+      open={open}
+      onToggle={(e) => {
+        const next = (e.currentTarget as HTMLDetailsElement).open;
+        if (next !== open) setGuideOpen(next);
+      }}
+    >
+      <summary>書き方のヒント (活動・作業・操作の粒度)</summary>
+      <table className="guide-table">
+        <thead>
+          <tr>
+            <th scope="col" />
+            {GUIDE_KINDS.map((k) => (
+              <th key={k} scope="col" className={k === current ? "is-current" : undefined}>
+                {ELEMENT_KIND_LABELS[k]}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {GUIDE_ROWS.map((row) => (
+            <tr key={row.key}>
+              <th scope="row">{row.label}</th>
+              {GUIDE_KINDS.map((k) => (
+                <td key={k} className={k === current ? "is-current" : undefined}>
+                  {GRANULARITY[k][row.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <ul className="guide-questions">
+        {GUIDE_KINDS.map((k) => (
+          <li key={k} className={k === current ? "is-current" : undefined}>
+            <b>{ELEMENT_KIND_LABELS[k]}</b>: {GRANULARITY[k].question}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

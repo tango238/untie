@@ -31,6 +31,7 @@ import {
 import { isFixedBoard, useUntieStore } from "../store";
 import { selectAndReveal } from "./actions";
 import { CommitField } from "./CommitField";
+import { GRANULARITY, isGuideKind } from "./granularity";
 
 export function PropertyPanel() {
   const model = useUntieStore((s) => s.model);
@@ -147,6 +148,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         {kindLabelOf(element)}
       </div>
       <CommitField label="名前" value={element.name} inputRef={nameRef} onCommit={(name) => update({ name })} />
+      {isGuideKind(element.kind) && !(element.kind === "buc" && element.isDefault) && (
+        <p className="hint name-hint">{GRANULARITY[element.kind].nameHint}</p>
+      )}
       <CommitField
         label="説明"
         multiline

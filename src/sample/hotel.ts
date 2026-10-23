@@ -77,7 +77,7 @@ const usecases: Element[] = [
   { id: "uc_change_reservation", kind: "usecase", name: "予約を変更する" },
   { id: "uc_cancel_reservation", kind: "usecase", name: "予約を取り消す" },
   { id: "uc_record_checkin", kind: "usecase", name: "チェックインを記録する" },
-  { id: "uc_assign_room", kind: "usecase", name: "部屋を割り当てる" },
+  { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する" },
   { id: "uc_register_extra", kind: "usecase", name: "追加料金を登録する" },
   { id: "uc_issue_invoice", kind: "usecase", name: "請求書を発行する" },
   { id: "uc_record_payment", kind: "usecase", name: "決済を記録する" },

@@ -20,6 +20,26 @@ describe("FixedBoard", () => {
     expect(checkin.getByLabelText("担当: フロント担当、宿泊客")).toBeDefined();
   });
 
+  it("活動・作業・操作のボードには 3 段を並べた書き方のヒントを出し、今の段を強調する。閉じた状態を覚える", () => {
+    const { unmount } = render(<FixedBoard layer="activity" />);
+    const guide = screen.getByText(/書き方のヒント/).closest("details")!;
+    expect(guide.open).toBe(true);
+    const current = [...guide.querySelectorAll("thead th.is-current")].map((e) => e.textContent);
+    expect(current).toEqual(["作業"]);
+    expect(within(guide).getByText(/1 人が一続きでやり終える/)).toBeDefined();
+    guide.open = false;
+    fireEvent(guide, new Event("toggle"));
+    expect(st().ui.guideOpen).toBe(false);
+    unmount();
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getByText(/書き方のヒント/).closest("details")!.open).toBe(false);
+  });
+
+  it("他のボードには書き方のヒントを出さない", () => {
+    render(<FixedBoard layer="actor" />);
+    expect(screen.queryByText(/書き方のヒント/)).toBeNull();
+  });
+
   it("絞り込みで一致する要素だけを出す", () => {
     render(<FixedBoard layer="activity" />);
     fireEvent.change(screen.getByLabelText("絞り込み"), { target: { value: "鍵" } });

@@ -272,3 +272,17 @@ textarea { resize: vertical; width: 100%; }
 .fixed-card.medium-paper { border-left-style: solid; }
 .system-chips { justify-content: flex-start; }
 .system-chip-role { font-weight: 600; margin-right: 3px; }
+
+/* 固定ボードの書き方のヒント */
+.fixed-guide { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
+.fixed-guide summary { cursor: pointer; font-weight: 600; font-size: 12px; color: var(--muted); }
+.fixed-guide[open] summary { margin-bottom: 6px; }
+.guide-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.guide-table th, .guide-table td { border-top: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+.guide-table thead th { border-top: none; }
+.guide-table th[scope="row"] { width: 7.5em; color: var(--muted); font-weight: 600; }
+.guide-table .is-current { background: color-mix(in srgb, var(--accent) 9%, #fff); }
+.guide-table thead .is-current { color: var(--accent); }
+.guide-questions { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.guide-questions .is-current { color: var(--text); }
+.name-hint { margin-top: -4px; }

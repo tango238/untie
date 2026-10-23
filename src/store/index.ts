@@ -16,6 +16,8 @@ export interface UiState {
   currentBoardId: string;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
+  /** 固定ボードの「書き方のヒント」を開いているか (未設定は開く。履歴に積まない) */
+  guideOpen?: boolean;
   selection: Selection;
   rightPanel: RightPanel;
   /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
@@ -52,6 +54,7 @@ export interface UntieState {
 
   setCurrentBoard: (boardId: string) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
+  setGuideOpen: (open: boolean) => void;
   select: (selection: Selection) => void;
   setRightPanel: (panel: RightPanel) => void;
   requestNameFocus: () => void;
@@ -183,6 +186,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
     },
     setFixedFilter: (layer, query) =>
       set((s) => ({ ui: { ...s.ui, fixedFilters: { ...s.ui.fixedFilters, [layer]: query } } })),
+    setGuideOpen: (guideOpen) => set((s) => ({ ui: { ...s.ui, guideOpen } })),
     select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
     setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
     requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),

@@ -127,6 +127,16 @@ describe("PropertyPanel", () => {
     expect(kinds).toEqual(expect.arrayContaining(["systemInformation", "informationSystem"]));
   });
 
+  it("活動・作業・操作では名前欄の下に書き方を出す", () => {
+    selectEl("act_hand_key");
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.getByText(/人の動きで書きます/)).toBeDefined();
+    unmount();
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    expect(screen.queryByText(/で書きます/)).toBeNull();
+  });
+
   it("課題の重要度と対象を編集できる", () => {
     onFixedBoard();
     selectEl("issue_cancel_explain");
