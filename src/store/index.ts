@@ -4,6 +4,7 @@ import type { UntieModel } from "../model/types";
 import { moveNode, type Position, type Size } from "../model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "../model/fixedBoards";
 import { parseAnalysisBoardId } from "../model/analysis";
+import { emptyModel } from "../model/types";
 import type { GlobalFilter } from "../model/lineage";
 import { createHotelSample } from "../sample";
 
@@ -51,6 +52,8 @@ export interface UntieState {
   ui: UiState;
   /** ドラッグ開始時点のモデル (ドラッグ中のみ非 null) */
   dragBase: UntieModel | null;
+  /** AI エージェントが編集を始めた時点のモデル (エージェントの 1 回の応答の間だけ非 null) */
+  agentBase: UntieModel | null;
   toasts: ToastItem[];
 
   /** コマンドを実行し、成功したら履歴に積む。失敗や変更なしは何もしない */
@@ -66,6 +69,14 @@ export interface UntieState {
   /** ドラッグを取り消して開始時点に戻す */
   cancelDrag: () => void;
 
+  /** AI エージェントの編集を始める。終わるまでの編集は 1 件の履歴にまとめる */
+  beginAgentEdit: () => void;
+  /** AI エージェントの編集を 1 つ当てる (履歴には積まない) */
+  agentApply: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
+  /** AI エージェントの編集を終え、変わっていれば 1 件の履歴として確定する */
+  endAgentEdit: () => void;
+  /** 新しい (まだ保存していない) モデルにする。履歴と選択は捨てる */
+  newDocument: (model: UntieModel) => void;
   /** 読み込んだモデルに置き換える。履歴と選択は捨てる */
   loadDocument: (model: UntieModel, file: DocumentFile) => void;
   /** model を保存したことを記録する (保存中に編集が進んでいれば、その分は未保存のまま) */
@@ -130,6 +141,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
     history: { past: [], future: [] },
     ui: { currentBoardId: startBoardId, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
     dragBase: null,
+    agentBase: null,
     toasts: [],
 
     dispatch: (command) => {
@@ -211,6 +223,37 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
       if (!dragBase) return;
       set({ model: dragBase, dragBase: null, ui: reconcileUi(ui, dragBase) });
     },
+
+    beginAgentEdit: () => {
+      if (get().dragBase) get().commitDrag();
+      if (!get().agentBase) set({ agentBase: get().model });
+    },
+    agentApply: (command) => {
+      const { model, ui } = get();
+      const result = command(model);
+      if (result.ok && result.model !== model) set({ model: result.model, ui: reconcileUi(ui, result.model) });
+      return result;
+    },
+    endAgentEdit: () => {
+      const { model, agentBase, history } = get();
+      if (!agentBase) return;
+      if (agentBase === model) {
+        set({ agentBase: null });
+        return;
+      }
+      set({ agentBase: null, history: { past: pushPast(history.past, agentBase), future: [] } });
+    },
+    newDocument: (model) =>
+      set((s) => ({
+        model,
+        file: null,
+        // まだ一度も保存していないので、保存していない変更ありとして扱う
+        savedModel: emptyModel(),
+        history: { past: [], future: [] },
+        dragBase: null,
+        agentBase: null,
+        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties", globalFilter: {} },
+      })),
 
     loadDocument: (model, file) =>
       set((s) => ({

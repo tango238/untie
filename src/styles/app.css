@@ -85,13 +85,6 @@ textarea { resize: vertical; width: 100%; }
 .rename-form { display: flex; gap: 6px; align-items: center; }
 .notice { background: #f3f1ec; color: var(--muted); padding: 4px 12px; border-top: 1px solid var(--border); font-size: 12px; }
 .notice.is-dirty { background: #fff4d6; color: #6b5200; border-top-color: #ecd9a0; }
-.menu-wrap { position: relative; }
-.menu {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 180px; background: #fff;
-  border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,0.15);
-  display: flex; flex-direction: column;
-}
-.menu-item { border: none; background: none; text-align: left; display: flex; align-items: center; padding: 6px 8px; }
 
 /* 3 カラム */
 .main { flex: 1; display: grid; grid-template-columns: 240px 1fr 320px; min-height: 0; }
@@ -401,3 +394,40 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .global-filter-reset { margin-left: auto; font-size: 12px; }
 .global-filter-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
 .global-filter-field { display: flex; flex-direction: column; gap: 2px; }
+
+/* ファイルのメニュー */
+.menu { position: relative; }
+.menu-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; min-width: 220px; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); padding: 4px; display: flex; flex-direction: column; }
+.menu-item { display: flex; justify-content: space-between; gap: 16px; border: none; background: none; text-align: left; padding: 6px 10px; border-radius: 4px; }
+.menu-item:hover:not(:disabled) { background: #eef3f8; }
+.menu-shortcut { color: var(--muted); font-size: 11px; }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* AI エージェント (下のペイン) */
+.agent-pane { height: 300px; flex: none; display: flex; flex-direction: column; border-top: 2px solid var(--border); background: var(--panel); min-height: 0; }
+.agent-head { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.agent-title { margin: 0; font-size: 13px; }
+.agent-model { font-size: 12px; color: var(--accent); }
+.agent-spacer { flex: 1; }
+.agent-list { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.agent-empty { margin: 0; }
+.agent-item { max-width: 80%; white-space: pre-wrap; line-height: 1.55; font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+.agent-item.is-user { align-self: flex-end; background: #dfe9f3; }
+.agent-item.is-assistant { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
+.agent-item.is-tool { align-self: flex-start; font-size: 11px; color: var(--muted); padding: 0 10px; }
+.agent-item.is-tool.is-failed { color: var(--danger); }
+.agent-item.is-error { align-self: stretch; max-width: none; background: #fbeee9; color: #8a3a2c; }
+.agent-item.is-info { align-self: center; font-size: 11px; color: var(--muted); }
+.agent-item.is-running { align-self: flex-start; color: var(--muted); font-size: 12px; }
+.agent-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.agent-input textarea { flex: 1; resize: none; font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+
+/* AI のダイアログ */
+.ai-dialog, .prompt-dialog { width: 560px; display: flex; flex-direction: column; gap: 10px; }
+.prompt-input { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.prompt-ai { font-size: 12px; color: var(--muted); }
+.prompt-progress { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 240px; overflow-y: auto; }
+.prompt-step { font-weight: 600; margin-bottom: 4px; }
+.prompt-analysis { white-space: pre-wrap; font: inherit; margin: 0 0 6px; }
+.prompt-log { color: var(--muted); white-space: pre-wrap; }
+.prompt-error { color: var(--danger); margin: 0; }

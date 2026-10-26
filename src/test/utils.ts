@@ -25,6 +25,7 @@ export function resetStore(model = sampleWithActorCards()) {
     savedModel: null,
     history: { past: [], future: [] },
     dragBase: null,
+    agentBase: null,
     toasts: [],
     ui: { currentBoardId: model.boards[0]!.id, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
   });

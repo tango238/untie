@@ -243,4 +243,22 @@ describe("キーボードショートカット", () => {
     fireEvent.click(btn);
     expect(st().ui.rightPanel).toBe("properties");
   });
+  it("「ファイル」メニューに開く・保存・別名で保存・プロンプトから作成・AI の設定があり、プロンプトから作成でダイアログを開く", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
+    expect(items).toEqual(["開く…⌘O", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /プロンプトから作成/ }));
+    expect(screen.getByRole("dialog", { name: "プロンプトから作成" })).toBeDefined();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("「AI」で下の AI エージェントのペインを開閉する", async () => {
+    const { useAgentStore } = await import("../../ai/agentStore");
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "AI" }));
+    expect(useAgentStore.getState().open).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "AI" }));
+    expect(useAgentStore.getState().open).toBe(false);
+  });
 });

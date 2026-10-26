@@ -1,13 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands";
 import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
 import { openDocument, saveDocument } from "../io/document";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "../model/analysis";
 import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
+import { useAgentStore } from "../ai/agentStore";
+import { AiSettingsDialog } from "./ai/AiSettingsDialog";
+import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-type Dialog = "removeBoard" | "clearAll" | null;
+type Dialog = "removeBoard" | "clearAll" | "createFromPrompt" | null;
 
 /** 既存のボード名と被らない「ボード N」 */
 export function nextBoardName(existing: readonly string[]): string {
@@ -24,6 +27,10 @@ export function Toolbar() {
   const model = useUntieStore((s) => s.model);
   const traceCount = useMemo(() => traceToActors(model).problems.length, [model]);
   const file = useUntieStore((s) => s.file);
+  const agentOpen = useAgentStore((s) => s.open);
+  const setAgentOpen = useAgentStore((s) => s.setOpen);
+  const aiSettingsOpen = useAgentStore((s) => s.settingsOpen);
+  const modelName = useUntieStore((s) => s.model.meta.name);
   const dirty = useUntieStore(hasUnsavedChanges);
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
@@ -64,15 +71,7 @@ export function Toolbar() {
         <h1 className="app-name">Untie</h1>
 
         <div className="toolbar-group">
-          <button type="button" title="開く (Cmd/Ctrl+O)" onClick={() => void openDocument()}>
-            開く
-          </button>
-          <button type="button" title="保存 (Cmd/Ctrl+S)" onClick={() => void saveDocument()}>
-            保存
-          </button>
-          <button type="button" title="別名で保存 (Shift+Cmd/Ctrl+S)" onClick={() => void saveDocument(true)}>
-            別名で保存
-          </button>
+          <FileMenu onCreateFromPrompt={() => setDialog("createFromPrompt")} />
         </div>
 
         <div className="toolbar-group">
@@ -175,6 +174,15 @@ export function Toolbar() {
           >
             課題一覧
           </button>
+          <button
+            type="button"
+            aria-pressed={agentOpen}
+            className={agentOpen ? "active" : ""}
+            title="AI エージェントと会話して、モデルを直す"
+            onClick={() => setAgentOpen(!agentOpen)}
+          >
+            AI
+          </button>
           <button type="button" className="danger-outline" onClick={() => setDialog("clearAll")}>
             空にする
           </button>
@@ -182,7 +190,7 @@ export function Toolbar() {
       </div>
 
       <div className={`notice${dirty ? " is-dirty" : ""}`} role="status" aria-label="ファイルの状態">
-        {file ? `ファイル: ${file.name}` : "サンプル (まだ保存していません)"}
+        {file ? `ファイル: ${file.name}` : `${modelName} (まだ保存していません)`}
         {dirty && <span className="notice-dirty">● 保存していない変更があります</span>}
       </div>
 
@@ -200,6 +208,8 @@ export function Toolbar() {
           }}
         />
       )}
+      {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
+      {aiSettingsOpen && <AiSettingsDialog />}
       {dialog === "clearAll" && (
         <ConfirmDialog
           title="すべて空にする"
@@ -214,5 +224,51 @@ export function Toolbar() {
         />
       )}
     </header>
+  );
+}
+
+/** ファイルのメニュー: 開く・保存・別名で保存・プロンプトから作成 */
+function FileMenu({ onCreateFromPrompt }: { onCreateFromPrompt: () => void }) {
+  const [open, setOpen] = useState(false);
+  const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+  const item = (label: string, shortcut: string, action: () => void) => (
+    <button
+      type="button"
+      role="menuitem"
+      className="menu-item"
+      onClick={() => {
+        setOpen(false);
+        action();
+      }}
+    >
+      <span>{label}</span>
+      <span className="menu-shortcut">{shortcut}</span>
+    </button>
+  );
+  return (
+    <div className="menu" ref={ref} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+      <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        ファイル ▾
+      </button>
+      {open && (
+        <div className="menu-list" role="menu" aria-label="ファイル">
+          {item("開く…", "⌘O", () => void openDocument())}
+          {item("保存", "⌘S", () => void saveDocument())}
+          {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
+          <div className="menu-sep" role="separator" />
+          {item("プロンプトから作成…", "", onCreateFromPrompt)}
+          {item("AI の設定…", "", () => setSettingsOpen(true))}
+        </div>
+      )}
+    </div>
   );
 }

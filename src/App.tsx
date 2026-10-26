@@ -12,11 +12,14 @@ import { parseFixedBoardId } from "./model/fixedBoards";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
 import { useCloseGuard } from "./io/useCloseGuard";
 import { useUntieStore } from "./store";
+import { useAgentStore } from "./ai/agentStore";
+import { AgentPane } from "./components/ai/AgentPane";
 
 export default function App() {
   useKeyboard();
   useCloseGuard();
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
+  const agentOpen = useAgentStore((s) => s.open);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const builtin = fixedLayer !== null || analysis !== null;
@@ -37,6 +40,7 @@ export default function App() {
         </main>
         <div className="right-panel">{rightPanel === "issues" ? <IssuePanel /> : rightPanel === "trace" ? <TracePanel /> : <PropertyPanel />}</div>
       </div>
+      {agentOpen && <AgentPane />}
       <ToastHost />
     </div>
   );

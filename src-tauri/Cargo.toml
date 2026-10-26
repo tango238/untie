@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 # https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
