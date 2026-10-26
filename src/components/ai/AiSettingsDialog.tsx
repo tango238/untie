@@ -98,9 +98,9 @@ export function AiSettingsDialog() {
             )}
           </div>
           <p className="hint">
-            {isTauri() ? "キーは OS のキーチェーンに保存し、モデルのファイルには入りません。" : "ブラウザでは、このタブを閉じるまでだけ覚えます。"}
+            {isTauri() ? "API キーはこのパソコンのキーチェーンに保存します。業務モデルのファイルには含まれません。" : "ブラウザでは、このタブを閉じるまでだけ API キーを覚えます。"}
             <button type="button" className="link-plain context-apply" onClick={() => void openExternalUrl(info.keyUrl)}>
-              キーを作る ({info.vendor})
+              {info.vendor} のサイトで API キーを発行する
             </button>
           </p>
         </div>
