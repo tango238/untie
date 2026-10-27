@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineage } from "../lineage";
+import { expectedLayers, lineage } from "../lineage";
 import { sample } from "./helpers";
 
 const view = (rows: { layer: string; elements: { name: string }[] }[]) =>
@@ -91,5 +91,44 @@ describe("globalFilterScope (グローバルフィルター)", async () => {
     const gs = scopeGroups(fixedGroups(m, "activity"), scope);
     expect(gs.map((g) => g.title)).toEqual(["清掃・準備"]);
     expect(gs[0]!.items.map((e) => e.id)).toEqual(["act_instruct_cleaning", "act_clean", "act_inspect_room"]);
+  });
+});
+
+describe("expectedLayers (トレースに出す上下のレイヤー)", () => {
+  it("種類ごとに、上下に来うるレイヤーを FIXED_LAYERS の順で返す", () => {
+    expect(expectedLayers("activity")).toEqual({
+      up: ["actor", "business", "buc"],
+      down: ["usecase", "information", "condition", "state", "variation"],
+    });
+    expect(expectedLayers("variation")).toEqual({
+      up: ["actor", "business", "buc", "activity", "usecase", "context", "information", "condition"],
+      down: [],
+    });
+    // コンテキストは属する要素の上を上、属する要素を下とする
+    expect(expectedLayers("context")).toEqual({
+      up: ["actor", "business", "buc", "activity", "usecase"],
+      down: ["information", "condition", "state", "variation"],
+    });
+  });
+
+  it("登場人物は種類ごとに、なれる役割の先だけを下に出す", () => {
+    expect(expectedLayers("actor").up).toEqual([]);
+    // アクターは業務の主担当と作業の担当
+    expect(expectedLayers("actor").down).toEqual(["business", "buc", "activity", "usecase", "information", "condition", "state", "variation"]);
+    // 外部アクターは作業の担当だけ (業務の主担当にはならない)
+    expect(expectedLayers("externalActor").down).toEqual(["activity", "usecase", "information", "condition", "state", "variation"]);
+    // 帳票は情報の置き場所だけ
+    expect(expectedLayers("ledger").down).toEqual(["information", "variation"]);
+  });
+
+  it("includeEmpty: つながる要素が無いレイヤーも空の行で出す。見つかった行はそのまま", () => {
+    const m = sample();
+    const t = lineage(m, "act_verify_identity", { includeEmpty: true });
+    expect(t.up.map((r) => [r.layer, r.elements.length > 0])).toEqual([
+      ["actor", true],
+      ["business", true],
+      ["buc", false],
+    ]);
+    expect(t.down.find((r) => r.layer === "usecase")!.elements.length).toBeGreaterThan(0);
   });
 });

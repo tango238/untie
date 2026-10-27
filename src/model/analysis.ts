@@ -11,7 +11,8 @@ import {
   type Usecase,
 } from "./types";
 
-export const ANALYSIS_KINDS = ["people", "informationLocation", "issues"] as const;
+/** ボードの選択肢に並べる順。課題から紐解くので、課題の分布を先頭に置く */
+export const ANALYSIS_KINDS = ["issues", "people", "informationLocation"] as const;
 export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {
@@ -160,12 +161,13 @@ export interface IssueByBusiness {
 }
 
 /**
- * 業務ごとに、業務・作業・作業が使う操作に付いた課題を集める。どの業務にも辿れない課題 (未整理を含む) は最後にまとめる。
+ * 業務ごとに、業務・作業・作業が使う操作に付いた課題を集める。どの業務にも辿れない具体的な課題は最後にまとめる。
+ * 対象の無い未整理の課題も入れない (この分析の別の表で見る)。
  * 登場人物が対象の全体的な課題は業務に属さないので入れない (課題一覧と、この分析の別の表で見る)
  */
 export function issueDistribution(model: UntieModel): IssueByBusiness[] {
   const get = lookup(model);
-  const issues = byKind(model, "issue").filter((i) => issueScope(model, i) !== "overall");
+  const issues = byKind(model, "issue").filter((i) => issueScope(model, i) === "specific");
   const issuesOn = (id: string) => issues.filter((i) => i.targetIds.includes(id));
   const counted = new Set<string>();
   const build = (business: Business | null, elementIds: string[]): IssueByBusiness => {

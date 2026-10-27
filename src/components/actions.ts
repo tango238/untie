@@ -1,5 +1,5 @@
 // 複数のコンポーネントから使う、ストアとキャンバスをまたぐ操作。
-import { DEFAULT_FRAME_SIZE, placeOnBoard, type CommandResult } from "../model/commands";
+import { DEFAULT_FRAME_SIZE, addElement, placeOnBoard, type CommandResult } from "../model/commands";
 import { fixedBoardId, fixedLayerOf, type FixedLayer } from "../model/fixedBoards";
 import { isFrameKind, type UntieModel } from "../model/types";
 import { isBuiltinBoard, useUntieStore } from "../store";
@@ -106,4 +106,21 @@ export function goToLayer(layer: FixedLayer, elementId: string): void {
       }
     }
   }, 50);
+}
+
+/**
+ * 課題を作って選び、プロパティ欄の名前の入力へ移る (追加フォーム)。
+ * 対象を渡すとその要素を対象にして作る。「次の課題を登録する」も同じ対象で続けて作る
+ */
+export function createIssue(targetIds: string[] = []): void {
+  const st = useUntieStore.getState();
+  const r = st.dispatch((m) => addElement(m, { kind: "issue", name: "新しい課題", init: { targetIds } }));
+  if (!r.ok) {
+    st.pushToast(r.reason, "error");
+    return;
+  }
+  st.select({ type: "element", id: r.id });
+  useUntieStore.setState((s) => ({ ui: { ...s.ui, issueDraft: { id: r.id, targetIds: [...targetIds] } } }));
+  st.setRightPanel("properties");
+  st.requestNameFocus();
 }

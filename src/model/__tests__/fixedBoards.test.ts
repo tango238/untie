@@ -42,9 +42,44 @@ describe("fixedGroups", () => {
     expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "ledger", name: "予約台帳" });
   });
 
-  it("コンテキスト: 1 枠に並べる。情報はコンテキストごと、未分類は中身があるときだけ", () => {
+  it("コンテキスト: コンテキストごとの枠に、属する情報・条件・状態・バリエーションをこの順に並べる", () => {
     const m = sample();
-    expect(names(fixedGroups(m, "context")[0]!.items)).toEqual(["予約", "顧客", "客室", "料金"]);
+    expect(fixedGroups(m, "context").map((g) => g.title)).toEqual(["予約", "顧客", "客室", "料金"]);
+    const res = group(m, "context", "ctx_reservation");
+    expect(res.items.map((e) => e.kind)).toEqual(["information", "condition", "state", "state", "state", "state", "state", "variation"]);
+    expect(names(res.items)).toEqual(["予約", "取消料が発生する", "仮予約", "確定", "チェックイン済", "チェックアウト済", "取消", "予約経路"]);
+    // 4 種類とも枠から作れ、作るとそのコンテキストに属する
+    expect(res.addKinds).toEqual(["information", "condition", "state", "variation"]);
+    for (const kind of ["information", "condition", "state", "variation"] as const) {
+      const r = addToGroup(m, res, undefined, kind);
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind, contextId: "ctx_reservation" });
+    }
+    expect(addToGroup(m, res, undefined, "usecase").ok).toBe(false);
+    // 未分類の枠は中身があるときだけ
+    expect(fixedGroups(m, "context").some((g) => g.key === "__none")).toBe(false);
+    expect(fixedGroups(emptyModel(), "context")).toEqual([]);
+  });
+
+  it("コンテキスト: 別のコンテキストの要素を移せる (状態はグループごと)。× で外すと未分類になる", () => {
+    let m = sample();
+    const room = group(m, "context", "ctx_room");
+    const candidates = linkCandidates(m, room);
+    expect(candidates.some((e) => e.id === "info_reservation")).toBe(true);
+    expect(candidates.some((e) => e.id === "info_room")).toBe(false);
+    m = okModel(linkToGroup(m, room, "st_res_confirmed"));
+    // 同じ状態グループ「予約の状態」の状態がまとめて移る
+    expect(names(group(m, "context", "ctx_room").items.filter((e) => e.kind === "state"))).toContain("仮予約");
+    expect(group(m, "context", "ctx_reservation").items.some((e) => e.kind === "state")).toBe(false);
+    m = okModel(unlinkFromGroup(m, group(m, "context", "ctx_room"), "var_room_type"));
+    const none = group(m, "context", "__none");
+    expect(names(none.items)).toEqual(["部屋タイプ"]);
+    expect(linkCandidates(m, none)).toEqual([]);
+    expect(unlinkFromGroup(m, none, "var_room_type").ok).toBe(false);
+  });
+
+  it("情報: コンテキストごと、未分類は中身があるときだけ", () => {
+    const m = sample();
     const gs = fixedGroups(m, "information");
     expect(gs.map((g) => g.title)).toEqual(["予約", "顧客", "客室", "料金"]);
     expect(names(group(m, "information", "ctx_charge").items)).toEqual(["料金プラン", "請求"]);

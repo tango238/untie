@@ -1,7 +1,7 @@
 // トレース: 要素から上 (担い手の側) と下 (詳細の側) へ、直接つながっていない要素まで辿ってレイヤーごとに並べる。
 // 純粋関数だけを置く。
 import { FIXED_LAYERS, fixedLayerOf, type FixedLayer } from "./fixedBoards";
-import { isContextMemberKind, type Element, type UntieModel } from "./types";
+import { isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /**
  * 要素 → 1 つ上の要素。
@@ -59,6 +59,62 @@ function upEdges(model: UntieModel): Map<string, string[]> {
   return up;
 }
 
+/**
+ * 種類どうしの上下 (upEdges を種類にまとめたもの)。要素の種類から、上下に来うるレイヤーを決めるのに使う。
+ * 登場人物は種類ごとに違う: アクターは業務の主担当と作業の担当、外部アクターは作業の担当、
+ * システムは作業の担当と情報の置き場所、帳票は情報の置き場所にだけなる。
+ * コンテキストは分類なので上を持たない (上へは属する要素から辿る)
+ */
+const KIND_UP: Partial<Record<ElementKind, readonly ElementKind[]>> = {
+  business: ["actor"],
+  buc: ["business"],
+  activity: ["buc", "business", "actor", "externalActor", "system"],
+  usecase: ["activity"],
+  information: ["usecase", "context", "system", "ledger"],
+  condition: ["usecase", "context"],
+  state: ["usecase", "condition", "context"],
+  variation: ["information", "condition", "context"],
+};
+
+const CONTEXT_MEMBER_KINDS: readonly ElementKind[] = ["information", "condition", "state", "variation"];
+const upOf = (k: ElementKind) => KIND_UP[k] ?? [];
+const KINDS_WITH_UP = Object.keys(KIND_UP) as ElementKind[];
+
+function closure(start: readonly ElementKind[], next: (k: ElementKind) => readonly ElementKind[]): Set<ElementKind> {
+  const seen = new Set<ElementKind>();
+  const queue = [...start];
+  while (queue.length > 0) {
+    const k = queue.shift()!;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    queue.push(...next(k));
+  }
+  return seen;
+}
+
+function toLayers(kinds: Set<ElementKind>, exclude: Set<FixedLayer>): FixedLayer[] {
+  const layers = new Set<FixedLayer>();
+  for (const k of kinds) {
+    const l = fixedLayerOf(k);
+    if (l && !exclude.has(l)) layers.add(l);
+  }
+  return FIXED_LAYERS.filter((l) => layers.has(l));
+}
+
+/**
+ * その種類の要素から見て、上と下に来うるレイヤー (FIXED_LAYERS の順)。
+ * まだつながりが無くても、トレースでそのレイヤーへ移れるようにするために使う
+ */
+export function expectedLayers(kind: ElementKind): { up: FixedLayer[]; down: FixedLayer[] } {
+  const own = fixedLayerOf(kind);
+  const below = (k: ElementKind) => KINDS_WITH_UP.filter((x) => upOf(x).includes(k));
+  const downKinds = closure(below(kind), below);
+  // コンテキストは、属する要素の上を上とする
+  const upKinds = closure(kind === "context" ? CONTEXT_MEMBER_KINDS.flatMap(upOf) : upOf(kind), upOf);
+  const down = toLayers(downKinds, new Set(own ? [own] : []));
+  return { up: toLayers(upKinds, new Set([...(own ? [own] : []), ...down])), down };
+}
+
 export interface LineageRow {
   layer: FixedLayer;
   elements: Element[];
@@ -106,9 +162,24 @@ function membersOf(model: UntieModel, contextId: string): string[] {
  * 要素から上と下へ辿った要素を、レイヤーごとにまとめる (自分と同じレイヤーは除く)。
  * コンテキストは分類なので、上へは属する要素から辿る (そうしないと操作・作業・担い手に届かない)
  */
-export function lineage(model: UntieModel, elementId: string): Lineage {
+export function lineage(model: UntieModel, elementId: string, options: { includeEmpty?: boolean } = {}): Lineage {
   const el = model.elements.find((e) => e.id === elementId);
   if (!el) return { up: [], down: [] };
+  if (options.includeEmpty) {
+    // 上下に来うるレイヤーは、つながる要素が無くても空の行として出す
+    const found = lineage(model, elementId);
+    const own = fixedLayerOf(el.kind);
+    if (!own) return found;
+    const expected = expectedLayers(el.kind);
+    const fill = (rows: LineageRow[], layers: FixedLayer[]): LineageRow[] => {
+      const all = new Set<FixedLayer>([...layers, ...rows.map((r) => r.layer)]);
+      return FIXED_LAYERS.filter((l) => all.has(l)).map((layer) => rows.find((r) => r.layer === layer) ?? { layer, elements: [] });
+    };
+    // 実際のつながりで上にも下にも出たレイヤーは、見つかった側にだけ出す
+    const foundLayers = new Set([...found.up, ...found.down].map((r) => r.layer));
+    const missing = (ls: FixedLayer[]) => ls.filter((l) => !foundLayers.has(l));
+    return { up: fill(found.up, missing(expected.up)), down: fill(found.down, missing(expected.down)) };
+  }
   const up = upEdges(model);
   const down = new Map<string, string[]>();
   for (const [from, tos] of up) for (const to of tos) down.set(to, [...(down.get(to) ?? []), from]);

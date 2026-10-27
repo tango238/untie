@@ -4,6 +4,7 @@ import { ANALYSIS_KINDS, ANALYSIS_LABELS } from "../../model/analysis";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { AnalysisBoard } from "../analysis/AnalysisBoard";
+import { setIssueTargets } from "../../model/commands";
 import { Toolbar } from "../Toolbar";
 
 const st = () => useUntieStore.getState();
@@ -39,5 +40,21 @@ describe("AnalysisBoard", () => {
     act(() => st().setCurrentBoard("analysis:people"));
     render(<AnalysisBoard kind="people" />);
     expect(document.querySelector('[data-analysis-el="act_hand_key"]')).not.toBeNull();
+  });
+});
+
+describe("課題の分布", () => {
+  it("未整理の課題 (対象なし) を別の表に出す。業務の表には入れない", () => {
+    useUntieStore.getState().dispatch((m) => setIssueTargets(m, { issueId: "issue_cancel_explain", targetIds: [] }));
+    render(<AnalysisBoard kind="issues" />);
+    const heading = screen.getByRole("heading", { name: "未整理の課題 (対象なし)" });
+    const table = heading.nextElementSibling as HTMLElement;
+    expect(within(table).getByText("取消料の説明が担当者によって違う")).toBeDefined();
+    expect(screen.getAllByText("取消料の説明が担当者によって違う")).toHaveLength(1);
+  });
+
+  it("未整理の課題が無いときはその旨を出す", () => {
+    render(<AnalysisBoard kind="issues" />);
+    expect(screen.getByText("対象のない課題はありません。")).toBeDefined();
   });
 });

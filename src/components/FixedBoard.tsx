@@ -14,7 +14,8 @@ import {
   type FixedSection,
 } from "../model/fixedBoards";
 import { issueSummaries } from "../model/selectors";
-import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type UntieModel } from "../model/types";
+import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "../model/types";
+import { addElement } from "../model/commands";
 import { useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
@@ -33,7 +34,7 @@ const LAYER_HINTS: Record<FixedLayer, string> = {
   buc: "業務ごとに活動を並べます。活動 = 1 つの目的を果たす作業のまとまり。",
   activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人 (または 1 つのシステム) が一続きでやり終える手順。",
   usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳票に対して行う 1 回の操作。",
-  context: "情報をまとめる親カテゴリを並べます。",
+  context: "コンテキストごとに、属する情報・条件・状態・バリエーションを並べます。枠から足したり、別のコンテキストから移したりできます。",
   information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステム・帳票を出します。情報 = 記録や書類に当たる情報のまとまり。",
   condition: "操作ごとに、判断に使う条件を並べます。条件 = はい・いいえで答えられる判断 1 つ分。",
   state: "状態グループごとに状態を並べます。状態 = 情報やモノがたどる段階。",
@@ -78,6 +79,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
       <div className="fixed-head">
         <h2 className="fixed-title">{FIXED_LAYER_LABELS[layer]}</h2>
         <span className="fixed-hint">{LAYER_HINTS[layer]}</span>
+        {layer === "context" && <AddContextButton />}
         <input
           type="search"
           className="fixed-filter"
@@ -117,6 +119,27 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
         );
       })}
     </div>
+  );
+}
+
+/** コンテキストを作って選び、名前の入力へ移る (コンテキストは枠の見出しなので、ボードの見出しから作る) */
+function AddContextButton() {
+  const onClick = () => {
+    const st = useUntieStore.getState();
+    const r = st.dispatch((m) => addElement(m, { kind: "context", name: "新しいコンテキスト" }));
+    if (!r.ok) {
+      st.pushToast(r.reason, "error");
+      return;
+    }
+    st.select({ type: "element", id: r.id });
+    st.setRightPanel("properties");
+    st.requestNameFocus();
+    setTimeout(() => document.querySelector(`[data-fixed-group="${CSS.escape(r.id)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+  };
+  return (
+    <button type="button" className="fixed-head-add" onClick={onClick}>
+      ＋コンテキスト
+    </button>
   );
 }
 
@@ -248,17 +271,20 @@ function GroupView({
 
   const parent = group.parentId ? model.elements.find((e) => e.id === group.parentId) : undefined;
   const parentKind = parent?.kind ?? (group.link.type === "none" && group.parentId === null && group.key === group.childKind ? group.childKind : undefined);
-  const canUnlink = group.link.type === "relation";
+  const contextMembers = group.link.type === "contextMembers";
+  const canUnlink = group.link.type === "relation" || (contextMembers && group.parentId !== null);
   const candidates = linkCandidates(model, fullGroup);
   const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
+  const addKinds = group.addKinds ?? [group.childKind];
+  const nameOf = (id: string | null) => (id ? model.elements.find((x) => x.id === id)?.name || "(名前なし)" : "未分類");
 
   const choose = (id: string) => {
     select({ type: "element", id });
     setRightPanel("properties");
   };
 
-  const add = () => {
-    const r = dispatch((m) => addToGroup(m, fullGroup));
+  const add = (kind: ElementKind) => {
+    const r = dispatch((m) => addToGroup(m, fullGroup, undefined, kind));
     if (!r.ok) {
       pushToast(r.reason, "error");
       return;
@@ -295,13 +321,14 @@ function GroupView({
               summary={isIssueTargetKind(e.kind) ? summaries.get(e.id) : undefined}
               actors={actors.get(e.id)}
               systems={systems.get(e.id)}
+              showStateGroup={contextMembers}
               onClick={() => choose(e.id)}
             />
             {canUnlink && (
               <button
                 type="button"
                 className="icon-button fixed-unlink"
-                title="この枠から外す (要素は残る)"
+                title={contextMembers ? "このコンテキストから外して未分類にする (要素は残る)" : "この枠から外す (要素は残る)"}
                 aria-label={`${e.name || "要素"}を「${group.title}」から外す`}
                 onClick={() => {
                   const r = dispatch((m) => unlinkFromGroup(m, fullGroup, e.id));
@@ -315,10 +342,40 @@ function GroupView({
         ))}
       </ul>
       <div className="fixed-add">
-        <button type="button" onClick={add} aria-label={`「${group.title}」に${kindLabel}を追加`}>
-          ＋{kindLabel}
-        </button>
-        {candidates.length > 0 && (
+        {addKinds.map((kind) => (
+          <button key={kind} type="button" onClick={() => add(kind)} aria-label={`「${group.title}」に${ELEMENT_KIND_LABELS[kind]}を追加`}>
+            ＋{ELEMENT_KIND_LABELS[kind]}
+          </button>
+        ))}
+        {contextMembers && candidates.length > 0 && (
+          <select
+            className="fixed-move"
+            aria-label={`「${group.title}」へ別のコンテキストから移す`}
+            value=""
+            onChange={(ev) => {
+              const id = ev.target.value;
+              if (!id) return;
+              const r = dispatch((m) => linkToGroup(m, fullGroup, id));
+              if (!r.ok) pushToast(r.reason, "error");
+            }}
+          >
+            <option value="">別のコンテキストから移す…</option>
+            {addKinds.map((kind) => (
+              <optgroup key={kind} label={ELEMENT_KIND_LABELS[kind]}>
+                {candidates
+                  .filter((c) => c.kind === kind)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name || "(名前なし)"}
+                      {c.kind === "state" && c.group ? ` (状態グループ「${c.group}」ごと)` : ""}
+                      {` ← ${nameOf("contextId" in c ? c.contextId : null)}`}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
+        )}
+        {!contextMembers && candidates.length > 0 && (
           <select
             aria-label={`「${group.title}」に既存の${kindLabel}を足す`}
             value=""
@@ -349,6 +406,7 @@ function FixedCard({
   summary,
   actors,
   systems,
+  showStateGroup,
   onClick,
 }: {
   element: Element;
@@ -357,6 +415,8 @@ function FixedCard({
   summary?: { count: number; maxSeverity: number };
   actors?: ReturnType<typeof actorLabels> extends Map<string, infer V> ? V : never;
   systems?: SystemLabel[];
+  /** 状態に状態グループ名を添える (コンテキストの枠では、複数のグループが同じ枠に並ぶので) */
+  showStateGroup?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -379,6 +439,7 @@ function FixedCard({
         </span>
       </span>
       <span className="fixed-card-name">{element.name || "(名前なし)"}</span>
+      {showStateGroup && element.kind === "state" && element.group && <span className="fixed-card-sub">状態グループ: {element.group}</span>}
       <HoursLabel element={element} model={model} />
       {actors && <ActorChips actors={actors} />}
       {systems && <SystemChips systems={systems} />}

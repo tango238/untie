@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, removeBoard, renameBoard } from "../model/commands";
-import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
+import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
 import { newEmptyDocument, openDocument, saveDocument } from "../io/document";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "../model/analysis";
@@ -92,7 +92,7 @@ export function Toolbar() {
                   }}
                 >
                   <optgroup label="固定ボード">
-                    {FIXED_LAYERS.map((layer) => (
+                    {FIXED_BOARD_MENU_ORDER.map((layer) => (
                       <option key={layer} value={fixedBoardId(layer)}>
                         {FIXED_LAYER_LABELS[layer]}
                       </option>

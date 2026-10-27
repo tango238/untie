@@ -60,9 +60,14 @@ describe("課題の分布", () => {
     expect(res.issues.map((i) => i.severity)).toEqual([5, 2]);
     expect(res.maxSeverity).toBe(5);
     expect(r.find((x) => x.business?.id === "biz_checkout")!.issues).toEqual([]);
-    m = okModel(addElement(m, { kind: "issue", name: "宙に浮いた課題", id: "issue_x", init: { severity: 1 } }));
+    // どの作業にも使われていない操作に付いた具体的な課題は、最後の「辿れない」にまとめる
+    m = okModel(addElement(m, { kind: "usecase", name: "宙に浮いた操作", id: "uc_x" }));
+    m = okModel(addElement(m, { kind: "issue", name: "宙に浮いた課題", id: "issue_x", init: { severity: 1, targetIds: ["uc_x"] } }));
     const dist = issueDistribution(m);
     expect(dist[dist.length - 1]).toMatchObject({ business: null, maxSeverity: 1 });
+    // 対象の無い未整理の課題は、業務の表にも「辿れない」にも入れない (別の表で出す)
+    const unsorted = okModel(setIssueTargets(m, { issueId: "issue_x", targetIds: [] }));
+    expect(issueDistribution(unsorted).some((d) => d.issues.some((i) => i.id === "issue_x"))).toBe(false);
     // 登場人物が対象の全体的な課題は、業務の表にも「辿れない」にも入れない
     const overall = okModel(setIssueTargets(m, { issueId: "issue_x", targetIds: ["actor_front"] }));
     expect(issueDistribution(overall).some((d) => d.issues.some((i) => i.id === "issue_x"))).toBe(false);

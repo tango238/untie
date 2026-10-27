@@ -196,3 +196,17 @@ describe("ストア", () => {
     expect(r.ok ? [] : r.errors).toEqual([]);
   });
 });
+
+describe("最初に出す画面", () => {
+  it("起動時・新規作成では分析ボード「課題の分布」と、右ペインの課題一覧を開く", async () => {
+    const { useUntieStore, START_BOARD_ID } = await import("..");
+    expect(START_BOARD_ID).toBe("analysis:issues");
+    expect(useUntieStore.getState().ui).toMatchObject({ currentBoardId: "analysis:issues", rightPanel: "issues" });
+    const s = createUntieStore(sampleWithActorCards());
+    s.getState().setCurrentBoard("fixed:activity");
+    s.getState().setRightPanel("trace");
+    s.getState().setRightPanelOpen(false);
+    s.getState().newDocument(emptyModel(), { pristine: true });
+    expect(s.getState().ui).toMatchObject({ currentBoardId: "analysis:issues", rightPanel: "issues", rightPanelOpen: true, selection: null });
+  });
+});

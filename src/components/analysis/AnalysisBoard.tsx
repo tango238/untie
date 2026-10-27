@@ -22,7 +22,7 @@ const DESCRIPTIONS: Record<AnalysisKind, string> = {
     "担い手 (アクター・外部アクター・システム) ごとに、受け持つ作業を業務・活動の順に並べます。作業や操作をクリックすると、プロパティ欄でリンク (マニュアルなど) を編集できます。",
   informationLocation:
     "情報ごとに、取得元・保存先のシステム・帳票を並べます。置き場所の無い情報、紙だけの情報、保存先が複数ある情報 (二重管理の可能性) に印を付けます。",
-  issues: "業務ごとに、業務・その作業・作業が使う操作に付いた課題 (具体的な課題) を集めます。課題の多い業務、重要度の高い業務がわかります。登場人物に付いた課題 (全体的な課題) は下の表に分けて出します。",
+  issues: "業務ごとに、業務・その作業・作業が使う操作に付いた課題 (具体的な課題) を集めます。課題の多い業務、重要度の高い業務がわかります。登場人物に付いた課題 (全体的な課題) と、対象のない課題 (未整理) は下の表に分けて出します。",
 };
 
 const attrOf = (id: string) => `[data-analysis-el="${CSS.escape(id)}"]`;
@@ -268,7 +268,9 @@ function InformationLocationView({ model }: { model: UntieModel }) {
 
 function IssuesView({ model }: { model: UntieModel }) {
   const data = useMemo(() => issueDistribution(model), [model]);
-  const overall = useMemo(() => issueBoardSections(model).find((s) => s.scope === "overall")!, [model]);
+  const sections = useMemo(() => issueBoardSections(model), [model]);
+  const overall = sections.find((s) => s.scope === "overall")!;
+  const unsorted = sections.find((s) => s.scope === "unsorted")!.groups[0]?.issues ?? [];
   const maxCount = Math.max(1, ...data.map((d) => d.issues.length));
   return (
     <>
@@ -285,7 +287,7 @@ function IssuesView({ model }: { model: UntieModel }) {
         <tbody>
           {data.map((d) => (
             <tr key={d.business?.id ?? "none"}>
-              <th scope="row">{d.business ? <El element={d.business} plain /> : "どの業務にも辿れない課題 (未整理を含む)"}</th>
+              <th scope="row">{d.business ? <El element={d.business} plain /> : "どの業務にも辿れない課題"}</th>
               <td>
                 <span className="an-bar">
                   <span className={`an-bar-fill sev-${d.maxSeverity}`} style={{ width: `${(d.issues.length / maxCount) * 100}%` }} />
@@ -360,6 +362,30 @@ function IssuesView({ model }: { model: UntieModel }) {
                       </li>
                     ))}
                   </ul>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <h3 className="an-subtitle">未整理の課題 (対象なし)</h3>
+      {unsorted.length === 0 ? (
+        <p className="hint">対象のない課題はありません。</p>
+      ) : (
+        <table className="an-table">
+          <thead>
+            <tr>
+              <th>課題 (重要度の高い順)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unsorted.map((i) => (
+              <tr key={i.id}>
+                <td>
+                  <span className={`sev-chip sev-${i.severity}`} aria-label={`重要度 ${i.severity}`}>
+                    {i.severity}
+                  </span>{" "}
+                  <El element={i} plain />
                 </td>
               </tr>
             ))}

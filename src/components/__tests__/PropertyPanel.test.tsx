@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
-import { moveToContext } from "../../model/commands";
+import { addElement, moveToContext } from "../../model/commands";
 import { PropertyPanel } from "../PropertyPanel";
 
 const st = () => useUntieStore.getState();
@@ -236,13 +236,14 @@ describe("PropertyPanel", () => {
     expect(screen.getByRole("button", { name: "削除" })).toBeDefined();
   });
 
-  it("課題の「削除」は消して課題一覧へ戻る。「課題一覧へ」は削除の右にあり、課題一覧を開く", () => {
+  it("課題の編集フォーム: 左端に「削除」、右端に「課題一覧に戻る」。削除すると課題一覧へ戻る", () => {
     selectEl("issue_cancel_explain");
     act(() => st().setRightPanel("properties"));
     render(<PropertyPanel />);
     const buttons = Array.from(screen.getByRole("button", { name: "削除" }).parentElement!.querySelectorAll("button")).map((b) => b.textContent);
-    expect(buttons).toEqual(["削除", "課題一覧へ"]);
-    fireEvent.click(screen.getByRole("button", { name: "課題一覧へ" }));
+    expect(buttons).toEqual(["削除", "課題一覧に戻る"]);
+    expect(screen.queryByRole("button", { name: "次の課題を登録する" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "課題一覧に戻る" }));
     expect(st().ui.rightPanel).toBe("issues");
     act(() => st().setRightPanel("properties"));
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
@@ -250,12 +251,32 @@ describe("PropertyPanel", () => {
     expect(st().ui.rightPanel).toBe("issues");
   });
 
-  it("課題以外には「課題一覧へ」は出ず、削除しても課題一覧へは移らない", () => {
+  it("課題の追加フォーム: 右端は「次の課題を登録する」で、同じ対象の課題を続けて作る。別の要素を選ぶと編集フォームになる", () => {
+    onFixedBoard();
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "課題を追加" }));
+    const first = st().ui.selection!.id;
+    expect(screen.queryByRole("button", { name: "課題一覧に戻る" })).toBeNull();
+    const buttons = Array.from(screen.getByRole("button", { name: "削除" }).parentElement!.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["削除", "次の課題を登録する"]);
+    fireEvent.click(screen.getByRole("button", { name: "次の課題を登録する" }));
+    const second = st().ui.selection!.id;
+    expect(second).not.toBe(first);
+    expect(el(second)).toMatchObject({ kind: "issue", targetIds: ["actor_front"] });
+    // 作った課題を選び直すと、もう追加フォームではない
+    selectEl("actor_front");
+    selectEl(second);
+    expect(screen.getByRole("button", { name: "課題一覧に戻る" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "次の課題を登録する" })).toBeNull();
+  });
+
+  it("課題以外には「課題一覧に戻る」は出ず、削除しても課題一覧へは移らない", () => {
     onFixedBoard();
     selectEl("act_change_cancel");
     act(() => st().setRightPanel("properties"));
     render(<PropertyPanel />);
-    expect(screen.queryByRole("button", { name: "課題一覧へ" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "課題一覧に戻る" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(st().ui.rightPanel).toBe("properties");
   });
@@ -465,7 +486,10 @@ describe("PropertyPanel のトレース", () => {
     expect(headings.findIndex((h) => h.startsWith("課題"))).toBe(headings.indexOf("トレース") + 1);
     const rows = screen.getAllByRole("row").filter((r) => r.closest(".trace-table") && r.querySelector("th[scope=row]"));
     const layers = rows.map((r) => r.querySelector("th")!.textContent);
-    expect(layers.slice(0, 3)).toEqual(["↑登場人物", "↑業務", "●作業"]);
+    // 業務に直接属する作業なので、活動は (未設定) の行として出る
+    expect(layers.slice(0, 4)).toEqual(["↑登場人物", "↑業務", "↑活動", "●作業"]);
+    const bucRow = rows.find((r) => r.querySelector("th")!.textContent === "↑活動")!;
+    expect(within(bucRow).getByText("(未設定)")).toBeDefined();
     expect(layers).toContain("↓操作");
     // 今のボード (作業) の行は移れない
     const ownRow = rows.find((r) => r.querySelector("th")!.textContent === "●作業")!;
@@ -475,5 +499,23 @@ describe("PropertyPanel のトレース", () => {
     fireEvent.click(within(ucRow).getByRole("button", { name: /固定ボード「操作」へ移る/ }));
     expect(st().ui.currentBoardId).toBe("fixed:usecase");
     expect(st().ui.selection).toEqual({ type: "element", id: "act_verify_identity" });
+  });
+
+  it("つながる要素の無いレイヤーも (未設定) の行で出し、そのレイヤーへ移れる", () => {
+    resetStore();
+    act(() => st().setCurrentBoard("fixed:usecase"));
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "usecase", name: "宙に浮いた操作" }));
+      if (r.ok) st().select({ type: "element", id: r.id });
+    });
+    render(<PropertyPanel />);
+    const rows = screen.getAllByRole("row").filter((r) => r.closest(".trace-table") && r.querySelector("th[scope=row]"));
+    const layers = rows.map((r) => r.querySelector("th")!.textContent);
+    expect(layers).toEqual(["↑登場人物", "↑業務", "↑活動", "↑作業", "●操作", "↓情報", "↓条件", "↓状態", "↓バリエーション"]);
+    expect(screen.getByText(/上下のレイヤーにつながる要素はありません/)).toBeDefined();
+    const actRow = rows.find((r) => r.querySelector("th")!.textContent === "↑作業")!;
+    expect(within(actRow).getByText("(未設定)")).toBeDefined();
+    fireEvent.click(within(actRow).getByRole("button", { name: /固定ボード「作業」へ移る/ }));
+    expect(st().ui.currentBoardId).toBe("fixed:activity");
   });
 });

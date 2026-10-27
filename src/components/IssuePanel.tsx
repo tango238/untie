@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { addElement } from "../model/commands";
 import { issueBoardSections, issuesByScope, type IssueTargetGroup } from "../model/selectors";
 import {
   ELEMENT_KIND_LABELS,
@@ -11,7 +10,7 @@ import {
   type IssueScope,
 } from "../model/types";
 import { useUntieStore } from "../store";
-import { revealOnFixedBoard, selectAndReveal } from "./actions";
+import { createIssue, revealOnFixedBoard, selectAndReveal } from "./actions";
 
 type View = "issues" | "targets";
 
@@ -21,18 +20,6 @@ const SCOPE_HINTS: Record<IssueScope, string> = {
   specific: "特定の業務・作業・操作で起きている課題です。",
 };
 
-/** 課題を作って選び、名前の入力へ移る。対象を渡すと、その要素を対象にして作る */
-function createIssue(targetId?: string) {
-  const st = useUntieStore.getState();
-  const r = st.dispatch((m) => addElement(m, { kind: "issue", name: "新しい課題", init: { targetIds: targetId ? [targetId] : [] } }));
-  if (!r.ok) {
-    st.pushToast(r.reason, "error");
-    return;
-  }
-  st.select({ type: "element", id: r.id });
-  st.setRightPanel("properties");
-  st.requestNameFocus();
-}
 
 /**
  * 課題一覧: 課題を先に書き出し、あとから対象を付けて紐解く場所。
@@ -150,7 +137,7 @@ function TargetGroup({ group, selectedId }: { group: IssueTargetGroup; selectedI
           type="button"
           className="link issue-target-action"
           aria-label={`「${target.name}」を対象に課題を追加`}
-          onClick={() => createIssue(target.id)}
+          onClick={() => createIssue([target.id])}
         >
           ＋課題
         </button>

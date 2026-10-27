@@ -60,7 +60,7 @@ describe("保存・読み込み", () => {
     expect(parseModel(files.saved[0]!.text).ok).toBe(true);
   });
 
-  it("開くと置き換え、履歴を捨てて作業のボードを開く。未保存の変更があれば確かめ、断れば何もしない", async () => {
+  it("開くと置き換え、履歴を捨てて課題の分布と課題一覧を開く。未保存の変更があれば確かめ、断れば何もしない", async () => {
     const m = createHotelSample();
     m.meta.name = "別のモデル";
     files.opened = { path: "/docs/b.json", name: "b.json", text: serializeModel(m) };
@@ -73,7 +73,8 @@ describe("保存・読み込み", () => {
     expect(st().model.meta.name).toBe("別のモデル");
     expect(st().file).toEqual({ path: "/docs/b.json", name: "b.json" });
     expect(st().history.past).toHaveLength(0);
-    expect(st().ui.currentBoardId).toBe("fixed:activity");
+    expect(st().ui.currentBoardId).toBe("analysis:issues");
+    expect(st().ui.rightPanel).toBe("issues");
     expect(hasUnsavedChanges(st())).toBe(false);
   });
 

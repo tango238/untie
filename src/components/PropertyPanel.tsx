@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  addElement,
   addRelation,
   moveActivity,
   moveBuc,
@@ -42,7 +41,7 @@ import {
   type Variation,
 } from "../model/types";
 import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
-import { goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
+import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
 import { HoursField } from "./Hours";
@@ -175,11 +174,10 @@ function EdgeSidesEditor({
 
 function ElementEditor({ element, model }: { element: Element; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
-  const select = useUntieStore((s) => s.select);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
   const nameFocusNonce = useUntieStore((s) => s.ui.nameFocusNonce);
+  const issueDraft = useUntieStore((s) => s.ui.issueDraft);
   const pushToast = useUntieStore((s) => s.pushToast);
-  const requestNameFocus = useUntieStore((s) => s.requestNameFocus);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const nameRef = useRef<HTMLInputElement>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
@@ -205,16 +203,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const relations = model.relations.filter((r) => r.sourceId === element.id || r.targetId === element.id);
   const issues = isIssueTargetKind(element.kind) ? issuesTargeting(model, element.id) : [];
 
-  const addIssue = () => {
-    const r = dispatch((m) => addElement(m, { kind: "issue", name: "新しい課題", init: { targetIds: [element.id] } }));
-    if (!r.ok) {
-      pushToast(r.reason, "error");
-      return;
-    }
-    select({ type: "element", id: r.id });
-    setRightPanel("properties");
-    requestNameFocus();
-  };
+  const addIssue = () => createIssue([element.id]);
+
 
   return (
     <div className={`editor kind-${element.kind}`} data-testid="element-editor">
@@ -355,11 +345,17 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             削除
           </button>
         )}
-        {element.kind === "issue" && (
-          <button type="button" className="link actions-end" onClick={() => setRightPanel("issues")}>
-            課題一覧へ
-          </button>
-        )}
+        {element.kind === "issue" &&
+          (issueDraft?.id === element.id ? (
+            // 追加フォーム: 書き出しを続けられるよう、同じ対象で次の課題を作る
+            <button type="button" className="primary actions-end" onClick={() => createIssue(issueDraft.targetIds)}>
+              次の課題を登録する
+            </button>
+          ) : (
+            <button type="button" className="link actions-end" onClick={() => setRightPanel("issues")}>
+              課題一覧に戻る
+            </button>
+          ))}
       </div>
     </div>
   );
@@ -377,7 +373,7 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
-  const { up, down } = useMemo(() => lineage(model, element.id), [model, element.id]);
+  const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
   const rows = [
     ...up.map((r) => ({ ...r, dir: "up" as const })),
@@ -387,7 +383,9 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
   return (
     <section className="subsection">
       <h3>トレース</h3>
-      {up.length === 0 && down.length === 0 && <p className="hint">上下のレイヤーにつながる要素はありません。</p>}
+      {[...up, ...down].every((r) => r.elements.length === 0) && (
+        <p className="hint">上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。</p>
+      )}
       <table className="trace-table">
         <thead>
           <tr>
@@ -440,6 +438,7 @@ function TraceRow({
       </th>
       <td>
         <span className="trace-els">
+          {elements.length === 0 && <span className="trace-unset">(未設定)</span>}
           {shown.map((e) =>
             e.id === currentId ? (
               <span key={e.id} className={`trace-el is-self kind-${e.kind}`}>

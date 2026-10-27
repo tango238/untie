@@ -121,7 +121,12 @@ describe("Toolbar", () => {
     const select = screen.getByLabelText("ボード") as HTMLSelectElement;
     const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
     expect(groups).toEqual(["固定ボード", "分析ボード", "自由ボード"]);
-    expect(select.querySelectorAll('optgroup[label="固定ボード"] option')).toHaveLength(10);
+    const fixedOptions = Array.from(select.querySelectorAll('optgroup[label="固定ボード"] option')).map((o) => o.textContent);
+    expect(fixedOptions).toHaveLength(10);
+    // コンテキストはバリエーションの下
+    expect(fixedOptions.slice(-2)).toEqual(["バリエーション", "コンテキスト"]);
+    // 分析ボードは課題の分布が先頭
+    expect(select.querySelector('optgroup[label="分析ボード"] option')!.textContent).toBe("課題の分布");
     fireEvent.change(select, { target: { value: "fixed:buc" } });
     expect(st().ui.currentBoardId).toBe("fixed:buc");
     expect((screen.getByRole("button", { name: "名前変更" }) as HTMLButtonElement).disabled).toBe(true);

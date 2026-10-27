@@ -142,3 +142,34 @@ describe("グローバルフィルター", () => {
     expect(st().ui.globalFilter).toEqual({});
   });
 });
+
+describe("コンテキストの固定ボード", () => {
+  it("コンテキストごとの枠に中身を出し、4 種類を足せる。「＋コンテキスト」で新しい枠ができる", () => {
+    act(() => st().setCurrentBoard("fixed:context"));
+    render(<FixedBoard layer="context" />);
+    const res = within(screen.getByRole("region", { name: "予約" }));
+    expect(res.getByText("取消料が発生する", { selector: ".fixed-card-name" })).toBeDefined();
+    expect(res.getByText("予約経路", { selector: ".fixed-card-name" })).toBeDefined();
+    for (const label of ["情報", "条件", "状態", "バリエーション"]) {
+      expect(res.getByRole("button", { name: `「予約」に${label}を追加` })).toBeDefined();
+    }
+    fireEvent.click(res.getByRole("button", { name: "「予約」に条件を追加" }));
+    expect(st().model.elements.find((e) => e.id === st().ui.selection!.id)).toMatchObject({ kind: "condition", contextId: "ctx_reservation" });
+
+    fireEvent.click(screen.getByRole("button", { name: "＋コンテキスト" }));
+    const created = st().model.elements.find((e) => e.id === st().ui.selection!.id)!;
+    expect(created.kind).toBe("context");
+    expect(screen.getByRole("region", { name: "新しいコンテキスト" })).toBeDefined();
+  });
+
+  it("別のコンテキストから移せ、× で未分類へ外せる", () => {
+    act(() => st().setCurrentBoard("fixed:context"));
+    render(<FixedBoard layer="context" />);
+    const room = within(screen.getByRole("region", { name: "客室" }));
+    fireEvent.change(room.getByLabelText("「客室」へ別のコンテキストから移す"), { target: { value: "info_reservation" } });
+    expect(st().model.elements.find((e) => e.id === "info_reservation")).toMatchObject({ contextId: "ctx_room" });
+    fireEvent.click(room.getByRole("button", { name: "部屋タイプを「客室」から外す" }));
+    expect(st().model.elements.find((e) => e.id === "var_room_type")).toMatchObject({ contextId: null });
+    expect(within(screen.getByRole("region", { name: "未分類" })).getByText("部屋タイプ", { selector: ".fixed-card-name" })).toBeDefined();
+  });
+});

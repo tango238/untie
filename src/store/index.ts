@@ -3,7 +3,7 @@ import type { CommandResult } from "../model/commands";
 import type { UntieModel } from "../model/types";
 import { moveNode, type Position, type Size } from "../model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "../model/fixedBoards";
-import { parseAnalysisBoardId } from "../model/analysis";
+import { analysisBoardId, parseAnalysisBoardId } from "../model/analysis";
 import { emptyModel } from "../model/types";
 import type { GlobalFilter } from "../model/lineage";
 import { createHotelSample } from "../sample";
@@ -29,6 +29,11 @@ export interface UiState {
   rightPanelOpen?: boolean;
   /** 自由ボードの左のペイン (要素一覧) を開いているか (未設定は開く。履歴に積まない) */
   elementListOpen?: boolean;
+  /**
+   * いま作ったばかりの課題 (プロパティ欄を「追加フォーム」として出す)。作ったときの対象を覚え、
+   * 「次の課題を登録する」で同じ対象の課題を続けて作る。別の要素を選ぶと消える (以後は編集フォーム)
+   */
+  issueDraft?: { id: string; targetIds: string[] };
   /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
   nameFocusNonce: number;
 }
@@ -105,6 +110,13 @@ export interface UntieState {
 
 let toastSeq = 0;
 
+/**
+ * 起動時・新規作成・ファイルを開いたときに最初に出す画面。課題から紐解くので、
+ * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
+ */
+export const START_BOARD_ID = analysisBoardId("issues");
+const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true };
+
 /** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
   let { currentBoardId, selection } = ui;
@@ -143,13 +155,17 @@ export function isBuiltinBoard(boardId: string): boolean {
 }
 
 /** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
-export function createUntieStore(initial: UntieModel = createHotelSample(), startBoardId = initial.boards[0]?.id ?? "") {
+export function createUntieStore(
+  initial: UntieModel = createHotelSample(),
+  startBoardId = initial.boards[0]?.id ?? "",
+  startPanel: RightPanel = "properties",
+) {
   return create<UntieState>()((set, get) => ({
     model: initial,
     file: null,
     savedModel: null,
     history: { past: [], future: [] },
-    ui: { currentBoardId: startBoardId, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
+    ui: { currentBoardId: startBoardId, selection: null, rightPanel: startPanel, nameFocusNonce: 0 },
     dragBase: null,
     agentBase: null,
     toasts: [],
@@ -262,7 +278,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
         history: { past: [], future: [] },
         dragBase: null,
         agentBase: null,
-        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties", globalFilter: {} },
+        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
       })),
 
     loadDocument: (model, file) =>
@@ -272,7 +288,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
         savedModel: model,
         history: { past: [], future: [] },
         dragBase: null,
-        ui: { ...s.ui, currentBoardId: fixedBoardId("activity"), selection: null, rightPanel: "properties", globalFilter: {} },
+        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
@@ -286,7 +302,11 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
     setGlobalFilter: (layer, ids) =>
       set((s) => ({ ui: { ...s.ui, globalFilter: { ...s.ui.globalFilter, [layer]: [...new Set(ids)] } } })),
     resetGlobalFilter: () => set((s) => ({ ui: { ...s.ui, globalFilter: {} } })),
-    select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
+    select: (selection) =>
+      set((s) => {
+        const keepDraft = s.ui.issueDraft && selection?.type === "element" && selection.id === s.ui.issueDraft.id;
+        return { ui: { ...s.ui, selection, issueDraft: keepDraft ? s.ui.issueDraft : undefined } };
+      }),
     setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel, rightPanelOpen: true } })),
     setRightPanelOpen: (rightPanelOpen) => set((s) => ({ ui: { ...s.ui, rightPanelOpen } })),
     setElementListOpen: (elementListOpen) => set((s) => ({ ui: { ...s.ui, elementListOpen } })),
@@ -298,7 +318,7 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
 }
 
 /** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、アクティビティの固定ボードを開く */
-export const useUntieStore = createUntieStore(createHotelSample(), fixedBoardId("activity"));
+export const useUntieStore = createUntieStore(createHotelSample(), START_BOARD_ID, "issues");
 
 /** 保存していない変更があるか (サンプルや新規は、一度も保存していなければ変更ありとみなさない) */
 export function hasUnsavedChanges(state: Pick<UntieState, "model" | "savedModel" | "file" | "history">): boolean {

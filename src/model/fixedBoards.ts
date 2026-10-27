@@ -1,6 +1,6 @@
 // 固定ボード: レイヤーごとに、上位の要素を枠にして下位の要素を自動で並べるビュー。
 // モデルには保存せず、毎回モデルから組み立てる。純粋関数だけを置く。
-import { addElement, addRelation, removeRelation, type CommandResult } from "./commands";
+import { addElement, addRelation, moveToContext, removeRelation, type CommandResult } from "./commands";
 import { relationKindFor } from "./relations";
 import { defaultBucOf } from "./selectors";
 import {
@@ -26,6 +26,15 @@ export const FIXED_LAYERS = [
   "variation",
 ] as const;
 export type FixedLayer = (typeof FIXED_LAYERS)[number];
+
+/**
+ * ボードの選択肢に並べる順。コンテキストは情報・条件・状態・バリエーションをまとめて見る場所なので、それらの後に置く。
+ * レイヤーの上下 (トレース・グローバルフィルター) は FIXED_LAYERS の順のまま
+ */
+export const FIXED_BOARD_MENU_ORDER: readonly FixedLayer[] = [
+  ...FIXED_LAYERS.filter((l) => l !== "context"),
+  "context",
+];
 
 export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
   actor: "登場人物",
@@ -79,7 +88,12 @@ export type GroupLink =
   /** 情報の所属コンテキスト (null は未分類) */
   | { type: "context"; contextId: string | null }
   /** 状態の状態グループ (undefined はグループなし) */
-  | { type: "stateGroup"; group: string | undefined };
+  | { type: "stateGroup"; group: string | undefined }
+  /** コンテキストに属する情報・条件・状態・バリエーション (null は未分類)。既存の要素を移したり、未分類へ外したりできる */
+  | { type: "contextMembers"; contextId: string | null };
+
+/** コンテキストのボードで、コンテキストの枠に並べる種類 (この順に並べる) */
+export const CONTEXT_MEMBER_KINDS = ["information", "condition", "state", "variation"] as const satisfies readonly ElementKind[];
 
 /** 枠をまとめる段落 (ユースケースのボードの BUC など)。見出しと区切りで分けて出す */
 export interface FixedSection {
@@ -99,6 +113,8 @@ export interface FixedGroup {
   parentId: string | null;
   /** 新しく作る要素の種類 */
   childKind: ElementKind;
+  /** 枠で作れる種類が複数あるとき (コンテキストの枠)。無ければ childKind だけ */
+  addKinds?: readonly ElementKind[];
   link: GroupLink;
   items: Element[];
   /** 属する段落。無ければ段落に分けない */
@@ -230,18 +246,30 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
       );
     }
 
-    case "context":
-      return [
-        {
-          key: "context",
-          title: ELEMENT_KIND_LABELS.context,
-          subtitle: "情報をまとめる親カテゴリ",
-          parentId: null,
-          childKind: "context",
-          link: { type: "none" },
-          items: byKind(model, "context"),
-        },
-      ];
+    case "context": {
+      // コンテキストごとに、属する情報・条件・状態・バリエーションを種類の順に並べる
+      const order = (e: Element) => (CONTEXT_MEMBER_KINDS as readonly string[]).indexOf(e.kind);
+      const members = model.elements
+        .filter((e) => order(e) >= 0)
+        .map((e, i) => ({ e, i }))
+        .sort((a, b) => order(a.e) - order(b.e) || a.i - b.i)
+        .map((x) => x.e);
+      const contextOf = (e: Element) => ("contextId" in e ? e.contextId : null);
+      const group = (key: string, title: string, parentId: string | null, contextId: string | null): FixedGroup => ({
+        key,
+        title,
+        ...(parentId ? { subtitle: "コンテキスト" } : {}),
+        parentId,
+        childKind: "information",
+        addKinds: CONTEXT_MEMBER_KINDS,
+        link: { type: "contextMembers", contextId },
+        items: members.filter((e) => contextOf(e) === contextId),
+      });
+      const groups = byKind(model, "context").map((ctx) => group(ctx.id, ctx.name || "(名前なし)", ctx.id, ctx.id));
+      const orphans = group("__none", "未分類", null, null);
+      if (orphans.items.length > 0) groups.push(orphans);
+      return groups;
+    }
 
     case "information": {
       const infos = byKind(model, "information");
@@ -295,7 +323,9 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
 
 /** 上位が無くて枠を作れないときの案内 (業務が無い BUC のボードなど) */
 export function emptyLayerHint(layer: FixedLayer): string | null {
-  return layer === "buc" ? "業務がありません。先に「業務」の固定ボードで業務を作ってください。" : null;
+  if (layer === "buc") return "業務がありません。先に「業務」の固定ボードで業務を作ってください。";
+  if (layer === "context") return "コンテキストがありません。「＋コンテキスト」で作ってください。";
+  return null;
 }
 
 /**
@@ -333,8 +363,8 @@ export function scopeGroups(groups: FixedGroup[], scope: Set<string> | null): Fi
 }
 
 /** 枠に新しい要素を作って結びつける (作成と結びつけで 1 件の履歴) */
-export function addToGroup(model: UntieModel, group: FixedGroup, name?: string): CommandResult<{ id: string }> {
-  const kind = group.childKind;
+export function addToGroup(model: UntieModel, group: FixedGroup, name?: string, kind: ElementKind = group.childKind): CommandResult<{ id: string }> {
+  if (kind !== group.childKind && !group.addKinds?.includes(kind)) return { ok: false, reason: `この枠には${ELEMENT_KIND_LABELS[kind]}を作れません` };
   const label = name ?? `新しい${ELEMENT_KIND_LABELS[kind]}`;
   const link = group.link;
   const init =
@@ -342,7 +372,7 @@ export function addToGroup(model: UntieModel, group: FixedGroup, name?: string):
       ? { businessId: link.businessId }
       : link.type === "buc"
         ? { bucId: link.bucId }
-        : link.type === "context"
+        : link.type === "context" || link.type === "contextMembers"
           ? { contextId: link.contextId }
           : link.type === "stateGroup" && link.group
             ? { group: link.group }
@@ -353,8 +383,14 @@ export function addToGroup(model: UntieModel, group: FixedGroup, name?: string):
   return linked.ok ? { ok: true, model: linked.model, id: created.id } : linked;
 }
 
-/** 枠に既存の要素を足せるときの候補 (関係で結ぶ枠だけ)。すでに入っているものは除く */
+/** 枠に既存の要素を足せるときの候補 (関係で結ぶ枠と、コンテキストの枠)。すでに入っているものは除く */
 export function linkCandidates(model: UntieModel, group: FixedGroup): Element[] {
+  if (group.link.type === "contextMembers") {
+    // 別のコンテキスト (または未分類) にある要素を、このコンテキストへ移せる
+    const contextId = group.link.contextId;
+    if (contextId === null) return [];
+    return CONTEXT_MEMBER_KINDS.flatMap((k) => byKind(model, k).filter((e) => e.contextId !== contextId));
+  }
   if (group.link.type !== "relation") return [];
   const inGroup = new Set(group.items.map((e) => e.id));
   const parent = model.elements.find((e) => e.id === (group.link as { parentId: string }).parentId);
@@ -364,12 +400,21 @@ export function linkCandidates(model: UntieModel, group: FixedGroup): Element[] 
 
 /** 既存の要素を枠に足す (上位 → 要素の関係を作る) */
 export function linkToGroup(model: UntieModel, group: FixedGroup, elementId: string): CommandResult {
+  if (group.link.type === "contextMembers") {
+    if (group.link.contextId === null) return { ok: false, reason: "未分類へは「×」で外してください" };
+    return moveToContext(model, { elementId, contextId: group.link.contextId });
+  }
   if (group.link.type !== "relation") return { ok: false, reason: "この枠には既存の要素を足せません" };
   return addRelation(model, { sourceId: group.link.parentId, targetId: elementId });
 }
 
 /** 要素を枠から外す (上位 → 要素の関係を消す。要素は残る) */
 export function unlinkFromGroup(model: UntieModel, group: FixedGroup, elementId: string): CommandResult {
+  // コンテキストの枠から外すと未分類になる (状態は状態グループごと)
+  if (group.link.type === "contextMembers") {
+    if (group.link.contextId === null) return { ok: false, reason: "未分類からは外せません" };
+    return moveToContext(model, { elementId, contextId: null });
+  }
   if (group.link.type !== "relation") return { ok: false, reason: "この枠からは外せません" };
   const parentId = group.link.parentId;
   const rel = model.relations.find((r) => r.sourceId === parentId && r.targetId === elementId);

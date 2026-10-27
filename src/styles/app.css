@@ -306,6 +306,8 @@ textarea { resize: vertical; width: 100%; }
 .fixed-unlink { color: var(--muted); }
 .fixed-add { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; }
 .fixed-add select { flex: 1; min-width: 0; }
+.fixed-add select.fixed-move { flex-basis: 100%; }
+.fixed-card-sub { font-size: 11px; color: var(--muted); }
 .plain-fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .plain-fieldset:disabled select, .plain-fieldset:disabled input, .plain-fieldset:disabled textarea, .plain-fieldset:disabled button {
   opacity: 0.55; cursor: not-allowed;
@@ -419,6 +421,7 @@ textarea { resize: vertical; width: 100%; }
 .trace-table thead th { border-top: none; color: var(--muted); font-weight: 600; font-size: 11px; }
 .trace-table tbody th { white-space: nowrap; font-weight: 600; width: 1%; }
 .trace-table td:last-child { width: 1%; }
+.trace-unset { color: var(--muted); }
 .trace-tr.is-own { background: #f2f6fa; }
 .trace-dir { display: inline-block; width: 1.2em; color: var(--muted); }
 .trace-els { display: flex; flex-wrap: wrap; gap: 2px 8px; }

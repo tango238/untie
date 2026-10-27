@@ -64,6 +64,7 @@ describe("IssuePanel", () => {
     const created = st().model.elements.find((e) => e.id === st().ui.selection!.id)!;
     expect(created).toMatchObject({ kind: "issue", targetIds: [] });
     expect(st().ui.rightPanel).toBe("properties");
+    expect(st().ui.issueDraft).toEqual({ id: created.id, targetIds: [] });
   });
 
   it("「対象ごと」では全体的・具体的な課題を対象の要素ごとにまとめ、そこから移動・課題の追加ができる", () => {
