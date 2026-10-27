@@ -2,7 +2,7 @@
 
 Untie は、業務整理を行いながら、現場が感じている困りごとが業務のどこに潜んでいるかを突き止めるためのツールです。
 
-![アイコン](assets/icon.png)
+<img src="assets/icon.png" alt="Untie のアイコン" width="128">
 
 ## 考え方
 
