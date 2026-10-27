@@ -34,7 +34,13 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
     setLog([]);
     const st = useUntieStore.getState();
     if (hasUnsavedChanges(st) && !(await confirmDiscard("保存していない変更があります。破棄して新しいモデルを作りますか？"))) return;
-    const apiKey = await getApiKey(settings.provider).catch(() => null);
+    let apiKey: string | null;
+    try {
+      apiKey = await getApiKey(settings.provider);
+    } catch (e) {
+      setError(`${provider.label} の API キーをキーチェーンから読み出せませんでした。「AI の設定」で保存し直してください。(${String(e)})`);
+      return;
+    }
     if (!apiKey) {
       setError(`${provider.label} の API キーが設定されていません。「AI の設定」で入れてください。`);
       return;

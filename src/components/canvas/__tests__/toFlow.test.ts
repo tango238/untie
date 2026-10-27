@@ -40,8 +40,7 @@ describe("buildFlowNodes", () => {
     expect(index("buc_room_care")).toBeLessThan(index("act_room_request"));
     expect(nodes.find((n) => n.id === "act_room_request")!.parentId).toBe("buc_room_care");
     expect(nodes.find((n) => n.id === "buc_room_care")!.parentId).toBe("biz_stay");
-    // 既定の活動の作業は業務の枠の直下
-    expect(nodes.find((n) => n.id === "act_record_extra")!.parentId).toBe("biz_stay");
+    expect(nodes.find((n) => n.id === "act_record_extra")!.parentId).toBe("buc_extra_charge");
   });
 
   it("既定の活動と課題はノードにならない", () => {
@@ -141,7 +140,7 @@ describe("親枠の判定", () => {
     expect(parentFrameElementId(m, "board_overview", "actor_front")).toBeNull();
     expect(parentFrameElementId(m, "board_flow", "act_verify_identity")).toBeNull();
     expect(descendantElementIds(m, "board_overview", "biz_stay").sort()).toEqual(
-      ["act_record_extra", "act_room_request", "act_room_service", "buc_dining", "buc_room_care"].sort(),
+      ["act_record_extra", "act_room_request", "act_room_service", "buc_dining", "buc_extra_charge", "buc_room_care"].sort(),
     );
     expect(descendantElementIds(m, "board_overview", "buc_dining")).toEqual(["act_room_service"]);
   });

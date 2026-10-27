@@ -15,11 +15,22 @@ export function AiSettingsDialog() {
   const [models, setModels] = useState(settings.models);
   const [keyInput, setKeyInput] = useState("");
   const [hasKey, setHasKey] = useState<Record<ProviderId, boolean>>({ claude: false, codex: false, gemini: false });
+  // キーチェーンから読めなかったときの理由 (保存されていないのとは分けて出す)
+  const [readError, setReadError] = useState<Partial<Record<ProviderId, string>>>({});
 
   useEffect(() => {
-    void Promise.all(PROVIDER_IDS.map(async (p) => [p, !!(await getApiKey(p).catch(() => null))] as const)).then((pairs) =>
-      setHasKey(Object.fromEntries(pairs) as Record<ProviderId, boolean>),
-    );
+    void Promise.all(
+      PROVIDER_IDS.map(async (p) => {
+        try {
+          return [p, !!(await getApiKey(p)), undefined] as const;
+        } catch (e) {
+          return [p, false, String(e)] as const;
+        }
+      }),
+    ).then((rows) => {
+      setHasKey(Object.fromEntries(rows.map(([p, has]) => [p, has])) as Record<ProviderId, boolean>);
+      setReadError(Object.fromEntries(rows.filter(([, , err]) => err).map(([p, , err]) => [p, err])));
+    });
   }, []);
 
   const close = () => setSettingsOpen(false);
@@ -31,6 +42,7 @@ export function AiSettingsDialog() {
     try {
       await setApiKey(provider, key);
       setHasKey((h) => ({ ...h, [provider]: true }));
+      setReadError((r) => ({ ...r, [provider]: undefined }));
       setKeyInput("");
       pushToast(`${info.label} の API キーを保存しました`, "info");
     } catch (e) {
@@ -41,6 +53,7 @@ export function AiSettingsDialog() {
     try {
       await deleteApiKey(provider);
       setHasKey((h) => ({ ...h, [provider]: false }));
+      setReadError((r) => ({ ...r, [provider]: undefined }));
       pushToast(`${info.label} の API キーを消しました`, "info");
     } catch (e) {
       pushToast(String(e), "error");
@@ -93,8 +106,14 @@ export function AiSettingsDialog() {
         </label>
         <div className="field">
           <span className="field-label">
-            {info.label} の API キー {hasKey[provider] ? "(保存済み)" : "(未設定)"}
+            {info.label} の API キー {readError[provider] ? "(読み出せません)" : hasKey[provider] ? "(保存済み)" : "(未設定)"}
           </span>
+          {readError[provider] && (
+            <p className="field-error" role="alert">
+              キーチェーンに保存した API キーを読み出せませんでした。アプリを作り直したときなど、保存したときと署名が変わると読めなくなります。
+              もう一度保存してください (前のキーを置き換えます)。詳細: {readError[provider]}
+            </p>
+          )}
           <div className="inline-add">
             <input
               aria-label="API キー"

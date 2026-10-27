@@ -17,7 +17,7 @@ describe("宿泊施設サンプル", () => {
     expect(count("externalActor")).toBe(2);
     expect(count("system")).toBe(4);
     expect(count("ledger")).toBe(2);
-    expect(count("buc")).toBe(5 + 2);
+    expect(count("buc")).toBe(5 + 3);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
     expect(count("information")).toBe(6);
@@ -33,10 +33,12 @@ describe("宿泊施設サンプル", () => {
     expect(kinds.size).toBe(RELATION_KINDS.length);
   });
 
-  it("「滞在中の対応」にだけ既定でない活動がある", () => {
+  it("「滞在中の対応」にだけ既定でない活動があり、その業務の作業はすべて活動に入っている", () => {
     const nonDefault = hotelSample.elements.filter((e) => e.kind === "buc" && !e.isDefault);
     expect(nonDefault.every((b) => b.kind === "buc" && b.businessId === "biz_stay")).toBe(true);
-    expect(nonDefault).toHaveLength(2);
+    expect(nonDefault).toHaveLength(3);
+    // 業務直下と活動を混ぜない
+    expect(hotelSample.elements.some((e) => e.kind === "activity" && e.bucId === "buc_default_stay")).toBe(false);
   });
 
   it("createHotelSample は独立したコピーを返す", () => {

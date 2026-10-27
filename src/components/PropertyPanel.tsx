@@ -535,7 +535,12 @@ function ActivityFields({ activity, model }: { activity: Activity; model: UntieM
   const buc = activity.bucId ? (model.elements.find((e) => e.id === activity.bucId) as Buc | undefined) : undefined;
   const businessId = buc?.businessId ?? "";
   const businesses = model.elements.filter((e) => e.kind === "business");
-  const bucs = model.elements.filter((e): e is Buc => e.kind === "buc" && e.businessId === businessId);
+  // 業務直下と活動は混ぜない: 活動のある業務では「(業務に直接)」を選ばせない (今そこにあるときだけ出す)
+  const realBucsOf = (bizId: string) => model.elements.filter((e): e is Buc => e.kind === "buc" && e.businessId === bizId && !e.isDefault);
+  const hasBucs = realBucsOf(businessId).length > 0;
+  const bucs = model.elements.filter(
+    (e): e is Buc => e.kind === "buc" && e.businessId === businessId && (!e.isDefault || !hasBucs || e.id === activity.bucId),
+  );
 
   const move = (bucId: string | null) => {
     const r = dispatch((m) => moveActivity(m, { activityId: activity.id, bucId }));
@@ -549,7 +554,12 @@ function ActivityFields({ activity, model }: { activity: Activity; model: UntieM
         <select
           aria-label="業務"
           value={businessId}
-          onChange={(e) => move(e.target.value ? (defaultBucOf(model, e.target.value)?.id ?? null) : null)}
+          onChange={(e) => {
+            const bizId = e.target.value;
+            if (!bizId) return move(null);
+            // 活動のある業務へ移すときは最初の活動へ、無ければ業務に直接
+            move(realBucsOf(bizId)[0]?.id ?? defaultBucOf(model, bizId)?.id ?? null);
+          }}
         >
           <option value="">未所属</option>
           {businesses.map((b) => (
@@ -570,7 +580,7 @@ function ActivityFields({ activity, model }: { activity: Activity; model: UntieM
           {!businessId && <option value="">(業務を選ぶ)</option>}
           {bucs.map((b) => (
             <option key={b.id} value={b.id}>
-              {b.isDefault ? "(業務に直接)" : b.name}
+              {b.isDefault ? (hasBucs ? "(業務に直接: 活動に移してください)" : "(業務に直接)") : b.name}
             </option>
           ))}
         </select>

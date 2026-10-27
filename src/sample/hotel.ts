@@ -48,6 +48,7 @@ const defaultBucs: Element[] = businessDefs.map(([id, name]) => ({
 const bucs: Element[] = [
   { id: "buc_room_care", kind: "buc", name: "客室対応", businessId: "biz_stay", isDefault: false },
   { id: "buc_dining", kind: "buc", name: "飲食提供", businessId: "biz_stay", isDefault: false },
+  { id: "buc_extra_charge", kind: "buc", name: "追加料金の対応", businessId: "biz_stay", isDefault: false },
 ];
 
 const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
@@ -72,7 +73,7 @@ const activities: Element[] = [
   },
   { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care" },
   { id: "act_room_service", kind: "activity", name: "ルームサービスを提供する", bucId: "buc_dining" },
-  { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: dflt("biz_stay") },
+  { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: "buc_extra_charge" },
   { id: "act_calc_charge", kind: "activity", name: "宿泊料金を計算する", bucId: dflt("biz_checkout") },
   { id: "act_create_bill", kind: "activity", name: "請求を作成する", bucId: dflt("biz_checkout") },
   { id: "act_settle", kind: "activity", name: "精算する", bucId: dflt("biz_checkout") },
@@ -366,13 +367,14 @@ function frameWithActivities(bizId: string, x: number, actIds: string[], y = FRA
 const overviewNodes: BoardNode[] = [
   ...frameWithActivities("biz_reservation", 40, ["act_accept_reservation", "act_confirm_reservation", "act_change_cancel"]),
   ...frameWithActivities("biz_checkin", 340, ["act_confirm_arrival", "act_verify_identity", "act_assign_room", "act_hand_key"]),
-  // 滞在中の対応: BUC 小枠 2 つと、既定 BUC (枠に直接置く) のアクティビティ
+  // 滞在中の対応: 活動の小枠 3 つ (活動のある業務の作業は、すべてどれかの活動に入れる)
   { elementId: "biz_stay", x: 640, y: FRAME_Y, width: 520, height: FRAME_H },
   { elementId: "buc_room_care", x: 660, y: FRAME_Y + 56, width: 220, height: 200 },
   { elementId: "act_room_request", x: 680, y: FRAME_Y + 112 },
   { elementId: "buc_dining", x: 920, y: FRAME_Y + 56, width: 220, height: 200 },
   { elementId: "act_room_service", x: 940, y: FRAME_Y + 112 },
-  { elementId: "act_record_extra", x: 760, y: FRAME_Y + 300 },
+  { elementId: "buc_extra_charge", x: 660, y: FRAME_Y + 276, width: 480, height: 160 },
+  { elementId: "act_record_extra", x: 680, y: FRAME_Y + 332 },
   ...frameWithActivities("biz_checkout", 40, ["act_calc_charge", "act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
   ...frameWithActivities("biz_cleaning", 340, ["act_instruct_cleaning", "act_clean", "act_inspect_room"], FRAME_Y2),
 ];

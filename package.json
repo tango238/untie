@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "tauri": "tauri",
+    "app:build": "APPLE_SIGNING_IDENTITY=\"Untie Local Code Signing\" tauri build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "gen:types": "json2ts -i schema/untie.schema.json -o src/model/schema.d.ts && node scripts/gen-validator.mjs",

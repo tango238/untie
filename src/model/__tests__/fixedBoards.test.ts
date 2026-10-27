@@ -11,6 +11,7 @@ import {
   unlinkFromGroup,
 } from "../fixedBoards";
 import { validateModel } from "../validate";
+import { moveActivity } from "../commands";
 import { emptyModel } from "../types";
 import { okModel, sample } from "./helpers";
 
@@ -100,7 +101,7 @@ describe("fixedGroups", () => {
 
   it("活動: 業務ごと。既定の活動は出さない", () => {
     const m = sample();
-    expect(names(group(m, "buc", "biz_stay").items)).toEqual(["客室対応", "飲食提供"]);
+    expect(names(group(m, "buc", "biz_stay").items)).toEqual(["客室対応", "飲食提供", "追加料金の対応"]);
     expect(group(m, "buc", "biz_checkin").items).toHaveLength(0);
   });
 
@@ -110,7 +111,32 @@ describe("fixedGroups", () => {
     expect(def).toMatchObject({ title: "チェックイン", subtitle: "業務 (活動なし)", parentId: "biz_checkin" });
     expect(def.items).toHaveLength(4);
     expect(group(m, "activity", "buc_dining")).toMatchObject({ title: "飲食提供", parentId: "buc_dining" });
-    expect(names(group(m, "activity", "buc_default_stay").items)).toEqual(["追加料金を記録する"]);
+    // 活動のある業務は活動の枠だけ (業務の枠は出さない)
+    expect(fixedGroups(m, "activity").some((g) => g.key === "buc_default_stay")).toBe(false);
+    expect(names(group(m, "activity", "buc_extra_charge").items)).toEqual(["追加料金を記録する"]);
+  });
+
+  it("作業: 活動のある業務に業務直下の作業が残っていれば、知らせ付きで出し、新しくは作らせない", () => {
+    let m = sample();
+    m = okModel(moveActivity(m, { activityId: "act_record_extra", bucId: "buc_default_stay" }));
+    const g = group(m, "activity", "buc_default_stay");
+    expect(g).toMatchObject({ title: "滞在中の対応", noAdd: true });
+    expect(g.warning).toMatch(/活動に移してください/);
+    expect(names(g.items)).toEqual(["追加料金を記録する"]);
+    expect(addToGroup(m, g).ok).toBe(false);
+  });
+
+  it("活動: 業務に初めて活動を作ると、業務に直接あった作業がその活動へ移る (1 件の履歴)", () => {
+    const m = sample();
+    const r = addToGroup(m, group(m, "buc", "biz_checkin"), "受付");
+    if (!r.ok) throw new Error(r.reason);
+    const moved = r.model.elements.filter((e) => e.kind === "activity" && e.bucId === r.id).map((e) => e.name);
+    expect(moved).toEqual(["到着を確認する", "本人確認をする", "部屋を割り当てる", "鍵を渡す"]);
+    expect(fixedGroups(r.model, "activity").some((g) => g.key === "buc_default_checkin")).toBe(false);
+    // 2 つ目の活動では移さない
+    const r2 = addToGroup(r.model, group(r.model, "buc", "biz_checkin"), "案内");
+    if (!r2.ok) throw new Error(r2.reason);
+    expect(r2.model.elements.some((e) => e.kind === "activity" && e.bucId === r2.id)).toBe(false);
   });
 
   it("操作: 作業ごと。同じ操作が複数の枠に出る", () => {

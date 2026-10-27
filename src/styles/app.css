@@ -115,6 +115,7 @@ textarea { resize: vertical; width: 100%; }
 .panel-title { font-size: 13px; margin: 0; padding: 10px 12px 6px; color: var(--muted); font-weight: 600; }
 .right-panel .panel-title { padding-right: 36px; }
 .hint { color: var(--muted); margin: 4px 12px; font-size: 12px; }
+.field-error { margin: 4px 0; padding: 6px 8px; border-radius: 4px; background: #fbeee9; color: #8a3a2c; font-size: 12px; line-height: 1.5; }
 
 /* 要素一覧 */
 .group-header { display: flex; align-items: center; width: 100%; border: none; border-radius: 0; background: none; padding: 5px 10px; font-weight: 600; }
@@ -291,6 +292,7 @@ textarea { resize: vertical; width: 100%; }
 .link-plain { border: none; background: none; padding: 0; text-align: left; color: inherit; }
 .link-plain:hover:not(:disabled) { background: none; text-decoration: underline; }
 .fixed-group-sub { font-size: 11px; color: var(--muted); }
+.fixed-group-warning { margin: 6px 8px 0; padding: 4px 8px; border-radius: 4px; background: #fbeee9; color: #8a3a2c; font-size: 11px; line-height: 1.5; }
 .fixed-group-count { margin-left: auto; font-size: 11px; color: var(--muted); }
 .fixed-cards { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .fixed-card-row { display: flex; align-items: center; gap: 4px; }

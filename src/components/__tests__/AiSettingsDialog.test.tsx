@@ -35,4 +35,27 @@ describe("AiSettingsDialog", () => {
     });
     expect(st().toasts[st().toasts.length - 1]).toMatchObject({ tone: "error" });
   });
+
+  it("キーチェーンから読み出せないときは「(読み出せません)」と理由を出し、保存し直すと消える", async () => {
+    const keys = await import("../../ai/keys");
+    const get = vi.spyOn(keys, "getApiKey").mockImplementation(async (p) => {
+      if (p === "claude") throw new Error("User interaction is not allowed.");
+      return null;
+    });
+    const save = vi.spyOn(keys, "setApiKey").mockResolvedValue(undefined);
+    await act(async () => {
+      render(<AiSettingsDialog />);
+    });
+    expect(screen.getByText(/API キー \(読み出せません\)/)).toBeDefined();
+    expect(screen.getByRole("alert").textContent).toMatch(/User interaction is not allowed/);
+    fireEvent.change(screen.getByLabelText("API キー"), { target: { value: "sk-test" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    });
+    expect(save).toHaveBeenCalledWith("claude", "sk-test");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText(/API キー \(保存済み\)/)).toBeDefined();
+    get.mockRestore();
+    save.mockRestore();
+  });
 });

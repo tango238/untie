@@ -112,7 +112,14 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       const { provider, models } = get().settings;
       const model = models[provider] || PROVIDERS[provider].defaultModel;
       push("user", message);
-      const apiKey = await getApiKey(provider).catch(() => null);
+      let apiKey: string | null;
+      try {
+        apiKey = await getApiKey(provider);
+      } catch (e) {
+        push("error", `${PROVIDERS[provider].label} の API キーをキーチェーンから読み出せませんでした。「AI の設定」で保存し直してください。(${String(e)})`);
+        set({ settingsOpen: true });
+        return;
+      }
       if (!apiKey) {
         push("error", `${PROVIDERS[provider].label} の API キーが設定されていません。「AI の設定」で入れてください。`);
         set({ settingsOpen: true });

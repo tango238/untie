@@ -41,7 +41,7 @@ describe("applyFlowChanges", () => {
     const f = rectOf(m0, "biz_stay");
     const dx = -30;
     const dy = -20;
-    const childIds = ["buc_room_care", "buc_dining", "act_record_extra"];
+    const childIds = ["buc_room_care", "buc_dining", "buc_extra_charge"];
     // React Flow が 1 回の変更で送ってくる形: 枠の position, 枠の dimensions, 直下の子の相対補正
     const changes: NodeChange[] = [
       { id: "biz_stay", type: "position", position: { x: f.x + dx, y: f.y + dy } },
@@ -59,7 +59,7 @@ describe("applyFlowChanges", () => {
     ];
     const m = apply(changes, m0);
     expect(rectOf(m, "biz_stay")).toEqual({ x: f.x + dx, y: f.y + dy, width: f.width - dx, height: f.height - dy });
-    for (const id of [...childIds, "act_room_request", "act_room_service"]) {
+    for (const id of [...childIds, "act_room_request", "act_room_service", "act_record_extra"]) {
       expect(rectOf(m, id)).toEqual(rectOf(m0, id));
     }
   });

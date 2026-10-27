@@ -27,9 +27,9 @@ describe("担当別の作業一覧", () => {
     const front = performers.find((p) => p.performer.id === "actor_front")!;
     expect(front.sections.map((s) => [s.business?.name, s.buc?.name ?? null])).toEqual([
       ["チェックイン", null],
-      ["滞在中の対応", null],
       ["滞在中の対応", "客室対応"],
       ["滞在中の対応", "飲食提供"],
+      ["滞在中の対応", "追加料金の対応"],
       ["チェックアウト", null],
     ]);
     expect(names(performers.find((p) => p.performer.id === "sys_pms")!.sections.flatMap((s) => s.activities))).toEqual(["宿泊料金を計算する"]);

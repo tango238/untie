@@ -65,7 +65,7 @@ describe("selectors", () => {
     const m = sample();
     const list = listableElements(m);
     expect(list.some((e) => e.kind === "buc" && e.isDefault)).toBe(false);
-    expect(list.filter((e) => e.kind === "buc").map((e) => e.id).sort()).toEqual(["buc_dining", "buc_room_care"]);
+    expect(list.filter((e) => e.kind === "buc").map((e) => e.id).sort()).toEqual(["buc_dining", "buc_extra_charge", "buc_room_care"]);
   });
 });
 

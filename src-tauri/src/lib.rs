@@ -34,10 +34,20 @@ fn get_api_key(provider: String) -> Result<Option<String>, String> {
     }
 }
 
-/// API キーを OS のキーチェーンに保存する
+/// API キーを OS のキーチェーンに保存する。
+/// 前の項目は消してから作り直す (別の署名のアプリが作った項目は、上書きでは読めるようにならないため)
 #[tauri::command]
 fn set_api_key(provider: String, key: String) -> Result<(), String> {
-    key_entry(&provider)?
+    let entry = key_entry(&provider)?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(e) => {
+            return Err(format!(
+                "キーチェーンにある前の API キーを置き換えられませんでした: {e}。「キーチェーンアクセス」で {KEYRING_SERVICE} を削除してから保存し直してください"
+            ))
+        }
+    }
+    entry
         .set_password(key.trim())
         .map_err(|e| format!("キーチェーンに保存できませんでした: {e}"))
 }

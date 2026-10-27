@@ -311,6 +311,7 @@ function GroupView({
         {group.subtitle && <span className="fixed-group-sub">{group.subtitle}</span>}
         <span className="fixed-group-count">{group.items.length}</span>
       </header>
+      {group.warning && <p className="fixed-group-warning">{group.warning}</p>}
       <ul className="fixed-cards">
         {group.items.map((e) => (
           <li key={e.id} className="fixed-card-row">
@@ -341,7 +342,7 @@ function GroupView({
           </li>
         ))}
       </ul>
-      <div className="fixed-add">
+      {!group.noAdd && <div className="fixed-add">
         {addKinds.map((kind) => (
           <button key={kind} type="button" onClick={() => add(kind)} aria-label={`「${group.title}」に${ELEMENT_KIND_LABELS[kind]}を追加`}>
             ＋{ELEMENT_KIND_LABELS[kind]}
@@ -394,7 +395,7 @@ function GroupView({
             ))}
           </select>
         )}
-      </div>
+      </div>}
     </section>
   );
 }

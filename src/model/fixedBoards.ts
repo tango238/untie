@@ -1,6 +1,6 @@
 // 固定ボード: レイヤーごとに、上位の要素を枠にして下位の要素を自動で並べるビュー。
 // モデルには保存せず、毎回モデルから組み立てる。純粋関数だけを置く。
-import { addElement, addRelation, moveToContext, removeRelation, type CommandResult } from "./commands";
+import { addElement, addRelation, moveActivity, moveToContext, removeRelation, type CommandResult } from "./commands";
 import { relationKindFor } from "./relations";
 import { defaultBucOf } from "./selectors";
 import {
@@ -102,6 +102,10 @@ export interface FixedSection {
   subtitle?: string;
   /** 見出しの元になった要素。クリックで選べる */
   parentId: string | null;
+  /** 直すべき状態の知らせ (活動のある業務に、業務直下の作業が残っているなど) */
+  warning?: string;
+  /** この枠には新しく作れない */
+  noAdd?: boolean;
 }
 
 export interface FixedGroup {
@@ -119,6 +123,10 @@ export interface FixedGroup {
   items: Element[];
   /** 属する段落。無ければ段落に分けない */
   section?: FixedSection;
+  /** 直すべき状態の知らせ */
+  warning?: string;
+  /** この枠には新しく作れない (既存の要素を見せるだけ) */
+  noAdd?: boolean;
 }
 
 const byKind = <K extends ElementKind>(model: UntieModel, kind: K) =>
@@ -160,12 +168,30 @@ function relationGroups(
  * アクティビティの所属先 (BUC) を、業務ごとに「業務に直接 (既定 BUC) → その業務の BUC」の順に並べる。
  * 既定 BUC は業務の名前で出す。
  */
+/**
+ * 業務の作業は「業務に直接」か「活動に入れる」のどちらかだけにする。
+ * 活動の無い業務は業務の枠 (活動なし) を出し、活動のある業務は活動の枠だけを出す。
+ * 活動のある業務に業務直下の作業が残っているとき (古いファイルや AI の作成) は、業務の枠を知らせ付きで残し、新しくは作らせない
+ */
 function bucSections(model: UntieModel): FixedSection[] {
   const sections: FixedSection[] = [];
+  const activities = byKind(model, "activity");
   for (const biz of byKind(model, "business")) {
     const def = defaultBucOf(model, biz.id);
-    if (def) sections.push({ key: def.id, title: biz.name || "(名前なし)", subtitle: "業務 (活動なし)", parentId: biz.id });
-    for (const buc of byKind(model, "buc").filter((b) => b.businessId === biz.id && !b.isDefault)) {
+    const bucs = byKind(model, "buc").filter((b) => b.businessId === biz.id && !b.isDefault);
+    const direct = def ? activities.filter((a) => a.bucId === def.id) : [];
+    if (def && bucs.length === 0) sections.push({ key: def.id, title: biz.name || "(名前なし)", subtitle: "業務 (活動なし)", parentId: biz.id });
+    else if (def && direct.length > 0) {
+      sections.push({
+        key: def.id,
+        title: biz.name || "(名前なし)",
+        subtitle: "業務 (活動に属さない作業)",
+        parentId: biz.id,
+        warning: "この業務には活動があります。作業をどれかの活動に移してください (プロパティ欄の「活動」)。",
+        noAdd: true,
+      });
+    }
+    for (const buc of bucs) {
       sections.push({ key: buc.id, title: buc.name || "(名前なし)", subtitle: `活動 (業務: ${biz.name})`, parentId: buc.id });
     }
   }
@@ -215,6 +241,8 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
         key: sec.key,
         title: sec.title,
         ...(sec.subtitle ? { subtitle: sec.subtitle } : {}),
+        ...(sec.warning ? { warning: sec.warning } : {}),
+        ...(sec.noAdd ? { noAdd: true } : {}),
         parentId: sec.parentId,
         childKind: "activity" as const,
         link: { type: "buc", bucId: sec.key },
@@ -364,6 +392,7 @@ export function scopeGroups(groups: FixedGroup[], scope: Set<string> | null): Fi
 
 /** 枠に新しい要素を作って結びつける (作成と結びつけで 1 件の履歴) */
 export function addToGroup(model: UntieModel, group: FixedGroup, name?: string, kind: ElementKind = group.childKind): CommandResult<{ id: string }> {
+  if (group.noAdd) return { ok: false, reason: group.warning ?? "この枠には作れません" };
   if (kind !== group.childKind && !group.addKinds?.includes(kind)) return { ok: false, reason: `この枠には${ELEMENT_KIND_LABELS[kind]}を作れません` };
   const label = name ?? `新しい${ELEMENT_KIND_LABELS[kind]}`;
   const link = group.link;
@@ -378,9 +407,27 @@ export function addToGroup(model: UntieModel, group: FixedGroup, name?: string, 
             ? { group: link.group }
             : undefined;
   const created = addElement(model, { kind, name: label, ...(init ? { init } : {}) });
+  if (created.ok && link.type === "business") return moveDirectActivitiesIntoFirstBuc(model, created, link.businessId);
   if (!created.ok || link.type !== "relation") return created;
   const linked = addRelation(created.model, { sourceId: link.parentId, targetId: created.id });
   return linked.ok ? { ok: true, model: linked.model, id: created.id } : linked;
+}
+
+/**
+ * 業務に初めて活動を作ったら、業務に直接あった作業をその活動へ移す (業務直下と活動を混ぜないため)。
+ * 作成と移動で 1 件の履歴
+ */
+function moveDirectActivitiesIntoFirstBuc(before: UntieModel, created: CommandResult<{ id: string }> & { ok: true }, businessId: string): CommandResult<{ id: string }> {
+  const hadBuc = byKind(before, "buc").some((b) => b.businessId === businessId && !b.isDefault);
+  const def = defaultBucOf(before, businessId);
+  if (hadBuc || !def) return created;
+  let model = created.model;
+  for (const a of byKind(model, "activity").filter((x) => x.bucId === def.id)) {
+    const r = moveActivity(model, { activityId: a.id, bucId: created.id });
+    if (!r.ok) return r;
+    model = r.model;
+  }
+  return { ok: true, model, id: created.id };
 }
 
 /** 枠に既存の要素を足せるときの候補 (関係で結ぶ枠と、コンテキストの枠)。すでに入っているものは除く */
