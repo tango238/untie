@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addBoard, clearAll, removeBoard, renameBoard } from "../model/commands";
+import { addBoard, removeBoard, renameBoard } from "../model/commands";
 import { FIXED_LAYERS, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
-import { openDocument, saveDocument } from "../io/document";
+import { newEmptyDocument, openDocument, saveDocument } from "../io/document";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "../model/analysis";
 import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
 import { useAgentStore } from "../ai/agentStore";
@@ -10,7 +10,7 @@ import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-type Dialog = "removeBoard" | "clearAll" | "createFromPrompt" | null;
+type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | null;
 
 /** 既存のボード名と被らない「ボード N」 */
 export function nextBoardName(existing: readonly string[]): string {
@@ -71,7 +71,10 @@ export function Toolbar() {
         <h1 className="app-name">Untie</h1>
 
         <div className="toolbar-group">
-          <FileMenu onCreateFromPrompt={() => setDialog("createFromPrompt")} />
+          <FileMenu
+            onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
+            onCreateFromPrompt={() => setDialog("createFromPrompt")}
+          />
         </div>
 
         <div className="toolbar-group">
@@ -183,9 +186,6 @@ export function Toolbar() {
           >
             AI
           </button>
-          <button type="button" className="danger-outline" onClick={() => setDialog("clearAll")}>
-            空にする
-          </button>
         </div>
       </div>
 
@@ -210,16 +210,21 @@ export function Toolbar() {
       )}
       {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
       {aiSettingsOpen && <AiSettingsDialog />}
-      {dialog === "clearAll" && (
+      {dialog === "newDocument" && (
         <ConfirmDialog
-          title="すべて空にする"
-          message="要素・線・ボードをすべて消して、空のボード「ボード 1」だけにします。元に戻す (Undo) で復元できます。"
-          confirmLabel="空にする"
-          danger
+          title="新規作成"
+          message={`「${file?.name ?? modelName}」に保存していない変更があります。新しく作る前に保存しますか？`}
+          confirmLabel="保存して新規作成"
+          alternateLabel="保存せずに新規作成"
           onCancel={() => setDialog(null)}
-          onConfirm={() => {
+          onAlternate={() => {
             setDialog(null);
-            dispatch((m) => clearAll(m));
+            newEmptyDocument();
+          }}
+          onConfirm={async () => {
+            setDialog(null);
+            // 保存先の選択を取り消したり保存に失敗したりしたら、今のモデルを残す
+            if (await saveDocument()) newEmptyDocument();
           }}
         />
       )}
@@ -227,8 +232,8 @@ export function Toolbar() {
   );
 }
 
-/** ファイルのメニュー: 開く・保存・別名で保存・プロンプトから作成 */
-function FileMenu({ onCreateFromPrompt }: { onCreateFromPrompt: () => void }) {
+/** ファイルのメニュー: 新規作成・開く・保存・別名で保存・プロンプトから作成 */
+function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFromPrompt: () => void }) {
   const [open, setOpen] = useState(false);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const ref = useRef<HTMLDivElement>(null);
@@ -261,6 +266,7 @@ function FileMenu({ onCreateFromPrompt }: { onCreateFromPrompt: () => void }) {
       </button>
       {open && (
         <div className="menu-list" role="menu" aria-label="ファイル">
+          {item("新規作成", "", onNew)}
           {item("開く…", "⌘O", () => void openDocument())}
           {item("保存", "⌘S", () => void saveDocument())}
           {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}

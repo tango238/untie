@@ -2,7 +2,10 @@ import { useEffect } from "react";
 import { hasUnsavedChanges, useUntieStore } from "../store";
 import { confirmDiscard, isTauri } from "./file";
 
-/** 保存していない変更があるときに、ウィンドウを閉じる前に確かめる */
+/**
+ * 保存していない変更があるときに、ウィンドウを閉じる前に確かめる。
+ * 止めなかったときは onCloseRequested がウィンドウを destroy するので、capability に core:window:allow-destroy が要る
+ */
 export function useCloseGuard() {
   useEffect(() => {
     if (isTauri()) {
@@ -11,7 +14,7 @@ export function useCloseGuard() {
       void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
         const off = await getCurrentWindow().onCloseRequested(async (event) => {
           if (!hasUnsavedChanges(useUntieStore.getState())) return;
-          if (!(await confirmDiscard("保存していない変更があります。破棄して閉じますか？"))) event.preventDefault();
+          if (!(await confirmDiscard("保存していない変更があります。破棄して閉じますか？", "破棄して閉じる"))) event.preventDefault();
         });
         if (disposed) off();
         else unlisten = off;

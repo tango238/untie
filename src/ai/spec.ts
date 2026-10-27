@@ -2,7 +2,7 @@
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
 import { addElement, addRelation, type CommandResult, type ElementInit } from "../model/commands";
 import { defaultBucOf } from "../model/selectors";
-import { emptyModel, type ElementKind, type UntieModel } from "../model/types";
+import { emptyModel, isIssueTargetKind, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "../model/types";
 import type { ToolDef } from "./tools";
 
 export interface SpecNamed {
@@ -141,7 +141,7 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
             name: { type: "string" },
             description: { type: "string" },
             severity: { type: "integer", minimum: 1, maximum: 5 },
-            targets: names("対象の業務・作業・操作の名前"),
+            targets: names("対象の名前。登場人物 (アクター・外部アクター・システム・帳票) だけなら全体的な課題、業務・作業・操作だけなら具体的な課題。混ぜない"),
           },
           required: ["name"],
           additionalProperties: false,
@@ -267,9 +267,12 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
 
   // 課題
   for (const issue of spec.issues ?? []) {
-    const targets = (issue.targets ?? [])
-      .map((n) => model.elements.find((e) => (e.kind === "business" || e.kind === "activity" || e.kind === "usecase") && e.name === n.trim())?.id)
-      .filter((id): id is string => !!id);
+    const found = (issue.targets ?? [])
+      .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === n.trim()))
+      .filter((e): e is Element => !!e);
+    // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は混ぜられないので、最初の対象と同じ区分だけを残す
+    const scope = found[0] && isIssueTargetKind(found[0].kind) ? issueScopeOfKind(found[0].kind) : null;
+    const targets = found.filter((e) => isIssueTargetKind(e.kind) && issueScopeOfKind(e.kind) === scope).map((e) => e.id);
     apply(
       addElement(model, {
         kind: "issue",

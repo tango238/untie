@@ -4,7 +4,7 @@ Untie は、現場担当者が自分の業務を言語化するための業務�
 
 このリポジトリは PoC (概念実証) です。「カードと図で業務要素と関係を編集する体験」を確かめるものです。モデルは JSON ファイルに保存・読み込みできます (「開く」「保存」、Cmd/Ctrl+O・Cmd/Ctrl+S)。起動すると架空の宿泊施設のサンプルが開きます。
 
-![アイコン](assets/icon.svg)
+![アイコン](assets/icon.png)
 
 ## できること
 
@@ -14,7 +14,7 @@ Untie は、現場担当者が自分の業務を言語化するための業務�
 - **AI エージェント**: 下のペインで AI と会話して、編集中のモデルを自然言語で直す。「ファイル > プロンプトから作成」で、初期要望の文章からモデルを作り、そのまま会話を続けられる。AI は Claude (Anthropic)・Codex (OpenAI)・Gemini (Google) から選び、API キーは「AI の設定」で入れる (OS のキーチェーンに保存)
 - **自由ボード** (いくつでも): レイヤーに関係なく要素を置き、位置と大きさを自由に決める。所属や関係は変えられない (表示だけ)
 - 関係は RDRA に沿った型付き。両端の種類から関係が自動で決まり、あり得ない組み合わせは結べない。アクターの担当は線ではなく業務・作業のラベルで出す
-- 課題を業務 / 作業 / 操作に紐づけ、重要度順に一覧する
+- 課題を先に書き出し (課題一覧の「＋課題」)、あとから対象を付けて紐解く。登場人物に付けると全体的な課題、業務 / 作業 / 操作に付けると具体的な課題として分けて見る
 - Undo / Redo (Cmd/Ctrl+Z、Shift+Cmd/Ctrl+Z)
 
 設計の詳細は [docs/design.md](docs/design.md)、データモデルは [schema/untie.schema.json](schema/untie.schema.json) を参照してください。
@@ -58,7 +58,7 @@ pnpm tauri build    # Mac 用の .app / .dmg を作る
 
 スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `src/model/schema.d.ts` を再生成してください。
 
-アイコンを変えるときは `assets/icon.svg` を編集し、`pnpm tauri icon assets/icon.svg` で各サイズを再生成します。
+アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm tauri icon assets/icon.png` で各サイズを再生成します。
 
 ### リリース
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
 import { deleteApiKey, getApiKey, setApiKey } from "../../ai/keys";
 import { PROVIDER_IDS, PROVIDERS, type ProviderId } from "../../ai/providers";
-import { isTauri, openExternalUrl } from "../../io/file";
+import { copyText, isTauri, openExternalUrl } from "../../io/file";
 import { useUntieStore } from "../../store";
 
 /** AI の設定: 使うプロバイダーとモデル、プロバイダーごとの API キー (OS のキーチェーンに保存) */
@@ -44,6 +44,22 @@ export function AiSettingsDialog() {
       pushToast(`${info.label} の API キーを消しました`, "info");
     } catch (e) {
       pushToast(String(e), "error");
+    }
+  };
+
+  const openKeyPage = async () => {
+    try {
+      await openExternalUrl(info.keyUrl);
+    } catch (e) {
+      pushToast(`開けませんでした。URL をコピーしてブラウザで開いてください: ${String(e)}`, "error");
+    }
+  };
+  const copyKeyUrl = async () => {
+    try {
+      await copyText(info.keyUrl);
+      pushToast("URL をコピーしました", "info");
+    } catch {
+      pushToast("コピーできませんでした。URL を選んでコピーしてください", "error");
     }
   };
 
@@ -99,10 +115,16 @@ export function AiSettingsDialog() {
           </div>
           <p className="hint">
             {isTauri() ? "API キーはこのパソコンのキーチェーンに保存します。業務モデルのファイルには含まれません。" : "ブラウザでは、このタブを閉じるまでだけ API キーを覚えます。"}
-            <button type="button" className="link-plain context-apply" onClick={() => void openExternalUrl(info.keyUrl)}>
+            <button type="button" className="link-plain context-apply" onClick={() => void openKeyPage()}>
               {info.vendor} のサイトで API キーを発行する
             </button>
           </p>
+          <div className="inline-add key-url">
+            <input aria-label="API キーを発行するページの URL" readOnly value={info.keyUrl} onFocus={(e) => e.target.select()} />
+            <button type="button" onClick={() => void copyKeyUrl()}>
+              URL をコピー
+            </button>
+          </div>
         </div>
         <div className="dialog-actions">
           <button type="button" onClick={close}>

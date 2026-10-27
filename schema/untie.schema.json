@@ -329,7 +329,7 @@
       }
     },
     "issue": {
-      "description": "課題。現場で困っていること。ボードには置かず、対象要素のバッジと課題一覧で見る。",
+      "description": "課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作が対象) に分かれる (対象が無ければ未整理)。",
       "type": "object",
       "required": ["id", "kind", "name", "severity", "targetIds"],
       "additionalProperties": false,
@@ -345,7 +345,7 @@
           "maximum": 5
         },
         "targetIds": {
-          "description": "対象要素の id。業務 / アクティビティ / ユースケース のみ。0 件も可。重複なし。",
+          "description": "対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作だけ (混ぜない)。0 件も可 (未整理)。重複なし。",
           "type": "array",
           "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
@@ -411,6 +411,11 @@
           "description": "このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。",
           "type": "array",
           "items": { "$ref": "#/$defs/boardNode" }
+        },
+        "edges": {
+          "description": "このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boardEdge" }
         }
       }
     },
@@ -434,6 +439,28 @@
           "minimum": 1
         }
       }
+    },
+    "boardEdge": {
+      "description": "ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。",
+      "type": "object",
+      "required": ["relationId"],
+      "additionalProperties": false,
+      "properties": {
+        "relationId": { "$ref": "#/$defs/id" },
+        "sourceSide": {
+          "description": "始点の要素のどの辺から線を出すか。省略時は right。",
+          "$ref": "#/$defs/edgeSide"
+        },
+        "targetSide": {
+          "description": "終点の要素のどの辺に線を入れるか。省略時は left。",
+          "$ref": "#/$defs/edgeSide"
+        }
+      }
+    },
+    "edgeSide": {
+      "description": "要素の辺。",
+      "type": "string",
+      "enum": ["left", "right", "top", "bottom"]
     }
   }
 }

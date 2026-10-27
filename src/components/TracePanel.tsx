@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { moveToContext } from "../model/commands";
 import { contextNotices, type ContextNotice } from "../model/contexts";
+import { issuesByScope } from "../model/selectors";
 import { traceToActors, type TraceProblem } from "../model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "../model/types";
 import { useUntieStore } from "../store";
@@ -14,6 +15,7 @@ export function TracePanel() {
   const model = useUntieStore((s) => s.model);
   const result = useMemo(() => traceToActors(model), [model]);
   const notices = useMemo(() => contextNotices(model), [model]);
+  const unsorted = useMemo(() => issuesByScope(model).unsorted, [model]);
   const byId = useMemo(() => new Map(model.elements.map((e) => [e.id, e])), [model]);
   const breaks = result.problems.filter((p) => p.isBreak);
   const downstreamOf = (breakId: string) =>
@@ -40,6 +42,22 @@ export function TracePanel() {
           <ul className="trace-rows">
             {notices.map((n) => (
               <NoticeRow key={n.elementId} notice={n} element={byId.get(n.elementId)!} contextName={n.suggestedId ? byId.get(n.suggestedId)?.name ?? "" : ""} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {unsorted.length > 0 && (
+        <section className="trace-info" aria-label="未整理の課題">
+          <h3 className="trace-info-title">情報: 対象のない課題 ({unsorted.length})</h3>
+          <p className="hint">対象 (登場人物か業務・作業・操作) を付けると、全体的な課題か具体的な課題に分かれます。</p>
+          <ul className="trace-rows">
+            {unsorted.map((i) => (
+              <li key={i.id} className="trace-row is-info" data-testid={`unsorted-${i.id}`}>
+                <div className="trace-head">
+                  <span className="relation-kind">{ELEMENT_KIND_LABELS[i.kind]}</span>
+                  <ElementLink element={i} />
+                </div>
+              </li>
             ))}
           </ul>
         </section>

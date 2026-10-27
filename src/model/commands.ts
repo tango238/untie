@@ -4,10 +4,14 @@ import { produce } from "immer";
 import { newUniqueId } from "./id";
 import { relationKindFor, sameRelation } from "./relations";
 import {
+  DEFAULT_EDGE_SIDES,
+  EDGE_SIDES,
   isFrameKind,
   isContextMemberKind,
   isIssueTargetKind,
+  issueScopeOfKind,
   type Buc,
+  type EdgeSide,
   type Element,
   type ElementKind,
   type Link,
@@ -112,13 +116,20 @@ function isValidSize(s: Size): boolean {
 
 /** 課題の対象 id 一覧を検査する。問題があれば理由を返す */
 function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): string | null {
+  const scopes = new Set<string>();
   for (const id of targetIds) {
     const t = findElement(model, id);
     if (!t) return `課題の対象が存在しません: ${id}`;
-    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは業務・作業・操作だけです";
+    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは登場人物 (アクター・外部アクター・システム・帳票)・業務・作業・操作だけです";
+    scopes.add(issueScopeOfKind(t.kind));
   }
+  // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は分けて扱う
+  if (scopes.size > 1) return ISSUE_SCOPE_MIX_REASON;
   return null;
 }
+
+export const ISSUE_SCOPE_MIX_REASON =
+  "全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作が対象) の対象は混ぜられません。付け替えるときは、いまの対象を外してから追加してください";
 
 function checkSeverity(severity: number): string | null {
   return Number.isInteger(severity) && severity >= 1 && severity <= 5 ? null : "重要度は 1〜5 の整数にしてください";
@@ -504,6 +515,12 @@ export function removeRelation(model: UntieModel, payload: RemoveRelationPayload
   if (!model.relations.some((r) => r.id === payload.id)) return fail(`関係が存在しません: ${payload.id}`);
   const next = produce(model, (draft) => {
     draft.relations = draft.relations.filter((r) => r.id !== payload.id);
+    // ボードごとの線の見た目も一緒に消す
+    for (const b of draft.boards) {
+      if (!b.edges) continue;
+      b.edges = b.edges.filter((e) => e.relationId !== payload.id);
+      if (b.edges.length === 0) delete b.edges;
+    }
   });
   return { ok: true, model: next };
 }
@@ -619,6 +636,41 @@ export function moveNode(model: UntieModel, payload: MoveNodePayload): CommandRe
       node.width = payload.size.width;
       node.height = payload.size.height;
     }
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetEdgeSidesPayload {
+  boardId: string;
+  relationId: string;
+  /** 既定 (right) に戻すなら undefined */
+  sourceSide?: EdgeSide;
+  /** 既定 (left) に戻すなら undefined */
+  targetSide?: EdgeSide;
+}
+
+/** ボードごとの線の見た目 (どの辺から出て、どの辺に入るか) を変える。両方とも既定なら項目ごと消す */
+export function setEdgeSides(model: UntieModel, payload: SetEdgeSidesPayload): CommandResult {
+  const board = model.boards.find((b) => b.id === payload.boardId);
+  if (!board) return fail(`ボードが存在しません: ${payload.boardId}`);
+  if (!model.relations.some((r) => r.id === payload.relationId)) return fail(`関係が存在しません: ${payload.relationId}`);
+  for (const side of [payload.sourceSide, payload.targetSide]) {
+    if (side !== undefined && !EDGE_SIDES.includes(side)) return fail(`辺が不正です: ${side}`);
+  }
+  const sourceSide = payload.sourceSide === DEFAULT_EDGE_SIDES.sourceSide ? undefined : payload.sourceSide;
+  const targetSide = payload.targetSide === DEFAULT_EDGE_SIDES.targetSide ? undefined : payload.targetSide;
+  const next = produce(model, (draft) => {
+    const b = draft.boards.find((x) => x.id === payload.boardId)!;
+    const rest = (b.edges ?? []).filter((e) => e.relationId !== payload.relationId);
+    if (sourceSide !== undefined || targetSide !== undefined) {
+      rest.push({
+        relationId: payload.relationId,
+        ...(sourceSide !== undefined ? { sourceSide } : {}),
+        ...(targetSide !== undefined ? { targetSide } : {}),
+      });
+    }
+    if (rest.length > 0) b.edges = rest;
+    else delete b.edges;
   });
   return { ok: true, model: next };
 }

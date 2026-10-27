@@ -1,7 +1,8 @@
-import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
+import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { useUntieStore } from "../../store";
 import { IssueBadge } from "../IssueBadge";
 import { ActorChips } from "./ActorChips";
+import { NodeHandles } from "./NodeHandles";
 import type { FrameFlowNode } from "./toFlow";
 
 export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
@@ -14,7 +15,7 @@ export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
         minHeight={isBuc ? 120 : 160}
         onResizeEnd={() => useUntieStore.getState().commitDrag()}
       />
-      <Handle type="target" position={Position.Left} />
+      <NodeHandles />
       <div className="frame-title">
         <span className="frame-kind">{isBuc ? "活動" : "業務"}</span>
         <span className="frame-name">{data.name || "(名前なし)"}</span>
@@ -24,7 +25,6 @@ export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
           <IssueBadge count={data.issueCount} maxSeverity={data.maxSeverity} className="frame-badge" />
         )}
       </div>
-      <Handle type="source" position={Position.Right} />
     </div>
   );
 }

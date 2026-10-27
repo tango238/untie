@@ -60,7 +60,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "add_element",
     description:
-      "要素を 1 つ作る。kind ごとの所属: buc は business_id が必須。activity は buc_id か business_id (業務に直接) を指定する。information / state / condition / variation は context_id を指定できる。issue は severity (1〜5) と target_ids (業務・作業・操作の id) を指定できる。作った要素の id を返す。",
+      "要素を 1 つ作る。kind ごとの所属: buc は business_id が必須。activity は buc_id か business_id (業務に直接) を指定する。information / state / condition / variation は context_id を指定できる。issue は severity (1〜5) と target_ids を指定できる (登場人物の id だけ = 全体的な課題、業務・作業・操作の id だけ = 具体的な課題。混ぜられない。空なら未整理)。作った要素の id を返す。",
     parameters: {
       type: "object",
       properties: {
@@ -74,7 +74,7 @@ export const MODEL_TOOLS: ToolDef[] = [
         values: strArray("variation の値の一覧"),
         hours: { type: "number", description: "activity / usecase の時間 (時間単位、小数点第一位まで)" },
         severity: { type: "integer", minimum: 1, maximum: 5, description: "issue の重要度" },
-        target_ids: strArray("issue の対象 (業務・作業・操作の id)"),
+        target_ids: strArray("issue の対象 (登場人物の id だけ、または業務・作業・操作の id だけ)"),
       },
       required: ["kind", "name"],
       additionalProperties: false,
@@ -95,7 +95,7 @@ export const MODEL_TOOLS: ToolDef[] = [
         hours: { type: ["number", "null"], description: "activity / usecase の時間。null で消す" },
         links: linkSchema,
         severity: { type: "integer", minimum: 1, maximum: 5, description: "issue の重要度" },
-        target_ids: strArray("issue の対象 (全部を置き換える)"),
+        target_ids: strArray("issue の対象 (全部を置き換える。登場人物だけ、または業務・作業・操作だけ)"),
       },
       required: ["id"],
       additionalProperties: false,

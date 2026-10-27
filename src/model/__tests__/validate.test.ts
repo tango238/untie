@@ -147,10 +147,19 @@ describe("validateModel: 参照整合性", () => {
   it("課題の対象が存在しない、または対象にできない種類", () => {
     const j = json();
     const issue = j.elements.find((e: Json) => e.id === "issue_manual_entry");
-    issue.targetIds = ["nope", "actor_front"];
+    issue.targetIds = ["nope", "info_reservation"];
     const errors = errorsOf(j);
     expect(errors.some((e) => e.includes("対象 nope が存在しません"))).toBe(true);
-    expect(errors.some((e) => e.includes("業務・作業・操作ではありません"))).toBe(true);
+    expect(errors.some((e) => e.includes("登場人物・業務・作業・操作ではありません"))).toBe(true);
+  });
+
+  it("課題の対象に、登場人物と業務・作業・操作が混ざっている", () => {
+    const j = json();
+    const issue = j.elements.find((e: Json) => e.id === "issue_manual_entry");
+    issue.targetIds = ["actor_front"];
+    expect(validateModel(j).ok).toBe(true);
+    issue.targetIds = ["actor_front", "biz_checkin"];
+    expect(errorsOf(j).some((e) => e.includes("混ざっています"))).toBe(true);
   });
 
   it("ボードのノード: 存在しない要素・重複・課題・既定の活動", () => {
@@ -165,6 +174,17 @@ describe("validateModel: 参照整合性", () => {
     expect(errors.some((e) => e.includes("複数回置かれています"))).toBe(true);
     expect(errors.some((e) => e.includes("課題") && e.includes("置かれています"))).toBe(true);
     expect(errors.some((e) => e.includes("既定の活動") && e.includes("置かれています"))).toBe(true);
+  });
+
+  it("ボードの線: 存在しない関係・重複・不正な辺", () => {
+    const j = json();
+    const relId = j.relations[0].id;
+    j.boards[1].edges = [{ relationId: "nope" }, { relationId: relId, sourceSide: "top" }, { relationId: relId }];
+    const errors = errorsOf(j);
+    expect(errors.some((e) => e.includes("線の関係 nope が存在しません"))).toBe(true);
+    expect(errors.some((e) => e.includes("線の設定が複数あります"))).toBe(true);
+    j.boards[1].edges = [{ relationId: relId, sourceSide: "middle" }];
+    expect(validateModel(j).ok).toBe(false);
   });
 
   it("ボード id の重複", () => {

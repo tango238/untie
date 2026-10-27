@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { issueSummaries, issuesTargeting, listableElements, sortedIssues } from "../selectors";
-import { sample } from "./helpers";
+import { setIssueTargets } from "../commands";
+import { issueBoardSections, issueScope, issueSummaries, issuesByScope, issuesTargeting, listableElements, sortedIssues } from "../selectors";
+import type { Issue, UntieModel } from "../types";
+import { okModel, sample } from "./helpers";
+
+const issueOf = (m: UntieModel, id: string) => m.elements.find((e) => e.id === id) as Issue;
+
+describe("課題の区分", () => {
+  it("対象の種類で、全体的 (登場人物)・具体的 (業務・作業・操作)・未整理 (対象なし) に分かれる", () => {
+    let m = sample();
+    expect(issueScope(m, issueOf(m, "issue_manual_entry"))).toBe("specific");
+    m = okModel(setIssueTargets(m, { issueId: "issue_manual_entry", targetIds: ["actor_front", "sys_pms"] }));
+    expect(issueScope(m, issueOf(m, "issue_manual_entry"))).toBe("overall");
+    m = okModel(setIssueTargets(m, { issueId: "issue_cancel_explain", targetIds: [] }));
+    expect(issueScope(m, issueOf(m, "issue_cancel_explain"))).toBe("unsorted");
+    const by = issuesByScope(m);
+    expect(by.overall.map((i) => i.id)).toEqual(["issue_manual_entry"]);
+    expect(by.unsorted.map((i) => i.id)).toEqual(["issue_cancel_explain"]);
+    expect(by.specific).toHaveLength(3);
+  });
+
+  it("対象ごとの並びは 未整理 → 全体的 → 具体的 の順。全体的・具体的は対象ごとにまとめ、対象は 登場人物 → 業務 → 作業 → 操作 の順", () => {
+    let m = sample();
+    m = okModel(setIssueTargets(m, { issueId: "issue_manual_entry", targetIds: ["sys_pms", "actor_front"] }));
+    m = okModel(setIssueTargets(m, { issueId: "issue_cancel_explain", targetIds: [] }));
+    const sections = issueBoardSections(m);
+    expect(sections.map((s) => s.scope)).toEqual(["unsorted", "overall", "specific"]);
+    expect(sections[0]!.groups).toEqual([{ target: null, issues: [issueOf(m, "issue_cancel_explain")] }]);
+    // 対象が 2 つある課題は、それぞれの対象の下に出る。アクター → システムの順
+    expect(sections[1]!.groups.map((g) => g.target!.id)).toEqual(["actor_front", "sys_pms"]);
+    expect(sections[1]!.count).toBe(1);
+    const kinds = sections[2]!.groups.map((g) => g.target!.kind);
+    const order = ["business", "activity", "usecase"];
+    expect(kinds).toEqual([...kinds].sort((a, b) => order.indexOf(a) - order.indexOf(b)));
+    expect(sections[2]!.count).toBe(3);
+  });
+});
 
 describe("selectors", () => {
   it("課題は重要度の降順、同点は名前順", () => {

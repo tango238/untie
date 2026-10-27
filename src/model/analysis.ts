@@ -1,5 +1,5 @@
 // 分析ボードの計算。モデルには保存せず、毎回モデルから組み立てる。純粋関数だけを置く。
-import { defaultBucOf } from "./selectors";
+import { defaultBucOf, issueScope } from "./selectors";
 import {
   type Activity,
   type Buc,
@@ -159,10 +159,13 @@ export interface IssueByBusiness {
   spots: IssueSpot[];
 }
 
-/** 業務ごとに、業務・作業・作業が使う操作に付いた課題を集める。どの業務にも辿れない課題は最後にまとめる */
+/**
+ * 業務ごとに、業務・作業・作業が使う操作に付いた課題を集める。どの業務にも辿れない課題 (未整理を含む) は最後にまとめる。
+ * 登場人物が対象の全体的な課題は業務に属さないので入れない (課題一覧と、この分析の別の表で見る)
+ */
 export function issueDistribution(model: UntieModel): IssueByBusiness[] {
   const get = lookup(model);
-  const issues = byKind(model, "issue");
+  const issues = byKind(model, "issue").filter((i) => issueScope(model, i) !== "overall");
   const issuesOn = (id: string) => issues.filter((i) => i.targetIds.includes(id));
   const counted = new Set<string>();
   const build = (business: Business | null, elementIds: string[]): IssueByBusiness => {

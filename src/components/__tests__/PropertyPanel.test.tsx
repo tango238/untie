@@ -187,10 +187,89 @@ describe("PropertyPanel", () => {
     expect(issue.targetIds).toEqual(["biz_reservation"]);
   });
 
-  it("課題・アクター等には課題追加ボタンがない", () => {
+  it("登場人物にも「課題を追加」があり、全体的な課題として作る。課題・情報などにはない", () => {
+    onFixedBoard();
     selectEl("actor_front");
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.getByRole("heading", { name: "課題 (全体的な課題)" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "課題を追加" }));
+    const issue = el(st().ui.selection!.id) as { kind: string; targetIds: string[] };
+    expect(issue).toMatchObject({ kind: "issue", targetIds: ["actor_front"] });
+    unmount();
+    for (const id of ["issue_manual_entry", "info_reservation"]) {
+      selectEl(id);
+      const r = render(<PropertyPanel />);
+      expect(screen.queryByRole("button", { name: "課題を追加" })).toBeNull();
+      r.unmount();
+    }
+  });
+
+  it("課題の区分を出し、対象の候補は同じ区分だけにする。外せば別の区分に付け替えられる", () => {
+    onFixedBoard();
+    selectEl("issue_cancel_explain");
     render(<PropertyPanel />);
-    expect(screen.queryByRole("button", { name: "課題を追加" })).toBeNull();
+    expect(screen.getByTestId("issue-scope").textContent).toContain("具体的な課題");
+    const options = () => Array.from((screen.getByLabelText("対象を追加") as HTMLSelectElement).querySelectorAll("option")).map((o) => o.value);
+    expect(options()).toContain("biz_checkin");
+    expect(options()).not.toContain("actor_front");
+    // 対象をすべて外すと未整理になり、登場人物も選べる
+    fireEvent.click(screen.getByRole("button", { name: "対象「予約を変更・取消する」を外す" }));
+    fireEvent.click(screen.getByRole("button", { name: /^対象「.*」を外す$/ }));
+    expect(screen.getByTestId("issue-scope").textContent).toContain("未整理の課題");
+    expect(options()).toContain("actor_front");
+    expect(options()).toContain("biz_checkin");
+    // 登場人物に付けると全体的な課題になり、業務・作業・操作は候補から消える
+    fireEvent.change(screen.getByLabelText("対象を追加"), { target: { value: "actor_front" } });
+    expect((el("issue_cancel_explain") as { targetIds: string[] }).targetIds).toEqual(["actor_front"]);
+    expect(screen.getByTestId("issue-scope").textContent).toContain("全体的な課題");
+    expect(options()).toContain("sys_pms");
+    expect(options()).not.toContain("biz_checkin");
+  });
+
+  it("課題は自由ボードからでも重要度・対象を編集でき、削除できる", () => {
+    selectEl("issue_cancel_explain");
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("重要度"), { target: { value: "4" } });
+    expect(el("issue_cancel_explain")).toMatchObject({ severity: 4 });
+    fireEvent.change(screen.getByLabelText("対象を追加"), { target: { value: "biz_checkin" } });
+    expect((el("issue_cancel_explain") as { targetIds: string[] }).targetIds).toContain("biz_checkin");
+    expect(screen.getByRole("button", { name: "削除" })).toBeDefined();
+  });
+
+  it("課題の「削除」は消して課題一覧へ戻る。「課題一覧へ」は削除の右にあり、課題一覧を開く", () => {
+    selectEl("issue_cancel_explain");
+    act(() => st().setRightPanel("properties"));
+    render(<PropertyPanel />);
+    const buttons = Array.from(screen.getByRole("button", { name: "削除" }).parentElement!.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["削除", "課題一覧へ"]);
+    fireEvent.click(screen.getByRole("button", { name: "課題一覧へ" }));
+    expect(st().ui.rightPanel).toBe("issues");
+    act(() => st().setRightPanel("properties"));
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    expect(st().model.elements.some((e) => e.id === "issue_cancel_explain")).toBe(false);
+    expect(st().ui.rightPanel).toBe("issues");
+  });
+
+  it("課題以外には「課題一覧へ」は出ず、削除しても課題一覧へは移らない", () => {
+    onFixedBoard();
+    selectEl("act_change_cancel");
+    act(() => st().setRightPanel("properties"));
+    render(<PropertyPanel />);
+    expect(screen.queryByRole("button", { name: "課題一覧へ" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    expect(st().ui.rightPanel).toBe("properties");
+  });
+
+  it("課題の対象から、そのレイヤーの固定ボードへ移れる", () => {
+    onFixedBoard();
+    selectEl("issue_cancel_explain");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "「予約を変更・取消する」の固定ボードへ移る" }));
+    expect(st().ui.currentBoardId).toBe("fixed:activity");
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_change_cancel" });
+    selectEl("issue_cancel_explain");
+    fireEvent.click(screen.getByRole("button", { name: "「予約を取り消す」の固定ボードへ移る" }));
+    expect(st().ui.currentBoardId).toBe("fixed:usecase");
   });
 
   it("自由ボードでは「ボードから外す」だけ。要素は残る", () => {
@@ -235,6 +314,36 @@ describe("PropertyPanel", () => {
     const src = st().model.elements.find((e) => e.id === rel.sourceId)!;
     fireEvent.click(editor.getByRole("button", { name: src.name }));
     expect(st().ui.selection).toEqual({ type: "element", id: src.id });
+  });
+
+  it("自由ボードで両端がある線は、付け根の辺をそのボードだけで変えられる", () => {
+    act(() => st().setCurrentBoard("board_flow"));
+    const board = st().model.boards.find((b) => b.id === "board_flow")!;
+    const onBoard = new Set(board.nodes.map((n) => n.elementId));
+    const rel = st().model.relations.find((r) => onBoard.has(r.sourceId) && onBoard.has(r.targetId))!;
+    act(() => st().select({ type: "relation", id: rel.id }));
+    render(<PropertyPanel />);
+    const editor = within(screen.getByTestId("relation-editor"));
+    const source = editor.getByLabelText("始点の辺") as HTMLSelectElement;
+    const target = editor.getByLabelText("終点の辺") as HTMLSelectElement;
+    expect([source.value, target.value]).toEqual(["right", "left"]);
+    fireEvent.change(source, { target: { value: "left" } });
+    expect(st().model.boards.find((b) => b.id === "board_flow")!.edges).toEqual([{ relationId: rel.id, sourceSide: "left" }]);
+    expect(st().model.boards.find((b) => b.id === "board_overview")!.edges).toBeUndefined();
+    // 両端が同じ辺なら入れ替えは無効
+    expect((editor.getByRole("button", { name: "入れ替え" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(target, { target: { value: "top" } });
+    fireEvent.click(editor.getByRole("button", { name: "入れ替え" }));
+    expect(st().model.boards.find((b) => b.id === "board_flow")!.edges).toEqual([{ relationId: rel.id, sourceSide: "top" }]);
+    expect([source.value, target.value]).toEqual(["top", "left"]);
+  });
+
+  it("固定ボードでは線の付け根の欄を出さない", () => {
+    onFixedBoard();
+    const rel = st().model.relations.find((r) => r.kind === "actorActivity")!;
+    act(() => st().select({ type: "relation", id: rel.id }));
+    render(<PropertyPanel />);
+    expect(screen.queryByLabelText("始点の辺")).toBeNull();
   });
 
   it("「追加」直後は名前欄にフォーカスする", () => {
@@ -353,7 +462,7 @@ describe("PropertyPanel のトレース", () => {
     render(<PropertyPanel />);
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(headings.indexOf("トレース")).toBe(headings.indexOf("関係") + 1);
-    expect(headings.indexOf("課題")).toBe(headings.indexOf("トレース") + 1);
+    expect(headings.findIndex((h) => h.startsWith("課題"))).toBe(headings.indexOf("トレース") + 1);
     const rows = screen.getAllByRole("row").filter((r) => r.closest(".trace-table") && r.querySelector("th[scope=row]"));
     const layers = rows.map((r) => r.querySelector("th")!.textContent);
     expect(layers.slice(0, 3)).toEqual(["↑登場人物", "↑業務", "●作業"]);

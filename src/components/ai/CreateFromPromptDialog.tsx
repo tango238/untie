@@ -110,8 +110,15 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
               閉じる
             </button>
           )}
-          <button type="button" className="primary" disabled={running || !request.trim()} onClick={() => void start()}>
-            作成
+          <button
+            type="button"
+            className={`primary${running ? " is-busy" : ""}`}
+            disabled={running || !request.trim()}
+            aria-busy={running}
+            onClick={() => void start()}
+          >
+            {running && <span className="spinner" aria-hidden="true" />}
+            {running ? "生成中…" : "作成"}
           </button>
         </div>
       </div>

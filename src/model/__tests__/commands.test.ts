@@ -15,6 +15,7 @@ import {
   removeFromBoard,
   removeRelation,
   renameBoard,
+  setEdgeSides,
   setIssueTargets,
   updateElement,
 } from "../commands";
@@ -77,7 +78,7 @@ describe("addElement", () => {
     expectFail(addElement(m, { kind: "buc", name: "x" }), /業務/);
     expectFail(addElement(m, { kind: "buc", name: "x", init: { businessId: "actor_front" } }), /業務/);
     expectFail(addElement(m, { kind: "activity", name: "x", init: { bucId: "nope" } }), /活動/);
-    expectFail(addElement(m, { kind: "issue", name: "x", init: { targetIds: ["actor_front"] } }), /対象/);
+    expectFail(addElement(m, { kind: "issue", name: "x", init: { targetIds: ["info_reservation"] } }), /対象/);
     expectFail(addElement(m, { kind: "issue", name: "x", init: { severity: 9 } }), /重要度/);
   });
 
@@ -150,7 +151,7 @@ describe("updateElement", () => {
     expectFail(updateElement(m, { id: "actor_front", patch: { severity: 3 } }), /変更できません/);
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { severity: 0 } }), /重要度/);
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { severity: 2.5 } }), /重要度/);
-    expectFail(updateElement(m, { id: "issue_manual_entry", patch: { targetIds: ["actor_front"] } }), /対象/);
+    expectFail(updateElement(m, { id: "issue_manual_entry", patch: { targetIds: ["info_reservation"] } }), /対象/);
     expectFail(updateElement(m, { id: "nope", patch: { name: "x" } }), /存在しません/);
     expectFail(updateElement(m, { id: "act_clean", patch: { bucId: "x" } as never }), /変更できません/);
   });
@@ -336,6 +337,33 @@ describe("ボードとノード", () => {
     expectFail(addBoard(m, { name: "x", id: "board_flow" }), /重複/);
   });
 
+  it("setEdgeSides は線の辺をボードごとに持ち、既定は省略し、両方とも既定なら項目ごと消す", () => {
+    const m0 = sample();
+    const onBoard = new Set(m0.boards[1]!.nodes.map((n) => n.elementId));
+    const rel = m0.relations.find((r) => onBoard.has(r.sourceId) && onBoard.has(r.targetId))!;
+    let m = okModel(setEdgeSides(m0, { boardId: "board_flow", relationId: rel.id, sourceSide: "left", targetSide: "left" }));
+    expect(m.boards[1]!.edges).toEqual([{ relationId: rel.id, sourceSide: "left" }]);
+    expect(m.boards[0]!.edges).toBeUndefined();
+    expectValid(m);
+    m = okModel(setEdgeSides(m, { boardId: "board_flow", relationId: rel.id, sourceSide: "right", targetSide: "top" }));
+    expect(m.boards[1]!.edges).toEqual([{ relationId: rel.id, targetSide: "top" }]);
+    m = okModel(setEdgeSides(m, { boardId: "board_flow", relationId: rel.id }));
+    expect(m.boards[1]!.edges).toBeUndefined();
+    expectFail(setEdgeSides(m, { boardId: "nope", relationId: rel.id }), /ボード/);
+    expectFail(setEdgeSides(m, { boardId: "board_flow", relationId: "nope" }), /関係/);
+    expectFail(setEdgeSides(m, { boardId: "board_flow", relationId: rel.id, sourceSide: "x" as never }), /辺/);
+  });
+
+  it("removeRelation は各ボードの線の設定も消す", () => {
+    const m0 = sample();
+    const onBoard = new Set(m0.boards[1]!.nodes.map((n) => n.elementId));
+    const rel = m0.relations.find((r) => onBoard.has(r.sourceId) && onBoard.has(r.targetId))!;
+    let m = okModel(setEdgeSides(m0, { boardId: "board_flow", relationId: rel.id, sourceSide: "top" }));
+    m = okModel(removeRelation(m, { id: rel.id }));
+    expect(m.boards[1]!.edges).toBeUndefined();
+    expectValid(m);
+  });
+
   it("removeBoard はボードだけを消し、要素と関係は残す。最後の 1 枚は消せない", () => {
     const m0 = sample();
     const m = okModel(removeBoard(m0, { id: "board_flow" }));
@@ -397,7 +425,14 @@ describe("課題・全体", () => {
     const m = okModel(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: ["biz_checkin", "biz_checkin", "uc_cancel_reservation"] }));
     expect(el(m, "issue_manual_entry")).toMatchObject({ targetIds: ["biz_checkin", "uc_cancel_reservation"] });
     expect(okModel(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: [] })).elements.length).toBe(m0.elements.length);
-    expectFail(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: ["actor_front"] }), /対象/);
+    expectFail(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: ["info_reservation"] }), /対象/);
+    // 登場人物も対象にできる (全体的な課題)。ただし業務・作業・操作 (具体的な課題) とは混ぜられない
+    for (const id of ["actor_front", "sys_pms"]) {
+      expect(el(okModel(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: [id] })), "issue_manual_entry")).toMatchObject({
+        targetIds: [id],
+      });
+    }
+    expectFail(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: ["biz_checkin", "actor_front"] }), /混ぜられません/);
     expectFail(setIssueTargets(m0, { issueId: "issue_manual_entry", targetIds: ["nope"] }), /存在しません/);
     expectFail(setIssueTargets(m0, { issueId: "actor_front", targetIds: [] }), /課題/);
   });

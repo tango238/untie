@@ -3,7 +3,7 @@ import type { ErrorObject } from "ajv";
 // 検証関数は事前に生成しておく (アプリの CSP が eval を許さないため、実行時に ajv.compile() できない)
 import * as generated from "./schemaValidator.gen.js";
 import { relationKindFor, sameRelation } from "./relations";
-import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind } from "./types";
+import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind, issueScopeOfKind } from "./types";
 import type { Element, UntieModel } from "./types";
 
 export type ValidationResult = { ok: true; model: UntieModel } | { ok: false; errors: string[] };
@@ -172,11 +172,14 @@ export function checkIntegrity(model: UntieModel): string[] {
   // 課題の対象
   for (const e of model.elements) {
     if (e.kind !== "issue") continue;
+    const scopes = new Set<string>();
     for (const tid of e.targetIds) {
       const t = byId.get(tid);
       if (!t) errors.push(`${label(e)} の対象 ${tid} が存在しません`);
-      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は業務・作業・操作ではありません`);
+      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は登場人物・業務・作業・操作ではありません`);
+      else scopes.add(issueScopeOfKind(t.kind));
     }
+    if (scopes.size > 1) errors.push(`${label(e)} の対象に、登場人物と業務・作業・操作が混ざっています (全体的な課題と具体的な課題は分けてください)`);
   }
 
   // 関係
@@ -203,6 +206,7 @@ export function checkIntegrity(model: UntieModel): string[] {
   });
 
   // ボード
+  const relationIds = new Set(model.relations.map((r) => r.id));
   for (const board of model.boards) {
     const seen = new Set<string>();
     for (const n of board.nodes) {
@@ -218,6 +222,12 @@ export function checkIntegrity(model: UntieModel): string[] {
       }
       if (el.kind === "issue") errors.push(`ボード「${board.name}」に課題 ${label(el)} が置かれています`);
       if (el.kind === "buc" && el.isDefault) errors.push(`ボード「${board.name}」に既定の活動 ${label(el)} が置かれています`);
+    }
+    const seenEdges = new Set<string>();
+    for (const e of board.edges ?? []) {
+      if (!relationIds.has(e.relationId)) errors.push(`ボード「${board.name}」の線の関係 ${e.relationId} が存在しません`);
+      if (seenEdges.has(e.relationId)) errors.push(`ボード「${board.name}」に関係 ${e.relationId} の線の設定が複数あります`);
+      seenEdges.add(e.relationId);
     }
   }
 

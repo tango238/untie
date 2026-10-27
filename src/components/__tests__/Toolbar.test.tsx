@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { saveTextFile } from "../../io/file";
 import { addElement, removeBoard } from "../../model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -7,9 +8,17 @@ import { handleKeyDown } from "../useKeyboard";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Toolbar, nextBoardName } from "../Toolbar";
 
+vi.mock("../../io/file", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../io/file")>()),
+  saveTextFile: vi.fn(),
+}));
+
 const st = () => useUntieStore.getState();
 
-beforeEach(() => resetStore());
+beforeEach(() => {
+  resetStore();
+  vi.mocked(saveTextFile).mockClear();
+});
 
 describe("Toolbar", () => {
   it("ファイルの状態を出す。編集すると未保存の印、保存すると消える", () => {
@@ -148,18 +157,64 @@ describe("Toolbar", () => {
     expect(st().ui.rightPanel).toBe("properties");
   });
 
-  it("「空にする」は確認のあと全て消し、Undo で戻せる", () => {
+  it("「空にする」ボタンは無い", () => {
     render(<Toolbar />);
-    fireEvent.click(screen.getByRole("button", { name: "空にする" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "キャンセル" }));
-    expect(st().model.elements.length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "空にする" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "空にする" }));
+    expect(screen.queryByRole("button", { name: "空にする" })).toBeNull();
+  });
+
+  const clickNew = () => {
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /新規作成/ }));
+  };
+
+  it("「新規作成」は未保存の変更が無ければ確認せずに空のモデルにし、未保存の印は付かない", () => {
+    render(<Toolbar />);
+    clickNew();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(st().model.elements).toEqual([]);
     expect(st().model.boards).toHaveLength(1);
-    expect(st().ui.currentBoardId).toBe(st().model.boards[0]!.id);
-    st().undo();
+    expect(st().file).toBeNull();
+    expect(st().history.past).toEqual([]);
+    expect(screen.getByRole("status", { name: "ファイルの状態" }).textContent).not.toContain("保存していない変更");
+  });
+
+  it("「新規作成」は未保存の変更があれば保存を促す。キャンセルなら何もしない、保存せずに新規作成なら捨てる", () => {
+    render(<Toolbar />);
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "x" }));
+    });
+    clickNew();
+    const dialog = screen.getByRole("dialog", { name: "新規作成" });
+    expect(dialog.textContent).toContain("保存しますか");
+    fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
     expect(st().model.elements.length).toBeGreaterThan(0);
+    clickNew();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "保存せずに新規作成" }));
+    expect(st().model.elements).toEqual([]);
+    expect(saveTextFile).not.toHaveBeenCalled();
+  });
+
+  it("「保存して新規作成」は保存してから空にする。保存を取り消したら今のモデルを残す", async () => {
+    render(<Toolbar />);
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "x" }));
+    });
+    vi.mocked(saveTextFile).mockResolvedValueOnce(null);
+    clickNew();
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "保存して新規作成" }));
+    });
+    expect(st().model.elements.length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    vi.mocked(saveTextFile).mockResolvedValueOnce({ path: "/tmp/a.json", name: "a.json" });
+    clickNew();
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "保存して新規作成" }));
+    });
+    expect(saveTextFile).toHaveBeenCalledTimes(2);
+    expect(st().model.elements).toEqual([]);
+    expect(st().file).toBeNull();
   });
 });
 
@@ -243,11 +298,11 @@ describe("キーボードショートカット", () => {
     fireEvent.click(btn);
     expect(st().ui.rightPanel).toBe("properties");
   });
-  it("「ファイル」メニューに開く・保存・別名で保存・プロンプトから作成・AI の設定があり、プロンプトから作成でダイアログを開く", () => {
+  it("「ファイル」メニューに新規作成・開く・保存・別名で保存・プロンプトから作成・AI の設定があり、プロンプトから作成でダイアログを開く", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
     const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
-    expect(items).toEqual(["開く…⌘O", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
+    expect(items).toEqual(["新規作成", "開く…⌘O", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
     fireEvent.click(screen.getByRole("menuitem", { name: /プロンプトから作成/ }));
     expect(screen.getByRole("dialog", { name: "プロンプトから作成" })).toBeDefined();
     expect(screen.queryByRole("menu")).toBeNull();

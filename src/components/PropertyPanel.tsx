@@ -8,6 +8,7 @@ import {
   removeElement,
   removeFromBoard,
   removeRelation,
+  setEdgeSides,
   setIssueTargets,
   updateElement,
 } from "../model/commands";
@@ -15,13 +16,24 @@ import { relationKindFor, relationLabel, relationRule, sameRelation } from "../m
 import { suggestContext } from "../model/contexts";
 import { lineage } from "../model/lineage";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "../model/fixedBoards";
-import { activityHours, defaultBucOf, formatHours, issuesTargeting } from "../model/selectors";
+import { activityHours, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "../model/selectors";
 import {
+  DEFAULT_EDGE_SIDES,
+  EDGE_SIDES,
+  EDGE_SIDE_LABELS,
   ELEMENT_KIND_LABELS,
   isContextMemberKind,
   isIssueTargetKind,
+  issueScopeOfKind,
+  ISSUE_SCOPE_LABELS,
+  ISSUE_SCOPE_TARGETS,
+  OVERALL_ISSUE_TARGET_KINDS,
+  SPECIFIC_ISSUE_TARGET_KINDS,
+  type IssueTargetKind,
   type Activity,
+  type Board,
   type Buc,
+  type EdgeSide,
   type Element,
   type Issue,
   type Link,
@@ -30,7 +42,7 @@ import {
   type Variation,
 } from "../model/types";
 import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
-import { goToLayer, selectAndReveal } from "./actions";
+import { goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
 import { HoursField } from "./Hours";
@@ -69,9 +81,15 @@ export function PropertyPanel() {
 // ---------------------------------------------------------------- 線
 
 function RelationEditor({ relation, model }: { relation: Relation; model: UntieModel }) {
+  const boardId = useUntieStore((s) => s.ui.currentBoardId);
   const source = model.elements.find((e) => e.id === relation.sourceId);
   const target = model.elements.find((e) => e.id === relation.targetId);
   const rule = relationRule(relation.kind);
+  const sourceLabel = rule.undirected ? "両端" : "始点";
+  const targetLabel = rule.undirected ? "もう一方" : "終点";
+  // 自由ボードでは、線をどの辺から出してどの辺に入れるかをそのボードだけで変えられる
+  const board = model.boards.find((b) => b.id === boardId);
+  const onBoard = !!board && [relation.sourceId, relation.targetId].every((id) => board.nodes.some((n) => n.elementId === id));
   return (
     <div className="editor" data-testid="relation-editor">
       <div className="kind-line">関係</div>
@@ -80,7 +98,7 @@ function RelationEditor({ relation, model }: { relation: Relation; model: UntieM
         <div className="static-value">{relationLabel(relation.kind)}</div>
       </div>
       <div className="field">
-        <span className="field-label">{rule.undirected ? "両端" : "始点"}</span>
+        <span className="field-label">{sourceLabel}</span>
         {source && (
           <button type="button" className="link" onClick={() => selectAndReveal(source.id)}>
             {source.name}
@@ -88,15 +106,68 @@ function RelationEditor({ relation, model }: { relation: Relation; model: UntieM
         )}
       </div>
       <div className="field">
-        <span className="field-label">{rule.undirected ? "もう一方" : "終点"}</span>
+        <span className="field-label">{targetLabel}</span>
         {target && (
           <button type="button" className="link" onClick={() => selectAndReveal(target.id)}>
             {target.name}
           </button>
         )}
       </div>
+      {onBoard && <EdgeSidesEditor board={board} relation={relation} sourceLabel={sourceLabel} targetLabel={targetLabel} />}
       <p className="hint">関係の追加・削除は固定ボードで、要素を選んで行います。</p>
     </div>
+  );
+}
+
+/** 線の付け根 (このボードだけ): 始点・終点それぞれ、要素のどの辺に付けるか */
+function EdgeSidesEditor({
+  board,
+  relation,
+  sourceLabel,
+  targetLabel,
+}: {
+  board: Board;
+  relation: Relation;
+  sourceLabel: string;
+  targetLabel: string;
+}) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const edge = board.edges?.find((e) => e.relationId === relation.id);
+  const sourceSide = edge?.sourceSide ?? DEFAULT_EDGE_SIDES.sourceSide;
+  const targetSide = edge?.targetSide ?? DEFAULT_EDGE_SIDES.targetSide;
+  const update = (patch: { sourceSide?: EdgeSide; targetSide?: EdgeSide }) => {
+    const r = dispatch((m) => setEdgeSides(m, { boardId: board.id, relationId: relation.id, sourceSide, targetSide, ...patch }));
+    if (!r.ok) pushToast(r.reason, "error");
+  };
+  const sideSelect = (label: string, value: EdgeSide, key: "sourceSide" | "targetSide") => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={value} onChange={(e) => update({ [key]: e.target.value as EdgeSide })}>
+        {EDGE_SIDES.map((side) => (
+          <option key={side} value={side}>
+            {EDGE_SIDE_LABELS[side]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <fieldset className="edge-sides">
+      <legend className="field-label">線の付け根 (このボードだけ)</legend>
+      <div className="edge-sides-row">
+        {sideSelect(`${sourceLabel}の辺`, sourceSide, "sourceSide")}
+        {sideSelect(`${targetLabel}の辺`, targetSide, "targetSide")}
+        <button
+          type="button"
+          title="始点と終点の辺を入れ替える"
+          disabled={sourceSide === targetSide}
+          onClick={() => update({ sourceSide: targetSide, targetSide: sourceSide })}
+        >
+          入れ替え
+        </button>
+      </div>
+    </fieldset>
   );
 }
 
@@ -112,7 +183,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const nameRef = useRef<HTMLInputElement>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
-  const structural = isFixedBoard(boardId);
+  // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
+  const structural = isFixedBoard(boardId) || element.kind === "issue";
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
   // 処理済みの番号をモジュールに持ち、増えているときだけ発火する
@@ -234,7 +306,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       {isIssueTargetKind(element.kind) && (
         <section className="subsection">
-          <h3>課題</h3>
+          <h3>課題 ({ISSUE_SCOPE_LABELS[issueScopeOfKind(element.kind)]})</h3>
           {issues.length === 0 ? (
             <p className="hint">この要素を対象にした課題はありません。</p>
           ) : (
@@ -272,10 +344,20 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             className="danger"
             onClick={() => {
               const r = dispatch((m) => removeElement(m, { id: element.id }));
-              if (!r.ok) pushToast(r.reason, "error");
+              if (!r.ok) {
+                pushToast(r.reason, "error");
+                return;
+              }
+              // 課題は課題一覧から作って紐解くので、消したら課題一覧へ戻る
+              if (element.kind === "issue") setRightPanel("issues");
             }}
           >
             削除
+          </button>
+        )}
+        {element.kind === "issue" && (
+          <button type="button" className="link actions-end" onClick={() => setRightPanel("issues")}>
+            課題一覧へ
           </button>
         )}
       </div>
@@ -726,7 +808,13 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
 function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
-  const candidates = model.elements.filter((e) => isIssueTargetKind(e.kind) && !issue.targetIds.includes(e.id));
+  const scope = issueScope(model, issue);
+  // 全体的な課題と具体的な課題は混ぜない。対象があれば同じ区分の候補だけを出す
+  const groups: { label: string; kinds: readonly IssueTargetKind[] }[] = [
+    ...(scope !== "specific" ? [{ label: "登場人物 (全体的な課題)", kinds: OVERALL_ISSUE_TARGET_KINDS }] : []),
+    ...(scope !== "overall" ? SPECIFIC_ISSUE_TARGET_KINDS.map((k) => ({ label: `${ELEMENT_KIND_LABELS[k]} (具体的な課題)`, kinds: [k] })) : []),
+  ];
+  const candidates = listableElements(model).filter((e) => isIssueTargetKind(e.kind) && !issue.targetIds.includes(e.id));
   const setTargets = (targetIds: string[]) => {
     const r = dispatch((m) => setIssueTargets(m, { issueId: issue.id, targetIds }));
     if (!r.ok) pushToast(r.reason, "error");
@@ -752,10 +840,17 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           ))}
         </select>
       </label>
+      <div className="field">
+        <span className="field-label">区分</span>
+        <span data-testid="issue-scope">
+          {ISSUE_SCOPE_LABELS[scope]}
+          <span className="hint-inline"> ({ISSUE_SCOPE_TARGETS[scope]})</span>
+        </span>
+      </div>
       <section className="subsection">
         <h3>対象</h3>
         {issue.targetIds.length === 0 ? (
-          <p className="hint">対象はまだありません。</p>
+          <p className="hint">対象はまだありません。登場人物を選ぶと全体的な課題、業務・作業・操作を選ぶと具体的な課題になります。</p>
         ) : (
           <ul className="target-list">
             {issue.targetIds.map((id) => {
@@ -766,6 +861,17 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
                   <button type="button" className="link" onClick={() => t && selectAndReveal(t.id)}>
                     {t?.name || "(名前なし)"}
                   </button>
+                  {t && (
+                    <button
+                      type="button"
+                      className="link"
+                      title={`${ELEMENT_KIND_LABELS[t.kind]}の固定ボードへ移る`}
+                      aria-label={`「${t.name}」の固定ボードへ移る`}
+                      onClick={() => revealOnFixedBoard(t.id)}
+                    >
+                      移動
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="icon-button"
@@ -789,12 +895,13 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
             }}
           >
             <option value="">選んで追加…</option>
-            {(["business", "activity", "usecase"] as const).map((kind) => (
-              <optgroup key={kind} label={ELEMENT_KIND_LABELS[kind]}>
+            {groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
                 {candidates
-                  .filter((c) => c.kind === kind)
+                  .filter((c) => (g.kinds as readonly string[]).includes(c.kind))
                   .map((c) => (
                     <option key={c.id} value={c.id}>
+                      {g.kinds.length > 1 ? `${ELEMENT_KIND_LABELS[c.kind]}: ` : ""}
                       {c.name}
                     </option>
                   ))}
@@ -802,6 +909,12 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
             ))}
           </select>
         </label>
+        {issue.targetIds.length > 0 && (
+          <p className="hint">
+            {scope === "overall" ? "具体的な課題 (業務・作業・操作)" : "全体的な課題 (登場人物)"}
+            に付け替えるときは、いまの対象をすべて外してから追加してください。
+          </p>
+        )}
       </section>
     </>
   );

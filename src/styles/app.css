@@ -64,6 +64,12 @@ button:hover:not(:disabled) { background: #f0ede7; }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { background: #335f91; }
+/* 処理中のボタン: 押せないが、薄くせずにクルクルを見せる */
+button.is-busy:disabled { opacity: 1; cursor: progress; }
+button.is-busy { display: inline-flex; align-items: center; gap: 6px; }
+.spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger:hover:not(:disabled) { background: #9c372e; }
 button.danger-outline { color: var(--danger); border-color: var(--danger); }
@@ -89,12 +95,25 @@ textarea { resize: vertical; width: 100%; }
 /* 3 カラム */
 .main { flex: 1; display: grid; grid-template-columns: 240px 1fr 320px; min-height: 0; }
 .main.no-list { grid-template-columns: 1fr 320px; }
+.main.panel-closed { grid-template-columns: 240px 1fr 32px; }
+.main.no-list.panel-closed { grid-template-columns: 1fr 32px; }
+.main.list-closed { grid-template-columns: 32px 1fr 320px; }
+.main.list-closed.panel-closed { grid-template-columns: 32px 1fr 32px; }
 .element-list, .right-panel { background: var(--panel); overflow-y: auto; min-height: 0; }
-.element-list { border-right: 1px solid var(--border); }
-.right-panel { border-left: 1px solid var(--border); }
+.left-pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--border); }
+.element-list { flex: 1; }
+.right-pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
+.right-panel { flex: 1; }
+.pane-toggle { position: absolute; top: 6px; right: 6px; z-index: 2; width: 22px; height: 22px; padding: 0; line-height: 1; font-size: 15px; }
+/* 左のペインでは開閉ボタンを左上に置く (閉じた 32px の帯にも収まる)。見出しはボタンの分だけ右へ寄せる */
+.left-pane .pane-toggle { right: auto; left: 5px; }
+.left-pane .element-list .panel-title { padding-left: 32px; }
+.pane-strip { flex: 1; margin-top: 34px; border: none; border-radius: 0; background: none; color: var(--muted); font-size: 12px; writing-mode: vertical-rl; padding: 8px 0; text-align: start; }
+.pane-strip:hover:not(:disabled) { background: rgba(0,0,0,0.04); color: inherit; }
 .canvas-area { position: relative; min-width: 0; min-height: 0; }
 .canvas-area .react-flow { background: #efece6; }
 .panel-title { font-size: 13px; margin: 0; padding: 10px 12px 6px; color: var(--muted); font-weight: 600; }
+.right-panel .panel-title { padding-right: 36px; }
 .hint { color: var(--muted); margin: 4px 12px; font-size: 12px; }
 
 /* 要素一覧 */
@@ -187,6 +206,9 @@ textarea { resize: vertical; width: 100%; }
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field-label { font-size: 11px; color: var(--muted); }
 .static-value { padding: 2px 0; }
+.edge-sides { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px 8px; margin: 0; }
+.edge-sides-row { display: flex; align-items: flex-end; gap: 6px; }
+.edge-sides-row .field { flex: 1; min-width: 0; }
 .subsection { border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .subsection h3 { margin: 0; font-size: 12px; color: var(--muted); }
 .subsection .hint { margin: 0; }
@@ -198,7 +220,9 @@ textarea { resize: vertical; width: 100%; }
 .value-list li .field { flex: 1; }
 .inline-add { display: flex; gap: 6px; }
 .inline-add input { flex: 1; min-width: 0; }
-.actions { display: flex; gap: 8px; margin-top: 4px; }
+.actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* 右端に寄せる (課題の「課題一覧へ」) */
+.actions .actions-end { margin-left: auto; }
 .issue-rows { list-style: none; margin: 0; padding: 0; }
 .issue-row { padding: 6px 12px; border-bottom: 1px solid var(--border); }
 .issue-row.is-selected { background: #dfe9f3; }
@@ -206,6 +230,26 @@ textarea { resize: vertical; width: 100%; }
 .issue-main:hover:not(:disabled) { background: none; text-decoration: underline; }
 .issue-targets { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0 28px; }
 .chip-link { font-size: 11px; padding: 1px 6px; border-radius: 10px; }
+.chip-link[class*="kind-"] { border-left: 3px solid var(--c); }
+.chip-kind { color: var(--muted); margin-right: 4px; }
+.issue-panel-head { display: flex; align-items: center; padding-right: 36px; }
+.issue-panel-head .panel-title { flex: 1; padding-right: 8px; }
+.issue-add { font-size: 12px; padding: 2px 8px; margin-top: 4px; }
+.issue-view { display: inline-flex; margin: 4px 12px 2px; }
+.issue-view button { font-size: 11px; padding: 2px 10px; border-radius: 0; }
+.issue-view button:first-child { border-radius: 4px 0 0 4px; }
+.issue-view button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.issue-view button.is-active { background: var(--selected); color: #fff; border-color: var(--selected); }
+.issue-scope { border-top: 1px solid var(--border); margin-top: 6px; }
+.issue-scope-title { font-size: 12px; margin: 8px 12px 2px; color: var(--muted); font-weight: 600; }
+.issue-scope-empty { margin-bottom: 8px; }
+.issue-target-group { margin: 4px 12px 8px; border: 1px solid var(--border); border-left: 3px solid var(--c); border-radius: 4px; background: #fff; }
+.issue-target-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.issue-target-name { font-weight: 600; flex: 1; text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-target-action { font-size: 11px; flex: none; }
+.issue-target-group .issue-row { padding: 4px 8px; }
+.issue-target-group .issue-row:last-child { border-bottom: none; }
+.hint-inline { color: var(--muted); font-size: 12px; }
 
 /* ダイアログ・トースト */
 .dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 100; }
@@ -213,6 +257,9 @@ textarea { resize: vertical; width: 100%; }
 .dialog h2 { margin: 0 0 8px; font-size: 15px; }
 .dialog p { margin: 0 0 16px; line-height: 1.6; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions button { white-space: nowrap; }
+/* 選択肢が 3 つあるときはボタンが並ぶ幅を取る */
+.dialog:has(.dialog-actions > :nth-child(3)) { width: 440px; }
 .toast-host { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 120; }
 .toast { display: flex; align-items: center; gap: 10px; background: #2c2a26; color: #fff; padding: 8px 12px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
 .toast.tone-error { background: var(--danger); }
@@ -321,6 +368,8 @@ textarea { resize: vertical; width: 100%; }
 .an-block-title { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 13px; }
 .an-count, .an-sub { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
 .an-scroll { overflow-x: auto; }
+.an-subtitle { font-size: 13px; margin: 16px 0 6px; }
+.an-subtitle:first-child { margin-top: 0; }
 .an-table { border-collapse: collapse; width: 100%; background: #fff; font-size: 12px; }
 .an-table th, .an-table td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }
 .an-table thead th { background: #f6f4ef; font-weight: 600; }
@@ -424,6 +473,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 
 /* AI のダイアログ */
 .ai-dialog, .prompt-dialog { width: 560px; display: flex; flex-direction: column; gap: 10px; }
+.key-url input { color: var(--muted); font-size: 12px; }
 .prompt-input { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
 .prompt-ai { font-size: 12px; color: var(--muted); }
 .prompt-progress { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 240px; overflow-y: auto; }

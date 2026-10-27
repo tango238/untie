@@ -7,7 +7,7 @@ import {
   parseAnalysisBoardId,
   performerWorkList,
 } from "../analysis";
-import { addElement, removeRelation } from "../commands";
+import { addElement, removeRelation, setIssueTargets } from "../commands";
 import { okModel, sample } from "./helpers";
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name);
@@ -63,6 +63,9 @@ describe("課題の分布", () => {
     m = okModel(addElement(m, { kind: "issue", name: "宙に浮いた課題", id: "issue_x", init: { severity: 1 } }));
     const dist = issueDistribution(m);
     expect(dist[dist.length - 1]).toMatchObject({ business: null, maxSeverity: 1 });
+    // 登場人物が対象の全体的な課題は、業務の表にも「辿れない」にも入れない
+    const overall = okModel(setIssueTargets(m, { issueId: "issue_x", targetIds: ["actor_front"] }));
+    expect(issueDistribution(overall).some((d) => d.issues.some((i) => i.id === "issue_x"))).toBe(false);
     // 作業から操作への線を外すと、操作に付いた課題はその業務から外れる
     const rel = m.relations.find((x) => x.sourceId === "act_change_cancel" && x.targetId === "uc_cancel_reservation")!;
     m = okModel(removeRelation(m, { id: rel.id }));

@@ -1,6 +1,6 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { validateModel } from "../model/validate";
-import type { UntieModel } from "../model/types";
+import { emptyModel, type UntieModel } from "../model/types";
 import { hasUnsavedChanges, useUntieStore } from "../store";
 import { confirmDiscard, openTextFile, saveTextFile } from "./file";
 
@@ -23,6 +23,13 @@ export function parseModel(text: string): { ok: true; model: UntieModel } | { ok
 const suggestedName = (model: UntieModel) => `${(model.meta.name || "untie").replace(/[\\\\/:*?"<>|]/g, "_")}.json`;
 
 const DISCARD_MESSAGE = "保存していない変更があります。破棄して続けますか？";
+
+/** 空の新しいモデルにする。未保存の変更の確認は呼ぶ側で済ませておく */
+export function newEmptyDocument(): void {
+  const st = useUntieStore.getState();
+  st.newDocument(emptyModel(), { pristine: true });
+  st.pushToast("新しいモデルを作りました", "info");
+}
 
 /** ファイルを開く。未保存の変更があれば先に確かめる */
 export async function openDocument(): Promise<void> {

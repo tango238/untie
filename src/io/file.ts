@@ -64,12 +64,17 @@ export async function saveTextFile(text: string, path: string | null, suggestedN
 }
 
 /** 未保存の変更を捨ててよいかを聞く */
-export async function confirmDiscard(message: string): Promise<boolean> {
+export async function confirmDiscard(message: string, okLabel = "破棄して続ける"): Promise<boolean> {
   if (isTauri()) {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    return ask(message, { title: "Untie", kind: "warning", okLabel: "破棄して続ける", cancelLabel: "キャンセル" });
+    return ask(message, { title: "Untie", kind: "warning", okLabel, cancelLabel: "キャンセル" });
   }
   return window.confirm(message);
+}
+
+/** 文字列をクリップボードに写す */
+export async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text);
 }
 
 /** 外部リンクを既定のブラウザで開く */

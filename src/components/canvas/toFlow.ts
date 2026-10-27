@@ -4,7 +4,9 @@ import { DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE } from "../../model/commands";
 import { isShownAsLabel, isUndirected, relationLabel } from "../../model/relations";
 import { issueSummaries } from "../../model/selectors";
 import {
+  DEFAULT_EDGE_SIDES,
   isFrameKind,
+  type EdgeSide,
   type Element,
   type ElementKind,
   type FrameKind,
@@ -48,6 +50,17 @@ export type CardFlowNode = Node<CardNodeData, "card">;
 export type FrameFlowNode = Node<FrameNodeData, "frame">;
 export type FlowNode = CardFlowNode | FrameFlowNode;
 export type FlowEdge = Edge<{ kind: string; relationId: string }>;
+
+/**
+ * 線の z-index。ノードは枠が 0・1、カードが 2 (入れ子でも 2) なので、それより上に置いて、
+ * 枠やカードの上を通る線もクリックで選べるようにする。React Flow は同じ z-index だとノードを後に描くため、
+ * 線を上にするにはノードより大きい値が要る
+ */
+const EDGE_Z_INDEX = 10;
+
+/** ノードの辺ごとのハンドル id。各辺に始点用 (source) と終点用 (target) を 1 つずつ置く */
+export const sourceHandleId = (side: EdgeSide) => `source-${side}`;
+export const targetHandleId = (side: EdgeSide) => `target-${side}`;
 
 export interface BuildNodesOptions {
   selectedElementId?: string | null;
@@ -259,6 +272,7 @@ export function buildFlowEdges(model: UntieModel, boardId: string, options: Buil
   if (!board) return [];
   const onBoard = new Set(board.nodes.map((n) => n.elementId));
   const byId = elementMap(model);
+  const sides = new Map((board.edges ?? []).map((e) => [e.relationId, e]));
   return model.relations
     .filter((r) => !isShownAsLabel(r.kind) && onBoard.has(r.sourceId) && onBoard.has(r.targetId))
     .filter((r) => {
@@ -271,7 +285,11 @@ export function buildFlowEdges(model: UntieModel, boardId: string, options: Buil
       id: r.id,
       source: r.sourceId,
       target: r.targetId,
+      // ボードごとに、どの辺から出てどの辺に入るかを変えられる
+      sourceHandle: sourceHandleId(sides.get(r.id)?.sourceSide ?? DEFAULT_EDGE_SIDES.sourceSide),
+      targetHandle: targetHandleId(sides.get(r.id)?.targetSide ?? DEFAULT_EDGE_SIDES.targetSide),
       label: relationLabel(r.kind),
+      zIndex: EDGE_Z_INDEX,
       selected: options.selectedRelationId === r.id,
       ...(isUndirected(r.kind) ? {} : { markerEnd: { type: MarkerType.ArrowClosed } }),
       data: { kind: r.kind, relationId: r.id },

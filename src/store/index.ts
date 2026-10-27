@@ -25,6 +25,10 @@ export interface UiState {
   guideOpen?: boolean;
   selection: Selection;
   rightPanel: RightPanel;
+  /** 右のペイン (プロパティ・課題一覧・検証) を開いているか (未設定は開く。履歴に積まない) */
+  rightPanelOpen?: boolean;
+  /** 自由ボードの左のペイン (要素一覧) を開いているか (未設定は開く。履歴に積まない) */
+  elementListOpen?: boolean;
   /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
   nameFocusNonce: number;
 }
@@ -75,8 +79,11 @@ export interface UntieState {
   agentApply: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
   /** AI エージェントの編集を終え、変わっていれば 1 件の履歴として確定する */
   endAgentEdit: () => void;
-  /** 新しい (まだ保存していない) モデルにする。履歴と選択は捨てる */
-  newDocument: (model: UntieModel) => void;
+  /**
+   * 新しい (まだ保存していない) モデルにする。履歴と選択は捨てる。
+   * pristine なら手を付けていないモデルとして、保存していない変更なしで始める
+   */
+  newDocument: (model: UntieModel, options?: { pristine?: boolean }) => void;
   /** 読み込んだモデルに置き換える。履歴と選択は捨てる */
   loadDocument: (model: UntieModel, file: DocumentFile) => void;
   /** model を保存したことを記録する (保存中に編集が進んでいれば、その分は未保存のまま) */
@@ -87,7 +94,10 @@ export interface UntieState {
   setGlobalFilter: (layer: FixedLayer, ids: string[]) => void;
   resetGlobalFilter: () => void;
   select: (selection: Selection) => void;
+  /** 右のペインの中身を切り替える。閉じていれば開く */
   setRightPanel: (panel: RightPanel) => void;
+  setRightPanelOpen: (open: boolean) => void;
+  setElementListOpen: (open: boolean) => void;
   requestNameFocus: () => void;
   pushToast: (message: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
@@ -243,12 +253,12 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
       }
       set({ agentBase: null, history: { past: pushPast(history.past, agentBase), future: [] } });
     },
-    newDocument: (model) =>
+    newDocument: (model, options) =>
       set((s) => ({
         model,
         file: null,
-        // まだ一度も保存していないので、保存していない変更ありとして扱う
-        savedModel: emptyModel(),
+        // まだ一度も保存していないので、保存していない変更ありとして扱う (pristine なら変更なし)
+        savedModel: options?.pristine ? model : emptyModel(),
         history: { past: [], future: [] },
         dragBase: null,
         agentBase: null,
@@ -277,7 +287,9 @@ export function createUntieStore(initial: UntieModel = createHotelSample(), star
       set((s) => ({ ui: { ...s.ui, globalFilter: { ...s.ui.globalFilter, [layer]: [...new Set(ids)] } } })),
     resetGlobalFilter: () => set((s) => ({ ui: { ...s.ui, globalFilter: {} } })),
     select: (selection) => set((s) => ({ ui: { ...s.ui, selection } })),
-    setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel } })),
+    setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel, rightPanelOpen: true } })),
+    setRightPanelOpen: (rightPanelOpen) => set((s) => ({ ui: { ...s.ui, rightPanelOpen } })),
+    setElementListOpen: (elementListOpen) => set((s) => ({ ui: { ...s.ui, elementListOpen } })),
     requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),
     pushToast: (message, tone = "info") =>
       set((s) => ({ toasts: [...s.toasts.slice(-4), { id: ++toastSeq, message, tone }] })),

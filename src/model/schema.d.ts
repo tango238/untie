@@ -265,7 +265,7 @@ export interface Condition {
   contextId: Id | null;
 }
 /**
- * 課題。現場で困っていること。ボードには置かず、対象要素のバッジと課題一覧で見る。
+ * 課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作が対象) に分かれる (対象が無ければ未整理)。
  */
 export interface Issue {
   id: Id;
@@ -277,7 +277,7 @@ export interface Issue {
    */
   severity: number;
   /**
-   * 対象要素の id。業務 / アクティビティ / ユースケース のみ。0 件も可。重複なし。
+   * 対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作だけ (混ぜない)。0 件も可 (未整理)。重複なし。
    */
   targetIds: Id[];
 }
@@ -306,6 +306,10 @@ export interface Board {
    * このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。
    */
   nodes: BoardNode[];
+  /**
+   * このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。
+   */
+  edges?: BoardEdge[];
 }
 /**
  * ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。
@@ -322,4 +326,18 @@ export interface BoardNode {
    * 枠 (業務・BUC) の高さ。
    */
   height?: number;
+}
+/**
+ * ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。
+ */
+export interface BoardEdge {
+  relationId: Id;
+  /**
+   * 始点の要素のどの辺から線を出すか。省略時は right。
+   */
+  sourceSide?: "left" | "right" | "top" | "bottom";
+  /**
+   * 終点の要素のどの辺に線を入れるか。省略時は left。
+   */
+  targetSide?: "left" | "right" | "top" | "bottom";
 }

@@ -49,8 +49,15 @@ export function selectAndReveal(elementId: string, options: { showProperties?: b
 export function revealOnFixedBoard(elementId: string): void {
   const st = useUntieStore.getState();
   const el = st.model.elements.find((e) => e.id === elementId);
-  const layer = el ? fixedLayerOf(el.kind) : null;
-  if (!el || !layer) return;
+  if (!el) return;
+  // 課題はボードに出ないので、ボードは変えずに選んでプロパティ欄に出す
+  if (el.kind === "issue") {
+    st.select({ type: "element", id: elementId });
+    st.setRightPanel("properties");
+    return;
+  }
+  const layer = fixedLayerOf(el.kind);
+  if (!layer) return;
   st.setCurrentBoard(fixedBoardId(layer));
   st.select({ type: "element", id: elementId });
   st.setRightPanel("properties");

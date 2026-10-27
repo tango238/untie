@@ -1,5 +1,14 @@
 // モデルから表示用の値を引く純粋関数。
-import type { Element, Issue, UntieModel } from "./types";
+import {
+  ISSUE_SCOPES,
+  ISSUE_TARGET_KINDS,
+  isIssueTargetKind,
+  issueScopeOfKind,
+  type Element,
+  type Issue,
+  type IssueScope,
+  type UntieModel,
+} from "./types";
 
 export interface IssueSummary {
   count: number;
@@ -35,6 +44,67 @@ export function sortedIssues(model: UntieModel): Issue[] {
 /** この要素を対象にしている課題 */
 export function issuesTargeting(model: UntieModel, elementId: string): Issue[] {
   return sortedIssues(model).filter((i) => i.targetIds.includes(elementId));
+}
+
+/**
+ * 課題の区分。対象が無ければ未整理、あれば対象の種類で全体的 / 具体的に分かれる。
+ * 種類の混ざった課題はコマンドで作れないが、手で書いたファイルなら最初の対象で決める (検証でエラーにする)
+ */
+export function issueScope(model: UntieModel, issue: Issue): IssueScope {
+  for (const id of issue.targetIds) {
+    const t = model.elements.find((e) => e.id === id);
+    if (t && isIssueTargetKind(t.kind)) return issueScopeOfKind(t.kind);
+  }
+  return "unsorted";
+}
+
+/** 区分ごとの課題 (それぞれ重要度の高い順) */
+export function issuesByScope(model: UntieModel): Record<IssueScope, Issue[]> {
+  const out = Object.fromEntries(ISSUE_SCOPES.map((s) => [s, [] as Issue[]])) as Record<IssueScope, Issue[]>;
+  for (const i of sortedIssues(model)) out[issueScope(model, i)].push(i);
+  return out;
+}
+
+export interface IssueTargetGroup {
+  /** 対象の要素 (未整理は null) */
+  target: Element | null;
+  /** 重要度の高い順 */
+  issues: Issue[];
+}
+
+export interface IssueScopeSection {
+  scope: IssueScope;
+  groups: IssueTargetGroup[];
+  /** 区分に入る課題の数 (重複なし) */
+  count: number;
+}
+
+/**
+ * 課題一覧の「対象ごと」の並び: 未整理 → 全体的 → 具体的。全体的・具体的は対象ごとにまとめる
+ * (対象が複数ある課題は、それぞれの対象の下に出る)。対象は 登場人物 → 業務 → 作業 → 操作、同じ種類は名前順
+ */
+export function issueBoardSections(model: UntieModel): IssueScopeSection[] {
+  const byScope = issuesByScope(model);
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const kindOrder = (e: Element) => (ISSUE_TARGET_KINDS as readonly string[]).indexOf(e.kind);
+  return ISSUE_SCOPES.map((scope) => {
+    const issues = byScope[scope];
+    if (scope === "unsorted") return { scope, groups: issues.length > 0 ? [{ target: null, issues }] : [], count: issues.length };
+    const groups = new Map<string, IssueTargetGroup>();
+    for (const i of issues) {
+      for (const id of i.targetIds) {
+        const t = byId.get(id);
+        if (!t) continue;
+        const g = groups.get(id) ?? { target: t, issues: [] };
+        g.issues.push(i);
+        groups.set(id, g);
+      }
+    }
+    const sorted = [...groups.values()].sort(
+      (a, b) => kindOrder(a.target!) - kindOrder(b.target!) || a.target!.name.localeCompare(b.target!.name, "ja"),
+    );
+    return { scope, groups: sorted, count: issues.length };
+  });
 }
 
 export function findElementById(model: UntieModel, id: string): Element | undefined {

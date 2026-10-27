@@ -161,6 +161,24 @@ describe("buildFlowEdges", () => {
     expect(flow.some((e) => e.data!.kind === "activityUsecase")).toBe(true);
   });
 
+  it("線は枠・カードより上に描く (枠の中やカードの上を通る線もクリックで選べる)", () => {
+    const m = sample();
+    const nodeZ = Math.max(...buildFlowNodes(m, "board_flow").map((n) => n.zIndex ?? 0));
+    for (const e of buildFlowEdges(m, "board_flow")) {
+      expect(e.zIndex!).toBeGreaterThan(nodeZ);
+    }
+  });
+
+  it("線の辺はボードの edges から取り、無ければ始点の右・終点の左", () => {
+    const m = sample();
+    const first = buildFlowEdges(m, "board_flow")[0]!;
+    expect(first).toMatchObject({ sourceHandle: "source-right", targetHandle: "target-left" });
+    const board = m.boards[1]!;
+    const withSides: typeof m = { ...m, boards: [m.boards[0], { ...board, edges: [{ relationId: first.id, sourceSide: "left" }] }, ...m.boards.slice(2)] };
+    const e = buildFlowEdges(withSides, "board_flow").find((x) => x.id === first.id)!;
+    expect(e).toMatchObject({ sourceHandle: "source-left", targetHandle: "target-left" });
+  });
+
   it("アクターの担当は線にせず、業務の枠・作業のカードにラベルで出す", () => {
     const m = sampleWithActorCards();
     // アクターのカードがボードにあっても線は引かない

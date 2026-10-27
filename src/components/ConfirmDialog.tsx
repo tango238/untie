@@ -6,6 +6,9 @@ export interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** キャンセルと確定のあいだに置く、もう 1 つの選択肢 (例: 保存せずに続ける) */
+  alternateLabel?: string;
+  onAlternate?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -17,6 +20,8 @@ export function ConfirmDialog({
   confirmLabel = "OK",
   cancelLabel = "キャンセル",
   danger = false,
+  alternateLabel,
+  onAlternate,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -38,6 +43,11 @@ export function ConfirmDialog({
           <button type="button" ref={cancelRef} onClick={onCancel}>
             {cancelLabel}
           </button>
+          {alternateLabel && onAlternate && (
+            <button type="button" onClick={onAlternate}>
+              {alternateLabel}
+            </button>
+          )}
           <button type="button" className={danger ? "danger" : "primary"} onClick={onConfirm}>
             {confirmLabel}
           </button>
