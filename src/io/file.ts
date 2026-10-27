@@ -1,5 +1,6 @@
 // ファイルの読み書きと、外部リンクを開く処理。
-// デスクトップアプリ (Tauri) ではダイアログとネイティブのファイル操作を、ブラウザではファイル選択とダウンロードを使う。
+// デスクトップアプリ (Tauri) ではダイアログとネイティブのファイル操作を使う。
+// ブラウザでは、File System Access API があれば (Chrome・Edge) 開いたファイルに上書きし、無ければファイル選択とダウンロードを使う。
 import { invoke } from "@tauri-apps/api/core";
 
 export const FILE_EXTENSION = "json";
@@ -16,6 +17,30 @@ export interface OpenedFile {
 
 const baseName = (path: string) => path.split(/[\\\\/]/).pop() ?? path;
 
+// File System Access API (lib.dom に型が無いので、使う分だけ書く)
+interface FilePickerWindow {
+  showOpenFilePicker?: (options: object) => Promise<FileSystemFileHandle[]>;
+  showSaveFilePicker?: (options: object) => Promise<FileSystemFileHandle>;
+}
+const pickerWindow = () => window as unknown as FilePickerWindow;
+const PICKER_TYPES = [{ description: "Untie モデル", accept: { "application/json": [`.${FILE_EXTENSION}`] } }];
+const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
+
+// ブラウザで開いた・保存したファイルのハンドル。ストアの path にはハンドルの代わりに "browser:<番号>" を入れる
+const handles = new Map<string, FileSystemFileHandle>();
+let handleSeq = 0;
+function rememberHandle(handle: FileSystemFileHandle): string {
+  const key = `browser:${++handleSeq}`;
+  handles.set(key, handle);
+  return key;
+}
+
+async function writeHandle(handle: FileSystemFileHandle, text: string): Promise<void> {
+  const writable = await handle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
 /** ファイルを選んで中身を読む。取り消したら null */
 export async function openTextFile(): Promise<OpenedFile | null> {
   if (isTauri()) {
@@ -24,6 +49,19 @@ export async function openTextFile(): Promise<OpenedFile | null> {
     if (typeof path !== "string") return null;
     const text = await invoke<string>("read_model_file", { path });
     return { path, name: baseName(path), text };
+  }
+  // window から外して呼ぶと Illegal invocation になるので、window.showOpenFilePicker として呼ぶ
+  const picker = pickerWindow();
+  if (picker.showOpenFilePicker) {
+    try {
+      const [handle] = await picker.showOpenFilePicker({ types: PICKER_TYPES, multiple: false });
+      if (!handle) return null;
+      const file = await handle.getFile();
+      return { path: rememberHandle(handle), name: file.name, text: await file.text() };
+    } catch (e) {
+      if (isAbort(e)) return null;
+      throw e;
+    }
   }
   return new Promise((resolve) => {
     const input = document.createElement("input");
@@ -39,7 +77,8 @@ export async function openTextFile(): Promise<OpenedFile | null> {
 }
 
 /**
- * 中身を書き出す。path があればそこへ上書きし、無ければ保存先を選ぶ (ブラウザではダウンロード)。
+ * 中身を書き出す。path があればそこへ上書きし、無ければ保存先を選ぶ
+ * (File System Access API の無いブラウザでは、いつもダウンロード)。
  * 保存先を選ぶのを取り消したら null
  */
 export async function saveTextFile(text: string, path: string | null, suggestedName: string): Promise<{ path: string | null; name: string } | null> {
@@ -52,6 +91,23 @@ export async function saveTextFile(text: string, path: string | null, suggestedN
     }
     await invoke("write_model_file", { path: target, contents: text });
     return { path: target, name: baseName(target) };
+  }
+  const opened = path ? handles.get(path) : undefined;
+  if (opened) {
+    await writeHandle(opened, text);
+    return { path, name: opened.name };
+  }
+  const picker = pickerWindow();
+  if (picker.showSaveFilePicker) {
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picker.showSaveFilePicker({ types: PICKER_TYPES, suggestedName });
+    } catch (e) {
+      if (isAbort(e)) return null;
+      throw e;
+    }
+    await writeHandle(handle, text);
+    return { path: rememberHandle(handle), name: handle.name };
   }
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);

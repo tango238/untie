@@ -479,6 +479,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 /* AI のダイアログ */
 .ai-dialog, .prompt-dialog { width: 560px; display: flex; flex-direction: column; gap: 10px; }
 .key-url input { color: var(--muted); font-size: 12px; }
+.checkbox-field { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-size: 13px; }
 .prompt-input { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
 .prompt-ai { font-size: 12px; color: var(--muted); }
 .prompt-progress { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 240px; overflow-y: auto; }

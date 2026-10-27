@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
-import { deleteApiKey, getApiKey, setApiKey } from "../../ai/keys";
+import { deleteApiKey, getApiKey, isApiKeyRemembered, setApiKey } from "../../ai/keys";
 import { PROVIDER_IDS, PROVIDERS, type ProviderId } from "../../ai/providers";
 import { copyText, isTauri, openExternalUrl } from "../../io/file";
 import { useUntieStore } from "../../store";
 
-/** AI の設定: 使うプロバイダーとモデル、プロバイダーごとの API キー (OS のキーチェーンに保存) */
+/** AI の設定: 使うプロバイダーとモデル、プロバイダーごとの API キー (アプリは OS のキーチェーン、ブラウザはタブの間かこのブラウザに保存) */
 export function AiSettingsDialog() {
   const settings = useAgentStore((s) => s.settings);
   const updateSettings = useAgentStore((s) => s.updateSettings);
@@ -17,6 +17,11 @@ export function AiSettingsDialog() {
   const [hasKey, setHasKey] = useState<Record<ProviderId, boolean>>({ claude: false, codex: false, gemini: false });
   // キーチェーンから読めなかったときの理由 (保存されていないのとは分けて出す)
   const [readError, setReadError] = useState<Partial<Record<ProviderId, string>>>({});
+  // ブラウザだけ: API キーをこのブラウザに保存するか (しなければタブを閉じるまで)
+  const browser = !isTauri();
+  const [remember, setRemember] = useState<Record<ProviderId, boolean>>(
+    () => Object.fromEntries(PROVIDER_IDS.map((p) => [p, isApiKeyRemembered(p)])) as Record<ProviderId, boolean>,
+  );
 
   useEffect(() => {
     void Promise.all(
@@ -40,7 +45,7 @@ export function AiSettingsDialog() {
     const key = keyInput.trim();
     if (!key) return;
     try {
-      await setApiKey(provider, key);
+      await setApiKey(provider, key, { remember: remember[provider] });
       setHasKey((h) => ({ ...h, [provider]: true }));
       setReadError((r) => ({ ...r, [provider]: undefined }));
       setKeyInput("");
@@ -49,10 +54,23 @@ export function AiSettingsDialog() {
       pushToast(String(e), "error");
     }
   };
+  // 保存済みのキーがあれば、チェックを変えたときにすぐ置き場所を変える
+  const changeRemember = async (checked: boolean) => {
+    setRemember((r) => ({ ...r, [provider]: checked }));
+    if (!hasKey[provider]) return;
+    try {
+      const key = await getApiKey(provider);
+      if (key) await setApiKey(provider, key, { remember: checked });
+    } catch (e) {
+      setRemember((r) => ({ ...r, [provider]: false }));
+      pushToast(String(e), "error");
+    }
+  };
   const removeKey = async () => {
     try {
       await deleteApiKey(provider);
       setHasKey((h) => ({ ...h, [provider]: false }));
+      setRemember((r) => ({ ...r, [provider]: false }));
       setReadError((r) => ({ ...r, [provider]: undefined }));
       pushToast(`${info.label} の API キーを消しました`, "info");
     } catch (e) {
@@ -106,7 +124,15 @@ export function AiSettingsDialog() {
         </label>
         <div className="field">
           <span className="field-label">
-            {info.label} の API キー {readError[provider] ? "(読み出せません)" : hasKey[provider] ? "(保存済み)" : "(未設定)"}
+            {info.label} の API キー {readError[provider]
+              ? "(読み出せません)"
+              : !hasKey[provider]
+                ? "(未設定)"
+                : browser
+                  ? remember[provider]
+                    ? "(このブラウザに保存済み)"
+                    : "(このタブを閉じるまで)"
+                  : "(保存済み)"}
           </span>
           {readError[provider] && (
             <p className="field-error" role="alert">
@@ -132,8 +158,20 @@ export function AiSettingsDialog() {
               </button>
             )}
           </div>
+          {browser && (
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={remember[provider]}
+                onChange={(e) => void changeRemember(e.target.checked)}
+              />
+              このブラウザに保存する (次に開いたときも使える)
+            </label>
+          )}
           <p className="hint">
-            {isTauri() ? "API キーはこのパソコンのキーチェーンに保存します。業務モデルのファイルには含まれません。" : "ブラウザでは、このタブを閉じるまでだけ API キーを覚えます。"}
+            {browser
+              ? "保存しなければ、このタブを閉じるまでだけ覚えます。共用のパソコンでは保存しないでください。API キーはこのブラウザから各社の API に直接送るだけで、Untie のサーバーには送りません。"
+              : "API キーはこのパソコンのキーチェーンに保存します。業務モデルのファイルには含まれません。"}
             <button type="button" className="link-plain context-apply" onClick={() => void openKeyPage()}>
               {info.vendor} のサイトで API キーを発行する
             </button>

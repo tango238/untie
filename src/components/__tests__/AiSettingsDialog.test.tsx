@@ -7,7 +7,10 @@ import { AiSettingsDialog } from "../ai/AiSettingsDialog";
 
 const st = () => useUntieStore.getState();
 
-beforeEach(() => resetStore());
+beforeEach(() => {
+  resetStore();
+  localStorage.clear();
+});
 
 describe("AiSettingsDialog", () => {
   it("API キーを発行するページの URL を出し、コピーできる", async () => {
@@ -52,10 +55,47 @@ describe("AiSettingsDialog", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "保存" }));
     });
-    expect(save).toHaveBeenCalledWith("claude", "sk-test");
+    expect(save).toHaveBeenCalledWith("claude", "sk-test", { remember: false });
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText(/API キー \(保存済み\)/)).toBeDefined();
+    expect(screen.getByText(/API キー \(このタブを閉じるまで\)/)).toBeDefined();
     get.mockRestore();
     save.mockRestore();
+  });
+
+  it("ブラウザでは「このブラウザに保存する」を選んだときだけ、次に開いたときも API キーが残る", async () => {
+    const keys = await import("../../ai/keys");
+    await act(async () => {
+      render(<AiSettingsDialog />);
+    });
+    const remember = screen.getByRole("checkbox", { name: /このブラウザに保存する/ }) as HTMLInputElement;
+    expect(remember.checked).toBe(false);
+    fireEvent.change(screen.getByLabelText("API キー"), { target: { value: "sk-tab" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    });
+    expect(screen.getByText(/API キー \(このタブを閉じるまで\)/)).toBeDefined();
+    expect(keys.isApiKeyRemembered("claude")).toBe(false);
+    // 保存済みのキーは、チェックを入れるとすぐこのブラウザに移る
+    await act(async () => {
+      fireEvent.click(remember);
+    });
+    expect(screen.getByText(/API キー \(このブラウザに保存済み\)/)).toBeDefined();
+    expect(localStorage.getItem("untie.apiKey.claude")).toBe("sk-tab");
+    // 外すとブラウザからは消える (タブの間は使える)
+    await act(async () => {
+      fireEvent.click(remember);
+    });
+    expect(localStorage.getItem("untie.apiKey.claude")).toBeNull();
+    expect(await keys.getApiKey("claude")).toBe("sk-tab");
+    // 消すと両方から消える
+    await act(async () => {
+      fireEvent.click(remember);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "消す" }));
+    });
+    expect(localStorage.getItem("untie.apiKey.claude")).toBeNull();
+    expect(await keys.getApiKey("claude")).toBeNull();
+    expect((screen.getByRole("checkbox", { name: /このブラウザに保存する/ }) as HTMLInputElement).checked).toBe(false);
   });
 });

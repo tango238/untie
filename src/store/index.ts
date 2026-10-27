@@ -45,7 +45,7 @@ export interface ToastItem {
   tone: ToastTone;
 }
 
-/** 開いているファイル。path は保存先 (ブラウザでは無い)、name は表示名 */
+/** 開いているファイル。path は保存先 (ブラウザではファイルのハンドルの番号。上書きできないブラウザでは無い)、name は表示名 */
 export interface DocumentFile {
   path: string | null;
   name: string;

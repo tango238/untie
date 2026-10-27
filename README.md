@@ -84,6 +84,14 @@ Intel Mac は対象外です。
 1. `.msi` または `-setup.exe` をダウンロードして実行します。
 2. SmartScreen の「Windows によって PC が保護されました」が出たら、**「詳細情報」→「実行」** を押します。
 
+### ブラウザ (Web 版)
+
+同じソースを静的なサイトとしても配信できます (Cloudflare Pages)。インストールは要りません。アプリとの違いは次のとおりです。
+
+- **保存**: Chrome・Edge では、開いた (または一度保存した) ファイルにそのまま上書きします。それ以外のブラウザでは、保存のたびにダウンロードになります。
+- **API キー**: ふだんはタブを閉じるまでだけ覚えます。「AI の設定」で「このブラウザに保存する」を選ぶと、次に開いたときも使えます (ブラウザの localStorage に置くので、共用のパソコンでは選ばないでください)。キーはブラウザから各社の API に直接送り、配信元のサーバーには送りません。
+- **閉じる前の確認**: 保存していない変更があると、タブを閉じる前にブラウザが確かめます。
+
 ## 開発
 
 必要なもの: Node.js 22、pnpm 10、Rust (rustup の stable)。Tauri 2 の前提条件は [Tauri の公式ドキュメント](https://tauri.app/start/prerequisites/) を参照してください。
@@ -97,6 +105,8 @@ pnpm test           # テスト (Vitest)
 pnpm check:types    # スキーマから生成した型が最新か確認する
 pnpm tauri build    # Mac 用の .app / .dmg を作る
 pnpm app:build      # 同上。手元の証明書「Untie Local Code Signing」で署名する
+pnpm build          # Web 版を dist/ に作る
+pnpm web:deploy     # Web 版を作って Cloudflare Pages (プロジェクト untie) に上げる
 ```
 
 手元でアプリを作り直して使うときは `pnpm app:build` を使ってください。`pnpm tauri build` は簡易署名 (ad-hoc) になり、作り直すたびにアプリの識別が変わるので、キーチェーンに保存した AI の API キーが読み出せなくなります。`pnpm app:build` はログインキーチェーンにあるコード署名用の自己署名証明書 `Untie Local Code Signing` で署名するので、作り直してもキーを読めます。証明書が無い Mac では、キーチェーンアクセスの「証明書アシスタント」で同じ名前のコード署名用の自己署名証明書を作ってください。
@@ -104,6 +114,23 @@ pnpm app:build      # 同上。手元の証明書「Untie Local Code Signing」�
 スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `src/model/schema.d.ts` を再生成してください。
 
 アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm tauri icon assets/icon.png` で各サイズを再生成します。
+
+### Web 版の配信 (Cloudflare Pages)
+
+`pnpm build` で `dist/` に静的なファイルができます。`public/_headers` が `dist/_headers` に入り、Cloudflare Pages が配信するときに CSP などのヘッダーを付けます (読み込むスクリプトは自分のサイトだけ、通信先は自分のサイトと Anthropic・OpenAI・Google の API だけ)。AI のプロバイダーを足したときは `connect-src` も足してください。
+
+GitHub と連携して push のたびに配信する場合は、Cloudflare のダッシュボードで Workers & Pages → Create → Pages → Connect to Git からこのリポジトリを選び、次のように設定します。
+
+| 項目 | 値 |
+|---|---|
+| Production branch | `main` |
+| Build command | `pnpm build` |
+| Build output directory | `dist` |
+| 環境変数 | `NODE_VERSION` = `22` |
+
+手元から上げる場合は、初回に `pnpm dlx wrangler@4 login` で Cloudflare にログインしてから `pnpm web:deploy` を実行します (プロジェクト `untie` が無ければ作るか聞かれます)。
+
+利用者を絞りたいときは、Cloudflare Zero Trust の Access でアプリケーションを作り、Pages のドメインにメールアドレスなどの条件を付けます。
 
 ### リリース
 
