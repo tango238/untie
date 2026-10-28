@@ -280,6 +280,28 @@ export interface Issue {
    * 対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作だけ (混ぜない)。0 件も可 (未整理)。重複なし。
    */
   targetIds: Id[];
+  analysis?: IssueAnalysis;
+}
+/**
+ * 課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。
+ */
+export interface IssueAnalysis {
+  /**
+   * 現象。何が、いつ、どのくらいの頻度で起きるか。
+   */
+  phenomenon?: string;
+  /**
+   * 所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。
+   */
+  location?: string;
+  /**
+   * 理由。なぜそこで起きるか。
+   */
+  cause?: string;
+  /**
+   * 影響。誰にどう響くか。
+   */
+  impact?: string;
 }
 /**
  * 型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可。

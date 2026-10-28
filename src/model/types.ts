@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, Element, IssueAnalysis, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -15,6 +15,7 @@ export type {
   ExternalActor,
   Information,
   Issue,
+  IssueAnalysis,
   Meta,
   Relation,
   RelationKind,
@@ -118,6 +119,24 @@ export const ISSUE_SCOPE_TARGETS: Record<IssueScope, string> = {
   overall: "登場人物 (アクター・外部アクター・システム・帳票) が対象",
   specific: "業務・作業・操作が対象",
   unsorted: "対象をまだ決めていない",
+};
+
+/** 課題の分析の項目 (深掘りで埋める順) */
+export const ISSUE_ANALYSIS_KEYS: readonly (keyof IssueAnalysis)[] = ["phenomenon", "location", "cause", "impact"];
+
+export const ISSUE_ANALYSIS_LABELS: Record<keyof IssueAnalysis, string> = {
+  phenomenon: "現象",
+  location: "所在",
+  cause: "理由",
+  impact: "影響",
+};
+
+/** 項目ごとの問い (プロパティ欄のプレースホルダーと AI の指示で同じ文言を使う) */
+export const ISSUE_ANALYSIS_QUESTIONS: Record<keyof IssueAnalysis, string> = {
+  phenomenon: "何が、いつ、どのくらいの頻度で起きるか",
+  location: "どの業務・活動・作業・操作 (または登場人物) で起きるか",
+  cause: "なぜそこで起きるか",
+  impact: "誰にどう響くか",
 };
 
 export function isFrameKind(kind: ElementKind): kind is FrameKind {

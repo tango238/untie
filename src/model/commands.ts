@@ -9,11 +9,13 @@ import {
   isFrameKind,
   isContextMemberKind,
   isIssueTargetKind,
+  ISSUE_ANALYSIS_KEYS,
   issueScopeOfKind,
   type Buc,
   type EdgeSide,
   type Element,
   type ElementKind,
+  type IssueAnalysis,
   type Link,
   type UntieModel,
 } from "./types";
@@ -73,6 +75,8 @@ export interface ElementPatch {
   values?: string[];
   severity?: number;
   targetIds?: string[];
+  /** issue。分析 (現象・所在・理由・影響)。指定した項目だけ変わり、空文字で消す。null で分析全体を消す */
+  analysis?: Partial<IssueAnalysis> | null;
 }
 
 const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> = {
@@ -89,7 +93,7 @@ const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> =
   state: ["group"],
   variation: ["values"],
   condition: [],
-  issue: ["severity", "targetIds"],
+  issue: ["severity", "targetIds", "analysis"],
 };
 
 const fail = (reason: string): Fail => ({ ok: false, reason });
@@ -352,6 +356,18 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     if (el.kind === "issue") {
       if (patch.severity !== undefined) el.severity = patch.severity;
       if (patch.targetIds !== undefined) el.targetIds = [...new Set(patch.targetIds)];
+      if (patch.analysis === null) delete el.analysis;
+      else if (patch.analysis !== undefined) {
+        const analysis: IssueAnalysis = { ...el.analysis };
+        for (const key of ISSUE_ANALYSIS_KEYS) {
+          const v = patch.analysis[key];
+          if (v === undefined) continue;
+          if (v.trim() === "") delete analysis[key];
+          else analysis[key] = v.trim();
+        }
+        if (Object.keys(analysis).length === 0) delete el.analysis;
+        else el.analysis = analysis;
+      }
     }
   });
   return { ok: true, model: next };

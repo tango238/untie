@@ -24,6 +24,9 @@ import {
   isContextMemberKind,
   isIssueTargetKind,
   issueScopeOfKind,
+  ISSUE_ANALYSIS_KEYS,
+  ISSUE_ANALYSIS_LABELS,
+  ISSUE_ANALYSIS_QUESTIONS,
   ISSUE_SCOPE_LABELS,
   ISSUE_SCOPE_TARGETS,
   OVERALL_ISSUE_TARGET_KINDS,
@@ -42,6 +45,7 @@ import {
 } from "../model/types";
 import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
+import { useAgentStore } from "../ai/agentStore";
 import { openExternalUrl } from "../io/file";
 import { CommitField } from "./CommitField";
 import { HoursField } from "./Hours";
@@ -925,6 +929,44 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           </p>
         )}
       </section>
+      <IssueAnalysisFields issue={issue} />
     </>
+  );
+}
+
+/**
+ * 課題の分析 (現象・所在・理由・影響)。AI との深掘りで埋まるが、手でも書ける。
+ * 担当者が書いた説明 (原文) とは分けて持つ
+ */
+function IssueAnalysisFields({ issue }: { issue: Issue }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const agentMode = useAgentStore((s) => s.mode);
+  const agentRunning = useAgentStore((s) => s.running);
+  const startGrill = useAgentStore((s) => s.startGrill);
+  const grilling = agentMode.kind === "grill" && agentMode.issueId === issue.id;
+  return (
+    <section className="subsection" aria-label="分析">
+      <div className="subsection-head">
+        <h3>分析</h3>
+        <button type="button" className="link" onClick={() => void startGrill(issue.id)} disabled={grilling || agentRunning}>
+          {grilling ? "深掘り中…" : "AI と深掘りする"}
+        </button>
+      </div>
+      <p className="hint">困りごとがどこで、なぜ起きているかを突き止めた内容。AI の質問に答えて埋めるか、手で入力します。</p>
+      {ISSUE_ANALYSIS_KEYS.map((key) => (
+        <CommitField
+          key={key}
+          label={ISSUE_ANALYSIS_LABELS[key]}
+          multiline
+          placeholder={ISSUE_ANALYSIS_QUESTIONS[key]}
+          value={issue.analysis?.[key] ?? ""}
+          onCommit={(v) => {
+            const r = dispatch((m) => updateElement(m, { id: issue.id, patch: { analysis: { [key]: v } } }));
+            if (!r.ok) pushToast(r.reason, "error");
+          }}
+        />
+      ))}
+    </section>
   );
 }

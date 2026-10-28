@@ -154,6 +154,12 @@ const issues: Element[] = [
     description: "予約サイトの管理画面を見ながら、予約台帳へ手入力している。",
     severity: 5,
     targetIds: ["biz_reservation", "act_accept_reservation"],
+    analysis: {
+      phenomenon: "予約サイトに入った予約を、予約担当が 1 日 2 回まとめて宿泊管理システムに手入力している。繁忙期は 1 回 30 件を超える。",
+      location: "予約受付の「予約を受け付ける」。予約サイトと宿泊管理システムがつながっていない。",
+      cause: "予約サイトからは管理画面でしか予約を見られず、宿泊管理システムに取り込む手段が無い。",
+      impact: "転記ミスで部屋の二重割り当てが月に数件起き、フロント担当がチェックイン時に対応している。",
+    },
   },
   {
     id: "issue_checkin_queue",

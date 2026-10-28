@@ -4,6 +4,14 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { addElement, moveToContext } from "../../model/commands";
 import { PropertyPanel } from "../PropertyPanel";
+import { useAgentStore } from "../../ai/agentStore";
+
+// 深掘りの開始は AI を呼ぶので、AI を偽物にする (最初の質問を返すだけ)
+vi.mock("../../ai/keys", () => ({ getApiKey: async () => "k", setApiKey: async () => {}, deleteApiKey: async () => {} }));
+vi.mock("../../ai/chat", async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  createChatSession: () => ({ seed: () => {}, send: async () => "Q1 …" }),
+}));
 
 const st = () => useUntieStore.getState();
 const el = (id: string) => st().model.elements.find((e) => e.id === id)!;
@@ -11,7 +19,11 @@ const selectEl = (id: string) => act(() => st().select({ type: "element", id }))
 /** 所属・関係・削除は固定ボードで編集する */
 const onFixedBoard = () => act(() => st().setCurrentBoard("fixed:activity"));
 
-beforeEach(() => resetStore());
+beforeEach(() => {
+  resetStore();
+  useAgentStore.getState().newConversation();
+  useAgentStore.setState({ open: false, settingsOpen: false });
+});
 afterEach(() => vi.useRealTimers());
 
 describe("PropertyPanel", () => {
@@ -145,6 +157,33 @@ describe("PropertyPanel", () => {
     selectEl("issue_manual_entry");
     render(<PropertyPanel />);
     expect(screen.queryByText(/で書きます/)).toBeNull();
+  });
+
+  it("課題の分析 (現象・所在・理由・影響) を手で書ける", () => {
+    selectEl("issue_cancel_explain");
+    render(<PropertyPanel />);
+    const cause = screen.getByLabelText("理由") as HTMLTextAreaElement;
+    expect(cause.placeholder).toBe("なぜそこで起きるか");
+    fireEvent.change(cause, { target: { value: "取消規定が口頭でしか共有されていない" } });
+    fireEvent.blur(cause);
+    expect(el("issue_cancel_explain")).toMatchObject({ analysis: { cause: "取消規定が口頭でしか共有されていない" } });
+    // 担当者が書いた説明 (原文) は分析とは別に持つので、変わらない
+    expect(el("issue_cancel_explain")).not.toHaveProperty("description");
+    fireEvent.change(screen.getByLabelText("影響"), { target: { value: "宿泊客からの苦情" } });
+    fireEvent.blur(screen.getByLabelText("影響"));
+    expect((el("issue_cancel_explain") as { analysis: unknown }).analysis).toEqual({ cause: "取消規定が口頭でしか共有されていない", impact: "宿泊客からの苦情" });
+  });
+
+  it("「AI と深掘りする」で下のペインが深掘りモードで開く", async () => {
+    selectEl("issue_cancel_explain");
+    render(<PropertyPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "AI と深掘りする" }));
+    });
+    const agent = useAgentStore.getState();
+    expect(agent.mode).toEqual({ kind: "grill", issueId: "issue_cancel_explain" });
+    expect(agent.open).toBe(true);
+    expect(screen.getByRole("button", { name: "深掘り中…" })).toBeDefined();
   });
 
   it("課題の重要度と対象を編集できる", () => {

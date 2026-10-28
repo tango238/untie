@@ -4,10 +4,11 @@ import { ELEMENT_KIND_LABELS } from "../model/types";
 import { FIXED_LAYER_LABELS, parseFixedBoardId } from "../model/fixedBoards";
 import { useUntieStore } from "../store";
 import { createChatSession, describeChatError, type ChatSession, type SeedTurn } from "./chat";
+import { executeGrillTool, GRILL_TOOLS, grillOpening, grillSystemPrompt } from "./grill";
 import { getApiKey } from "./keys";
 import { agentSystemPrompt } from "./prompts";
 import { loadAiSettings, PROVIDERS, saveAiSettings, type AiSettings } from "./providers";
-import { executeTool, MODEL_TOOLS, type ModelEditor } from "./tools";
+import { executeTool, MODEL_TOOLS, type ModelEditor, type ToolDef, type ToolOutcome } from "./tools";
 
 export type ChatItemRole = "user" | "assistant" | "tool" | "error" | "info";
 
@@ -19,9 +20,17 @@ export interface ChatItem {
   ok?: boolean;
 }
 
+/**
+ * 会話のモード。
+ * - edit: 編集中のモデルを会話で直す (通常)
+ * - grill: 1 つの課題を深掘りする。AI はその課題の分析・重要度・対象だけを変えられる
+ */
+export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string };
+
 interface AgentState {
   /** 下のペインを開いているか */
   open: boolean;
+  mode: AgentMode;
   /** AI の設定ダイアログを開いているか */
   settingsOpen: boolean;
   settings: AiSettings;
@@ -36,6 +45,10 @@ interface AgentState {
   cancel: () => void;
   /** プロンプトからの作成のあと、その会話を引き継いでペインを開く */
   continueFrom: (seed: SeedTurn[], items: { role: ChatItemRole; text: string }[]) => void;
+  /** 課題の深掘りを始める。新しい会話にし、課題と対象のまわりを渡して最初の質問をもらう */
+  startGrill: (issueId: string) => Promise<void>;
+  /** 深掘りを終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
+  endGrill: () => void;
 }
 
 let seq = 0;
@@ -55,6 +68,8 @@ const TOOL_LABELS: Record<string, string> = {
   move_activity: "作業の所属を変更",
   move_buc: "活動の所属を変更",
   set_context: "コンテキストを変更",
+  update_issue_analysis: "課題の分析を更新",
+  set_issue_targets: "課題の対象を変更",
 };
 
 /** 道具がアプリのストアを通してモデルを読み書きする口 */
@@ -74,12 +89,33 @@ function screenContext(): string {
   return `[画面の状態] 開いているボード: ${board}${sel ? ` / 選択中: ${ELEMENT_KIND_LABELS[sel.kind]}「${sel.name}」(id: ${sel.id})` : ""}`;
 }
 
+/** モードごとの指示と道具 */
+function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolDef[]; runTool: (name: string, input: unknown) => ToolOutcome } {
+  if (mode.kind === "grill") {
+    return {
+      key: `grill:${mode.issueId}`,
+      system: grillSystemPrompt(),
+      tools: GRILL_TOOLS,
+      runTool: (name, input) => executeGrillTool(storeEditor, mode.issueId, name, input),
+    };
+  }
+  return { key: "edit", system: agentSystemPrompt(), tools: MODEL_TOOLS, runTool: (name, input) => executeTool(storeEditor, name, input) };
+}
+
 export const useAgentStore = create<AgentState>()((set, get) => {
   const push = (role: ChatItemRole, text: string, ok?: boolean) =>
     set((s) => ({ items: [...s.items, { id: ++seq, role, text, ...(ok === undefined ? {} : { ok }) }] }));
 
+  /** 会話を捨てる (表示は残す)。次の発言で作り直す */
+  const resetSession = () => {
+    session = null;
+    sessionKey = "";
+    pendingSeed = [];
+  };
+
   return {
     open: false,
+    mode: { kind: "edit" },
     settingsOpen: false,
     settings: loadAiSettings(),
     items: [],
@@ -92,26 +128,63 @@ export const useAgentStore = create<AgentState>()((set, get) => {
     },
     newConversation: () => {
       get().cancel();
-      session = null;
-      sessionKey = "";
-      pendingSeed = [];
-      set({ items: [] });
+      resetSession();
+      set({ items: [], mode: { kind: "edit" } });
     },
     cancel: () => {
       controller?.abort();
     },
     continueFrom: (seed, items) => {
-      session = null;
-      sessionKey = "";
+      resetSession();
       pendingSeed = seed;
-      set({ open: true, items: items.map((i) => ({ id: ++seq, role: i.role, text: i.text })) });
+      set({ open: true, mode: { kind: "edit" }, items: items.map((i) => ({ id: ++seq, role: i.role, text: i.text })) });
     },
-    send: async (text) => {
+    startGrill: async (issueId) => {
+      if (get().running) return;
+      const st = useUntieStore.getState();
+      const issue = st.model.elements.find((e) => e.id === issueId);
+      if (!issue || issue.kind !== "issue") return;
+      resetSession();
+      set({ open: true, mode: { kind: "grill", issueId }, items: [] });
+      push("info", `課題「${issue.name || "(名前なし)"}」を深掘りします。AI の質問に答えていくと、現象・所在・理由・影響を突き止め、最後に課題を更新します。`);
+      await run(grillOpening(st.model, issue), false);
+      // 最初の発言が届かなかった (キーが無い・中断など) ら、通常に戻してやり直せるようにする
+      if (!session) set({ mode: { kind: "edit" } });
+    },
+    endGrill: () => {
+      if (get().mode.kind !== "grill") return;
+      get().cancel();
+      resetSession();
+      set({ mode: { kind: "edit" } });
+      push("info", "深掘りを終えました。ここからは通常の会話です。");
+    },
+    send: (text) => run(text, true),
+  };
+
+  /**
+   * 途中でエラーになった会話を作り直すときに引き継ぐ履歴。深掘りでは、表示していない最初の発言 (課題の JSON) を
+   * いまの課題から作り直して先頭に置き、そのあとの利用者と AI のやり取りを続ける。まだやり取りが無ければ何も引き継がない
+   */
+  function recoverySeed(): SeedTurn[] {
+    const mode = get().mode;
+    const turns = get().items.flatMap((i): SeedTurn[] => (i.role === "user" || i.role === "assistant" ? [{ role: i.role, text: i.text }] : []));
+    if (mode.kind !== "grill" || turns.length === 0) return [];
+    const st = useUntieStore.getState();
+    const issue = st.model.elements.find((e) => e.id === mode.issueId);
+    if (!issue || issue.kind !== "issue") return [];
+    return [{ role: "user", text: grillOpening(st.model, issue) }, ...turns];
+  }
+
+  /** 発言を送る。show が偽なら利用者の発言として表示しない (深掘りの最初の JSON など) */
+  async function run(text: string, show: boolean): Promise<void> {
+    {
       const message = text.trim();
       if (!message || get().running) return;
       const { provider, models } = get().settings;
       const model = models[provider] || PROVIDERS[provider].defaultModel;
-      push("user", message);
+      // 作り直すときに引き継ぐ履歴は、この発言を表示に足す前に取る (この発言は send で送る)
+      const recovery = recoverySeed();
+      if (show) push("user", message);
       let apiKey: string | null;
       try {
         apiKey = await getApiKey(provider);
@@ -125,17 +198,12 @@ export const useAgentStore = create<AgentState>()((set, get) => {
         set({ settingsOpen: true });
         return;
       }
-      const key = `${provider}:${model}`;
+      const setup = modeSetup(get().mode);
+      const key = `${provider}:${model}:${setup.key}`;
       if (!session || sessionKey !== key) {
         if (session && sessionKey !== key) push("info", `${PROVIDERS[provider].label} (${model}) で新しく会話を始めます。`);
-        session = createChatSession(provider, {
-          apiKey,
-          model,
-          system: agentSystemPrompt(),
-          tools: MODEL_TOOLS,
-          runTool: (name, input) => executeTool(storeEditor, name, input),
-        });
-        session.seed(pendingSeed);
+        session = createChatSession(provider, { apiKey, model, system: setup.system, tools: setup.tools, runTool: setup.runTool });
+        session.seed(pendingSeed.length > 0 ? pendingSeed : recovery);
         pendingSeed = [];
         sessionKey = key;
       }
@@ -169,6 +237,6 @@ export const useAgentStore = create<AgentState>()((set, get) => {
         controller = null;
         set({ running: false });
       }
-    },
-  };
+    }
+  }
 });

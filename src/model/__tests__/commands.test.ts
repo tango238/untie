@@ -108,6 +108,20 @@ describe("updateElement", () => {
     expect(el(m, "actor_front")).not.toHaveProperty("description");
   });
 
+  it("課題の分析は項目ごとに変えられ、空文字で消え、null で全体が消える。課題以外では変えられない", () => {
+    let m = okModel(updateElement(sample(), { id: "issue_checkin_queue", patch: { analysis: { phenomenon: " 15 時の到着が重なる ", cause: "本人確認が手書き" } } }));
+    expect(el(m, "issue_checkin_queue")).toMatchObject({ analysis: { phenomenon: "15 時の到着が重なる", cause: "本人確認が手書き" } });
+    m = okModel(updateElement(m, { id: "issue_checkin_queue", patch: { analysis: { cause: "", impact: "待たせる" } } }));
+    expect((el(m, "issue_checkin_queue") as { analysis: unknown }).analysis).toEqual({ phenomenon: "15 時の到着が重なる", impact: "待たせる" });
+    m = okModel(updateElement(m, { id: "issue_checkin_queue", patch: { analysis: { phenomenon: "", impact: "" } } }));
+    expect(el(m, "issue_checkin_queue")).not.toHaveProperty("analysis");
+    m = okModel(updateElement(m, { id: "issue_checkin_queue", patch: { analysis: { location: "本人確認をする" } } }));
+    m = okModel(updateElement(m, { id: "issue_checkin_queue", patch: { analysis: null } }));
+    expect(el(m, "issue_checkin_queue")).not.toHaveProperty("analysis");
+    expectValid(m);
+    expectFail(updateElement(m, { id: "actor_front", patch: { analysis: { cause: "x" } } }), /analysis/);
+  });
+
   it("業務名を変えると既定の活動の名前も追従する", () => {
     const m = okModel(updateElement(sample(), { id: "biz_checkin", patch: { name: "到着対応" } }));
     expect(defaultBuc(m, "biz_checkin").name).toBe("到着対応");
