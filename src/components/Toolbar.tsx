@@ -8,9 +8,10 @@ import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
+import { AboutDialog } from "./AboutDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | null;
+type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | null;
 
 /** 既存のボード名と被らない「ボード N」 */
 export function nextBoardName(existing: readonly string[]): string {
@@ -68,7 +69,11 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="toolbar-row">
-        <h1 className="app-name">Untie</h1>
+        <h1 className="app-name">
+          <button type="button" title="Untie について" onClick={() => setDialog("about")}>
+            Untie
+          </button>
+        </h1>
 
         <div className="toolbar-group">
           <FileMenu
@@ -209,6 +214,7 @@ export function Toolbar() {
         />
       )}
       {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
+      {dialog === "about" && <AboutDialog onClose={() => setDialog(null)} />}
       {aiSettingsOpen && <AiSettingsDialog />}
       {dialog === "newDocument" && (
         <ConfirmDialog

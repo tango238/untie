@@ -85,6 +85,15 @@ textarea { resize: vertical; width: 100%; }
 .toolbar { background: var(--panel); border-bottom: 1px solid var(--border); }
 .toolbar-row { display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; }
 .app-name { margin: 0; font-size: 18px; letter-spacing: 0.04em; }
+.app-name button { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.app-name button:hover { color: var(--accent); }
+.about-dialog { width: 440px; }
+.about-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+.about-icon { width: 96px; height: 96px; border-radius: 20px; flex: none; }
+.about-head h2 { margin: 0 0 2px; font-size: 22px; }
+.about-version { margin: 0; color: var(--muted); font-size: 12px; }
+.about-dialog p { margin: 0 0 10px; }
+.about-dialog .dialog-actions { margin-top: 16px; }
 .toolbar-group { display: flex; align-items: center; gap: 6px; }
 .toolbar-label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .toolbar-spacer { flex: 1; }

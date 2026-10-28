@@ -322,3 +322,18 @@ describe("キーボードショートカット", () => {
     expect(useAgentStore.getState().open).toBe(false);
   });
 });
+
+describe("Untie について", () => {
+  it("左上の「Untie」で、アイコン・説明・バージョンのダイアログが開き、閉じられる", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "Untie" }));
+    const dialog = screen.getByRole("dialog", { name: "Untie について" });
+    expect(within(dialog).getByText(/^バージョン \d+\.\d+\.\d+$/).textContent).toBe("バージョン 0.1.0");
+    expect(within(dialog).getByText(/困りごとが業務のどこに潜んでいるか/)).toBeDefined();
+    expect(dialog.querySelector("img.about-icon")?.getAttribute("src")).toBe("/icon.png");
+    expect(within(dialog).getByText(/開発者: Go Tanaka/)).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "x.com/tan_go238" })).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    expect(screen.queryByRole("dialog", { name: "Untie について" })).toBeNull();
+  });
+});
