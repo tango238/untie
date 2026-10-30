@@ -172,4 +172,61 @@ describe("コンテキストの固定ボード", () => {
     expect(st().model.elements.find((e) => e.id === "var_room_type")).toMatchObject({ contextId: null });
     expect(within(screen.getByRole("region", { name: "未分類" })).getByText("部屋タイプ", { selector: ".fixed-card-name" })).toBeDefined();
   });
+
+  describe("名前をクリックしてその場で変える", () => {
+    const nameOf = (id: string) => st().model.elements.find((e) => e.id === id)?.name;
+    const startEdit = () => {
+      render(<FixedBoard layer="activity" />);
+      fireEvent.click(within(groupEl("チェックイン")).getByText("鍵を渡す", { selector: ".fixed-card-name" }));
+      return screen.getByLabelText("作業の名前") as HTMLInputElement;
+    };
+
+    it("名前のクリックで入力欄に変わり、Enter で確定する (1 件の履歴で戻せる)", () => {
+      const input = startEdit();
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe("鍵を渡す");
+      fireEvent.change(input, { target: { value: " カードキーを渡す " } });
+      fireEvent.submit(input.form!);
+      expect(nameOf("act_hand_key")).toBe("カードキーを渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+      expect(within(groupEl("チェックイン")).getByRole("button", { name: /カードキーを渡す/ })).toBeDefined();
+      st().undo();
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+    });
+
+    it("保存ボタンで確定する", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "鍵を手渡す" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      expect(nameOf("act_hand_key")).toBe("鍵を手渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+    });
+
+    it("Esc で取り消して元の表示に戻る", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "変えない" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+      expect(within(groupEl("チェックイン")).getByText("鍵を渡す", { selector: ".fixed-card-name" })).toBeDefined();
+    });
+
+    it("入力欄からフォーカスが外れたら取り消す。保存ボタンへの移動では取り消さない", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "変えない" } });
+      fireEvent.blur(input, { relatedTarget: screen.getByRole("button", { name: "保存" }) });
+      expect(screen.getByLabelText("作業の名前")).toBeDefined();
+      fireEvent.blur(input, { relatedTarget: null });
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+    });
+
+    it("変換確定の Enter では確定しない", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "かぎ" } });
+      const ev = fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+      expect(ev).toBe(false);
+      expect(screen.getByLabelText("作業の名前")).toBeDefined();
+    });
+  });
 });

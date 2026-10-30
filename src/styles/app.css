@@ -314,6 +314,10 @@ textarea { resize: vertical; width: 100%; }
 .fixed-card-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .card-kind-inline { font-size: 10px; color: var(--c); font-weight: 600; }
 .fixed-card-name { font-weight: 600; word-break: break-all; }
+.fixed-card-name.is-renamable { cursor: text; align-self: flex-start; }
+.fixed-card-name.is-renamable:hover { text-decoration: underline dotted; }
+.fixed-card-rename { display: flex; gap: 4px; }
+.fixed-card-rename input { flex: 1; min-width: 0; font-weight: 600; }
 .fixed-card .actor-chips { justify-content: flex-start; }
 .fixed-unlink { color: var(--muted); }
 .fixed-add { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; }

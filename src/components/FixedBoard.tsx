@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FIXED_LAYER_LABELS,
   addToGroup,
@@ -15,7 +15,7 @@ import {
 } from "../model/fixedBoards";
 import { issueSummaries } from "../model/selectors";
 import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "../model/types";
-import { addElement } from "../model/commands";
+import { addElement, updateElement } from "../model/commands";
 import { useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
@@ -420,30 +420,117 @@ function FixedCard({
   showStateGroup?: boolean;
   onClick: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      className={`fixed-card kind-${element.kind}${selected ? " is-selected" : ""}`}
-      data-fixed-card={element.id}
-      aria-pressed={selected}
-      onClick={onClick}
-    >
-      <span className="fixed-card-top">
-        <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
-        <span className="fixed-card-badges">
-          {"links" in element && element.links && element.links.length > 0 && (
-            <span className="card-links" title={element.links.map((l) => l.title).join("、")} aria-label={`リンク ${element.links.length} 件`}>
-              🔗{element.links.length}
-            </span>
-          )}
-          {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
-        </span>
+  const [editing, setEditing] = useState(false);
+  // 既定の活動の名前は業務の名前と同じで、直接は変えられない
+  const renamable = !(element.kind === "buc" && element.isDefault);
+  const className = `fixed-card kind-${element.kind}${selected ? " is-selected" : ""}`;
+
+  const top = (
+    <span className="fixed-card-top">
+      <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
+      <span className="fixed-card-badges">
+        {"links" in element && element.links && element.links.length > 0 && (
+          <span className="card-links" title={element.links.map((l) => l.title).join("、")} aria-label={`リンク ${element.links.length} 件`}>
+            🔗{element.links.length}
+          </span>
+        )}
+        {summary && <IssueBadge count={summary.count} maxSeverity={summary.maxSeverity} />}
       </span>
-      <span className="fixed-card-name">{element.name || "(名前なし)"}</span>
+    </span>
+  );
+  const rest = (
+    <>
       {showStateGroup && element.kind === "state" && element.group && <span className="fixed-card-sub">状態グループ: {element.group}</span>}
       <HoursLabel element={element} model={model} />
       {actors && <ActorChips actors={actors} />}
       {systems && <SystemChips systems={systems} />}
+    </>
+  );
+
+  // 入力欄はボタンの中に置けないので、編集中はカードを div にする
+  if (editing) {
+    return (
+      <div className={className} data-fixed-card={element.id}>
+        {top}
+        <NameForm element={element} onDone={() => setEditing(false)} />
+        {rest}
+      </div>
+    );
+  }
+
+  return (
+    <button type="button" className={className} data-fixed-card={element.id} aria-pressed={selected} onClick={onClick}>
+      {top}
+      <span
+        className={`fixed-card-name${renamable ? " is-renamable" : ""}`}
+        title={renamable ? "クリックで名前を変える" : undefined}
+        onClick={renamable ? () => setEditing(true) : undefined}
+      >
+        {element.name || "(名前なし)"}
+      </span>
+      {rest}
     </button>
+  );
+}
+
+/** カードの名前をその場で変える。Enter・保存で確定し、Esc・フォーカスが外れたら取り消す */
+function NameForm({ element, onDone }: { element: Element; onDone: () => void }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const [value, setValue] = useState(element.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const save = () => {
+    if (value.trim() !== element.name) {
+      const r = dispatch((m) => updateElement(m, { id: element.id, patch: { name: value } }));
+      if (!r.ok) {
+        pushToast(r.reason, "error");
+        return;
+      }
+    }
+    onDone();
+  };
+
+  return (
+    <form
+      className="fixed-card-rename"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+      onBlur={(e) => {
+        // フォーム内 (入力欄と保存ボタンの間) の移動では取り消さない
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onDone();
+      }}
+    >
+      <input
+        ref={inputRef}
+        aria-label={`${ELEMENT_KIND_LABELS[element.kind]}の名前`}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          // 変換確定の Enter / Esc では確定・取り消しをしない
+          // WebKit は変換確定の Enter を compositionend の後に isComposing=false, keyCode=229 で送ることがある
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+            if (e.key === "Enter") e.preventDefault();
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onDone();
+          }
+        }}
+      />
+      {/* 押したときに入力欄からフォーカスが外れて取り消しにならないよう、mousedown の既定動作を止める */}
+      <button type="submit" onMouseDown={(e) => e.preventDefault()}>
+        保存
+      </button>
+    </form>
   );
 }
