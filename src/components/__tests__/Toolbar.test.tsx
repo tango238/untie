@@ -307,10 +307,42 @@ describe("キーボードショートカット", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
     const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
-    expect(items).toEqual(["新規作成", "開く…⌘O", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
+    expect(items).toEqual(["新規作成", "開く…⌘O", "最近開いたファイル▸", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
     fireEvent.click(screen.getByRole("menuitem", { name: /プロンプトから作成/ }));
     expect(screen.getByRole("dialog", { name: "プロンプトから作成" })).toBeDefined();
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("「最近開いたファイル」にフォーカスするとサブメニューが開き、選ぶとそのファイルを開く。ほかの項目に移ると閉じる", async () => {
+    const recent = await import("../../io/recent");
+    const doc = await import("../../io/document");
+    const entries = [
+      { name: "a.json", path: "/docs/x/a.json" },
+      { name: "b.json", path: "/docs/y/b.json" },
+    ];
+    const load = vi.spyOn(recent, "loadRecentFiles").mockResolvedValue(entries);
+    const openRecent = vi.spyOn(doc, "openRecentDocument").mockResolvedValue();
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    try {
+      render(<Toolbar />);
+      fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+      await act(async () => {});
+      const trigger = screen.getByRole("menuitem", { name: /最近開いたファイル/ });
+      expect(screen.queryByRole("menu", { name: "最近開いたファイル" })).toBeNull();
+      fireEvent.focus(trigger);
+      const sub = screen.getByRole("menu", { name: "最近開いたファイル" });
+      expect(within(sub).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["a.jsonx", "b.jsony", "一覧を消去"]);
+      fireEvent.focus(screen.getByRole("menuitem", { name: /保存⌘S/ }));
+      expect(screen.queryByRole("menu", { name: "最近開いたファイル" })).toBeNull();
+      fireEvent.mouseEnter(trigger);
+      fireEvent.click(within(screen.getByRole("menu", { name: "最近開いたファイル" })).getByRole("menuitem", { name: /b\.json/ }));
+      expect(openRecent).toHaveBeenCalledWith(entries[1]);
+      expect(screen.queryByRole("menu")).toBeNull();
+    } finally {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      load.mockRestore();
+      openRecent.mockRestore();
+    }
   });
 
   it("「AI」で下の AI エージェントのペインを開閉する", async () => {

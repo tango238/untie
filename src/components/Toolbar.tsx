@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, removeBoard, renameBoard } from "../model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "../model/fixedBoards";
 import { traceToActors } from "../model/trace";
-import { newEmptyDocument, openDocument, saveDocument } from "../io/document";
+import { newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { baseName, canReopenFiles } from "../io/file";
+import { clearRecentFiles, loadRecentFiles, type RecentFile } from "../io/recent";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "../model/analysis";
 import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
 import { useAgentStore } from "../ai/agentStore";
@@ -238,26 +240,55 @@ export function Toolbar() {
   );
 }
 
-/** ファイルのメニュー: 新規作成・開く・保存・別名で保存・プロンプトから作成 */
+/** ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・プロンプトから作成 */
 function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFromPrompt: () => void }) {
   const [open, setOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
+  // 読み込むまでは null (前に開いたときの一覧を出すと、読み込み後に並びが変わってフォーカスが外れる)
+  const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const ref = useRef<HTMLDivElement>(null);
+  const recentRef = useRef<HTMLButtonElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
+  // → で開いたら、サブメニューの先頭へ移る (一覧の読み込みが済んでから)
+  const focusFirstRecent = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!recentOpen || recent === null || !focusFirstRecent.current) return;
+    focusFirstRecent.current = false;
+    subRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [recentOpen, recent]);
+  useEffect(() => {
+    if (!open) {
+      setRecentOpen(false);
+      setRecent(null);
+      focusFirstRecent.current = false;
+      return;
+    }
+    let alive = true;
+    void loadRecentFiles().then((list) => alive && setRecent(list));
     const onDown = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    return () => {
+      alive = false;
+      window.removeEventListener("mousedown", onDown);
+    };
   }, [open]);
+  const close = () => {
+    setOpen(false);
+    setRecentOpen(false);
+  };
   const item = (label: string, shortcut: string, action: () => void) => (
     <button
       type="button"
       role="menuitem"
       className="menu-item"
+      // 別の項目に移ったら、最近開いたファイルのサブメニューを閉じる
+      onFocus={() => setRecentOpen(false)}
+      onMouseEnter={() => setRecentOpen(false)}
       onClick={() => {
-        setOpen(false);
+        close();
         action();
       }}
     >
@@ -265,8 +296,9 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
       <span className="menu-shortcut">{shortcut}</span>
     </button>
   );
+  const reopenable = canReopenFiles();
   return (
-    <div className="menu" ref={ref} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+    <div className="menu" ref={ref} onKeyDown={(e) => e.key === "Escape" && close()}>
       <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         ファイル ▾
       </button>
@@ -274,6 +306,84 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("新規作成", "", onNew)}
           {item("開く…", "⌘O", () => void openDocument())}
+          <div className="menu-sub">
+            <button
+              ref={recentRef}
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              aria-haspopup="menu"
+              aria-expanded={recentOpen}
+              disabled={!reopenable}
+              title={reopenable ? undefined : "このブラウザでは、開いたファイルを開き直せません"}
+              onFocus={() => setRecentOpen(true)}
+              onMouseEnter={() => setRecentOpen(true)}
+              onClick={() => setRecentOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  focusFirstRecent.current = true;
+                  // すでに開いて読み込み済みなら、ここで移る
+                  if (recentOpen && recent !== null) {
+                    focusFirstRecent.current = false;
+                    subRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+                  }
+                  setRecentOpen(true);
+                }
+              }}
+            >
+              <span>最近開いたファイル</span>
+              <span className="menu-shortcut">▸</span>
+            </button>
+            {recentOpen && (
+              <div
+                ref={subRef}
+                className="menu-list menu-sublist"
+                role="menu"
+                aria-label="最近開いたファイル"
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft") {
+                    e.preventDefault();
+                    recentRef.current?.focus();
+                  }
+                }}
+              >
+                {recent?.length === 0 && <span className="menu-empty">(ありません)</span>}
+                {recent?.map((f, i) => (
+                  <button
+                    key={`${i}:${f.path ?? f.name}`}
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    title={f.path ?? f.name}
+                    onClick={() => {
+                      close();
+                      void openRecentDocument(f);
+                    }}
+                  >
+                    <span className="menu-recent-name">{f.name}</span>
+                    {f.path && <span className="menu-shortcut menu-recent-dir">{baseName(f.path.slice(0, f.path.length - baseName(f.path).length - 1))}</span>}
+                  </button>
+                ))}
+                {!!recent?.length && (
+                  <>
+                    <div className="menu-sep" role="separator" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item"
+                      onClick={() => {
+                        close();
+                        void clearRecentFiles();
+                      }}
+                    >
+                      <span>一覧を消去</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           {item("保存", "⌘S", () => void saveDocument())}
           {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
           <div className="menu-sep" role="separator" />

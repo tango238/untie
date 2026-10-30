@@ -15,7 +15,7 @@ export interface OpenedFile {
   text: string;
 }
 
-const baseName = (path: string) => path.split(/[\\\\/]/).pop() ?? path;
+export const baseName = (path: string) => path.split(/[\\\\/]/).pop() ?? path;
 
 // File System Access API (lib.dom に型が無いので、使う分だけ書く)
 interface FilePickerWindow {
@@ -29,10 +29,20 @@ const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortEr
 // ブラウザで開いた・保存したファイルのハンドル。ストアの path にはハンドルの代わりに "browser:<番号>" を入れる
 const handles = new Map<string, FileSystemFileHandle>();
 let handleSeq = 0;
-function rememberHandle(handle: FileSystemFileHandle): string {
+export function rememberHandle(handle: FileSystemFileHandle): string {
   const key = `browser:${++handleSeq}`;
   handles.set(key, handle);
   return key;
+}
+
+/** rememberHandle で覚えたハンドル */
+export function handleOf(path: string): FileSystemFileHandle | undefined {
+  return handles.get(path);
+}
+
+/** ファイルを開く・保存する場所をあとから指し直せるか (Tauri か、File System Access API のあるブラウザ) */
+export function canReopenFiles(): boolean {
+  return isTauri() || !!pickerWindow().showOpenFilePicker;
 }
 
 async function writeHandle(handle: FileSystemFileHandle, text: string): Promise<void> {

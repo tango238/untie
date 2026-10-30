@@ -470,6 +470,11 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .menu-item:hover:not(:disabled) { background: #eef3f8; }
 .menu-shortcut { color: var(--muted); font-size: 11px; }
 .menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.menu-sub { position: relative; display: flex; flex-direction: column; }
+.menu-sublist { top: -5px; left: 100%; margin-left: 4px; max-width: 360px; }
+.menu-recent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-recent-dir { flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-empty { padding: 6px 10px; color: var(--muted); }
 
 /* AI エージェント (下のペイン) */
 .agent-pane { height: 300px; flex: none; display: flex; flex-direction: column; border-top: 2px solid var(--border); background: var(--panel); min-height: 0; }
