@@ -13,7 +13,7 @@ export interface ModelChanges {
 /**
  * Y.Doc の変更を、変わった id の集まりにして知らせる (observeDeep を包む)。
  * 1 回のトランザクションにつき 1 回呼ぶ。origin は doc.transact に渡したもの (リモートの update なら Y.applyUpdate の origin)。
- * 戻り値は購読の解除。Phase 4 でストアが「変わった id だけ組み立て直す」ために使う。
+ * 戻り値は購読の解除。ストア (packages/ui/src/cloud/collab.ts) が、他の人の変更があったことを知るために使う。
  */
 export function observeModelChanges(doc: Y.Doc, onChange: (changed: ModelChanges, origin: unknown) => void): () => void {
   const roots = getRoots(doc);

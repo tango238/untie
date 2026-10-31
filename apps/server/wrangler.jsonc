@@ -1,5 +1,11 @@
 {
   // 1 つの Worker が Web の静的ファイル・API・Durable Object (UntieRoom) を持つ (docs/collab-design.md 7 章・9 章)
+  //
+  // 【本番に上げる前に置き換える値】(手順は README の「配信 (Cloudflare)」)
+  //   1. d1_databases[0].database_id  … `wrangler d1 create untie --location apac` で出た id
+  //   2. vars.APP_ORIGIN              … 公開の URL (例: https://untie.example.com)
+  // それ以外の秘密の値 (SESSION_SECRET・TICKET_SECRET・GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET) は、ここには書かず `wrangler secret put` で入れる。
+  // `<本番で置き換える>` のままでも `wrangler deploy --dry-run` (pnpm build / CI) は通るが、`wrangler deploy` は D1 を見つけられず失敗する
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "untie",
   "main": "src/index.ts",
@@ -20,7 +26,8 @@
     {
       "binding": "DB",
       "database_name": "untie",
-      // 本番では `wrangler d1 create untie --location apac` で出た id に置き換える
+      // 【本番で置き換える】`wrangler d1 create untie --location apac` で出た database_id。
+      // ローカル (pnpm dev・pnpm test) では使われないので、この値のままでよい
       "database_id": "<本番で置き換える>",
       "migrations_dir": "migrations"
     }
@@ -41,7 +48,9 @@
     "ALLOWED_EMAIL_DOMAINS": "",
     // 開発用ログイン (メールを打つだけ)。本番は "false" のまま
     "DEV_LOGIN": "false",
-    // 公開の URL (例: https://untie.example.com)。https なら Cookie に Secure を付け、OIDC の redirect URI に使う。空なら受けたリクエストのオリジン
+    // 【本番で置き換える】公開の URL (例: https://untie.example.com)。Google の redirect URI (`<APP_ORIGIN>/auth/callback`) と、
+    // 招待・リンクの URL の組み立てに使う。空なら受けたリクエストのオリジン。Cookie の Secure は APP_ORIGIN ではなくリクエストが https かどうかで付く。
+    // 開発 (.dev.vars) は http://localhost:5173 に上書きする
     "APP_ORIGIN": ""
   },
 

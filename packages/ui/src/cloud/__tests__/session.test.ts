@@ -161,10 +161,10 @@ describe("login / logout", () => {
 
   it("Platform の login が失敗したらトーストに出す", async () => {
     memory().login = async () => {
-      throw new Error("デスクトップ版のログインは次の段階で対応します");
+      throw new Error("ログインを始められませんでした");
     };
     await useSessionStore.getState().login("google");
-    expect(useUntieStore.getState().toasts.map((t) => t.message)).toEqual(["デスクトップ版のログインは次の段階で対応します"]);
+    expect(useUntieStore.getState().toasts.map((t) => t.message)).toEqual(["ログインを始められませんでした"]);
   });
 
   it("logout は POST /auth/logout を呼び、anonymous に戻る", async () => {

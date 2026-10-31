@@ -13,7 +13,7 @@ async function create(client: Client, json: unknown) {
   return client.json("/api/files", { method: "POST", json });
 }
 
-/** メンバー行を D1 に直接足す (共有の API は次の段階) */
+/** メンバー行を D1 に直接足す (共有の API を通さずに、権限の判定だけを確かめたいとき) */
 async function addMember(fileId: string, userId: string, role: "editor" | "viewer") {
   await env.DB.prepare("insert into file_members (file_id, user_id, role, added_by, added_at) values (?, ?, ?, ?, ?)")
     .bind(fileId, userId, role, null, Date.now())

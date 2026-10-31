@@ -1,6 +1,6 @@
 // スキーマ検証関数を事前に生成する (ajv standalone)。
 // アプリの CSP は eval を許さないので、実行時に ajv.compile() できない。
-// 生成物: packages/core/src/model/schemaValidator.gen.js (pnpm gen:validator で作り直す)
+// 生成物: packages/core/src/model/schemaValidator.gen.js (pnpm gen:types で型と一緒に作り直す。検証関数だけなら packages/core の gen:validator)
 import Ajv2020 from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 import { readFileSync, writeFileSync } from "node:fs";

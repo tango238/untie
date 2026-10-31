@@ -7,7 +7,7 @@ on:
 
 jobs:
   check:
-    name: 型検査とテスト
+    name: 型検査・テスト・ビルド
     runs-on: ubuntu-latest
     env:
       # wrangler のテレメトリを送らない (サーバーの test・build が wrangler を使う)
@@ -22,9 +22,31 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # tsc -b。packages/*・apps/* のすべてを references 経由で検査する
+      - run: pnpm typecheck
+      # 全パッケージのテスト。apps/server は workerd の中で D1 と Durable Object を使って動く (Cloudflare へのログインは要らない)
+      - run: pnpm test
       - name: 生成型がスキーマと一致しているか
         run: pnpm check:types
-      - run: pnpm typecheck
-      # typecheck・test・build には apps/server (Worker の型検査、D1 と Durable Object を使うテスト、wrangler deploy --dry-run) も入っている
-      - run: pnpm test
+      # Web・デスクトップのフロントを build し、apps/server の `wrangler deploy --dry-run` でバンドルと設定が通るかを確かめる
+      # (dry-run は Cloudflare にログインも CLOUDFLARE_API_TOKEN も要らない)
       - run: pnpm build
+
+  # デスクトップアプリの Rust 側がコンパイルできるか (リリースは release.yml が Mac と Windows で作る)
+  rust:
+    name: Rust (cargo check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tauri の Linux 向けライブラリ
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      # tauri::generate_context! は frontendDist (../dist) の存在を要求する。中身は要らないので空で作る
+      - run: mkdir -p apps/desktop/dist
+      - run: cargo check --locked
+        working-directory: apps/desktop/src-tauri

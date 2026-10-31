@@ -74,7 +74,7 @@ export interface CloudInfo {
   status: CloudStatus;
   /** サーバーに閉じられた (kick など)。呼び出し側がホームへ戻す */
   closed?: { code: number; reason: string };
-  /** リンクで開いたときのトークン (5 段階目) */
+  /** リンクで開いたときのトークン */
   link?: string;
   /** 最後に同期が済んだあと、つながっていない間に自分が書いた変更があるか (閉じると失われるので、閉じる前の確認に使う) */
   dirtySinceOffline: boolean;

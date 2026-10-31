@@ -2,6 +2,7 @@ packages:
   - packages/*
   - apps/*
 
+# インストール時のビルドスクリプトを走らせるパッケージ。true は Vite / wrangler (workerd) が使うもの、false は不要なので走らせない
 allowBuilds:
   '@google/genai': false
   protobufjs: false

@@ -23,6 +23,11 @@ jobs:
             target: x86_64-pc-windows-msvc
             args: ""
     runs-on: ${{ matrix.os }}
+    env:
+      # pnpm test の apps/server が wrangler を使う。テレメトリを送らない
+      WRANGLER_SEND_METRICS: "false"
+    # deep link (untie://) は、Mac は .app の Info.plist、Windows はインストーラーが tauri.conf.json の plugins.deep-link から登録する。
+    # Linux 向けは作らない (配布しない) ので、Linux 用のライブラリの準備は要らない
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

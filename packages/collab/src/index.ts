@@ -1,2 +1,2 @@
-// 同時編集 (@untie/collab)。この段階は Y.Doc ⇄ UntieModel の橋渡し (doc) だけ。
+// 同時編集 (@untie/collab)。Y.Doc ⇄ UntieModel の橋渡し (doc)。ルーム (Durable Object) は "@untie/collab/room" から取り込む。
 export * from "./doc";

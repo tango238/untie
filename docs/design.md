@@ -4,16 +4,19 @@ Untie は、現場担当者が自分の業務を言語化するための業務�
 
 この PoC では「カードと図で業務要素と関係を編集する体験」を確かめる。モデルは JSON ファイルに保存・読み込みできる。AI エージェント (会話でモデルを直す・初期要望からモデルを作る) を持つ (6.2)。RDRA 出力は対象外だが、データモデルはそれに耐える形にしておく。
 
+その後、ログインしたユーザーがクラウドにファイルを置き、共有し、同時に編集できるようにした。クラウド版 (ユーザー・ファイル管理・権限・ログイン・同時編集・サーバー・モノレポ構成) の設計は [docs/collab-design.md](collab-design.md) にあり、この文書には要点と参照だけを書く。この文書の 2〜4 章 (要素・関係・データモデル) と 6〜7 章 (操作・サンプル) は、ローカルファイルでもクラウドファイルでも同じである。
+
 ## 1. 前提と範囲
 
 | 項目 | 内容 |
 | --- | --- |
-| 配布形態 | Tauri 2 デスクトップアプリ。Mac (Apple Silicon) と Windows (x64)。署名なし |
-| 技術 | TypeScript / React 18 / Vite / Vitest / pnpm、zustand + immer、ajv、@xyflow/react (React Flow)、Tauri 2 |
+| 配布形態 | Tauri 2 デスクトップアプリ (Mac (Apple Silicon) と Windows (x64)。署名なし) と、Cloudflare Worker が配信する Web 版。どちらも同じ画面 (`packages/ui`) で、サーバーにつなぐとクラウドファイルが使える |
+| 技術 | TypeScript / React 18 / Vite / Vitest / pnpm (モノレポ)、zustand + immer、ajv、@xyflow/react (React Flow)、Tauri 2。クラウド版: Cloudflare Workers (Hono)・D1・Durable Objects、Yjs + y-partyserver、zod、arctic (Google の OIDC) |
 | アプリ名 | Untie、識別子 `net.tech-square.untie`、バージョン 0.1.0 |
-| 永続化 | JSON ファイルに保存・読み込みする (6.1)。起動時はサンプルを開く |
+| 永続化 | **ローカルファイル**: JSON ファイルに保存・読み込みする (6.1)。ログイン不要。**クラウドファイル**: サーバーに置く。一覧と権限は D1、中身は Durable Object の Y.Doc で、常に同時編集になる (collab-design 1・3・4 章)。起動するとホームが開く (5.0)。サンプルはホームの「サンプルを開く」 |
+| ユーザーと権限 | Google でログインする。ファイルごとに `owner` / `editor` / `viewer`、メール招待、リンクを知っている人の閲覧 (collab-design 3 章) |
 | 言語 | UI・ドキュメント・コメントはすべて日本語 |
-| 対象外 | 文章からの要素抽出、矛盾検出、rdra.yml 出力、コード署名、Intel Mac |
+| 対象外 | 文章からの要素抽出、矛盾検出、rdra.yml 出力、コード署名、Intel Mac。クラウド版の「あとで」(Microsoft ログイン、magic link、フォルダ、文字単位の合流、オフラインの手元キャッシュ、監査ログなど) は collab-design 12.2 |
 
 Rust ツールチェーンは rustup の stable (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`) を使う。`~/.cargo/bin` は無いので、ローカルで `pnpm tauri build` するときはこのパスを `PATH` に加える。
 
@@ -202,6 +205,16 @@ UntieModel
 
 ## 5. 画面構成
 
+### 5.0 ホーム
+
+起動するとホーム (`#/`) が開く。画面はハッシュで分ける (`#/` ホーム、`#/local` ローカルのエディタ、`#/f/<id>` クラウドファイル、`#/invite/<token>` 招待、`#/link/<token>` リンク閲覧。collab-design 8.1)。
+
+- **ローカル**: 「ローカルファイルを開く」「新規作成 (ローカル)」「サンプルを開く」と、最近開いたローカルファイル。ログインは要らず、編集は 5.1 以降のとおり。
+- **クラウド**: 未ログインならログイン欄 (Web は「Google でログイン」、デスクトップは「ブラウザが開きます」と引換コードの入力欄)。ログイン済みなら「自分のファイル」「共有されたファイル」「ゴミ箱」のタブで、名前・更新日時・役割・メンバー数を並べ、開く・名前を変える・複製・書き出す・共有 (所有者)・共有をやめる・ゴミ箱へ (30 日)・戻す・完全に消す を行の操作に置く。右上のアカウントメニューでログアウトする。
+- デスクトップだけ、サーバーの URL を入れる「サーバーの設定」を出す (collab-design 8.4)。
+
+編集画面は次の 3 カラムのまま。
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ Untie [ファイル ▾] [ボード: 作業 ▾] [＋ボード] [名前変更] [ボード削除]  [↶][↷] [検証] [課題一覧] [AI] │
@@ -221,7 +234,8 @@ UntieModel
 
 ### 5.1 ツールバー
 
-- 「ファイル」メニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存 (6.1)、プロンプトから作成・AI の設定 (6.2)。ショートカットは Cmd/Ctrl+O、Cmd/Ctrl+S、Shift+Cmd/Ctrl+S (入力欄の中でも効く)。
+- 左端の「ホーム」: ホームへ戻る。保存していない変更があれば確認する。
+- 「ファイル」メニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存 (6.1)、ログイン中は「クラウドへ保存」(いま開いているモデルをクラウドファイルとして複製する)、プロンプトから作成・AI の設定 (6.2)。ショートカットは Cmd/Ctrl+O、Cmd/Ctrl+S、Shift+Cmd/Ctrl+S (入力欄の中でも効く)。
 - 「AI」: 下に AI エージェントのペインを開閉する (6.2)。
 - ボード切替 (セレクト)。「固定ボード」(10 枚)・「分析ボード」(3 枚。課題の分布を先頭に置く)・「自由ボード」のグループに分ける。
 - 「＋ボード」は自由ボードを追加して切り替える。名前変更・ボード削除は自由ボードだけ (最後の 1 枚は削除できない。確認ダイアログあり)。
@@ -230,6 +244,16 @@ UntieModel
 - 「検証」: 右側に検証パネルを出す (プロパティ欄と切り替え)。アクター／外部アクターに辿り着けない要素があれば、その件数をボタンに出す。
 - 「課題一覧」: 右側に課題一覧パネルを出す (プロパティ欄と切り替え)。
 - ツールバーの下に、開いているファイル名 (サンプルなら「サンプル (まだ保存していません)」) と、保存していない変更があればその印を出す。
+
+### 5.1.1 クラウドファイルを開いているとき
+
+ツールバーとペインがローカルと変わるところだけを書く。詳細は collab-design 8 章。
+
+- タイトルの横に、接続の状態 (接続中 / 切断。再接続します)、自分の役割、一緒に開いている人の色玉を出す。他の人が選んでいる要素は、その人の色の縁と名前のラベルで固定ボード・自由ボードに出る。プロパティ欄には「○○さんも選択中」を出す (ロックはしない)。
+- Undo / Redo は使えない (ボタンは無効、ショートカットも効かない)。共有中の Undo は他の人の変更と絡んで結果が読めないため。誤って消したときは、書き出した JSON と、サーバーに残る 1 時間ごとのスナップショットから戻す。
+- 「ファイル」メニューは「ホーム」「JSON に書き出す」「クラウドへ保存 (複製)」だけ。Cmd/Ctrl+S は JSON への書き出しになる。
+- 所有者は「共有」ダイアログを開ける (メンバーの役割、メール招待、所有者を譲る、リンクを知っている人の閲覧)。
+- `viewer` とリンクで開いた人 (ゲスト) は、上に「閲覧専用です」の帯が出て、編集・AI エージェントが使えない。選ぶことはできる。ゲストは「複製して自分のファイルにする」(ログインが要る) ができる。
 
 ### 5.2 要素一覧 (左)
 
@@ -348,7 +372,8 @@ UntieModel
 - 「最近開いたファイル」は、開いた・保存したファイルを新しい順に最大 5 件覚える (同じファイルは先頭へ移す)。項目にフォーカスするか、マウスを載せるとサブメニューが開き、選ぶとそのファイルを開く (→ でサブメニューへ、← で戻る)。読めなかったファイル (消えた・動かしたなど) は一覧から外す。「一覧を消去」で空にできる。デスクトップアプリではパスを localStorage に、ブラウザでは File System Access API のハンドルを IndexedDB に置く。ブラウザでは開くときに読み書きの許可を求め直すことがある。File System Access API の無いブラウザでは開き直せないので、項目を使えなくする。
 - 「新規作成」は空のモデル (空の自由ボード「ボード 1」だけ) を、まだ保存していないモデルとして開く。履歴を捨て、作業の固定ボードを開く。手を付けるまでは保存していない変更なしとして扱う。保存していない変更があれば、先に確認ダイアログで「保存して新規作成」「保存せずに新規作成」「キャンセル」を選ばせる。保存を選んで保存先の選択を取り消したり保存に失敗したりしたら、今のモデルを残す。
 - デスクトップアプリでは、ファイル選択と保存先の選択に dialog プラグインを使い、読み書きは Rust のコマンド (`read_model_file` / `write_model_file`) で行う。パスはダイアログで選ばれたもの (と、それを覚えた最近開いたファイル) だけを渡す。ブラウザ (Web 版・開発用) では、File System Access API があれば (Chrome・Edge) `showOpenFilePicker` / `showSaveFilePicker` のハンドルを覚えて同じファイルに上書きする (ストアの `file.path` にはハンドルの代わりに `browser:<番号>` を入れる。ハンドルは最近開いたファイルとして IndexedDB にも残す)。無ければファイル選択とダウンロードで代わりにする。
-- Web 版は `pnpm build` が `apps/web/dist/` に作ったものをそのまま Cloudflare Pages で配信する (`pnpm web:deploy`、または Git 連携)。`apps/web/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジンと各 AI プロバイダーの API だけに絞る。
+- **クラウドファイル**はファイルではなくサーバーが正本で、保存の操作は無い (つながっている間は常に反映される)。「JSON に書き出す」で同じ形式 (上のローカルファイルと同じ JSON) の中身を取り出し、「クラウドへ保存」でローカルのモデルをクラウドファイルとして複製する。クラウドファイルにはローカルの履歴 (Undo / Redo)・保存先・最近開いたファイル・「保存していない変更」の判定は無い。つながっていない間に溜めた変更だけが、閉じる前の確認の対象になる。読み込み・書き出しとも `validateModel()` を通す。詳細は collab-design 5 章・8.2。
+- Web 版は Cloudflare Worker (`apps/server`) が `apps/web/dist/` を静的ファイルとして配信する (`pnpm run deploy`。手順は README)。`apps/server/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジン (WebSocket を含む) と各 AI プロバイダーの API だけに絞る。
 - アプリの CSP は eval を許さないので、ajv で実行時にスキーマをコンパイルできない。検証関数は `packages/core/scripts/gen-validator.mjs` で事前に生成し (`packages/core/src/model/schemaValidator.gen.js`)、`pnpm gen:types` で型と一緒に作り直す。CI の `check:types` で生成物がスキーマと一致しているかを検査する。
 
 ### 6.2 AI エージェント
@@ -362,8 +387,8 @@ UntieModel
 | Gemini | Gemini API (`@google/genai`) | `gemini-2.5-pro` | |
 
 - モデル名は「AI の設定」で自由に入れられる (候補も出す)。プロバイダーとモデルは端末ごとに覚える (localStorage)。
-- **API キー**: プロバイダーごとに「AI の設定」で入れ、OS のキーチェーン (macOS のキーチェーン / Windows の資格情報マネージャー) に保存する (Rust の `keyring` クレート、コマンド `get_api_key` / `set_api_key` / `delete_api_key`)。モデルのファイルには入らない。ブラウザ (Web 版・開発用) ではタブを閉じるまでメモリに持ち、「このブラウザに保存する」を選んだときだけ localStorage (`untie.apiKey.<プロバイダー>`) にも置く。保存済みのキーはチェックを変えるとすぐ置き場所を移し、「消す」で両方から消す。保存するときは前の項目を消してから作り直す (署名の違うアプリが作った項目は上書きしても読めないため)。読み出しに失敗したときは「(未設定)」と区別して「(読み出せません)」と理由を出し、保存し直すよう案内する (AI の会話・プロンプトからの作成でも同じ)。macOS のキーチェーンはアプリの署名で読み出しを許すので、手元で作り直すときは固定の証明書で署名する (`pnpm app:build`、README)。
-- アプリの CSP は、各社の API (`api.anthropic.com`・`api.openai.com`・`generativelanguage.googleapis.com`) への接続だけを足す。
+- **API キー**: プロバイダーごとに「AI の設定」で入れ、OS のキーチェーン (macOS のキーチェーン / Windows の資格情報マネージャー) に保存する (Rust の `keyring` クレート、コマンド `get_secret` / `set_secret` / `delete_secret`。ログインのセッションのトークンも同じキーチェーンに置く)。モデルのファイルには入らない。ブラウザ (Web 版・開発用) ではタブを閉じるまでメモリに持ち、「このブラウザに保存する」を選んだときだけ localStorage (`untie.apiKey.<プロバイダー>`) にも置く。保存済みのキーはチェックを変えるとすぐ置き場所を移し、「消す」で両方から消す。保存するときは前の項目を消してから作り直す (署名の違うアプリが作った項目は上書きしても読めないため)。読み出しに失敗したときは「(未設定)」と区別して「(読み出せません)」と理由を出し、保存し直すよう案内する (AI の会話・プロンプトからの作成でも同じ)。macOS のキーチェーンはアプリの署名で読み出しを許すので、手元で作り直すときは固定の証明書で署名する (`pnpm app:build`、README)。
+- アプリの CSP は、各社の API (`api.anthropic.com`・`api.openai.com`・`generativelanguage.googleapis.com`) への接続を足す。デスクトップはサーバーの URL を設定で変えられるので、`connect-src` に `https:`・`wss:` も許している (collab-design 8.4)。API キーはクラウドに置かず、サーバーにも送らない。
 
 **会話 (下のペイン)**: ツールバーの「AI」で開閉する。依頼を書いて Enter で送る (Shift+Enter で改行、変換中は送らない)。
 
@@ -414,40 +439,51 @@ UntieModel
 
 ## 8. ディレクトリ構成
 
-pnpm ワークスペース。ビルドはせず、Vite と Vitest が各パッケージの TypeScript を直接読む。クラウド版の構成は [docs/collab-design.md](collab-design.md) の 2 章。
+pnpm ワークスペース。ビルドはせず、Vite・Vitest・Worker が各パッケージの TypeScript を直接読む。パッケージの責務と依存の向きは [docs/collab-design.md](collab-design.md) の 2 章。
 
 ```
 untie/
-├ docs/design.md               … この文書
+├ docs/
+│  ├ design.md                 … この文書
+│  ├ collab-design.md          … クラウド版 (ユーザー・ファイル・権限・ログイン・同時編集) の設計
+│  └ images/                   … README の画面キャプチャ
 ├ schema/untie.schema.json     … データモデルの JSON Schema
 ├ packages/
-│  ├ core/                     … @untie/core: React にも DOM にも依存しないモデル
-│  │  ├ src/model/             … 型 (schema.d.ts は生成)、id、関係ルール、コマンド、検証
+│  ├ core/                     … @untie/core: React にも DOM にも依存しないモデル (サーバーも使う)
+│  │  ├ src/model/             … 型 (schema.d.ts は生成)、id、関係ルール、コマンド、検証、repairModel、固定ボード、分析、トレース
 │  │  │  ├ schema.d.ts         … json2ts で生成
+│  │  │  ├ schemaValidator.gen.js … 検証関数 (ajv standalone で生成)
 │  │  │  ├ types.ts            … 生成型の再エクスポートと補助型
 │  │  │  ├ id.ts               … id 生成
 │  │  │  ├ relations.ts        … 関係ルール表と relationKindFor
 │  │  │  ├ fixedBoards.ts      … 固定ボードの枠の組み立て・絞り込み・枠への追加と紐づけ
 │  │  │  ├ commands.ts         … モデルを変える純粋関数
-│  │  │  ├ validate.ts         … ajv によるスキーマ検証 + 参照整合性
+│  │  │  ├ validate.ts         … スキーマ検証 + 参照整合性
+│  │  │  ├ repair.ts           … 壊れた参照を直す (同時編集の合流後)
 │  │  │  └ __tests__/
 │  │  ├ src/sample/hotel.ts    … サンプルモデル
 │  │  └ scripts/gen-validator.mjs … スキーマ検証関数の事前生成 (ajv standalone)
+│  ├ api/                      … @untie/api: サーバーと画面で共有する契約 (DTO と zod スキーマ、役割と権限 `can`、閉じるコード、fetch クライアント)
+│  ├ collab/                   … @untie/collab: 同時編集。src/doc (Y.Doc ⇄ UntieModel)、src/room (UntieRoom: Durable Object)
 │  └ ui/                       … @untie/ui: Web とデスクトップで共通の画面
 │     └ src/
-│        ├ platform.ts         … Platform インターフェース (ファイル・確認・外部リンク・閉じる前の確認・キー・最近開いたファイル)
-│        ├ index.tsx           … createApp(platform)
-│        ├ store/              … zustand ストア (model + history + ui)
-│        ├ components/         … Toolbar, ElementList, FixedBoard, Canvas (自由ボード), PropertyPanel, IssuePanel
+│        ├ platform.ts         … Platform インターフェース (ファイル・確認・外部リンク・閉じる前の確認・キー・最近開いたファイル・サーバーの URL・ログイン)
+│        ├ index.tsx, Root.tsx, router.ts, App.tsx … createApp(platform)、ハッシュのルーティング、編集画面
+│        ├ store/              … zustand ストア (model + history + ui + cloud)
+│        ├ cloud/              … API の束、session / files ストア、ルームへの接続とプレゼンス
+│        ├ components/         … Toolbar, ElementList, FixedBoard, Canvas (自由ボード), PropertyPanel, IssuePanel,
+│        │                       home/ (ホーム・ログイン・一覧)、share/ (共有ダイアログ)、CloudEditor, InvitePage
 │        ├ io/, ai/, styles/
-│        ├ test/               … テスト用の setup と、メモリ上で動く Platform
-│        └ App.tsx
+│        ├ test/               … テスト用の setup と、メモリ上で動く Platform・偽のサーバー
+│        └ version.ts
 ├ apps/
-│  ├ web/                      … @untie/web: Vite のエントリ、Platform の Web 実装、public/_headers (apps/server ができるまで)
-│  └ desktop/                  … @untie/desktop: Vite のエントリ、Platform の Tauri 実装
-│     └ src-tauri/             … Tauri 2 (Rust 側はウィンドウを出すだけ)
+│  ├ web/                      … @untie/web: Vite のエントリ、Platform の Web 実装
+│  ├ desktop/                  … @untie/desktop: Vite のエントリ、Platform の Tauri 実装 (キーチェーン・deep link)
+│  │  └ src-tauri/             … Tauri 2 (Rust: ファイルの読み書き、キーチェーン、deep-link / single-instance / opener / dialog プラグイン)
+│  └ server/                   … @untie/server: Cloudflare Worker (Hono)。auth/ api/ db/ jobs/、migrations/、public/_headers、wrangler.jsonc
+├ assets/icon.png              … アプリのアイコンの元 (`pnpm icon` で各サイズを作る)
 ├ .github/workflows/
-│  ├ ci.yml                    … PR と main push で typecheck・test・check:types
+│  ├ ci.yml                    … PR と main push で check:types・typecheck・test・build、Rust の cargo check
 │  └ release.yml               … v* タグで Mac (.dmg) と Windows (.msi/.exe) を Releases に添付
 ├ README.md, LICENSE (MIT)
 └ package.json, pnpm-workspace.yaml, tsconfig.base.json, tsconfig.json, vitest.config.ts
@@ -464,16 +500,21 @@ Vitest で以下を検証する。E2E は省く。
 - サンプル: スキーマ検証と参照整合性検査を通る。
 - 固定ボード: 各レイヤーの枠の組み立て、絞り込み、枠への追加・既存の紐づけ・外す。
 - UI: 要素一覧・固定ボード・プロパティ欄・ツールバーの主要な振る舞い (自由ボードで所属・関係を変えられないことを含む) を Testing Library で確認する。キャンバスは React Flow のノード・エッジへの変換 (座標の相対化を含む) を純粋関数として切り出し、その関数をテストする。
+- クラウド版 (詳細は collab-design 11 章): 権限の規則 `can` と API の契約 (`packages/api`)、Y.Doc の往復・合流・修復 (`packages/collab`。`rebuildModel(applyModelDiff(a, b)) ≡ b` をランダムなコマンド列で確かめる)、サーバー (`apps/server`。`@cloudflare/vitest-plugin` で workerd の中に本物の D1 と Durable Object を立て、ログイン・セッション・権限・招待・リンク・ルームの接続と kick・cron を確かめる)、クラウドのストアと接続 (2 つの Y.Doc をつなぐ)、ホーム・共有ダイアログ・招待・リンクの画面、デスクトップのログインと Web の Platform。
+- 生成物: `pnpm check:types` が、スキーマから生成した型と検証関数が最新かを確かめる。
+- `pnpm test` がルートから全プロジェクトを走らせ、`pnpm typecheck` (`tsc -b`) が全パッケージの型を検査する。
 
 ## 10. ビルドと配布
 
-- `pnpm dev` で Vite、`pnpm tauri dev` でアプリ、`pnpm tauri build` で Mac 用 .app / .dmg。
+- `pnpm dev` で Web (Vite、5173) とサーバー (`wrangler dev`、8787) を同時に動かす。`pnpm tauri dev` でデスクトップアプリ、`pnpm app:build` (手元の証明書で署名) か `pnpm tauri build` で Mac 用 .app / .dmg。
+- **Web 版とサーバー**: 1 つの Cloudflare Worker (`apps/server`) が Web の静的ファイル・API・ログイン・Durable Object を持つ。`pnpm run deploy` が Web を build して `wrangler deploy` する。初回の手順 (D1 の作成、OAuth クライアント、秘密の値、`APP_ORIGIN`) は README の「配信 (Cloudflare)」、設計は collab-design 9 章。Pages は使わない。
 - GitHub Actions:
-  - `ci.yml`: PR と main push で `pnpm typecheck`、`pnpm test`、`pnpm check:types`。
+  - `ci.yml`: PR と main push で `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web・デスクトップのフロントの build と `wrangler deploy --dry-run`)。別のジョブで Linux の `cargo check` (Rust 側がコンパイルできるか)。
   - `release.yml`: `v*` タグ push で `tauri-apps/tauri-action` を使い、`macos-latest` (aarch64-apple-darwin) で .dmg、`windows-latest` で .msi と .exe (NSIS) を作り、GitHub Releases に添付する。
 - Windows 版は CI でしか作れないため、動作確認は CI の成果物で行う。
 - 署名なしなので、README に開き方 (Mac は右クリック → 開く、Windows は SmartScreen の「詳細情報」→「実行」) を書く。
 
 ## 11. 将来の TODO (ここでは作らない)
 
-対話ヒアリング、矛盾検出、rdra.yml エクスポート (状態遷移の曖昧さの解消を含む)、コード署名。AI 連携は「インストールのみで使える」方針と API キー設定の要否をその TODO で決める。
+- モデルまわり: 対話ヒアリング、矛盾検出、rdra.yml エクスポート (状態遷移の曖昧さの解消を含む)、コード署名。AI 連携は「インストールのみで使える」方針と API キー設定の要否をその TODO で決める。
+- クラウド版 (collab-design 12.2 の「あとで」): Microsoft Entra ID・magic link でのログイン、ドメインでの登録制限の運用、フォルダ、名前・説明の文字単位の合流、オフライン時の手元キャッシュ、監査ログ、viewer の AI への質問、自社サーバーでの稼働。
