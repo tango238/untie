@@ -137,11 +137,11 @@ apps/server ─┬─> core
 
 | 概念 | 内容 |
 | --- | --- |
-| ユーザー | メールアドレスで一意。表示名とアイコンは ID プロバイダーからもらう。ログインのたびに、`identities` の (provider, subject) で見つかればそのユーザー、無ければメールで既存のユーザーに結び (同じメールで別のプロバイダーからログインしても同じユーザー)、どちらも無ければ作る。同じメールアドレスが別の人に再割り当てされたケースは区別しない (PoC) |
+| ユーザー | メールアドレスで一意 (ASCII のみ。招待で受けるのも ASCII の形で、Unicode のアドレスは 400)。表示名とアイコンは ID プロバイダーからもらう。ログインのたびに、`identities` の (provider, subject) で見つかればそのユーザー、無ければメールで既存のユーザーに結び (同じメールで別のプロバイダーからログインしても同じユーザー)、どちらも無ければ作る。同じメールアドレスが別の人に再割り当てされたケースは区別しない (PoC) |
 | ローカルファイル | いまの JSON ファイル。ログインしなくても使える。サーバーは関与しない |
 | クラウドファイル | サーバーに置くファイル。id は `nanoid` 21 文字。中身は Durable Object (ルーム) に、名前・所有者・メンバーは D1 に置く。開くと常に同時編集の経路になる |
 | メンバー | ファイルに付いたユーザーと役割。所有者は 1 人 (作った人。譲れる) |
-| 招待 | まだユーザーでないメールアドレスへの共有。受けた人がログインすると、そのメールのメンバーになる |
+| 招待 | まだユーザーでないメールアドレスへの共有。招待の URL (`/#/invite/<トークン>`) を開いてログインし、そのメールで招待を受ける画面で明示的に受けると、メンバーになる (ログインしただけでは受理しない。メールが違えば拒む) |
 | リンク閲覧 | 所有者が有効にしたファイルは、リンク (`/#/link/<トークン>`) を知っている人なら誰でも、ログインせずに閲覧できる。ゲストとして viewer 相当になる (3.6) |
 | ゴミ箱 | 消したファイルは 30 日残し、所有者が戻せる。30 日で中身ごと消す |
 
@@ -244,10 +244,10 @@ create index invitations_email on invitations(email, accepted_at);
 
 ### 3.6 リンクを知っている人の閲覧
 
-- 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/#/link/<トークン>` (画面側はハッシュでルーティングするため、`#` が要る)。
+- 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/#/link/<トークン>` (画面側はハッシュでルーティングするため、`#` が要る)。トークンは D1 に平文で持たないので、URL を返すのは有効にした・作り直した応答 (`PUT /api/files/:id/link`) だけで、`GET /api/files/:id` の `link` は `{ enabled }` だけ。すでに有効なときの `PUT` (作り直しでない) は何も変えず URL も返さない。
 - 無効にすると `link_token` を null にする。「リンクを作り直す」は新しいトークンに置き換える (前のリンクは使えなくなる)。
-- リンクを開いた人は、ログインしていなくても閲覧できる。`POST /api/links/:token/ticket` はセッションが無くても通り、`{ fileId, userId: null, name: "ゲスト", role: "guest", via: "link" }` のチケットを返す。ログインしていて、かつそのファイルのメンバーなら、メンバーの役割のチケットを返す (editor がリンクから開いても編集できる)。
-- ゲストはプレゼンスに「ゲスト」と番号で出る。書き出し (`GET /api/links/:token/export`) はできる。複製はログインしてから (「複製するにはログイン」を出す)。
+- リンクを開いた人は、ログインしていなくても閲覧できる。`POST /api/links/ticket` はセッションが無くても通り、`{ fileId, userId: null, name: "ゲスト", role: "guest", via: "link" }` のチケットを返す。ログインしていて、かつそのファイルのメンバーなら、メンバーの役割のチケットを返す (editor がリンクから開いても編集できる)。
+- ゲストはプレゼンスに「ゲスト」と番号で出る。書き出し (`GET /api/links/export`) はできる。複製はログインしてから (`POST /api/links/duplicate`。「複製するにはログイン」を出す)。
 - 無効にした・作り直したときは、Worker がルームの `kick({ via: "link" })` を呼び、リンクで入っている接続を閉じる。つなぎ直しはチケットの取得で 404 になり、画面は「このリンクは無効になりました」を出す。
 - リンクのトークンは URL に出るので、Referrer を外に漏らさないよう `_headers` の `Referrer-Policy: no-referrer` (いまのまま) を保つ。ゴミ箱の中のファイルはリンクでも開けない。
 - 編集できるリンク (誰でも editor) は作らない。編集は招待したメンバーだけ。
@@ -385,7 +385,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 
 ### 7.4 API
 
-すべて `/api/` の下。JSON。`requireSession` を通る。リクエストは `packages/api` の zod スキーマで検証する。
+すべて `/api/` の下。JSON。`/api/links/*` を除いて `requireSession` を通る。リクエストは `packages/api` の zod スキーマで検証する。
 
 | メソッドとパス | 内容 | 必要な役割 |
 | --- | --- | --- |
@@ -393,7 +393,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `POST /me/logout`、`POST /me/logout-all` | ログアウト | ログイン |
 | `GET /files` | 自分のファイルと共有されたファイル (`{ mine, shared }`)。名前・更新日時・役割・メンバー数 | ログイン |
 | `POST /files` | 作る。`{ name }` で空のモデル、`{ model }` で JSON を取り込む (ローカルファイルをクラウドへ)。作った人が owner | ログイン |
-| `GET /files/:id` | 1 件の情報 (名前・所有者・自分の役割・メンバー一覧は owner だけ) | member |
+| `GET /files/:id` | 1 件の情報 (名前・所有者・自分の役割)。**owner にだけ** `members` (`userId`・`email`・`name`・`role`・`addedAt`)、`invitations` (まだ受けられていない招待。`id`・`email`・`role`・`createdAt`・`expiresAt`。期限切れも含む)、`link` (`{ enabled }` だけ。トークンは持たないので URL は返さない) を付ける。editor / viewer には付けない | member |
 | `PATCH /files/:id` | 名前を変える | editor |
 | `POST /files/:id/duplicate` | 複製して自分の owner のファイルにする | member |
 | `GET /files/:id/export` | JSON (`serializeModel` と同じ整形)。`Content-Disposition` 付き | member |
@@ -402,23 +402,31 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `DELETE /files/:id/purge` | 完全に消す (Durable Object の `destroy`) | owner |
 | `GET /files/trash` | ゴミ箱の一覧 | ログイン |
 | `POST /files/:id/ticket` | ルームに接続するチケット (7.5) | member |
-| `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role }`)。相手がユーザーでなければ 404 → 招待を使う | owner |
-| `DELETE /files/:id/members/:userId` | 外す。自分を外すのは editor / viewer もできる | owner (自分なら member) |
-| `POST /files/:id/transfer` | 所有者を譲る (`{ userId }`)。元の所有者は editor になる | owner |
-| `PUT /files/:id/link` | リンク閲覧を有効にする (`{ regenerate?: true }` で作り直す)。リンクの URL を返す | owner |
-| `DELETE /files/:id/link` | リンク閲覧を無効にする | owner |
-| `POST /files/:id/invitations` | メールで招待する (`{ email, role }`)。既にユーザーならその場でメンバーにする。招待リンクを返す (メール送信は PoC では画面から写して送る) | owner |
-| `DELETE /files/:id/invitations/:invitationId` | 招待を取り消す | owner |
-| `POST /invitations/:token/accept` | 招待を受ける。ログイン中のメールと招待のメールが同じときだけ | ログイン |
-| `GET /links/:token` | リンクのファイルの名前と自分の役割 (ゲストかメンバーか)。**セッション不要** | リンク |
-| `POST /links/:token/ticket` | リンクで接続するチケット (3.6)。**セッション不要** | リンク |
-| `GET /links/:token/export` | JSON に書き出す。**セッション不要** | リンク |
+| `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role: "editor" \| "viewer" }`)。応答は `Member`。相手がユーザーでなければ 404 `user_not_found` → 招待を使う。owner の役割は変えられない (409 `owner_role_fixed`)。**役割が変わったとき**はその人の接続を `kick({ userId, reason: "roleChanged" })` で切る (新しく足しただけ・同じ役割への変更では切らない) | owner |
+| `DELETE /files/:id/members/:userId` | 外す (204)。owner は owner 以外の誰でも外せる。editor / viewer は自分だけ (`can(role, "leave")`、他人は 403)。owner 自身は外せない (409 `transfer_first`)。相手がメンバーでなければ 404 `member_not_found`。外したら `kick({ userId, reason: "removed" })` | owner (自分なら member) |
+| `POST /files/:id/transfer` | 所有者を譲る (`{ userId }`。相手はメンバー。メンバーでなければ 404 `member_not_found`、自分なら 409 `already_owner`)。1 つの `batch` で `files.owner_id` と両者の `file_members.role` を書き換え、元の所有者は editor になる。両者を `kick({ userId, reason: "roleChanged" })`。応答は譲った人から見た `FileSummary` | owner |
+| `PUT /files/:id/link` | リンク閲覧を有効にする (`{ regenerate?: true }` で作り直す。本文は省略できる)。トークンが無いか `regenerate` なら新しいトークンを作り、`{ enabled: true, url }` (`url` = `${APP_ORIGIN}/#/link/<トークン>`) を返す。作り直したときは `kick({ via: "link" })`。すでに有効で `regenerate` でなければ何も変えず `{ enabled: true }` だけ (トークンは平文で持たないので URL は出せない) | owner |
+| `DELETE /files/:id/link` | リンク閲覧を無効にする (204)。`link_token` を null にし、`kick({ via: "link" })` | owner |
+| `POST /files/:id/invitations` | メールで招待する (`{ email, role: "editor" \| "viewer" }`。メールは小文字に正規化)。既にユーザーならその場で `file_members` に足し (すでにメンバーなら役割を更新し、変わったら `kick({ userId, reason: "roleChanged" })`)、`200 { kind: "member", userId }`。まだユーザーでなければ `invitations` に行を作り (同じメールの未承諾の招待は置き換える)、`201 { kind: "invitation", invitationId, url }` (`url` = `${APP_ORIGIN}/#/invite/<トークン>`。メール送信は PoC では画面から写して送る)。自分 (owner) のメールは 409 `already_owner`。有効期間は 14 日 | owner |
+| `DELETE /files/:id/invitations/:invitationId` | 招待を取り消す (204)。無ければ 404 `invitation_not_found` | owner |
+| `GET /invitations/info` | 招待の中身 `{ fileName, role, email, inviterName, expired }`。トークンの SHA-256 で引く (無ければ・ゴミ箱の中のファイルなら 404 `invitation_not_found`)。ログイン中のメールと招待のメールが違えば 403 `email_mismatch` | ログイン |
+| `POST /invitations/accept` | 招待を受ける。メールが一致するときだけ。`file_members` に足し (すでにメンバーなら役割は変えない)、`accepted_at` を書き、`{ fileId }`。受け終わった招待をもう一度受けても同じ結果 (冪等)。期限切れは 410 `invitation_expired`。受けたあとに外された人が古い招待で戻ろうとすると 410 `invitation_used`。**ログインしただけでは受理しない** (受ける画面で明示的に受ける) | ログイン |
+| `GET /links/info` | `{ fileId, name, role }`。`role` はセッションがあってメンバーならその役割、それ以外は `guest`。セッションは**あれば読む・無くてもよい** (期限切れ・不正でも guest で通る)。トークンが無効・ゴミ箱の中は 404 `link_not_found` | リンク |
+| `POST /links/ticket` | リンクで接続するチケット (3.6)。常に `via: "link"`。メンバーならその役割と `userId`、それ以外は `role: "guest"`・`userId: null`・`name: "ゲスト"` | リンク |
+| `GET /links/export` | JSON に書き出す (`GET /files/:id/export` と同じ形)。セッション不要 | リンク |
+| `POST /links/duplicate` | リンクのファイルを複製して、自分の owner のファイルにする (`201 FileSummary`。名前は「<元の名前> のコピー」)。**セッション必須** (未ログインは 401。ゲストは「複製するにはログイン」)。メンバーでなくてもよい。トークンが無効・ゴミ箱の中は 404 | ログイン + リンク |
 
-権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。`/links/*` だけは `requireSession` を通さず、トークンの SHA-256 で `files.link_token` を引く (無ければ 404)。
+**ゴミ箱の中のファイル**では、状態を変える共有の API (`PUT/DELETE /files/:id/members/:userId`、`POST /files/:id/transfer`、`POST/DELETE …/invitations`、`PUT/DELETE …/link`) は owner でも **409 `in_trash`** (戻してから変える。メンバーには他の API と同じく 404)。
+
+**共有の kick**: D1 を書き換えたあとに呼び、失敗しても例外にせずログに出すだけで 2xx を返す (500 にすると再試行されず、接続が残るため)。再試行の経路でも切る: すでにメンバーの行があるときの `PUT` は役割が同じでも `kick`、外し済みの人への `DELETE` も `kick` してから 404。`putMemberRole`・`removeMember` は、そのメール宛の未承諾の招待も同じ `batch` で消す (外した人が残っていた招待で戻れないように)。`transferOwner` は「いま from が owner で to がメンバー」を update の条件に持ち、並行して抜けた・別の譲渡が通ったときは何も書かず 409 `conflict`。リンクの有効化は `update … where link_token is null` で書き、先を越されたら URL を返さない。
+
+**既存ユーザーの招待**: すでにユーザーのメールを招待すると、その場でメンバーになり、応答の `kind` から「そのメールは登録済み」と分かる。相手の共有一覧にも承諾なしで入る (PoC として許容する)。招待は `ALLOWED_EMAIL_DOMAINS` を通り、許されないドメインは 400 `email_not_allowed`。
+
+権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。`/links/*` は `POST /links/duplicate` を除いて `requireSession` を通さず (`apiRoutes` で `requireSession` より前にマウントする)、トークンの SHA-256 で `files.link_token` を引く (無ければ 404)。**リンク・招待のトークンはパスに置かず、ヘッダー `X-Untie-Token` で受ける** (`/links/info`・`/links/ticket`・`/links/export`・`/links/duplicate`・`/invitations/info`・`/invitations/accept`)。パスは Workers のログに残るため。画面のハッシュ URL (`/#/link/<token>`・`/#/invite/<token>`) はサーバーに届かないので、そのまま。ヘッダーが無い・空のときは、でたらめなトークンと同じく 404。応答には (404 などのエラーにも) `Cache-Control: no-store` を付ける。セッションは `Authorization: Bearer` (desktop のセッションだけ) か Cookie (web のセッションだけ) から読み、種類が違う・期限切れ・不正なものはエラーにせず guest として扱う。招待とリンクの URL の組み立てには `appOrigin` (`APP_ORIGIN` が空ならリクエストの origin) を使い、画面のルーティングに合わせてハッシュ (`/#/invite/…`、`/#/link/…`) にする (8.1)。
 
 ### 7.5 ルームへの接続
 
-- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/:token/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
+- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
 - Worker 側は `routePartykitRequest(request, env, { locationHint: "apac", onBeforeConnect, onBeforeRequest })`。
   - `onBeforeConnect` は `?ticket=` を検める (署名・期限・形。`apps/server/src/auth/ticket.ts` の `verifyTicket`)。無効・無し・期限切れは **401** (`{ error: { code: "invalid_ticket", message } }`)。チケットの `fileId` と URL のルーム名が違えば **403**。通れば、受けた `x-untie-*` を**すべて上書きして** (クライアントが付けた値は信用しない。ゲストの `x-untie-user` は消す)、次のヘッダーを付けた Request をルームへ渡す。クエリの `ticket` はそのまま残す。**接続 id の `?_pk=` はクライアントに選ばせず、`crypto.randomUUID()` に必ず上書きする** (同じ id で 2 本つなぐと 1 本目が `getConnections()` から外れたまま書き込め、kick から逃れられるため)。
   - `onBeforeRequest` (WebSocket でない HTTP) は **401** (`code: "unauthenticated"`)。ルームへの HTTP は使わない。
@@ -480,15 +488,15 @@ export class UntieRoom extends YServer<Env> {
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
 - 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
 - `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければならない (null でゲストを巻き込まない)。**不正な対象は Worker 側の `kickRoom` (`apps/server/src/rooms.ts`) で弾いて例外にする。ルームは警告を出して 0 を返す** (RPC の中で投げるとテスト基盤が未処理の拒否として数えるため)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
-- **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割の変更・メンバーを外す・リンクの無効化から `kick` を呼ぶ API は 5 段階目で作る。
+- **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割の変更 (`PUT /members/:userId`、`POST /invitations` が既存メンバーの役割を変えたとき)・譲渡 (両者)・メンバーを外す・リンクの無効化と作り直しからも呼ぶ (7.4)。DB を書き換えたあとに `kickRoom` を呼ぶので、つなぎ直しは新しい状態で判定される。
 - `presence()` はいまつながっている接続の `{ userId, name, role }` の一覧 (同じ人が複数のタブなら、その数だけ出る)。`currentModel()` は保存を待たず、メモリ上の Y.Doc からモデルを作る (テストと確認用)。プレゼンスの表示そのもの (カーソル・選択) は awareness で運ぶ。
 
 ### 7.6 エラーの形と細部 (3 段階目の実装)
 
-- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code`: `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` (403)、`file_not_found` / `not_found` (404)、`invalid_request` / `invalid_model` (400)、`not_in_trash` / `in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
+- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code` (共有まわりの追加分も含む): `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` / `email_mismatch` (403。招待のメールが自分のと違う)、`file_not_found` / `not_found` / `user_not_found` (メンバーにする相手がユーザーでない) / `member_not_found` (外す・譲る相手がメンバーでない) / `invitation_not_found` / `link_not_found` (404)、`invalid_request` / `invalid_model` / `email_not_allowed` (400。招待のメールのドメインが `ALLOWED_EMAIL_DOMAINS` にない)、`not_in_trash` / `in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき) / `transfer_first` (owner を外そうとした) / `owner_role_fixed` (owner の役割を変えようとした) / `in_trash` (ゴミ箱の中のファイルの共有を変えようとした) / `conflict` (譲渡が並行した操作と重なった) / `already_owner` (自分を招待・自分に譲ろうとした。owner のメールを招待したとき)、`invitation_expired` / `invitation_used` (410。招待の期限切れ・受けたあとに外された人が古い招待を使った)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
 - **ブラウザが直接開く `/auth/login`・`/auth/callback`・`/auth/dev` の失敗**は JSON ではなく、戻るリンク付きの小さな HTML で返す。
 - **ログアウトは `/auth` の下**: `POST /auth/logout`、`POST /auth/logout-all` (7.4 の表の `/me/logout` ではなく)。`logout` はセッションが無くても成功し (204)、Cookie を消す。Cookie 認証なら `X-Requested-With` が要る。
-- **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members` は owner だけが受け取る。
+- **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members`・`invitations`・`link` は owner だけが受け取る。`PUT /files/:id/members/:userId` は `200` と `Member`、`POST /files/:id/transfer` は `200` と `FileSummary`、`DELETE …/members/:userId`・`DELETE …/invitations/:invitationId`・`DELETE …/link` は `204`。
 - **完全削除はゴミ箱の中のファイルだけ**: ゴミ箱に入っていないファイルへの `purge` は `409 not_in_trash`。
 - **開発用ログイン**: `DEV_LOGIN=true` で、かつリクエストのホストが localhost / 127.0.0.1 のときだけ `GET/POST /auth/dev` (メールと名前のフォーム) と `providers` の `dev` が有効。`false` なら `/auth/dev` は 404。ドメイン制限 (`ALLOWED_EMAIL_DOMAINS`) は Google と共通の `isEmailAllowed` を通る。
 - **`untie_auth` Cookie** (OIDC の `state`・`nonce`・`code_verifier`・戻り先) は `Path=/auth`、10 分、`SESSION_SECRET` の HMAC 署名付き。戻り先 (`return`) は `#` で始まる相対のものだけ受ける。
@@ -585,6 +593,7 @@ export class UntieRoom extends YServer<Env> {
 - セッションと招待のトークンは D1 にハッシュだけ置く。チケットと引換コードは短命の署名付き JWT で、保存しない。
 - 権限の判定はサーバーの `requireRole` が正本。画面の `can` は見せ方だけ。
 - OIDC は `state`・`nonce`・PKCE を必ず使い、`email_verified` を見る。
+- リンク・招待のトークンは URL のパスに置かず `X-Untie-Token` ヘッダーで送る (パスは Workers のログに残る。画面の `/#/…` はハッシュなのでサーバーに届かない)。
 - リンク閲覧のトークンは D1 にハッシュだけ置く。無効化と作り直しで即座に使えなくなり、ゲストの接続は切る。編集できるリンクは作らない。
 - Web の API は SameSite=Lax の Cookie と `X-Requested-With` で CSRF を防ぐ。デスクトップは Bearer だけ (Cookie は使わない)。
 - ゴミ箱の 30 日と完全削除は `destroy()` で Durable Object のストレージを消す。D1 の `files`・`file_members`・`invitations` も消す。

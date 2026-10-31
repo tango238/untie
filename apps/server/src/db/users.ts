@@ -10,6 +10,11 @@ export async function getUserById(db: D1Database, id: string): Promise<UserRow |
   return db.prepare("select * from users where id = ?").bind(id).first<UserRow>();
 }
 
+/** メールアドレス (小文字に正規化済み) でユーザーを引く */
+export async function getUserByEmail(db: D1Database, email: string): Promise<UserRow | null> {
+  return db.prepare("select * from users where email = ?").bind(email).first<UserRow>();
+}
+
 export interface ProviderProfile {
   provider: string;
   /** プロバイダー側の id (Google なら sub) */

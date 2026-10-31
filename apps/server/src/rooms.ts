@@ -51,3 +51,17 @@ export async function kickRoom(env: RoomEnv, fileId: string, target: KickTarget)
   if (!isKickTarget(target)) throw new Error("kick の対象が正しくありません");
   return (await getRoom(env, fileId)).kick(target);
 }
+
+/**
+ * 共有の API(メンバー・譲渡・リンクの変更)が、D1 を書き換えたあとに呼ぶ kick。
+ * 失敗しても D1 は変わっているので、例外にせず (500 にすると再試行されず、接続が残る) ログにだけ出す。
+ * 再試行の経路 (すでに外した人への DELETE など) でも呼んで、切れていなかった接続を切る
+ */
+export async function kickRoomQuietly(env: RoomEnv, fileId: string, target: KickTarget): Promise<void> {
+  try {
+    await kickRoom(env, fileId, target);
+  } catch (e) {
+    // トークンやメールを出さないよう、メッセージだけを残す
+    console.error(`ルームの接続を切れませんでした (${fileId})`, e instanceof Error ? e.message : e);
+  }
+}

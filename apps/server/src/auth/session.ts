@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../env";
 import { createSession, deleteSession, extendSession, findSession } from "../db/sessions";
-import type { SessionKind } from "../db/types";
+import type { SessionKind, UserRow } from "../db/types";
 import { forbidden, unauthorized } from "../errors";
 import { generateToken, sha256Hex } from "./crypto";
 
@@ -106,6 +106,19 @@ export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
   c.set("session", found.session);
   await next();
 });
+
+/**
+ * セッションがあればユーザーを返す。無い・期限切れ・種類違いは null (エラーにせず、Cookie も触らない)。
+ * リンク閲覧のようにログインしなくても通る API が、ログインしていればメンバーとして扱うために使う。
+ * 状態を変えるのはチケットの発行だけで、Cookie の送り元を悪用されても返事は読めないので CSRF のヘッダーは見ない
+ */
+export async function optionalUser(c: Context<AppEnv>): Promise<UserRow | null> {
+  const credential = readCredential(c);
+  if (!credential) return null;
+  const found = await findSession(c.env.DB, await sha256Hex(credential.token), Date.now());
+  const expectedKind: SessionKind = credential.via === "cookie" ? "web" : "desktop";
+  return found && found.session.kind === expectedKind ? found.user : null;
+}
 
 /** ログアウト: セッションの行を消し、Cookie を消す。セッションが無くても成功にする */
 export async function endSession(c: Context<AppEnv>): Promise<void> {

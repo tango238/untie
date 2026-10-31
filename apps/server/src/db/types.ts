@@ -40,4 +40,16 @@ export interface MemberRow {
   name: string;
   avatar_url: string | null;
   role: "owner" | "editor" | "viewer";
+  added_at: number;
+}
+
+export interface InvitationRow {
+  id: string;
+  file_id: string;
+  email: string;
+  role: "editor" | "viewer";
+  created_by: string;
+  created_at: number;
+  expires_at: number;
+  accepted_at: number | null;
 }
