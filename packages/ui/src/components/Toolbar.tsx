@@ -3,7 +3,7 @@ import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { traceToActors } from "@untie/core/model/trace";
 import { createHotelSample } from "@untie/core/sample";
-import { ROLE_LABELS, type Role } from "@untie/api";
+import { can, ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
 import { useSessionStore } from "../cloud/session";
 import { confirmDiscardIfDirty, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
@@ -16,6 +16,7 @@ import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
 import { AboutDialog } from "./AboutDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ShareDialog } from "./share/ShareDialog";
 
 type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | null;
 
@@ -53,6 +54,13 @@ export function Toolbar() {
 
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const canShare = cloud !== null && can(cloud.role, "manageMembers");
+  // 所有者でなくなった (譲った・役割が変わった) ら、ダイアログを閉じて開いた状態も戻す
+  // (戻さないと、あとで所有者に戻ったときに勝手に開く)
+  useEffect(() => {
+    if (!canShare) setShareOpen(false);
+  }, [canShare]);
 
   // 固定ボードでは board は undefined (名前変更・削除はできない)
   const board = boards.find((b) => b.id === currentBoardId);
@@ -104,10 +112,17 @@ export function Toolbar() {
           </button>
         </h1>
         {cloud && <CloudBadges name={modelName} status={cloud.status} role={cloud.role} />}
+        {canShare && (
+          <button type="button" title="メンバーの招待とリンク閲覧の設定" onClick={() => setShareOpen(true)}>
+            共有
+          </button>
+        )}
 
         <div className="toolbar-group">
           <FileMenu
             cloud={cloud !== null}
+            // ゲストの複製は、帯の「複製して自分のファイルにする」に一本化する (ここからだと手元のモデルを別のファイルにしてしまう)
+            guest={cloud?.role === "guest"}
             readOnly={readOnly}
             onHome={() => void goHome()}
             onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
@@ -269,6 +284,8 @@ export function Toolbar() {
       )}
       {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutDialog onClose={() => setDialog(null)} />}
+      {/* 所有者でなくなった (譲った) ら、ダイアログも閉じる */}
+      {shareOpen && cloud && canShare && <ShareDialog fileId={cloud.fileId} onClose={() => setShareOpen(false)} />}
       {aiSettingsOpen && <AiSettingsDialog />}
       {dialog === "newDocument" && (
         <ConfirmDialog
@@ -341,12 +358,14 @@ function CloudBadges({ name, status, role }: { name: string; status: CloudStatus
  */
 function FileMenu({
   cloud,
+  guest,
   readOnly,
   onHome,
   onNew,
   onCreateFromPrompt,
 }: {
   cloud: boolean;
+  guest: boolean;
   readOnly: boolean;
   onHome: () => void;
   onNew: () => void;
@@ -424,7 +443,7 @@ function FileMenu({
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("ホーム", "", onHome)}
           {item("JSON に書き出す…", "⌘S", () => void exportModelToFile())}
-          {signedIn && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
+          {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
           {!readOnly && (
             <>
               <div className="menu-sep" role="separator" />

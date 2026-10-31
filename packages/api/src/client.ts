@@ -10,6 +10,7 @@ import {
   LinkInfoSchema,
   LinkResponseSchema,
   MemberSchema,
+  PresenceResponseSchema,
   ProvidersResponseSchema,
   TicketResponseSchema,
   TrashResponseSchema,
@@ -27,6 +28,7 @@ import type {
   LinkInfo,
   LinkResponse,
   Member,
+  PresenceEntry,
   ProvidersResponse,
   TicketResponse,
   User,
@@ -94,6 +96,8 @@ export interface UntieApi {
     trashList(): Promise<FileSummary[]>;
     /** ルームに接続するチケット (60 秒だけ有効)。`wss://<host>/parties/untie-room/<id>?ticket=...` でつなぐ */
     ticket(id: string): Promise<TicketResponse>;
+    /** いまルームにつながっている人 (サーバーが接続のチケットから決めた userId・名前・役割。awareness の照合に使う) */
+    presence(id: string): Promise<PresenceEntry[]>;
     /** メンバーの管理 (owner)。外すのは自分なら editor / viewer もできる */
     members: {
       /** 役割を足す・変える。相手がユーザーでなければ 404 (`user_not_found`)。役割が変わるとその人の接続は切れる */
@@ -125,6 +129,8 @@ export interface UntieApi {
   links: {
     get(token: string): Promise<LinkInfo>;
     ticket(token: string): Promise<TicketResponse>;
+    /** いまルームにつながっている人 (`files.presence` と同じ。ゲストも読める) */
+    presence(token: string): Promise<PresenceEntry[]>;
     export(token: string): Promise<ExportedFile>;
     /** 複製して自分の owner のファイルにする。ログインが要る (ゲストのままなら 401) */
     duplicate(token: string): Promise<FileSummary>;
@@ -213,6 +219,7 @@ export function createApi(options: ApiOptions): UntieApi {
       purge: (id) => empty("DELETE", `${file(id)}/purge`),
       trashList: async () => (await json(TrashResponseSchema, "GET", "/api/files/trash")).files,
       ticket: (id) => json(TicketResponseSchema, "POST", `${file(id)}/ticket`),
+      presence: async (id) => (await json(PresenceResponseSchema, "GET", `${file(id)}/presence`)).presence,
       members: {
         put: (id, userId, role) => json(MemberSchema, "PUT", `${file(id)}/members/${encodeURIComponent(userId)}`, { role }),
         remove: (id, userId) => empty("DELETE", `${file(id)}/members/${encodeURIComponent(userId)}`),
@@ -234,6 +241,7 @@ export function createApi(options: ApiOptions): UntieApi {
     links: {
       get: (token) => json(LinkInfoSchema, "GET", "/api/links/info", undefined, { token, optionalAuth: true }),
       ticket: (token) => json(TicketResponseSchema, "POST", "/api/links/ticket", undefined, { token, optionalAuth: true }),
+      presence: async (token) => (await json(PresenceResponseSchema, "GET", "/api/links/presence", undefined, { token, optionalAuth: true })).presence,
       export: async (token) => {
         const response = await send("GET", "/api/links/export", undefined, { token, optionalAuth: true });
         return { filename: parseFilename(response.headers.get("Content-Disposition")) ?? "untie.json", text: await response.text() };

@@ -7,10 +7,12 @@ import type { Role } from "@untie/api";
 import { fixedGroups } from "@untie/core/model/fixedBoards";
 import { createHotelSample } from "@untie/core/sample";
 import { attachCloudDoc } from "../../cloud/collab";
+import { useFilesStore } from "../../cloud/files";
+import { currentRoute } from "../../router";
 import { useSessionStore } from "../../cloud/session";
 import { useUntieStore, type Peer } from "../../store";
 import { memory } from "../../test/platform";
-import { fakeServer, user, type FakeServer } from "../../test/server";
+import { fakeServer, member, summary, user, type FakeServer } from "../../test/server";
 import { resetStore } from "../../test/utils";
 import App from "../../App";
 import { ElementList } from "../ElementList";
@@ -141,6 +143,18 @@ describe("ツールバー (クラウドファイル)", () => {
     expect(window.location.hash).toBe("#/");
   });
 
+  it("ログイン済みのゲストには「クラウドへ保存 (複製)」を出さない (帯の「複製して自分のファイルにする」に一本化)。メンバーには出す", () => {
+    for (const [role, shown] of [["guest", false], ["viewer", true], ["editor", true]] as const) {
+      openCloud(role);
+      const { unmount } = render(<Toolbar />);
+      fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+      expect(screen.getByRole("menuitem", { name: "JSON に書き出す…⌘S" })).toBeTruthy();
+      expect(!!screen.queryByRole("menuitem", { name: /クラウドへ保存/ })).toBe(shown);
+      unmount();
+      act(() => detach?.());
+    }
+  });
+
   it("元に戻す・やり直すは無効で、理由を title に出す。編集しても保存していない変更の印は出ない", () => {
     openCloud();
     render(<Toolbar />);
@@ -243,6 +257,127 @@ describe("閲覧専用の帯", () => {
     act(() => st().setCloudRole("viewer"));
     render(<App />);
     expect(screen.queryByRole("region", { name: "AI エージェント" })).toBeNull();
+  });
+});
+
+describe("リンクで閲覧中の帯 (ゲスト)", () => {
+  /** リンクで開いた状態 (token を持つ) */
+  function openViaLink(role: Role) {
+    doc = new Y.Doc();
+    loadModel(doc, createHotelSample());
+    act(() => {
+      detach = attachCloudDoc(doc, { fileId: "f1", role, link: "tok" });
+      st().setCloudStatus("connected");
+    });
+  }
+
+  it("未ログインには「ログインすると複製できます」とログインの導線を出し、押すとこのリンクへ戻るログインを始める", () => {
+    useSessionStore.setState({ status: "anonymous", user: null, providers: ["dev"] });
+    openViaLink("guest");
+    render(<App />);
+    expect(screen.getByText("閲覧専用です (役割: ゲスト)").getAttribute("role")).toBe("status");
+    expect(screen.getByText("リンクで閲覧中。ログインすると複製できます")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "複製して自分のファイルにする" })).toBeNull();
+    sessionStorage.clear();
+    fireEvent.click(screen.getByRole("button", { name: "開発用ログイン (メールを入れるだけ)" }));
+    // 戻り先 (ログインの URL に載る) にトークンは入れない。トークンは sessionStorage に預ける
+    expect(memory().logins).toEqual([{ provider: "dev", returnTo: "#/link" }]);
+    expect(sessionStorage.getItem("untie.pendingLink")).toBe("tok");
+  });
+
+  it("ログイン済みには「複製して自分のファイルにする」を出し、複製したファイルのルートへ移る", async () => {
+    server = fakeServer({});
+    server.others = [summary({ id: "f1", name: "リンクのファイル", ownerId: "u9", ownerName: "山田" })];
+    server.shares.f1 = { members: [], invitations: [], linkToken: "tok" };
+    openViaLink("guest");
+    render(<App />);
+    expect(screen.queryByText(/ログインすると複製できます/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "複製して自分のファイルにする" }));
+    await vi.waitFor(() => expect(currentRoute()).toEqual({ name: "file", fileId: "new1" }));
+    const call = server.calls.find((c) => c.path === "/api/links/duplicate")!;
+    expect(call.method).toBe("POST");
+    expect(call.headers["X-Untie-Token"]).toBe("tok");
+    expect(useFilesStore.getState().mine.map((f) => f.id)).toContain("new1");
+  });
+
+  it("リンクで開いていない閲覧者・ゲストや、メンバーとしてリンクから開いた人には出さない", () => {
+    openCloud("guest");
+    const { unmount } = render(<App />);
+    expect(screen.queryByText(/リンクで閲覧中/)).toBeNull();
+    unmount();
+    act(() => detach?.());
+    openViaLink("viewer");
+    const second = render(<App />);
+    expect(screen.getByText("閲覧専用です (役割: 閲覧者)")).toBeTruthy();
+    expect(screen.queryByText(/リンクで閲覧中/)).toBeNull();
+    second.unmount();
+    act(() => detach?.());
+    openViaLink("editor");
+    render(<App />);
+    expect(screen.queryByText(/閲覧専用です/)).toBeNull();
+  });
+});
+
+describe("共有ボタン", () => {
+  it("所有者のツールバー (クラウド) にだけ「共有」を出し、押すと共有ダイアログが開く。リンクで開いたゲストには出さない", async () => {
+    server = fakeServer({ mine: [summary({ id: "f1", name: "業務" })] });
+    server.shares.f1 = { members: [member("u1", "テスト太郎", "owner")], invitations: [], linkToken: null };
+    openCloud("owner");
+    const { unmount } = render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "共有" }));
+    await screen.findByRole("dialog", { name: "「業務」を共有" });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    unmount();
+    act(() => detach?.());
+    for (const role of ["editor", "viewer", "guest"] as const) {
+      openCloud(role);
+      const r = render(<Toolbar />);
+      expect(screen.queryByRole("button", { name: "共有" })).toBeNull();
+      r.unmount();
+      act(() => detach?.());
+    }
+  });
+
+  it("所有者でなくなってダイアログが閉じたあと、所有者に戻っても勝手に開き直さない", async () => {
+    server = fakeServer({ mine: [summary({ id: "f1", name: "業務" })] });
+    server.shares.f1 = { members: [member("u1", "テスト太郎", "owner")], invitations: [], linkToken: null };
+    openCloud("owner");
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "共有" }));
+    await screen.findByRole("dialog", { name: "「業務」を共有" });
+    act(() => st().setCloudRole("editor"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    act(() => st().setCloudRole("owner"));
+    expect(screen.getByRole("button", { name: "共有" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("共有ダイアログが出ている間は、背後のキーボードショートカットは何もしない", async () => {
+    server = fakeServer({ mine: [summary({ id: "f1", name: "業務" })] });
+    server.shares.f1 = { members: [member("u1", "テスト太郎", "owner")], invitations: [], linkToken: null };
+    openCloud("owner", "board_overview");
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "共有" }));
+    await screen.findByRole("dialog", { name: "「業務」を共有" });
+    const exported = vi.spyOn(memory(), "saveTextFile");
+    handleKeyDown(new KeyboardEvent("keydown", { key: "s", ctrlKey: true }));
+    expect(exported).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    handleKeyDown(new KeyboardEvent("keydown", { key: "s", ctrlKey: true }));
+    await vi.waitFor(() => expect(exported).toHaveBeenCalled());
+  });
+
+  it("所有者でなくなった (譲った) ら、ダイアログも閉じる", async () => {
+    server = fakeServer({ mine: [summary({ id: "f1", name: "業務" })] });
+    server.shares.f1 = { members: [member("u1", "テスト太郎", "owner")], invitations: [], linkToken: null };
+    openCloud("owner");
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "共有" }));
+    await screen.findByRole("dialog", { name: "「業務」を共有" });
+    act(() => st().setCloudRole("editor"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "共有" })).toBeNull();
   });
 });
 

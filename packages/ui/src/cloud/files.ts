@@ -34,6 +34,10 @@ export interface FilesState {
   restore: (id: string) => Promise<boolean>;
   /** 完全に消す */
   purge: (id: string) => Promise<boolean>;
+  /** 共有をやめる (自分をメンバーから外す。editor / viewer)。userId は自分のユーザー id */
+  leave: (id: string, userId: string) => Promise<boolean>;
+  /** リンクで開いているファイルを複製して自分のファイルにする (ログインが要る)。作れたら一覧を読み直し、作ったファイルを返す */
+  duplicateFromLink: (token: string) => Promise<FileSummary | null>;
   /** 一覧を空に戻す (ログアウトしたとき) */
   reset: () => void;
 }
@@ -134,6 +138,19 @@ export const useFilesStore = create<FilesState>()((set, get) => {
     trashFile: async (id) => (await act(() => getApi().files.trash(id))).ok,
     restore: async (id) => (await act(() => getApi().files.restore(id))).ok,
     purge: async (id) => (await act(() => getApi().files.purge(id))).ok,
+
+    leave: async (id, userId) => {
+      const name = [...get().shared, ...get().mine].find((f) => f.id === id)?.name;
+      return (await act(() => getApi().files.members.remove(id, userId), () => (name ? `「${name}」の共有をやめました` : "共有をやめました"))).ok;
+    },
+
+    duplicateFromLink: async (token) => {
+      const result = await act(
+        () => getApi().links.duplicate(token),
+        (file) => `「${file.name}」を作りました`,
+      );
+      return result.ok ? result.value : null;
+    },
 
     reset: () => {
       refreshSeq++;

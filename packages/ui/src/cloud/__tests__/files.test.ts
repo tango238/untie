@@ -208,3 +208,26 @@ describe("saveLocalToCloud", () => {
     expect(toasts()).toEqual([`info:クラウドに「${model.meta.name}」を作りました`]);
   });
 });
+
+describe("files.duplicateFromLink / files.leave", () => {
+  it("複製に成功すると新しいファイルを返し、一覧を読み直す。ログインしていなければ、トークンの検めより先に 401 で、トーストに出す", async () => {
+    server.shares.a = { members: [], invitations: [], linkToken: "tok" };
+    const copy = await files().duplicateFromLink("tok");
+    expect(copy?.id).toMatch(/^new/);
+    expect(files().mine.map((f) => f.id)).toContain(copy!.id);
+    expect(toasts()).toContain(`info:「${copy!.name}」を作りました`);
+
+    server.signedIn = false;
+    expect(await files().duplicateFromLink("nothing")).toBeNull();
+    expect(toasts().slice(-1)[0]).toBe("error:ログインしてください");
+  });
+
+  it("共有をやめると自分をメンバーから外し、一覧から消える", async () => {
+    server.shares.s = { members: [{ userId: "u1", email: "me@example.com", name: "me", role: "viewer", addedAt: 0 }], invitations: [], linkToken: null };
+    await files().refresh();
+    expect(await files().leave("s", "u1")).toBe(true);
+    expect(files().shared).toEqual([]);
+    expect(callsOf()).toContain("DELETE /api/files/s/members/u1");
+    expect(toasts()).toContain("info:「S」の共有をやめました");
+  });
+});

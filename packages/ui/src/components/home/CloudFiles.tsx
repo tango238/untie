@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { can, ROLE_LABELS, type FileSummary } from "@untie/api";
 import { useFilesStore } from "../../cloud/files";
+import { useSessionStore } from "../../cloud/session";
 import { parseModel } from "../../io/document";
 import { getPlatform } from "../../platform";
 import { navigate } from "../../router";
 import { useUntieStore } from "../../store";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { ShareDialog } from "../share/ShareDialog";
 import { formatRelativeTime } from "./relativeTime";
 
 type Tab = "mine" | "shared" | "trash";
@@ -17,7 +19,7 @@ const EMPTY_TEXT: Record<Tab, string> = {
   trash: "ゴミ箱は空です。",
 };
 
-type Pending = { kind: "trash" | "purge"; file: FileSummary } | null;
+type Pending = { kind: "trash" | "purge" | "leave"; file: FileSummary } | null;
 
 /** ホームのクラウド欄 (ログイン済み): 新規作成・取り込み・タブ・ファイルの一覧と操作 */
 export function CloudFiles() {
@@ -28,6 +30,9 @@ export function CloudFiles() {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  // 共有ダイアログを開いているファイルの id
+  const [sharing, setSharing] = useState<string | null>(null);
+  const me = useSessionStore((s) => s.user);
   // 名前変更を送っている間は「決定」を押せない
   const [renameBusy, setRenameBusy] = useState(false);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
@@ -241,6 +246,7 @@ export function CloudFiles() {
                         file={file}
                         inTrash={tab === "trash"}
                         onRename={() => setRenaming({ id: file.id, name: file.name })}
+                        onShare={() => setSharing(file.id)}
                         onAsk={(kind) => setPending({ kind, file })}
                       />
                     </div>
@@ -266,6 +272,21 @@ export function CloudFiles() {
           }}
         />
       )}
+      {pending?.kind === "leave" && (
+        <ConfirmDialog
+          title="共有をやめる"
+          message={`「${pending.file.name}」の共有をやめます。自分のファイル一覧から消え、もう一度見るには所有者に招待してもらう必要があります。`}
+          confirmLabel="共有をやめる"
+          danger
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const id = pending.file.id;
+            setPending(null);
+            if (me) void lists.leave(id, me.id);
+          }}
+        />
+      )}
+      {sharing !== null && <ShareDialog fileId={sharing} onClose={() => setSharing(null)} />}
       {pending?.kind === "purge" && (
         <ConfirmDialog
           title="完全に消す"
@@ -289,12 +310,14 @@ function RowActions({
   file,
   inTrash,
   onRename,
+  onShare,
   onAsk,
 }: {
   file: FileSummary;
   inTrash: boolean;
   onRename: () => void;
-  onAsk: (kind: "trash" | "purge") => void;
+  onShare: () => void;
+  onAsk: (kind: "trash" | "purge" | "leave") => void;
 }) {
   const { duplicate, exportToFile, restore } = useFilesStore.getState();
   if (inTrash) {
@@ -333,6 +356,16 @@ function RowActions({
       {can(file.role, "export") && (
         <button type="button" onClick={() => void exportToFile(file.id)}>
           書き出す
+        </button>
+      )}
+      {can(file.role, "manageMembers") && (
+        <button type="button" onClick={onShare}>
+          共有
+        </button>
+      )}
+      {can(file.role, "leave") && (
+        <button type="button" className="danger-outline" onClick={() => onAsk("leave")}>
+          共有をやめる
         </button>
       )}
       {can(file.role, "delete") && (

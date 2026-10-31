@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError } from "@untie/api";
+import { ApiError, CLOSE_ROLE_CHANGED, ROLE_LABELS } from "@untie/api";
 import App from "../App";
 import { useAgentStore } from "../ai/agentStore";
+import { getApi } from "../cloud/api";
 import { closeCloudFile, openCloudFile } from "../cloud/collab";
 import { confirmDiscardIfDirty } from "../io/document";
 import { useSessionStore } from "../cloud/session";
-import { navigate } from "../router";
+import { navigate, replaceRoute } from "../router";
 import { useUntieStore } from "../store";
 import { ToastHost } from "./Toast";
 
@@ -13,14 +14,17 @@ import { ToastHost } from "./Toast";
 const SLOW_MS = 15_000;
 
 const goHome = () => navigate({ name: "home" });
-const toast = (message: string) => useUntieStore.getState().pushToast(message, "error");
+const toast = (message: string, tone: "info" | "error" = "error") => useUntieStore.getState().pushToast(message, tone);
 
 /**
  * チケットを取れなかったときの扱い。ホームへ戻し、理由を出す (設計書 8.3)。
- * 401 は session ストアがログイン欄へ戻して知らせるので、ここでは何も出さない
+ * 401 は session ストアがログイン欄へ戻して知らせるので、ここでは何も出さない。
+ * リンクで開いたとき (link) の 404 は、リンクが無効になっている (無効にされた・作り直された)
  */
-function failToOpen(e: unknown): void {
-  if (e instanceof ApiError && e.status === 401) {
+function failToOpen(e: unknown, link: boolean): void {
+  if (link && e instanceof ApiError && e.status === 404) {
+    toast("このリンクは無効です");
+  } else if (e instanceof ApiError && e.status === 401) {
     // ホームのログイン欄へ
   } else if (e instanceof ApiError && e.status === 409) {
     toast("ゴミ箱の中のファイルです");
@@ -32,54 +36,97 @@ function failToOpen(e: unknown): void {
   goHome();
 }
 
-/** クラウドファイルを開く画面 (#/f/<id>)。開いている間だけ接続し、読み込めたらエディタ (App) を出す */
-export function CloudEditor({ fileId }: { fileId: string }) {
+/**
+ * クラウドファイルを開く画面。開いている間だけ接続し、読み込めたらエディタ (App) を出す。
+ * `fileId` は #/f/<id> (メンバーとして開く。ログインが要る)、`link` は #/link/<token>
+ * (リンクを知っている人の閲覧。ログインしていなくてもよい。メンバーならその役割で開く)
+ */
+export function CloudEditor({ fileId, link }: { fileId?: string; link?: string }) {
   const sessionStatus = useSessionStore((s) => s.status);
-  const loaded = useUntieStore((s) => s.cloud !== null && s.cloud.fileId === fileId && s.cloud.status !== "loading");
-  const closed = useUntieStore((s) => (s.cloud?.fileId === fileId ? s.cloud.closed : undefined));
+  // リンクで開くときは、トークンからファイルの id を引いてから接続する
+  const [linked, setLinked] = useState<{ token: string; fileId: string } | null>(null);
+  const targetId = link !== undefined ? (linked?.token === link ? linked.fileId : undefined) : fileId;
+  const loaded = useUntieStore((s) => targetId !== undefined && s.cloud !== null && s.cloud.fileId === targetId && s.cloud.status !== "loading");
+  const closed = useUntieStore((s) => (targetId !== undefined && s.cloud?.fileId === targetId ? s.cloud.closed : undefined));
   const [slow, setSlow] = useState(false);
+  // 役割が変わって閉じられたとき (4001) に、その場でつなぎ直す処理。開く effect が差し込む
+  const reopen = useRef<(() => Promise<void>) | null>(null);
 
   // この画面の間にログインしていたか。使っている途中で anonymous になった (401・ログアウト) ときは、
   // session ストアが理由を出すので、ここでは重ねて出さない
   const wasSignedIn = useRef(false);
 
-  // ログインしていなければホームへ (ログイン欄を出す)。ログインの状態が分かるまでは待つ
+  // ログインしていなければホームへ (ログイン欄を出す)。ログインの状態が分かるまでは待つ。リンクで開くときは不要
   useEffect(() => {
     if (sessionStatus === "signedIn") wasSignedIn.current = true;
-    if (sessionStatus !== "anonymous") return;
+    if (link !== undefined || sessionStatus !== "anonymous") return;
     if (!wasSignedIn.current) toast("クラウドのファイルを開くにはログインしてください");
     goHome();
-  }, [sessionStatus]);
+  }, [sessionStatus, link]);
 
   // 開いている間だけつなぐ。離れたら (別の画面・別のファイル・ログアウト) 閉じてサンプルに戻す
   useEffect(() => {
-    if (sessionStatus !== "signedIn") return;
+    // リンクはログインしていなくても開ける。どちらもログインの状態が分かってから始める (名前と役割が決まるため)
+    if (link === undefined ? sessionStatus !== "signedIn" : sessionStatus === "unknown") return;
     let cancelled = false;
+    let openedId: string | undefined;
+    const connect = (id: string) => (link === undefined ? openCloudFile(id) : openCloudFile(id, { link }));
     void (async () => {
-      // 開くとストアのローカルの編集中のモデルは置き換わる。戻る/進む・URL の直打ちで来たときも守るため、
-      // 保存していない変更があれば先に確かめ、断られたらローカルの編集へ戻す
-      if (!(await confirmDiscardIfDirty("保存していない変更があります。破棄してクラウドのファイルを開きますか？", "破棄して開く"))) {
-        if (!cancelled) navigate({ name: "local" });
-        return;
-      }
-      if (cancelled) return;
       try {
-        await openCloudFile(fileId);
+        let id = fileId;
+        if (link !== undefined) {
+          const info = await getApi().links.get(link);
+          if (cancelled) return;
+          // メンバー (所有者を含む) がリンクで開いても、リンクのままだと閲覧のチケット (via: "link") になり、
+          // リンクの無効化でも切られてしまう。メンバーとして開き直し、アドレスバーからトークンも消す
+          // (確認はこの先の #/f/<id> が行う。ここで聞くと二度聞くことになる)
+          if (info.role !== "guest") {
+            replaceRoute({ name: "file", fileId: info.fileId });
+            return;
+          }
+          setLinked({ token: link, fileId: info.fileId });
+          id = info.fileId;
+        }
+        // 開くとストアのローカルの編集中のモデルは置き換わる。戻る/進む・URL の直打ちで来たときも守るため、
+        // 保存していない変更があれば先に確かめ、断られたらローカルの編集へ戻す
+        if (!(await confirmDiscardIfDirty("保存していない変更があります。破棄してクラウドのファイルを開きますか？", "破棄して開く"))) {
+          if (!cancelled) navigate({ name: "local" });
+          return;
+        }
+        if (cancelled) return;
+        openedId = id!;
+        reopen.current = async () => {
+          try {
+            await connect(openedId!);
+            if (cancelled) return;
+            const role = useUntieStore.getState().cloud?.role;
+            if (role) toast(`役割が${ROLE_LABELS[role]}に変わりました`, "info");
+          } catch (e) {
+            if (!cancelled) failToOpen(e, link !== undefined);
+          }
+        };
+        await connect(openedId);
       } catch (e) {
-        if (!cancelled) failToOpen(e);
+        if (!cancelled) failToOpen(e, link !== undefined);
       }
     })();
     return () => {
       cancelled = true;
+      reopen.current = null;
       // 走っている AI エージェントはモデルを書き換え続けてしまうので止める
       useAgentStore.getState().cancel();
       closeCloudFile();
     };
-  }, [fileId, sessionStatus]);
+  }, [fileId, link, sessionStatus]);
 
-  // サーバーに閉じられた (外された・ゴミ箱・リンクの無効化・認証切れ) ら、理由を出してホームへ
+  // サーバーに閉じられた (外された・ゴミ箱・リンクの無効化・認証切れ) ら、理由を出してホームへ。
+  // 役割が変わっただけ (4001) なら、ホームへは戻さず、新しい役割でその場につなぎ直す
   useEffect(() => {
     if (!closed) return;
+    if (closed.code === CLOSE_ROLE_CHANGED && reopen.current) {
+      void reopen.current();
+      return;
+    }
     toast(closed.reason);
     goHome();
   }, [closed]);
@@ -89,7 +136,7 @@ export function CloudEditor({ fileId }: { fileId: string }) {
     setSlow(false);
     const t = setTimeout(() => setSlow(true), SLOW_MS);
     return () => clearTimeout(t);
-  }, [loaded, fileId]);
+  }, [loaded, targetId]);
 
   if (!loaded) {
     return (

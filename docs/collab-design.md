@@ -247,8 +247,8 @@ create index invitations_email on invitations(email, accepted_at);
 - 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/#/link/<トークン>` (画面側はハッシュでルーティングするため、`#` が要る)。トークンは D1 に平文で持たないので、URL を返すのは有効にした・作り直した応答 (`PUT /api/files/:id/link`) だけで、`GET /api/files/:id` の `link` は `{ enabled }` だけ。すでに有効なときの `PUT` (作り直しでない) は何も変えず URL も返さない。
 - 無効にすると `link_token` を null にする。「リンクを作り直す」は新しいトークンに置き換える (前のリンクは使えなくなる)。
 - リンクを開いた人は、ログインしていなくても閲覧できる。`POST /api/links/ticket` はセッションが無くても通り、`{ fileId, userId: null, name: "ゲスト", role: "guest", via: "link" }` のチケットを返す。ログインしていて、かつそのファイルのメンバーなら、メンバーの役割のチケットを返す (editor がリンクから開いても編集できる)。
-- ゲストはプレゼンスに「ゲスト」と番号で出る。書き出し (`GET /api/links/export`) はできる。複製はログインしてから (`POST /api/links/duplicate`。「複製するにはログイン」を出す)。
-- 無効にした・作り直したときは、Worker がルームの `kick({ via: "link" })` を呼び、リンクで入っている接続を閉じる。つなぎ直しはチケットの取得で 404 になり、画面は「このリンクは無効になりました」を出す。
+- ゲストはプレゼンスに「ゲスト」と出る (画面は awareness に自分で「ゲスト」と載せ、他の人の表示もサーバーの一覧と照らして「ゲスト」にする。「ゲスト N」の番号は、サーバーの `presence()` の名前としてだけ現れる。8.3)。書き出し (`GET /api/links/export`) はできる。複製はログインしてから (`POST /api/links/duplicate`。「複製するにはログイン」を出す)。
+- 無効にした・作り直したときは、Worker がルームの `kick({ via: "link" })` を呼び、リンクで入っている接続を閉じる。つなぎ直しはチケットの取得で 404 になり、画面は「このリンクは無効です」(サーバーの文言) を出してホームへ戻す。閉じられたときは「リンクが無効になりました」(閉じる理由)。
 - リンクのトークンは URL に出るので、Referrer を外に漏らさないよう `_headers` の `Referrer-Policy: no-referrer` (いまのまま) を保つ。ゴミ箱の中のファイルはリンクでも開けない。
 - 編集できるリンク (誰でも editor) は作らない。編集は招待したメンバーだけ。
 
@@ -402,6 +402,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `DELETE /files/:id/purge` | 完全に消す (Durable Object の `destroy`) | owner |
 | `GET /files/trash` | ゴミ箱の一覧 | ログイン |
 | `POST /files/:id/ticket` | ルームに接続するチケット (7.5) | member |
+| `GET /files/:id/presence` | いまルームにつながっている人 `{ presence: { userId, name, role }[] }` (ルームの `presence()`。接続のチケットから決めた値で、ゲストは `userId: null`・名前は「ゲスト N」。同じ人が複数のタブなら複数並ぶ)。画面が awareness の自己申告を照らすのに使う。ゴミ箱の中のファイルは owner 以外は 404、owner には 409 | member |
 | `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role: "editor" \| "viewer" }`)。応答は `Member`。相手がユーザーでなければ 404 `user_not_found` → 招待を使う。owner の役割は変えられない (409 `owner_role_fixed`)。**役割が変わったとき**はその人の接続を `kick({ userId, reason: "roleChanged" })` で切る (新しく足しただけ・同じ役割への変更では切らない) | owner |
 | `DELETE /files/:id/members/:userId` | 外す (204)。owner は owner 以外の誰でも外せる。editor / viewer は自分だけ (`can(role, "leave")`、他人は 403)。owner 自身は外せない (409 `transfer_first`)。相手がメンバーでなければ 404 `member_not_found`。外したら `kick({ userId, reason: "removed" })` | owner (自分なら member) |
 | `POST /files/:id/transfer` | 所有者を譲る (`{ userId }`。相手はメンバー。メンバーでなければ 404 `member_not_found`、自分なら 409 `already_owner`)。1 つの `batch` で `files.owner_id` と両者の `file_members.role` を書き換え、元の所有者は editor になる。両者を `kick({ userId, reason: "roleChanged" })`。応答は譲った人から見た `FileSummary` | owner |
@@ -413,6 +414,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `POST /invitations/accept` | 招待を受ける。メールが一致するときだけ。`file_members` に足し (すでにメンバーなら役割は変えない)、`accepted_at` を書き、`{ fileId }`。受け終わった招待をもう一度受けても同じ結果 (冪等)。期限切れは 410 `invitation_expired`。受けたあとに外された人が古い招待で戻ろうとすると 410 `invitation_used`。**ログインしただけでは受理しない** (受ける画面で明示的に受ける) | ログイン |
 | `GET /links/info` | `{ fileId, name, role }`。`role` はセッションがあってメンバーならその役割、それ以外は `guest`。セッションは**あれば読む・無くてもよい** (期限切れ・不正でも guest で通る)。トークンが無効・ゴミ箱の中は 404 `link_not_found` | リンク |
 | `POST /links/ticket` | リンクで接続するチケット (3.6)。常に `via: "link"`。メンバーならその役割と `userId`、それ以外は `role: "guest"`・`userId: null`・`name: "ゲスト"` | リンク |
+| `GET /links/presence` | `GET /files/:id/presence` と同じ。ゲストも読める。トークンが無効・ゴミ箱の中は 404 | リンク |
 | `GET /links/export` | JSON に書き出す (`GET /files/:id/export` と同じ形)。セッション不要 | リンク |
 | `POST /links/duplicate` | リンクのファイルを複製して、自分の owner のファイルにする (`201 FileSummary`。名前は「<元の名前> のコピー」)。**セッション必須** (未ログインは 401。ゲストは「複製するにはログイン」)。メンバーでなくてもよい。トークンが無効・ゴミ箱の中は 404 | ログイン + リンク |
 
@@ -422,7 +424,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 
 **既存ユーザーの招待**: すでにユーザーのメールを招待すると、その場でメンバーになり、応答の `kind` から「そのメールは登録済み」と分かる。相手の共有一覧にも承諾なしで入る (PoC として許容する)。招待は `ALLOWED_EMAIL_DOMAINS` を通り、許されないドメインは 400 `email_not_allowed`。
 
-権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。`/links/*` は `POST /links/duplicate` を除いて `requireSession` を通さず (`apiRoutes` で `requireSession` より前にマウントする)、トークンの SHA-256 で `files.link_token` を引く (無ければ 404)。**リンク・招待のトークンはパスに置かず、ヘッダー `X-Untie-Token` で受ける** (`/links/info`・`/links/ticket`・`/links/export`・`/links/duplicate`・`/invitations/info`・`/invitations/accept`)。パスは Workers のログに残るため。画面のハッシュ URL (`/#/link/<token>`・`/#/invite/<token>`) はサーバーに届かないので、そのまま。ヘッダーが無い・空のときは、でたらめなトークンと同じく 404。応答には (404 などのエラーにも) `Cache-Control: no-store` を付ける。セッションは `Authorization: Bearer` (desktop のセッションだけ) か Cookie (web のセッションだけ) から読み、種類が違う・期限切れ・不正なものはエラーにせず guest として扱う。招待とリンクの URL の組み立てには `appOrigin` (`APP_ORIGIN` が空ならリクエストの origin) を使い、画面のルーティングに合わせてハッシュ (`/#/invite/…`、`/#/link/…`) にする (8.1)。
+権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。`/links/*` は `POST /links/duplicate` を除いて `requireSession` を通さず (`apiRoutes` で `requireSession` より前にマウントする)、トークンの SHA-256 で `files.link_token` を引く (無ければ 404)。**リンク・招待のトークンはパスに置かず、ヘッダー `X-Untie-Token` で受ける** (`/links/info`・`/links/ticket`・`/links/presence`・`/links/export`・`/links/duplicate`・`/invitations/info`・`/invitations/accept`)。パスは Workers のログに残るため。画面のハッシュ URL (`/#/link/<token>`・`/#/invite/<token>`) はサーバーに届かないので、そのまま。ヘッダーが無い・空のときは、でたらめなトークンと同じく 404。応答には (404 などのエラーにも) `Cache-Control: no-store` を付ける。セッションは `Authorization: Bearer` (desktop のセッションだけ) か Cookie (web のセッションだけ) から読み、種類が違う・期限切れ・不正なものはエラーにせず guest として扱う。招待とリンクの URL の組み立てには `appOrigin` (`APP_ORIGIN` が空ならリクエストの origin) を使い、画面のルーティングに合わせてハッシュ (`/#/invite/…`、`/#/link/…`) にする (8.1)。
 
 ### 7.5 ルームへの接続
 
@@ -523,18 +525,20 @@ export class UntieRoom extends YServer<Env> {
 | `#/` | ホーム。空や、読めないハッシュもここ。起動時にハッシュが無ければ `#/` にする |
 | `#/local` | ローカル編集 (いまのエディタ) |
 | `#/f/<fileId>` | クラウドファイル (4 段階目から同時編集。3 段階目は案内だけ) |
-| `#/invite/<token>` | 招待を受ける (5 段階目。それまではホームを出す) |
-| `#/link/<token>` | リンクで開く (5 段階目。それまではホームを出す) |
+| `#/invite/<token>` | 招待を受ける (`InvitePage`) |
+| `#/link/<token>` | リンクで開く (`CloudEditor` に `link` を渡す) |
 
 `fileId`・`token` は `/^[A-Za-z0-9_-]{1,64}$/` に合うものだけ受け、合わなければホームにする。
 
+**ログインを挟むときのトークン**: 招待・リンクのトークンをログインの URL (`/auth/login?return=...`) に載せるとサーバーのログに残る。`session.login` は戻り先が `#/invite/<t>`・`#/link/<t>` なら、トークンを `sessionStorage` (`untie.pendingInvite` / `untie.pendingLink`) に預け、`Platform.login` には `#/invite`・`#/link` (トークンなし) だけを渡す。戻ってきた `Root` が最初の描画の前に預けたトークンを読んで消し、`location.replace` で `#/invite/<t>`・`#/link/<t>` に直す (履歴に積まない)。預けたものが無ければホームが出る。
+
 | 場所 | 内容 |
 | --- | --- |
-| ホーム | 「自分のファイル」「共有されたファイル」「ゴミ箱」のタブ。名前・更新日時・役割・メンバー。行の操作: 開く、名前を変える、複製、書き出す、共有、ゴミ箱へ。「最近開いたローカルファイル」もここに並べる |
+| ホーム | 「自分のファイル」「共有されたファイル」「ゴミ箱」のタブ。名前・更新日時・役割・メンバー。行の操作: 開く、名前を変える、複製、書き出す、共有 (owner だけ)、共有をやめる (共有されたファイルの行。editor / viewer。確認のあと自分をメンバーから外す)、ゴミ箱へ。「最近開いたローカルファイル」もここに並べる |
 | ログイン | 「Google でログイン」のボタン。デスクトップは「ブラウザでログインしています…」の待ち画面と、deep link が使えないときの引換コードの入力欄 |
-| 共有ダイアログ | メンバー一覧 (名前・メール・役割の選択・外す)、メールアドレスと役割で招待、未承諾の招待の一覧と取り消し、所有者を譲る。「リンクを知っている人が閲覧できる」のスイッチと、リンクを写す・作り直す。owner だけ開ける |
-| 招待を受ける画面 | `#/invite/<token>` を開くと、ログイン (必要なら) → 受けるかの確認 → 受けたらそのファイルを開く |
-| リンクで開く画面 | `#/link/<token>` を開くと、ログインせずにそのままエディタ (閲覧専用) を開く。上の帯に「リンクで閲覧中。ログインすると複製できます」。ログイン済みでメンバーならその役割で開く |
+| 共有ダイアログ | `ShareDialog` (`role="dialog"`、`aria-labelledby`、Escape で閉じる、Tab はダイアログの中を回る)。owner だけ開ける: ホームの行の「共有」とエディタ (クラウド) のツールバーの「共有」から開き、所有者でなくなったら (譲った) 閉じる。`files.get(id)` の `FileDetail` を出し、変更のたびに取り直してホームの一覧も更新する。操作中は他の操作を受けない (二重押しを防ぐ)。失敗は `ApiError.message` をトーストに出す。**メンバー**: 名前・メール・役割の選択 (編集者 / 閲覧者。所有者は固定表示)・「外す」(確認なし)、所有者を譲る相手を選んで「所有者を譲る…」→ 確認 → `transfer` (譲ったらダイアログを閉じる。元の所有者は editor になり、開いていれば 4001 でつなぎ直す)。**招待**: メールと役割 → `invitations.create`。`kind: "member"` なら「〜さんをメンバーに加えました」(その場の文言)、`kind: "invitation"` なら招待リンクの入力欄と「リンクを写す」、その下に未承諾の招待 (メール・役割・期限。期限切れは「期限切れ」と出す) と「取り消す」。**リンクで閲覧**: 「リンクを知っている人が閲覧できる」のスイッチ (`role="switch"`)。有効にすると URL と「リンクを写す」を出す。すでに有効で URL が無い (開き直したあと。サーバーはトークンを持たない) ときは「リンクを作り直す」(確認: 古いリンクは使えなくなる) で新しい URL を出す。無効にするときも確認する |
+| 招待を受ける画面 | `#/invite/<token>` (`InvitePage`)。ログインの状態が分かるまで「確認中」、未ログインなら「招待を受けるにはログインしてください」とログイン欄 (ログイン後はこの画面に戻る)、ログイン済みなら `invitations.get` で「〜さんから「ファイル名」に役割として招待されています」と「受ける」「やめる」。受けたら `#/f/<fileId>` へ移る。「期限切れ」(`expired` が true か 410 `invitation_expired`)・「すでに使われています」(410 `invitation_used`)・「別のメールアドレス宛です (いまのログイン: …)」(403 `email_mismatch`)・「見つかりません」(404) は文言を出して「ホームへ」だけ置く |
+| リンクで開く画面 | `#/link/<token>`。ログインの状態が分かったら、`links.get` でファイルを引いて `openCloudFile(fileId, { link })` でそのままエディタ (閲覧専用) を開く。ログインしていなくてもホームへは戻さない。上の帯に「リンクで閲覧中。ログインすると複製できます」とログインの導線 (ログイン後はこのリンクへ戻る)。ログイン済みでメンバーでなければ「複製して自分のファイルにする」(`links.duplicate` → 複製したファイルへ)。ログイン済みでメンバー (所有者を含む) なら、`links.get` の役割が `guest` でないので `#/f/<fileId>` に `location.replace` で置き換え、`files.ticket` で開く (`via: "link"` にしない。リンクの無効化で切られず、アドレスバーからトークンも消える)。無効なリンク (`links.get` かチケットが 404) は「このリンクは無効です」を出してホームへ |
 | エディタ (クラウド) | ツールバーのタイトルの横に接続状態 (接続中 / 切断。再接続します)、役割、参加者の色玉 (title に名前。同じ人の複数のタブは 1 つ。ゲストは接続 id から決めた色)。viewer と guest は上に「閲覧専用です (役割: …)」の帯 (`role="status"`)。Undo / Redo は無効 (title「共有中は取り消せません」)。Cmd/Ctrl+S は書き出し。ファイルメニューは「ホーム」「JSON に書き出す」「クラウドへ保存 (複製)」だけ |
 | カード・固定ボード | 他の人の選択を色付きの縁で出す (awareness) |
 | プロパティ欄 | 他の人が同じ要素を**選んでいる**なら、要素の種類の横に「○○さんも選択中」を出す (awareness は選択しか運ばないので「編集中」とは言わない。ロックはしない)。viewer は入力欄をすべて読み取り専用にし、追加・削除・移動・関係のボタンを出さない |
@@ -544,7 +548,7 @@ export class UntieRoom extends YServer<Env> {
 
 - `session` ストア (`packages/ui/src/cloud/session.ts`): `status: "unknown" | "anonymous" | "signedIn"`、`user`、`providers: ProviderId[]` (`GET /auth/providers`)、`hasServer` (`Platform.serverOrigin()` が空でないか。空なら API を呼ばず anonymous)、`error` (つながらない・ログイン方法を取れない、など)。起動時に `Root` が `load()` を呼び、`GET /auth/providers` と `GET /api/me` で決める (実行中に重ねて呼んでも 1 回だけ叩く)。`/api/me` が 401 なら anonymous で、失敗ではない。
 - **401 の扱い**: 使っている途中の 401 (セッション切れ・別の端末でのログアウト) は `cloud/api.ts` の `onUnauthorized` 1 か所で受ける。`session` が anonymous に戻して「ログインの有効期限が切れました」を出し、`files` が一覧を空にする (両者は互いを import せず、この購読口だけでつながる)。`logout` / `logoutAll` は 401 を成功とみなして手元の状態を消す。
-- `files` ストア (`cloud/files.ts`): `mine` / `shared` / `trash` / `loading` / `loaded` / `error` と、`refresh`・`create`・`rename`・`duplicate`・`exportToFile`・`trashFile`・`restore`・`purge`。操作の失敗は `ApiError.message` をそのままトーストに出す。書き出しは `files.export` で JSON を取って `parseModel` で検めてから `Platform.saveTextFile` へ渡す (ダウンロード URL は使わない。デスクトップでも動く)。モデルの名前が空なら「名前なし」にして送る。
+- `files` ストア (`cloud/files.ts`): `mine` / `shared` / `trash` / `loading` / `loaded` / `error` と、`refresh`・`create`・`rename`・`duplicate`・`exportToFile`・`trashFile`・`restore`・`purge`・`leave` (共有をやめる)・`duplicateFromLink` (リンクのファイルを複製)。操作の失敗は `ApiError.message` をそのままトーストに出す。書き出しは `files.export` で JSON を取って `parseModel` で検めてから `Platform.saveTextFile` へ渡す (ダウンロード URL は使わない。デスクトップでも動く)。モデルの名前が空なら「名前なし」にして送る。
 - ローカルの編集 (ホーム画面まわり): ツールバーの「ホーム」は、未保存の変更があれば `confirmDiscard` で確かめ、破棄すると決めたら編集中のモデルを起動時のサンプル (未変更) に戻し、走っている AI エージェントを止めてから `#/` へ移る。`openDocument` / `openRecentDocument` は開けたら `true` を返す (ホームが `#/local` へ移るかの判定に使う)。閉じる前の確認 (`useCloseGuard`) は `Root` に置き、ホームでも効く。
 - **`cloud: CloudInfo | null`** (`{ fileId, role, doc: Y.Doc, status: "loading" | "connecting" | "connected" | "offline", closed?: { code, reason }, link?: string }`)。ローカルなら null。当初の案の `document: { kind: "local" | "cloud" }` で `file` を包む形にはせず、いまの `file` / `savedModel` / `history` はそのまま、`cloud` を足すだけにした (ローカルのコードに触れない)。`status` は最初の同期が済むまで `loading`。他に `peers: Peer[]` (`{ clientId, userId, name, color, boardId, selection }`、自分を除く) と `pendingRemote` (ドラッグ中に届いた変更を後回しにしているか)。
 - 関数: `loadCloudDocument(model, cloud)` (履歴・選択・ドラッグを捨てて開いた状態にする)、`setCloudStatus` / `setCloudRole` / `setCloudClosed` / `setPeers`、`applyRemoteModel(model)`、`closeCloud()` (起動時のサンプル・未変更に戻す。クラウドを開いていなければ何もしない。ローカルの編集中のモデルを壊さないため)。`newDocument` / `loadDocument` も `cloud` を外す。
@@ -554,23 +558,23 @@ export class UntieRoom extends YServer<Env> {
 - **Undo / Redo**: `cloud` があれば `undo` / `redo` は何もしない。
 - **`hasUnsavedChanges`**: `cloud` があれば `cloud.status !== "connected" && cloud.dirtySinceOffline`。`dirtySinceOffline` は、つながっていない間 (`connected` でない間) に自分の書き込み (`dispatch` / `commitDrag` / `agentApply`) があると立ち、同期が済んで `connected` になると戻る。
 - **役割が変わったとき** (`setCloudRole`): 閲覧専用になったら、途中のドラッグ (`cancelDrag`) と AI の編集を捨てる。閲覧専用のときの `commitDrag` も、`dragBase` を残さずドラッグを捨てる。
-- 画面の `can(role, action)` は `cloud.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `cloud.link: token` を持ち、チケットと書き出しを `/api/links/*` で取る (5 段階目)。
-- `session.status === "anonymous"` でもリンクのファイルは開ける (5 段階目)。ホームは未ログインならログインとローカルファイルだけ出す。4 段階目の `#/f/<id>` は、未ログインならホームへ戻して「クラウドのファイルを開くにはログインしてください」を出す。
+- 画面の `can(role, action)` は `cloud.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `cloud.link: token` を持ち、チケットを `links.ticket` で取る (再接続のたびも同じ)。書き出しは手元のモデルから行うので `links.export` は使わない。
+- `session.status === "anonymous"` でもリンクのファイルは開ける。ホームは未ログインならログインとローカルファイルだけ出す。4 段階目の `#/f/<id>` は、未ログインならホームへ戻して「クラウドのファイルを開くにはログインしてください」を出す。
 - クラウドファイルを開くと、ローカルの編集中のモデルはストアから置き換わる (戻るとサンプル)。そのため `CloudEditor` が、開く前に保存していない変更があれば `confirmDiscardIfDirty` で確かめ、断られたら `#/local` へ戻す (ホームの「開く」だけでなく、戻る/進む・URL の直打ちで来たときも守る)。
 
 ### 8.3 接続
 
 実装は `packages/ui/src/cloud/collab.ts`。provider に依存しない中核 (`attachCloudDoc(doc, { fileId, role, link? })`: ストアへの取り付けと、リモートの変更の反映。戻り値の `detach()`) と、その外側 (`openCloudFile(fileId)` / `closeCloudFile()`: チケット・`YProvider`・接続の状態・プレゼンス) に分けてある。テストは中核に 2 つの Y.Doc をつなぎ、外側は偽の provider で確かめる。
 
-- `openCloudFile` は先に `files.ticket(id)` を取り (401/403/404/409 ならその `ApiError` を投げる。何も付けない)、`new YProvider(host, fileId, doc, { party: "untie-room", protocol, disableBc: true, connect: false, params })` をつなぐ。`host` / `protocol` は `Platform.serverOrigin()` から決める。`params` は最初の 1 回は取ったチケットを使い、**再接続のたびに取り直す** (チケットは 60 秒で切れる)。取り直したチケットの `role` が変わっていたら、ストアの役割を更新する (切れている間に viewer から editor になった、など)。開く途中で `closeCloudFile()` や別の `openCloudFile()` が呼ばれたら、世代の番号で古い方が何も付けずに戻る (React の StrictMode でも二重につながない)。
+- `openCloudFile(fileId, { link? })` は先に `files.ticket(id)` (`link` があれば `links.ticket(link)`) を取り (401/403/404/409 ならその `ApiError` を投げる。何も付けない)、`new YProvider(host, fileId, doc, { party: "untie-room", protocol, disableBc: true, connect: false, params })` をつなぐ。`host` / `protocol` は `Platform.serverOrigin()` から決める。`params` は最初の 1 回は取ったチケットを使い、**再接続のたびに取り直す** (チケットは 60 秒で切れる)。取り直したチケットの `role` が変わっていたら、ストアの役割を更新する (切れている間に viewer から editor になった、など)。開く途中で `closeCloudFile()` や別の `openCloudFile()` が呼ばれたら、世代の番号で古い方が何も付けずに戻る (React の StrictMode でも二重につながない)。
 - **接続の状態** (`cloud.status`): 最初の同期 (`sync` が true) までは `loading` (画面は「読み込み中…」。Doc が空のまま編集させない。15 秒たっても終わらなければ「サーバーにつながっていません」を添える)。以後は `status` イベントを写す: `disconnected` → `offline`、`connecting` → `connecting`、`connected` → 同期が済むまでは `connecting`、`sync` → `connected`。
-- **閉じられたとき**: `connection-close` イベントの `code` が 4000〜4004 なら、再接続せず (`provider.disconnect()`)、`cloud.closed = { code, reason }` にする (`reason` はサーバーが付けた理由。空なら画面側の `CLOSE_REASONS`: 4000「認証されていません。ログインし直してください」、4001「役割が変わりました。開き直してください」、4003「共有から外されたか、ファイルがゴミ箱に入りました」、4004「リンクが無効になりました」)。`CloudEditor` が `closed` を見て、理由をトーストに出してホームへ戻す。再接続のチケットの取得が 401/403/404/409 だった場合 (切れている間に外された・ゴミ箱に入った、など) も、同じく `closed` にして再接続しない。4001 (役割が変わった) も開き直しではなくホームへ戻す (5 段階目で、その場で新しい役割につなぎ直すか決める)。
+- **閉じられたとき**: `connection-close` イベントの `code` が 4000〜4004 なら、再接続せず (`provider.disconnect()`)、`cloud.closed = { code, reason }` にする (`reason` はサーバーが付けた理由。空なら画面側の `CLOSE_REASONS`: 4000「認証されていません。ログインし直してください」、4001「役割が変わりました。開き直してください」、4003「共有から外されたか、ファイルがゴミ箱に入りました」、4004「リンクが無効になりました」)。`CloudEditor` が `closed` を見て、理由をトーストに出してホームへ戻す (4001 は下)。再接続のチケットの取得が 401/403/404/409 だった場合 (切れている間に外された・ゴミ箱に入った、など) も、同じく `closed` にして再接続しない。**4001 (役割が変わった) だけは、ホームへ戻さずその場でつなぎ直す**: `CloudEditor` が `openCloudFile` をもう一度呼んで (リンクで開いていれば `link` も付けて) 新しい役割で開き直し、トースト「役割が〜に変わりました」を出す。つなぎ直しに失敗した (外された・リンクが無効になった、など) ときは、開くときと同じ扱いでホームへ戻す。開き直す間は「読み込み中…」になり、選択などの画面の状態は初期に戻る。**つなぎ直しは古い Y.Doc を捨てて新しい Doc で始めるので、古い Doc にあって送りきれていなかった更新 (つながっていない間の自分の変更など) は失われる**。役割が変わる (editor から viewer など) 場面なので、閉じられた時点でサーバーに届いていない編集は戻さない。
 - **接続の状態は切れたら戻らない**: 一度 `offline` になったら、`connected` かつ同期済みになるまで、再接続を試している `connecting` も `offline` として扱う (再接続に失敗し続けても「接続しています」と出さない)。
 - **ログイン中に開く前から走っていた AI** を止める: `openCloudFile` の先頭で `useAgentStore.getState().cancel()` を呼ぶ。止め損ねても、クラウドの `agentApply` は `beginAgentEdit` の間にしか書けず、開くと `agentBase` は捨てられる。
 - **途中で失敗したとき**: `openCloudFile` が attach のあとで例外になったら、provider を `destroy` し、`detach()` と `doc.destroy()` をしてから投げる (ストアに `cloud` を残さない)。
 - **取れなかったとき**: チケットが 401 ならホーム (ログイン欄)、403/404 ならホームへ戻して「このファイルは開けません」、409 なら「ゴミ箱の中のファイルです」。
 - つながっていない間の編集は手元の Y.Doc に溜まり、つながると合流する。ただし**タブを閉じると失われる**ので、`hasUnsavedChanges` (8.2) が true の間は、閉じる前の確認 (`useCloseGuard`) と、ツールバーの「ホーム」の確認 (「つながっていない間の変更はまだ送れていません」) を出す。「つながっていません。変更は接続後に反映されます」の長期の帯 (10 分など) は**まだ入れていない** (いまはツールバーの「切断。再接続します」だけ)。
-- **プレゼンス**: `awareness.setLocalState({ userId, name, color, boardId, selection })`。`color` はユーザー id (ゲストは awareness の clientId) の FNV-1a ハッシュで 8 色から決める。ストアの `ui.currentBoardId` と `ui.selection` を購読して `setLocalStateField` で更新する。`awareness.on("change")` で `peers` を組み立てる (自分を除く)。**自分の別のタブ** (`userId` が同じ) は他の人として数えず、`peers`・色玉・「〜さんも選択中」から除く (ゲストは `userId` が無いので clientId で区別する)。自分の状態だけが変わった `change` では組み立て直さず、前の `peers` と比べて変わっていなければ `setPeers` しない (変わっていない人の参照は使い回す)。カードは `usePeersSelecting(elementId)` (その要素の結果だけを返し、`useShallow` で比べる) を読むので、自分が選ぶたびに全カードが描き直されることはない。**プレゼンスは偽れる**: awareness はクライアントが書く値で、サーバーは中身を検めない (`userId` や名前を他人に見せかけることができる)。見た目の補助にとどめ、権限には使わない。5 段階目で、サーバーの `presence()` (接続のチケットから決めた `userId`・名前・役割) と照らして、偽りを表示から外す。他の人の状態は信用せず、形を確かめて作る (色は `#rrggbb` だけ受け、外れたら決め直す。選択は形が違えば外す)。表示は同じボードにいる人 (`peer.boardId === 開いているボード`) の選択だけ: 自由ボードのカード・枠と固定ボードのカード・枠に、その人の色の 2px の縁 (複数なら 2px ずつ外へ重ねる) と、右上に名前のラベルを出す。
+- **プレゼンス**: `awareness.setLocalState({ userId, name, color, boardId, selection })`。ゲスト (取ったチケットの役割が `guest`。ログインしていても同じ) は `userId: null`・`name: "ゲスト"` を自分で載せる (サーバーが付ける「ゲスト n」の番号は使わない)。`color` はユーザー id (ゲストは awareness の clientId) の FNV-1a ハッシュで 8 色から決める。ストアの `ui.currentBoardId` と `ui.selection` を購読して `setLocalStateField` で更新する。`awareness.on("change")` で `peers` を組み立てる (自分を除く)。**自分の別のタブ** (`userId` が同じ) は他の人として数えず、`peers`・色玉・「〜さんも選択中」から除く (ゲストは `userId` が無いので clientId で区別する)。自分の状態だけが変わった `change` では組み立て直さず、前の `peers` と比べて変わっていなければ `setPeers` しない (変わっていない人の参照は使い回す)。カードは `usePeersSelecting(elementId)` (その要素の結果だけを返し、`useShallow` で比べる) を読むので、自分が選ぶたびに全カードが描き直されることはない。**プレゼンスは偽れる**: awareness はクライアントが書く値で、サーバーは中身を検めない (`userId` や名前を他人に見せかけることができる)。そこで画面は、サーバーの `presence()` (接続のチケットから決めた `userId`・名前・役割。`GET /files/:id/presence`、リンクなら `GET /links/presence`) の一覧と照らして表示する: `attachPresence` の `verify` が一覧を取り、awareness の `userId` が一覧に無い人は「ゲスト」扱い (名前も `userId` も自己申告を捨てる)、ある人の名前はサーバーの値を使う。ゲストの「ゲスト N」の番号は awareness の clientId と結べないので、画面には出さず「ゲスト」とだけ出す。取るのは接続の直後と、他の人の顔ぶれ (clientId・`userId`・名前) が変わったとき (選択が変わっただけでは取らない)。取り直しは 1 秒に 1 回まで (先頭は待たずに取り、間が短ければ 1 秒空ける)。最初の一覧が届くまで、また一覧を取ったあとに来た人は、次の一覧が届くまで自己申告のまま出す (本物の参加者が一瞬ゲストに見えないように。偽りが見えるのはその間だけ)。一覧に載らない `userId` の人がいれば、載るのを待って最大 3 回取り直す。取れなかったときは前の一覧のまま。権限には使わない (見た目の補助)。他の人の状態は信用せず、形を確かめて作る (色は `#rrggbb` だけ受け、外れたら決め直す。選択は形が違えば外す)。表示は同じボードにいる人 (`peer.boardId === 開いているボード`) の選択だけ: 自由ボードのカード・枠と固定ボードのカード・枠に、その人の色の 2px の縁 (複数なら 2px ずつ外へ重ねる) と、右上に名前のラベルを出す。
 
 ### 8.4 デスクトップ固有
 

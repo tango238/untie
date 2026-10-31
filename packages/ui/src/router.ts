@@ -2,9 +2,10 @@
 //   #/                … ホーム (空や不明なハッシュもここ)
 //   #/local           … ローカル編集 (いまのエディタ)
 //   #/f/<fileId>      … クラウドファイル
-//   #/invite/<token>  … 招待を受ける (次の段階)
-//   #/link/<token>    … リンクで開く (次の段階)
+//   #/invite/<token>  … 招待を受ける
+//   #/link/<token>    … リンクで開く
 import { useSyncExternalStore } from "react";
+import { stashPending, takePending } from "./cloud/pending";
 
 export type Route =
   | { name: "home" }
@@ -81,10 +82,44 @@ export function currentRoute(): Route {
   return parseRoute(currentHash());
 }
 
+/**
+ * ログインの URL に載せてよい戻り先にする。招待・リンクのトークンは URL (サーバーのログ) に残さないよう、
+ * トークンを sessionStorage に預け、戻り先は `#/invite` `#/link` (トークンなし) にする。それ以外はそのまま
+ */
+export function toLoginReturn(hash: string): string {
+  const route = parseRoute(hash);
+  if (route.name === "invite" || route.name === "link") {
+    const kind = route.name;
+    stashPending(kind, route.token);
+    return `#/${kind}`;
+  }
+  return hash;
+}
+
+/**
+ * ログインから戻ってきたとき (ハッシュが `#/invite` `#/link` だけ) に、預けたトークンで本来の画面に直す。
+ * トークンを読んで消し、履歴を残さずに置き換える。預けたものが無ければ何もしない (ホームが出る)
+ */
+export function resumePendingRoute(): void {
+  const path = window.location.hash.replace(/^#/, "").split("?")[0]!.replace(/\/+$/, "");
+  const kind = path === "/invite" ? "invite" : path === "/link" ? "link" : null;
+  if (!kind) return;
+  const token = takePending(kind);
+  if (!token) return;
+  const route = parseRoute(`#/${kind}/${encodeURIComponent(token)}`);
+  if (route.name === kind) replaceRoute(route);
+}
+
 /** 画面を移る。履歴に積む (ブラウザの戻るで戻れる) */
 export function navigate(route: Route): void {
   const hash = formatRoute(route);
   if (window.location.hash !== hash) window.location.hash = hash;
+  notify();
+}
+
+/** 画面を置き換える。履歴に積まない (トークンの入った URL を戻るで開き直させたくないとき、移る前の画面を残したくないとき) */
+export function replaceRoute(route: Route): void {
+  window.location.replace(formatRoute(route));
   notify();
 }
 

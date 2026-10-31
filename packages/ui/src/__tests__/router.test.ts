@@ -1,9 +1,56 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { currentRoute, formatRoute, navigate, parseRoute, useRoute } from "../router";
+import { currentRoute, formatRoute, navigate, parseRoute, replaceRoute, resumePendingRoute, toLoginReturn, useRoute } from "../router";
 
 beforeEach(() => {
   window.location.hash = "";
+  sessionStorage.clear();
+});
+
+describe("ログインの戻り先とトークンの預かり", () => {
+  it("招待・リンクのハッシュはトークンを抜いて sessionStorage に預け、それ以外はそのまま返す", () => {
+    expect(toLoginReturn("#/invite/abc_-1")).toBe("#/invite");
+    expect(toLoginReturn("#/link/xyz")).toBe("#/link");
+    expect(sessionStorage.getItem("untie.pendingInvite")).toBe("abc_-1");
+    expect(sessionStorage.getItem("untie.pendingLink")).toBe("xyz");
+    expect(toLoginReturn("#/f/f1")).toBe("#/f/f1");
+    expect(toLoginReturn("#/")).toBe("#/");
+  });
+
+  it("戻ってきた #/invite・#/link は、預けたトークンで本来の画面に置き換え、預かりは消す", () => {
+    window.location.hash = "#/invite";
+    sessionStorage.setItem("untie.pendingInvite", "tok1");
+    resumePendingRoute();
+    expect(currentRoute()).toEqual({ name: "invite", token: "tok1" });
+    expect(sessionStorage.getItem("untie.pendingInvite")).toBeNull();
+    window.location.hash = "#/link";
+    sessionStorage.setItem("untie.pendingLink", "tok2");
+    resumePendingRoute();
+    expect(currentRoute()).toEqual({ name: "link", token: "tok2" });
+    expect(sessionStorage.getItem("untie.pendingLink")).toBeNull();
+  });
+
+  it("預かりが無い・形が違うトークン・他のハッシュなら、何も変えない", () => {
+    window.location.hash = "#/invite";
+    resumePendingRoute();
+    expect(window.location.hash).toBe("#/invite");
+    sessionStorage.setItem("untie.pendingLink", "bad token!");
+    window.location.hash = "#/link";
+    resumePendingRoute();
+    expect(window.location.hash).toBe("#/link");
+    window.location.hash = "#/f/f1";
+    sessionStorage.setItem("untie.pendingInvite", "tok");
+    resumePendingRoute();
+    expect(window.location.hash).toBe("#/f/f1");
+    expect(sessionStorage.getItem("untie.pendingInvite")).toBe("tok");
+  });
+
+  it("replaceRoute は履歴に積まずに画面を置き換える", () => {
+    const before = window.history.length;
+    replaceRoute({ name: "file", fileId: "f9" });
+    expect(currentRoute()).toEqual({ name: "file", fileId: "f9" });
+    expect(window.history.length).toBe(before);
+  });
 });
 
 describe("parseRoute", () => {

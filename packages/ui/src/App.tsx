@@ -14,6 +14,7 @@ import { selectReadOnly, useUntieStore } from "./store";
 import { ROLE_LABELS } from "@untie/api";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
+import { LinkGuestNotice } from "./components/share/LinkGuestNotice";
 
 const RIGHT_PANEL_LABELS = { properties: "プロパティ", issues: "課題一覧", trace: "検証" } as const;
 
@@ -26,14 +27,17 @@ export default function App() {
   const agentOpen = useAgentStore((s) => s.open);
   const readOnly = useUntieStore(selectReadOnly);
   const role = useUntieStore((s) => s.cloud?.role);
+  const link = useUntieStore((s) => s.cloud?.link);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const builtin = fixedLayer !== null || analysis !== null;
   return (
     <div className="app">
       {readOnly && role && (
-        <div className="readonly-banner" role="status">
-          閲覧専用です (役割: {ROLE_LABELS[role]})
+        <div className="readonly-banner">
+          <span role="status">閲覧専用です (役割: {ROLE_LABELS[role]})</span>
+          {/* リンクで閲覧しているゲストには、ログイン (または複製) の導線を添える */}
+          {link !== undefined && role === "guest" && <LinkGuestNotice token={link} />}
         </div>
       )}
       <Toolbar />

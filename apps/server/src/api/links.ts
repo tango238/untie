@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { PutLinkRequestSchema } from "@untie/api";
-import type { LinkInfo, LinkResponse, Role, TicketResponse } from "@untie/api";
+import type { LinkInfo, LinkResponse, PresenceResponse, Role, TicketResponse } from "@untie/api";
 import type { AppEnv } from "../env";
 import { generateToken, sha256Hex } from "../auth/crypto";
 import { appOrigin, optionalUser, requireSession } from "../auth/session";
@@ -11,7 +11,7 @@ import { getFileByLink, getMemberRole, setLinkToken, setLinkTokenIfNone } from "
 import type { LinkedFile } from "../db/links";
 import type { UserRow } from "../db/types";
 import { notFound } from "../errors";
-import { exportRoomModel, kickRoomQuietly } from "../rooms";
+import { exportRoomModel, kickRoomQuietly, presenceRoom } from "../rooms";
 import { assertNotInTrash, requireRole } from "./authz";
 import { duplicateFile } from "./createFile";
 import { exportResponse } from "./exportResponse";
@@ -87,6 +87,12 @@ linkRoutes.post("/ticket", async (c) => {
     via: "link",
   });
   return c.json({ ticket, role, expiresAt } satisfies TicketResponse);
+});
+
+// いまルームにつながっている人 (files の presence と同じ。ゲストも読める)
+linkRoutes.get("/presence", async (c) => {
+  const { file } = await resolveLink(c);
+  return c.json({ presence: await presenceRoom(c.env, file.id) } satisfies PresenceResponse);
 });
 
 linkRoutes.get("/export", async (c) => {

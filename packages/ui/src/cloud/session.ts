@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { ApiError, type ProviderId, type User } from "@untie/api";
 import { getPlatform } from "../platform";
+import { toLoginReturn } from "../router";
 import { useUntieStore } from "../store";
 import { getApi, hasServer, notifyUnauthorized, onUnauthorized } from "./api";
 
@@ -19,8 +20,8 @@ export interface SessionState {
 
   /** サーバーに聞いて状態を決める。サーバー未設定なら anonymous で providers は空。実行中に重ねて呼んでも 1 回だけ叩く */
   load: () => Promise<void>;
-  /** ログインを始める (Web は別のページへ移る) */
-  login: (provider: ProviderId) => Promise<void>;
+  /** ログインを始める (Web は別のページへ移る)。戻り先は省略するといまの画面 (ハッシュ) */
+  login: (provider: ProviderId, returnTo?: string) => Promise<void>;
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
 }
@@ -95,9 +96,10 @@ export const useSessionStore = create<SessionState>()((set, get) => {
       return loading;
     },
 
-    login: async (provider) => {
+    login: async (provider, returnTo) => {
       try {
-        await getPlatform().login(provider, window.location.hash || "#/");
+        // 招待・リンクのトークンは、ログインの URL に載せない (サーバーのログに残る)。預けて、戻り先はトークンなしにする
+        await getPlatform().login(provider, toLoginReturn(returnTo ?? (window.location.hash || "#/")));
       } catch (e) {
         toast(messageOf(e));
       }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CLOSE_LINK_DISABLED } from "@untie/api";
 import { sha256Hex } from "../auth/crypto";
 import { getRoom } from "../rooms";
-import { callWorker, env, loginAs, resetDb } from "./helpers";
+import { callWorker, env, loginAs, resetDb, userIdOf } from "./helpers";
 import type { Client } from "./helpers";
 import { closeAllClients, connectRoom, expectClient } from "./roomClient";
 import { closedCode, createFile, join, share, tick, tok, tokenOf } from "./shareHelpers";
@@ -258,5 +258,48 @@ describe("無効化と作り直し", () => {
     await enableLink(taro, id);
     await tick();
     expect(owner.closed).toBeNull();
+  });
+});
+
+describe("GET /api/files/:id/presence と GET /api/links/presence", () => {
+  it("メンバーは、いまつながっている人 (チケットから決めた userId・名前・役割) を読める。ゲストは userId なしの「ゲスト N」", async () => {
+    const taro = await loginAs("taro@example.com", "太郎");
+    const hanako = await loginAs("hanako@example.com", "花子");
+    const id = await createFile(taro);
+    await share(taro, id, hanako, "editor");
+    const { token } = await enableLink(taro, id);
+    const hanakoId = await userIdOf(hanako);
+    const empty = await hanako.json(`/api/files/${id}/presence`);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ presence: [] });
+    await join(hanako, id);
+    await guestJoin(token, id);
+    const viaFile = await hanako.json(`/api/files/${id}/presence`);
+    expect(viaFile.body.presence).toHaveLength(2);
+    expect(viaFile.body.presence).toEqual(
+      expect.arrayContaining([
+        { userId: hanakoId, name: "花子", role: "editor" },
+        { userId: null, name: "ゲスト 1", role: "guest" },
+      ]),
+    );
+    // リンクのトークンでも (ゲストでも) 同じ一覧が読める。レスポンスはキャッシュさせない
+    const viaLink = await guestJson("/api/links/presence", { headers: tok(token) });
+    expect(viaLink.status).toBe(200);
+    expect(viaLink.body.presence).toHaveLength(2);
+    expect(viaLink.response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("メンバーでない人は 404、未ログインは 401。リンクのトークンが無効・ヘッダー無しは 404。ゴミ箱の中は owner に 409", async () => {
+    const taro = await loginAs("taro@example.com");
+    const stranger = await loginAs("stranger@example.com");
+    const id = await createFile(taro);
+    const { token } = await enableLink(taro, id);
+    expect((await stranger.json(`/api/files/${id}/presence`)).status).toBe(404);
+    expect((await guestJson(`/api/files/${id}/presence`)).status).toBe(401);
+    expect((await guestJson("/api/links/presence", { headers: tok("nothing") })).status).toBe(404);
+    expect((await guestJson("/api/links/presence")).status).toBe(404);
+    await taro.fetch(`/api/files/${id}`, { method: "DELETE" });
+    expect((await taro.json(`/api/files/${id}/presence`)).status).toBe(409);
+    expect((await guestJson("/api/links/presence", { headers: tok(token) })).status).toBe(404);
   });
 });

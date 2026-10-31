@@ -1,20 +1,20 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { ApiError } from "@untie/api";
+import { ApiError, type Role } from "@untie/api";
 import { createHotelSample } from "@untie/core/sample";
 import { useAgentStore } from "../../ai/agentStore";
 import { useSessionStore } from "../../cloud/session";
 import { currentRoute, navigate } from "../../router";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
-import { user } from "../../test/server";
+import { fakeServer, summary, user, type FakeServer } from "../../test/server";
 import { resetStore } from "../../test/utils";
 import { CloudEditor } from "../CloudEditor";
 
 // 接続そのもの (collab.ts) と、エディタ本体 (キャンバスが ResizeObserver を使う) は代役にする
 const { openCloudFile, closeCloudFile } = vi.hoisted(() => ({
-  openCloudFile: vi.fn<(fileId: string) => Promise<void>>(),
+  openCloudFile: vi.fn<(fileId: string, options?: { link?: string }) => Promise<void>>(),
   closeCloudFile: vi.fn<() => void>(),
 }));
 vi.mock("../../cloud/collab", () => ({ openCloudFile, closeCloudFile }));
@@ -24,9 +24,9 @@ const st = () => useUntieStore.getState();
 const toasts = () => st().toasts.map((t) => t.message);
 
 /** 読み込めた状態にする (collab.ts がやること) */
-function loadCloud(fileId = "f1", status: "loading" | "connected" = "connected") {
+function loadCloud(fileId = "f1", status: "loading" | "connected" = "connected", role: Role = "editor", link?: string) {
   act(() => {
-    st().loadCloudDocument(createHotelSample(), { fileId, role: "editor", doc: new Y.Doc(), status });
+    st().loadCloudDocument(createHotelSample(), { fileId, role, doc: new Y.Doc(), status, link });
   });
 }
 
@@ -186,5 +186,152 @@ describe("CloudEditor", () => {
     unmount();
     expect(cancel).toHaveBeenCalledTimes(2);
     navigate({ name: "home" });
+  });
+});
+
+describe("CloudEditor: 役割が変わったとき (4001)", () => {
+  it("ホームへは戻さず、新しい役割でその場につなぎ直して、役割が変わったと知らせる", async () => {
+    render(<CloudEditor fileId="f1" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud("f1", "connected", "editor");
+    // つなぎ直すと、サーバーが返す新しい役割で開く
+    openCloudFile.mockImplementationOnce(async (id) => {
+      loadCloud(id, "connected", "viewer");
+    });
+    act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+    expect(openCloudFile).toHaveBeenLastCalledWith("f1");
+    await waitFor(() => expect(toasts()).toEqual(["役割が閲覧者に変わりました"]));
+    // 落ち着いたあとも、つなぎ直しは 1 回だけ (開き直しがまた 4001 を呼ぶ・effect が走り直す、などで増えない)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(openCloudFile).toHaveBeenCalledTimes(2);
+    expect(toasts()).toEqual(["役割が閲覧者に変わりました"]);
+    expect(currentRoute()).toEqual({ name: "file", fileId: "f1" });
+    expect(st().cloud?.role).toBe("viewer");
+    expect(st().cloud?.closed).toBeUndefined();
+  });
+
+  it("つなぎ直しに失敗したら (外された、など) ホームへ戻して理由を出す", async () => {
+    render(<CloudEditor fileId="f1" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud();
+    openCloudFile.mockRejectedValueOnce(new ApiError(404, "ファイルが見つかりません", "file_not_found"));
+    act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "home" }));
+    expect(toasts()).toEqual(["このファイルは開けません"]);
+  });
+
+  it.each([
+    [4003, "共有から外されました"],
+    [4004, "リンクが無効になりました"],
+  ])("%i はこれまでどおり、理由を出してホームへ戻す (つなぎ直さない)", async (code, reason) => {
+    render(<CloudEditor fileId="f1" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud();
+    act(() => st().setCloudClosed({ code, reason }));
+    expect(toasts()).toEqual([reason]);
+    expect(currentRoute()).toEqual({ name: "home" });
+    expect(openCloudFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("CloudEditor: リンクで開く (#/link/<token>)", () => {
+  let server: FakeServer;
+  beforeEach(() => {
+    server = fakeServer({ signedIn: false });
+    server.others = [summary({ id: "f1", name: "リンクのファイル", ownerId: "u9", ownerName: "山田" })];
+    server.shares.f1 = { members: [], invitations: [], linkToken: "tok" };
+    window.location.hash = "#/link/tok";
+  });
+  afterEach(() => server.restore());
+
+  it("ログインしていなくても開く。links.get でファイルを引き、link を付けて openCloudFile を呼ぶ (ホームへは戻さない)", async () => {
+    useSessionStore.setState({ status: "anonymous", user: null });
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledWith("f1", { link: "tok" }));
+    expect(toasts()).toEqual([]);
+    expect(currentRoute()).toEqual({ name: "link", token: "tok" });
+    const info = server.calls.find((c) => c.path === "/api/links/info")!;
+    expect(info.headers["X-Untie-Token"]).toBe("tok");
+    // 読み込めたらエディタを出す
+    expect(screen.getByText("読み込み中…")).toBeTruthy();
+    loadCloud("f1", "connected", "guest", "tok");
+    expect(screen.getByText("エディタ")).toBeTruthy();
+  });
+
+  it("メンバー (所有者を含む) がリンクで開いたら、via: link のままにせず #/f/<id> に置き換えてメンバーとして開く (トークンも URL から消える)", async () => {
+    useSessionStore.setState({ status: "signedIn", user });
+    server.signedIn = true;
+    server.others = [];
+    server.mine = [summary({ id: "f1", name: "リンクのファイル", role: "owner" })];
+    const before = window.history.length;
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "file", fileId: "f1" }));
+    expect(window.location.hash).toBe("#/f/f1");
+    expect(window.location.hash).not.toContain("tok");
+    expect(window.history.length).toBe(before);
+    // この画面は link のままでは開かない (あとは Root が #/f/<id> の CloudEditor を出す)
+    await act(async () => {});
+    expect(openCloudFile).not.toHaveBeenCalled();
+  });
+
+  it("ログインの状態が分かるまでは待つ", async () => {
+    useSessionStore.setState({ status: "unknown", user: null });
+    render(<CloudEditor link="tok" />);
+    await act(async () => {});
+    expect(server.calls.filter((c) => c.path === "/api/links/info")).toHaveLength(0);
+    act(() => useSessionStore.setState({ status: "anonymous" }));
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledWith("f1", { link: "tok" }));
+  });
+
+  it("無効なリンク (links.get が 404) は「このリンクは無効です」と出してホームへ。開かない", async () => {
+    render(<CloudEditor link="nothing" />);
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "home" }));
+    expect(toasts()).toEqual(["このリンクは無効です"]);
+    expect(openCloudFile).not.toHaveBeenCalled();
+  });
+
+  it("チケットが 404 (取る直前に無効にされた) でも同じ", async () => {
+    openCloudFile.mockRejectedValue(new ApiError(404, "リンクが見つかりません", "link_not_found"));
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "home" }));
+    expect(toasts()).toEqual(["このリンクは無効です"]);
+  });
+
+  it("リンクの無効化で閉じられた (4004) ら、理由を出してホームへ戻す", async () => {
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud("f1", "connected", "guest", "tok");
+    act(() => st().setCloudClosed({ code: 4004, reason: "リンクが無効になりました" }));
+    expect(toasts()).toEqual(["リンクが無効になりました"]);
+    expect(currentRoute()).toEqual({ name: "home" });
+  });
+
+  it("4001 では link を付けたままつなぎ直す", async () => {
+    useSessionStore.setState({ status: "signedIn", user });
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud("f1", "connected", "guest", "tok");
+    openCloudFile.mockImplementationOnce(async (id, options) => {
+      loadCloud(id, "connected", "editor", options?.link);
+    });
+    act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+    expect(openCloudFile).toHaveBeenLastCalledWith("f1", { link: "tok" });
+    await waitFor(() => expect(toasts()).toEqual(["役割が編集者に変わりました"]));
+    // links.get はつなぎ直しでは引き直さない
+    expect(server.calls.filter((c) => c.path === "/api/links/info")).toHaveLength(1);
+  });
+
+  it("保存していないローカルの編集があれば、リンクでも開く前に確かめる", async () => {
+    act(() => {
+      st().dispatch((m) => ({ ok: true, model: { ...m, meta: { ...m.meta, name: "ローカルの編集" } } }));
+    });
+    memory().discard = false;
+    render(<CloudEditor link="tok" />);
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "local" }));
+    expect(openCloudFile).not.toHaveBeenCalled();
   });
 });

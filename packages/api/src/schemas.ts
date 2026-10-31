@@ -159,6 +159,14 @@ export type PutLinkRequest = z.infer<typeof PutLinkRequestSchema>;
 export const LinkInfoSchema = z.object({ fileId: z.string(), name: z.string(), role: RoleSchema });
 export type LinkInfo = z.infer<typeof LinkInfoSchema>;
 
+/** いまルームにつながっている人の 1 人分 (サーバーが接続のチケットから決めた値。awareness の自己申告とは違い、偽れない)。ゲストは userId が null で、名前は「ゲスト N」 */
+export const PresenceEntrySchema = z.object({ userId: z.string().nullable(), name: z.string(), role: RoleSchema });
+export type PresenceEntry = z.infer<typeof PresenceEntrySchema>;
+
+/** `GET /files/:id/presence`・`GET /links/presence`。同じ人が複数のタブでつないでいれば、その数だけ並ぶ */
+export const PresenceResponseSchema = z.object({ presence: z.array(PresenceEntrySchema) });
+export type PresenceResponse = z.infer<typeof PresenceResponseSchema>;
+
 export const ErrorBodySchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });

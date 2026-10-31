@@ -7,7 +7,7 @@ import { useSessionStore } from "../../../cloud/session";
 import * as doc from "../../../io/document";
 import { useUntieStore } from "../../../store";
 import { memory } from "../../../test/platform";
-import { fakeServer, summary, user, type FakeServer } from "../../../test/server";
+import { apiError, fakeServer, summary, user, type FakeServer } from "../../../test/server";
 import { resetStore } from "../../../test/utils";
 import Home from "../Home";
 import { formatRelativeTime } from "../relativeTime";
@@ -382,6 +382,79 @@ describe("Home: できないこと・失敗・操作性", () => {
     useSessionStore.setState({ status: "anonymous", providers: [], hasServer: true, error: "ログイン方法を取得できませんでした" });
     render(<Home />);
     expect(screen.getByText(/ログイン方法を取得できませんでした/)).toBeTruthy();
+  });
+});
+
+describe("Home: 共有", () => {
+  it("「共有」は所有者の行にだけ出る (共有されたファイルの行には出ない)", async () => {
+    signedIn();
+    render(<Home />);
+    await screen.findByText("ホテルの業務");
+    expect(within(rowOf("ホテルの業務")).getByRole("button", { name: "共有" })).toBeTruthy();
+    expect(within(rowOf("ホテルの業務")).queryByRole("button", { name: "共有をやめる" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: /共有されたファイル/ }));
+    expect(within(rowOf("共有されたもの")).queryByRole("button", { name: "共有" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: /ゴミ箱/ }));
+    expect(within(rowOf("古いもの")).queryByRole("button", { name: "共有" })).toBeNull();
+  });
+
+  it("「共有」で共有ダイアログが開き、閉じるとホームに戻る", async () => {
+    signedIn();
+    render(<Home />);
+    await screen.findByText("ホテルの業務");
+    fireEvent.click(within(rowOf("ホテルの業務")).getByRole("button", { name: "共有" }));
+    await screen.findByRole("dialog", { name: "「ホテルの業務」を共有" });
+    expect(server.calls.some((c) => c.method === "GET" && c.path === "/api/files/a")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("共有ダイアログでの変更は、ホームの一覧 (メンバーの数) にも反映される", async () => {
+    server.users = [{ id: "u2", email: "b@example.com", name: "田中" }];
+    signedIn();
+    render(<Home />);
+    await screen.findByText("ホテルの業務");
+    fireEvent.click(within(rowOf("ホテルの業務")).getByRole("button", { name: "共有" }));
+    const input = await screen.findByLabelText("招待するメールアドレス");
+    fireEvent.change(input, { target: { value: "b@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "招待" }));
+    await screen.findByText("田中さんをメンバーに加えました");
+    await waitFor(() => expect(within(rowOf("ホテルの業務")).getByText("2 人")).toBeTruthy());
+  });
+
+  it("共有されたファイルの「共有をやめる」: 確認のあとで自分を外し、一覧から消える。取り消せば何もしない", async () => {
+    server.shares.s = {
+      members: [{ userId: "u2", email: "y@example.com", name: "山田", role: "owner", addedAt: 0 }, { userId: "u1", email: user.email, name: user.name, role: "viewer", addedAt: 0 }],
+      invitations: [],
+      linkToken: null,
+    };
+    signedIn();
+    render(<Home />);
+    await screen.findByText("ホテルの業務");
+    fireEvent.click(screen.getByRole("tab", { name: /共有されたファイル/ }));
+    fireEvent.click(within(rowOf("共有されたもの")).getByRole("button", { name: "共有をやめる" }));
+    const dialog = screen.getByRole("dialog", { name: "共有をやめる" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
+    expect(server.calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    fireEvent.click(within(rowOf("共有されたもの")).getByRole("button", { name: "共有をやめる" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "共有をやめる" })).getByRole("button", { name: "共有をやめる" }));
+    await waitFor(() => expect(screen.queryByText("共有されたもの")).toBeNull());
+    expect(server.calls.some((c) => c.method === "DELETE" && c.path === "/api/files/s/members/u1")).toBe(true);
+    expect(useUntieStore.getState().toasts.map((t) => t.message)).toContain("「共有されたもの」の共有をやめました");
+  });
+
+  it("editor の行にも「共有をやめる」が出る。失敗したらサーバーの文言をトーストに出して一覧はそのまま", async () => {
+    server.shared = [summary({ id: "e", name: "編集できる", role: "editor", ownerId: "u2", ownerName: "山田" })];
+    server.overrides["DELETE /api/files/e/members/u1"] = () => apiError(409, "conflict", "いま外せません");
+    signedIn();
+    render(<Home />);
+    await screen.findByText("ホテルの業務");
+    fireEvent.click(screen.getByRole("tab", { name: /共有されたファイル/ }));
+    fireEvent.click(within(rowOf("編集できる")).getByRole("button", { name: "共有をやめる" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "共有をやめる" })).getByRole("button", { name: "共有をやめる" }));
+    await waitFor(() => expect(useUntieStore.getState().toasts.map((t) => t.message)).toContain("いま外せません"));
+    expect(screen.getByText("編集できる")).toBeTruthy();
   });
 });
 

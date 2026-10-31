@@ -143,6 +143,22 @@ describe("login / logout", () => {
     expect(memory().logins[1]).toEqual({ provider: "google", returnTo: "#/" });
   });
 
+  it("招待・リンクのトークンはログインの戻り先 (URL に載る) に含めず、sessionStorage に預ける", async () => {
+    sessionStorage.clear();
+    await useSessionStore.getState().login("dev", "#/invite/tok-invite");
+    window.location.hash = "#/link/tok-link";
+    await useSessionStore.getState().login("dev");
+    expect(memory().logins).toEqual([
+      { provider: "dev", returnTo: "#/invite" },
+      { provider: "dev", returnTo: "#/link" },
+    ]);
+    expect(JSON.stringify(memory().logins)).not.toContain("tok-");
+    expect(sessionStorage.getItem("untie.pendingInvite")).toBe("tok-invite");
+    expect(sessionStorage.getItem("untie.pendingLink")).toBe("tok-link");
+    sessionStorage.clear();
+    window.location.hash = "";
+  });
+
   it("Platform の login が失敗したらトーストに出す", async () => {
     memory().login = async () => {
       throw new Error("デスクトップ版のログインは次の段階で対応します");

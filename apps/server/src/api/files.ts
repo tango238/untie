@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { emptyModel, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { CreateFileRequestSchema, RenameFileRequestSchema } from "@untie/api";
-import type { FileDetail, FilesResponse, TicketResponse, TrashResponse } from "@untie/api";
+import type { FileDetail, FilesResponse, PresenceResponse, TicketResponse, TrashResponse } from "@untie/api";
 import { issueTicket } from "../auth/ticket";
 import type { AppEnv } from "../env";
 import { deleteFileRows, getFileForUser, listFiles, listTrash, renameFile, setDeletedAt, toSummary } from "../db/files";
@@ -10,7 +10,7 @@ import { listPendingInvitations, toInvitation } from "../db/invitations";
 import { isLinkEnabled } from "../db/links";
 import { listMembers, toMember } from "../db/members";
 import { badRequest, conflict } from "../errors";
-import { destroyRoom, exportRoomModel, kickRoom, renameRoom } from "../rooms";
+import { destroyRoom, exportRoomModel, kickRoom, presenceRoom, renameRoom } from "../rooms";
 import { requireRole } from "./authz";
 import { limitBody, parseBody } from "./body";
 import { createFile, duplicateFile } from "./createFile";
@@ -103,6 +103,14 @@ fileRoutes.post("/:id/ticket", async (c) => {
     via: "member",
   });
   return c.json({ ticket, role: file.role, expiresAt } satisfies TicketResponse);
+});
+
+// いまルームにつながっている人。画面が awareness (自己申告) の userId・名前をこれと照らして、偽りを表示から外す。
+// メンバーなら読める (ゴミ箱の中のファイルは、チケットと同じく owner 以外は 404、owner には 409)
+fileRoutes.get("/:id/presence", async (c) => {
+  const file = await requireRole(c, c.req.param("id"), "read");
+  if (file.deleted_at !== null) throw conflict("ゴミ箱の中のファイルは開けません。先に戻してください", "in_trash");
+  return c.json({ presence: await presenceRoom(c.env, file.id) } satisfies PresenceResponse);
 });
 
 // ゴミ箱へ

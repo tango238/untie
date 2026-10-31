@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { ApiError } from "@untie/api";
+import { ApiError, type PresenceEntry, type Role } from "@untie/api";
 import { createHotelSample } from "@untie/core/sample";
 import { hasUnsavedChanges, useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -232,6 +232,118 @@ describe("attachPresence", () => {
   });
 });
 
+describe("attachPresence: サーバーの一覧で照らす (verify)", () => {
+  let awareness: Awareness;
+  const others: Awareness[] = [];
+  const entry = (userId: string | null, name: string, role: Role = "editor"): PresenceEntry => ({ userId, name, role });
+  /** 他の人の自己申告を、自分の awareness に写す */
+  const join = (state: Record<string, unknown>) => {
+    const a = new Awareness(new Y.Doc());
+    others.push(a);
+    a.setLocalState({ color: "#3e63dd", boardId: null, selection: null, ...state });
+    applyAwarenessUpdate(awareness, encodeAwarenessUpdate(a, [a.clientID]), "remote");
+    return a;
+  };
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+  beforeEach(() => {
+    vi.useFakeTimers();
+    awareness = new Awareness(new Y.Doc());
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    awareness.destroy();
+    for (const a of others.splice(0)) a.destroy();
+  });
+
+  it("一覧に userId が無い人は「ゲスト」にし (名前も userId も捨てる)、ある人の名前はサーバーの値にする", async () => {
+    const verify = vi.fn<() => Promise<PresenceEntry[]>>().mockResolvedValue([entry("u2", "花子")]);
+    const stop = attachPresence(awareness, { userId: "u1", name: "自分" }, { verify });
+    await flush();
+    join({ userId: "u2", name: "花子になりすました名前" });
+    join({ userId: "u9", name: "偽者" });
+    join({ userId: null, name: "ゲスト 7" });
+    // 来たばかりの人は、次の一覧が届くまで自己申告のまま
+    expect(st().peers.map((p) => p.name).sort()).toEqual(["ゲスト 7", "偽者", "花子になりすました名前"].sort());
+    await vi.advanceTimersByTimeAsync(1000);
+    const named = st().peers.filter((p) => p.userId === "u2");
+    expect(named.map((p) => p.name)).toEqual(["花子"]);
+    const guests = st().peers.filter((p) => p.userId === null);
+    expect(guests).toHaveLength(2);
+    expect(guests.every((p) => p.name === "ゲスト")).toBe(true);
+    stop();
+  });
+
+  it("最初の一覧が届くまでは自己申告のまま。取れなければそのまま", async () => {
+    let release!: (v: PresenceEntry[]) => void;
+    const verify = vi
+      .fn<() => Promise<PresenceEntry[]>>()
+      .mockImplementationOnce(() => new Promise<PresenceEntry[]>((resolve) => (release = resolve)))
+      .mockResolvedValue([entry("u2", "花子 (サーバー)")]);
+    const stop = attachPresence(awareness, { userId: "u1", name: "自分" }, { verify });
+    join({ userId: "u2", name: "花子" });
+    expect(st().peers.map((p) => p.name)).toEqual(["花子"]);
+    release([]);
+    await flush();
+    // 来る前に取った一覧は、あとから来た人を覆わない (自己申告のまま)。次の取得で揃う
+    expect(st().peers.map((p) => p.name)).toEqual(["花子"]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(st().peers.map((p) => p.name)).toEqual(["花子 (サーバー)"]);
+    stop();
+
+    const failing = vi.fn<() => Promise<PresenceEntry[]>>().mockRejectedValue(new Error("つながりません"));
+    const other = new Awareness(new Y.Doc());
+    const stop2 = attachPresence(other, { userId: "u1", name: "自分" }, { verify: failing });
+    await flush();
+    const peer = new Awareness(new Y.Doc());
+    others.push(peer, other);
+    peer.setLocalState({ userId: "u3", name: "次郎", color: "#3e63dd", boardId: null, selection: null });
+    applyAwarenessUpdate(other, encodeAwarenessUpdate(peer, [peer.clientID]), "remote");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(st().peers.map((p) => p.name)).toEqual(["次郎"]);
+    stop2();
+  });
+
+  it("選択が変わっただけでは取り直さない。人が来る・抜けるたびに、前の取得から 1 秒空けて取る", async () => {
+    const verify = vi.fn<() => Promise<PresenceEntry[]>>().mockResolvedValue([entry("u2", "花子")]);
+    const stop = attachPresence(awareness, { userId: "u1", name: "自分" }, { verify });
+    await flush();
+    expect(verify).toHaveBeenCalledTimes(1);
+    const hanako = join({ userId: "u2", name: "花子" });
+    // 取ったばかりなので、1 秒たつまで待つ
+    await vi.advanceTimersByTimeAsync(500);
+    expect(verify).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(verify).toHaveBeenCalledTimes(2);
+    // 選択だけの変化は取り直さない
+    hanako.setLocalStateField("selection", { type: "element", id: "actor_front" });
+    applyAwarenessUpdate(awareness, encodeAwarenessUpdate(hanako, [hanako.clientID]), "remote");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(st().peers[0]!.selection).toEqual({ type: "element", id: "actor_front" });
+    // 抜けたら取り直す
+    hanako.setLocalState(null);
+    applyAwarenessUpdate(awareness, encodeAwarenessUpdate(hanako, [hanako.clientID]), "remote");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(verify).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
+  it("一覧に載らない人がいても、取り直しは回数に上限がある。解除したあとに届いた応答は捨てる", async () => {
+    const verify = vi.fn<() => Promise<PresenceEntry[]>>().mockResolvedValue([]);
+    const stop = attachPresence(awareness, { userId: "u1", name: "自分" }, { verify });
+    await flush();
+    join({ userId: "u9", name: "偽者" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    // 最初の 1 回 + 人が来たときの 1 回 + 載るのを待つ取り直し 3 回
+    expect(verify).toHaveBeenCalledTimes(5);
+    expect(st().peers.map((p) => [p.userId, p.name])).toEqual([[null, "ゲスト"]]);
+    stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(verify).toHaveBeenCalledTimes(5);
+    expect(st().peers).toEqual([]);
+  });
+});
+
 describe("openCloudFile", () => {
   it("チケットを取ってつなぎ、最初の同期までは loading、同期したら connected にする", async () => {
     await openCloudFile("a");
@@ -434,3 +546,68 @@ describe("openCloudFile", () => {
     await expect(openCloudFile("t")).rejects.toMatchObject({ status: 409, code: "in_trash" });
   });
 });
+
+describe("openCloudFile: リンクで開く (link)", () => {
+  beforeEach(() => {
+    server.others = [summary({ id: "g", name: "リンクのファイル", ownerId: "u9", ownerName: "山田" })];
+    server.shares.g = { members: [], invitations: [], linkToken: "tok" };
+  });
+
+  it("チケットは links.ticket で取る (X-Untie-Token ヘッダー、files.ticket は呼ばない)。ログインしていなくても開く", async () => {
+    server.signedIn = false;
+    useSessionStore.setState({ status: "anonymous", user: null });
+    await openCloudFile("g", { link: "tok" });
+    const ticket = server.calls.filter((c) => c.path === "/api/links/ticket");
+    expect(ticket).toHaveLength(1);
+    expect(ticket[0]!.headers["X-Untie-Token"]).toBe("tok");
+    expect(ticket[0]!.path).not.toContain("tok");
+    expect(server.calls.filter((c) => c.path === "/api/files/g/ticket")).toHaveLength(0);
+    expect(st().cloud).toMatchObject({ fileId: "g", role: "guest", link: "tok" });
+    expect(provider().room).toBe("g");
+  });
+
+  it("再接続のたびも links.ticket で取り直す。リンクが無効になっていたら (404) 閉じられた扱いにして再接続しない", async () => {
+    await openCloudFile("g", { link: "tok" });
+    const p = provider();
+    expect(await p.options.params()).toEqual({ ticket: "ticket-link-g" });
+    expect(await p.options.params()).toEqual({ ticket: "ticket-link-g" });
+    expect(server.calls.filter((c) => c.path === "/api/links/ticket")).toHaveLength(2);
+    expect(server.calls.filter((c) => c.path === "/api/files/g/ticket")).toHaveLength(0);
+    server.shares.g!.linkToken = null;
+    await expect(p.options.params()).rejects.toMatchObject({ status: 404 });
+    expect(st().cloud?.closed).toMatchObject({ code: 4003 });
+    expect(p.disconnected).toBe(true);
+  });
+
+  it("ゲストのプレゼンスは、ログインしていても「ゲスト」で userId なし。サーバーの「ゲスト n」は使わない", async () => {
+    // ログイン済みでもメンバーでなければ guest で開く
+    await openCloudFile("g", { link: "tok" });
+    expect(provider().awareness.getLocalState()).toMatchObject({ userId: null, name: "ゲスト" });
+  });
+
+  it("ログイン済みでメンバーなら、メンバーの役割で開き、自分の名前でプレゼンスを出す", async () => {
+    server.shared = [summary({ id: "g", role: "editor", ownerId: "u9", ownerName: "山田" })];
+    server.others = [];
+    await openCloudFile("g", { link: "tok" });
+    expect(st().cloud).toMatchObject({ role: "editor", link: "tok" });
+    expect(provider().awareness.getLocalState()).toMatchObject({ userId: "u1", name: "テスト太郎" });
+  });
+
+  it("他の人の自己申告は、リンクなら links.presence (X-Untie-Token)、メンバーなら files.presence の一覧で照らす", async () => {
+    await openCloudFile("g", { link: "tok" });
+    await vi.waitFor(() => expect(server.calls.some((c) => c.path === "/api/links/presence")).toBe(true));
+    const call = server.calls.find((c) => c.path === "/api/links/presence")!;
+    expect(call.headers["X-Untie-Token"]).toBe("tok");
+    closeCloudFile();
+    await openCloudFile("a");
+    await vi.waitFor(() => expect(server.calls.some((c) => c.path === "/api/files/a/presence")).toBe(true));
+  });
+
+  it("無効なリンクのチケット (404) は ApiError を投げ、ストアを触らない", async () => {
+    server.shares.g!.linkToken = null;
+    await expect(openCloudFile("g", { link: "tok" })).rejects.toMatchObject({ status: 404 });
+    expect(st().cloud).toBeNull();
+    expect(FakeProvider.last).toBeNull();
+  });
+});
+

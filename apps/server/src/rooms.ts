@@ -1,4 +1,5 @@
 import { getServerByName } from "partyserver";
+import type { PresenceEntry } from "@untie/api";
 import type { UntieModel } from "@untie/core";
 import type { KickTarget } from "@untie/collab/room";
 import type { Env } from "./env";
@@ -28,6 +29,11 @@ export async function exportRoomModel(env: RoomEnv, fileId: string): Promise<Unt
 
 export async function renameRoom(env: RoomEnv, fileId: string, name: string): Promise<void> {
   await (await getRoom(env, fileId)).rename(name);
+}
+
+/** いまルームにつながっている人 (接続のチケットから決めた userId・名前・役割) */
+export async function presenceRoom(env: RoomEnv, fileId: string): Promise<PresenceEntry[]> {
+  return (await getRoom(env, fileId)).presence();
 }
 
 export async function destroyRoom(env: RoomEnv, fileId: string): Promise<void> {

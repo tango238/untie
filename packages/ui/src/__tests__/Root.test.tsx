@@ -33,7 +33,7 @@ describe("Root", () => {
     expect(useSessionStore.getState().status).toBe("anonymous");
   });
 
-  it("#/local ではエディタ、#/f/<id> ではクラウドファイルの読み込み、招待・リンクはホームを出す", async () => {
+  it("#/local ではエディタ、#/f/<id> ではクラウドファイルの読み込み、#/invite/<t> は招待を受ける画面、#/link/<t> はリンクで開く", async () => {
     render(<Root />);
     act(() => navigate({ name: "local" }));
     expect(screen.getByRole("button", { name: "ホーム" })).toBeTruthy();
@@ -44,9 +44,21 @@ describe("Root", () => {
     expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
 
     act(() => navigate({ name: "invite", token: "t" }));
-    expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "招待" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "ローカル" })).toBeNull();
     act(() => navigate({ name: "link", token: "t" }));
-    expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
+    expect(screen.getByText("読み込み中…")).toBeTruthy();
+    // 無効なリンクならホームへ戻る
+    await waitFor(() => expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy());
+  });
+
+  it("ログインから戻った #/invite は、預けたトークンの招待を受ける画面に直す", async () => {
+    window.location.hash = "#/invite";
+    sessionStorage.setItem("untie.pendingInvite", "tok");
+    render(<Root />);
+    expect(window.location.hash).toBe("#/invite/tok");
+    expect(screen.getByRole("region", { name: "招待" })).toBeTruthy();
+    expect(sessionStorage.getItem("untie.pendingInvite")).toBeNull();
   });
 
   it("ホームで「サンプルを開く」を押すとエディタに移り、ツールバーの「ホーム」で戻れる", async () => {
