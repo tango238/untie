@@ -2,6 +2,7 @@
 // 画面とストアは、ここに書いた Platform だけを通してファイル・ダイアログ・キー置き場に触れる。
 // 実装は apps/web と apps/desktop にあり、起動時に createApp(platform) が setPlatform で差し込む。
 // packages/ui からは @tauri-apps/* を import しない。
+import type { ProviderId } from "@untie/api";
 
 /** Untie のモデルファイルの拡張子 */
 export const FILE_EXTENSION = "json";
@@ -72,6 +73,15 @@ export interface Platform {
   /** API キーなどの秘密の置き場 (デスクトップは OS のキーチェーン) */
   secrets: SecretStore;
   recentFiles: RecentFileStore;
+  /** サーバーの URL (Web は自分のオリジン、デスクトップは設定したもの)。空文字ならサーバー未設定で、クラウドの機能は使えない */
+  serverOrigin(): string;
+  /**
+   * ログインを始める。Web は同じタブで /auth/login へ移る (戻ってくるときは returnTo の画面)。
+   * デスクトップは既定のブラウザを開いて deep link で戻る (別の段階で対応)
+   */
+  login(provider: ProviderId, returnTo: string): Promise<void>;
+  /** セッションの送り方。Web は Cookie なのでそのまま返す。デスクトップはキーチェーンのトークンを Authorization に付ける */
+  authorize(init: RequestInit): Promise<RequestInit>;
 }
 
 let current: Platform | null = null;

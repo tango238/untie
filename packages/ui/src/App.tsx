@@ -10,7 +10,6 @@ import { useKeyboard } from "./components/useKeyboard";
 import { parseAnalysisBoardId } from "@untie/core/model/analysis";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
-import { useCloseGuard } from "./io/useCloseGuard";
 import { useUntieStore } from "./store";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
@@ -19,7 +18,6 @@ const RIGHT_PANEL_LABELS = { properties: "プロパティ", issues: "課題一�
 
 export default function App() {
   useKeyboard();
-  useCloseGuard();
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const rightPanelOpen = useUntieStore((s) => s.ui.rightPanelOpen ?? true);
   const setRightPanelOpen = useUntieStore((s) => s.setRightPanelOpen);

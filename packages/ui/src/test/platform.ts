@@ -23,6 +23,10 @@ export interface MemoryPlatform extends Platform {
   contents: Map<string, string>;
   /** 閉じる前の確認として登録されているもの */
   closeGuards: Set<() => boolean>;
+  /** serverOrigin が返すサーバーの URL (空にすると「サーバー未設定」) */
+  origin: string;
+  /** login で呼ばれたログイン (provider と戻り先) */
+  logins: { provider: string; returnTo: string }[];
 }
 
 export function memoryPlatform(): MemoryPlatform {
@@ -37,6 +41,8 @@ export function memoryPlatform(): MemoryPlatform {
     openedUrls: [],
     contents: new Map(),
     closeGuards: new Set(),
+    origin: "http://test",
+    logins: [],
 
     async openTextFile() {
       return p.opened;
@@ -58,6 +64,12 @@ export function memoryPlatform(): MemoryPlatform {
       p.closeGuards.add(hasUnsavedChanges);
       return () => p.closeGuards.delete(hasUnsavedChanges);
     },
+
+    serverOrigin: () => p.origin,
+    async login(provider, returnTo) {
+      p.logins.push({ provider, returnTo });
+    },
+    authorize: async (init) => init,
 
     secrets: {
       async get(key) {

@@ -286,5 +286,14 @@ export function webPlatform(): Platform {
 
     secrets: webSecrets(),
     recentFiles: recentFileStore(handles, canReopenFiles),
+
+    // サーバーは自分のオリジン (Vite の開発サーバーは /api・/auth を wrangler dev へ渡す)
+    serverOrigin: () => location.origin,
+    // 同じタブでログインへ移る。戻り先はハッシュ (#/...)
+    async login(provider, returnTo) {
+      location.assign(`/auth/login?provider=${encodeURIComponent(provider)}&return=${encodeURIComponent(returnTo)}`);
+    },
+    // Cookie で認証するので、リクエストはそのまま
+    authorize: async (init) => init,
   };
 }

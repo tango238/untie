@@ -3,16 +3,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@xyflow/react/dist/style.css";
-import App from "./App";
+import Root from "./Root";
 import { setPlatform, type Platform } from "./platform";
 import "./styles/app.css";
 
 /** Platform を差し込んでから、画面を root に描画する */
 export function createApp(platform: Platform, root: HTMLElement = document.getElementById("root") as HTMLElement): void {
   setPlatform(platform);
+  // ハッシュが無ければホーム (#/) から始める
+  if (!window.location.hash) window.history.replaceState(null, "", "#/");
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <App />
+      <Root />
     </React.StrictMode>,
   );
 }

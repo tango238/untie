@@ -1,6 +1,7 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { validateModel } from "@untie/core/model/validate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
+import { createHotelSample } from "@untie/core/sample";
 import { hasUnsavedChanges, useUntieStore } from "../store";
 import { getPlatform, type OpenedFile, type RecentFile } from "../platform";
 
@@ -20,9 +21,29 @@ export function parseModel(text: string): { ok: true; model: UntieModel } | { ok
   return validateModel(json);
 }
 
-const suggestedName = (model: UntieModel) => `${(model.meta.name || "untie").replace(/[\\\\/:*?"<>|]/g, "_")}.json`;
+/** ファイル名に使えない文字を置き換える (改行などの制御文字は取り除く)。空になったら "untie" */
+export function safeFileName(name: string): string {
+  const cleaned = name.replace(/[\u0000-\u001f\u007f]/g, "").replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 100);
+  return cleaned || "untie";
+}
+
+const suggestedName = (model: UntieModel) => `${safeFileName(model.meta.name)}.json`;
 
 const DISCARD_MESSAGE = "保存していない変更があります。破棄して続けますか？";
+
+/** 未保存の変更があれば、捨ててよいか確かめる。続けてよければ true */
+export async function confirmDiscardIfDirty(message = DISCARD_MESSAGE, okLabel?: string): Promise<boolean> {
+  return !hasUnsavedChanges(useUntieStore.getState()) || (await getPlatform().confirmDiscard(message, okLabel));
+}
+
+/** 起動時のサンプルを開き直す (ホームの「サンプルを開く」)。未保存の変更があれば先に確かめる。開けたら true */
+export async function openSampleDocument(): Promise<boolean> {
+  if (!(await confirmDiscardIfDirty())) return false;
+  const st = useUntieStore.getState();
+  st.newDocument(createHotelSample(), { pristine: true });
+  st.pushToast("サンプルを開きました", "info");
+  return true;
+}
 
 /** 空の新しいモデルにする。未保存の変更の確認は呼ぶ側で済ませておく */
 export function newEmptyDocument(): void {
@@ -47,22 +68,23 @@ function loadOpened(opened: OpenedFile): boolean {
   return true;
 }
 
-/** ファイルを開く。未保存の変更があれば先に確かめる */
-export async function openDocument(): Promise<void> {
+/** ファイルを開く。未保存の変更があれば先に確かめる。開けたら true (取り消し・失敗は false) */
+export async function openDocument(): Promise<boolean> {
   const st = useUntieStore.getState();
-  if (hasUnsavedChanges(st) && !(await getPlatform().confirmDiscard(DISCARD_MESSAGE))) return;
+  if (!(await confirmDiscardIfDirty())) return false;
   try {
     const opened = await getPlatform().openTextFile();
-    if (opened) loadOpened(opened);
+    return opened ? loadOpened(opened) : false;
   } catch (e) {
     st.pushToast(`開けませんでした: ${String(e)}`, "error");
+    return false;
   }
 }
 
-/** 最近開いたファイルを開く。読めなければ (消えた・動かしたなど) 一覧から外す */
-export async function openRecentDocument(file: RecentFile): Promise<void> {
+/** 最近開いたファイルを開く。読めなければ (消えた・動かしたなど) 一覧から外す。開けたら true */
+export async function openRecentDocument(file: RecentFile): Promise<boolean> {
   const st = useUntieStore.getState();
-  if (hasUnsavedChanges(st) && !(await getPlatform().confirmDiscard(DISCARD_MESSAGE))) return;
+  if (!(await confirmDiscardIfDirty())) return false;
   let opened: OpenedFile;
   try {
     opened = await getPlatform().recentFiles.read(file);
@@ -70,9 +92,9 @@ export async function openRecentDocument(file: RecentFile): Promise<void> {
     const missing = file.path !== undefined || (e instanceof DOMException && e.name === "NotFoundError");
     if (missing) await getPlatform().recentFiles.remove(file);
     st.pushToast(`「${file.name}」を開けませんでした${missing ? " (最近開いたファイルから外しました)" : ""}: ${e instanceof Error ? e.message : String(e)}`, "error");
-    return;
+    return false;
   }
-  loadOpened(opened);
+  return loadOpened(opened);
 }
 
 /** 保存する。asNew なら保存先を選び直す */

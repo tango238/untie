@@ -151,3 +151,11 @@ describe("最近開いたファイル (Web)", () => {
     await expect(platform.recentFiles.read({ name: "a.json", handle: handle as unknown as FileSystemFileHandle })).rejects.toThrow("許可がありません");
   });
 });
+
+describe("サーバーとの接続 (Platform)", () => {
+  it("serverOrigin は自分のオリジン、authorize はリクエストをそのまま返す (Cookie で認証)", async () => {
+    expect(platform.serverOrigin()).toBe(location.origin);
+    const init = { method: "GET", headers: { Accept: "application/json" } };
+    expect(await platform.authorize(init)).toBe(init);
+  });
+});

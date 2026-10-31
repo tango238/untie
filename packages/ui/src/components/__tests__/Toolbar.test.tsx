@@ -1,10 +1,14 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addElement, removeBoard } from "@untie/core/model/commands";
 import type { Platform } from "../../platform";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
+import { useFilesStore } from "../../cloud/files";
+import { useSessionStore } from "../../cloud/session";
+import { fakeServer, summary, user, type FakeServer } from "../../test/server";
+import { useAgentStore } from "../../ai/agentStore";
 import { handleKeyDown } from "../useKeyboard";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Toolbar, nextBoardName } from "../Toolbar";
@@ -332,7 +336,7 @@ describe("キーボードショートカット", () => {
       { name: "b.json", path: "/docs/y/b.json" },
     ];
     const load = vi.spyOn(memory().recentFiles, "load").mockResolvedValue(entries);
-    const openRecent = vi.spyOn(doc, "openRecentDocument").mockResolvedValue();
+    const openRecent = vi.spyOn(doc, "openRecentDocument").mockResolvedValue(true);
     try {
       render(<Toolbar />);
       fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
@@ -376,5 +380,101 @@ describe("Untie について", () => {
     expect(within(dialog).getByRole("button", { name: "x.com/tan_go238" })).toBeDefined();
     fireEvent.click(within(dialog).getByRole("button", { name: "閉じる" }));
     expect(screen.queryByRole("dialog", { name: "Untie について" })).toBeNull();
+  });
+});
+
+describe("ホームとクラウドへ保存", () => {
+  let server: FakeServer | null = null;
+  beforeEach(() => {
+    window.location.hash = "#/local";
+    useSessionStore.setState({ status: "anonymous", user: null, providers: [], hasServer: true, error: null });
+    useFilesStore.getState().reset();
+  });
+  afterEach(() => {
+    server?.restore();
+    server = null;
+  });
+
+  it("左端に「ホーム」ボタンがあり、変更がなければそのまま #/ へ移る", async () => {
+    render(<Toolbar />);
+    const home = screen.getByRole("button", { name: "ホーム" });
+    expect(home.parentElement?.firstElementChild).toBe(home);
+    fireEvent.click(home);
+    await waitFor(() => expect(window.location.hash).toBe("#/"));
+  });
+
+  it("未保存の変更があれば confirmDiscard で確かめる。断れば移らず、承知すれば移る", async () => {
+    render(<Toolbar />);
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "x" }));
+    });
+    const confirm = vi.fn(async () => false);
+    memory().confirmDiscard = confirm;
+    fireEvent.click(screen.getByRole("button", { name: "ホーム" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(window.location.hash).toBe("#/local");
+    expect(st().history.past.length).toBeGreaterThan(0);
+
+    confirm.mockResolvedValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "ホーム" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/"));
+    // 捨てると決めたので、編集中のモデルは初期のサンプルに戻る (ホームで次に開くときに聞き直さない)
+    expect(st().history.past).toHaveLength(0);
+  });
+
+  it("ホームへ出るときは、走っている AI エージェントを止める", async () => {
+    const cancel = vi.spyOn(useAgentStore.getState(), "cancel");
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "ホーム" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/"));
+    expect(cancel).toHaveBeenCalledOnce();
+    cancel.mockRestore();
+  });
+
+  it("「クラウドへ保存」は実行中は押せない (二重に作らない)", async () => {
+    server = fakeServer();
+    let release!: () => void;
+    server.overrides["POST /api/files"] = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(new Response(JSON.stringify(summary({ id: "n", name: "N" })), { status: 201 }));
+      });
+    useSessionStore.setState({ status: "signedIn", user });
+    render(<Toolbar />);
+    const open = () => fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    open();
+    fireEvent.click(screen.getByRole("menuitem", { name: /クラウドへ保存/ }));
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    open();
+    expect((screen.getByRole("menuitem", { name: /クラウドへ保存/ }) as HTMLButtonElement).disabled).toBe(true);
+    release();
+    await waitFor(() => expect(st().toasts.some((t) => t.message.startsWith("クラウドに「"))).toBe(true));
+    await waitFor(() => expect((screen.getByRole("menuitem", { name: /クラウドへ保存/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(server.calls.filter((c) => c.method === "POST" && c.path === "/api/files")).toHaveLength(1);
+  });
+
+  it("「クラウドへ保存」はログイン中のファイルメニューにだけ出る", () => {
+    const { unmount } = render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    expect(screen.queryByRole("menuitem", { name: /クラウドへ保存/ })).toBeNull();
+    unmount();
+
+    act(() => useSessionStore.setState({ status: "signedIn", user }));
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    expect(screen.getByRole("menuitem", { name: /クラウドへ保存/ })).toBeDefined();
+  });
+
+  it("「クラウドへ保存」で今のモデルを create して、トーストを出す。ローカルの編集はそのまま", async () => {
+    server = fakeServer();
+    useSessionStore.setState({ status: "signedIn", user });
+    render(<Toolbar />);
+    const model = st().model;
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /クラウドへ保存/ }));
+    await waitFor(() => expect(st().toasts.some((t) => t.message === `クラウドに「${model.meta.name}」を作りました`)).toBe(true));
+    const post = server.calls.find((c) => c.method === "POST" && c.path === "/api/files")!;
+    expect((post.body as { model: { meta: { name: string } } }).model.meta.name).toBe(model.meta.name);
+    expect(st().model).toBe(model);
+    expect(window.location.hash).toBe("#/local");
   });
 });

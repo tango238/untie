@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { traceToActors } from "@untie/core/model/trace";
-import { newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { createHotelSample } from "@untie/core/sample";
+import { saveLocalToCloud } from "../cloud/files";
+import { useSessionStore } from "../cloud/session";
+import { confirmDiscardIfDirty, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
 import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
@@ -51,6 +55,18 @@ export function Toolbar() {
   // 固定ボード・分析ボードはアプリが組み立てるので、名前変更・削除はできない
   const fixed = isBuiltinBoard(currentBoardId);
 
+  // 未保存の変更があれば確かめてからホームへ戻る。捨てると決めたら編集中のモデルも初期のサンプルに戻す
+  // (ホームで次に開くときに、同じ確認をもう一度聞かないため)
+  const goHome = async () => {
+    if (dirty) {
+      if (!(await confirmDiscardIfDirty("保存していない変更があります。破棄してホームへ戻りますか？", "破棄してホームへ"))) return;
+      useUntieStore.getState().newDocument(createHotelSample(), { pristine: true });
+    }
+    // 走っている AI エージェントはモデルを書き換え続けてしまうので、ホームへ出る前に止める
+    useAgentStore.getState().cancel();
+    navigate({ name: "home" });
+  };
+
   const handleAddBoard = () => {
     const result = dispatch((m) => addBoard(m, { name: nextBoardName(m.boards.map((b) => b.name)) }));
     if (result.ok) setCurrentBoard(result.id);
@@ -70,6 +86,9 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="toolbar-row">
+        <button type="button" className="toolbar-home" title="ホーム (ファイルの一覧) へ戻る" onClick={() => void goHome()}>
+          ホーム
+        </button>
         <h1 className="app-name">
           <button type="button" title="Untie について" onClick={() => setDialog("about")}>
             Untie
@@ -239,13 +258,16 @@ export function Toolbar() {
   );
 }
 
-/** ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・プロンプトから作成 */
+/** ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・クラウドへ保存・プロンプトから作成 */
 function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFromPrompt: () => void }) {
   const [open, setOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   // 読み込むまでは null (前に開いたときの一覧を出すと、読み込み後に並びが変わってフォーカスが外れる)
   const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
+  const signedIn = useSessionStore((s) => s.status === "signedIn");
+  // クラウドへ保存している間は押せない (二重に作らない)
+  const [savingToCloud, setSavingToCloud] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const recentRef = useRef<HTMLButtonElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
@@ -278,11 +300,12 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
     setOpen(false);
     setRecentOpen(false);
   };
-  const item = (label: string, shortcut: string, action: () => void) => (
+  const item = (label: string, shortcut: string, action: () => void, disabled = false) => (
     <button
       type="button"
       role="menuitem"
       className="menu-item"
+      disabled={disabled}
       // 別の項目に移ったら、最近開いたファイルのサブメニューを閉じる
       onFocus={() => setRecentOpen(false)}
       onMouseEnter={() => setRecentOpen(false)}
@@ -385,6 +408,16 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
           </div>
           {item("保存", "⌘S", () => void saveDocument())}
           {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
+          {signedIn &&
+            item(
+              "クラウドへ保存",
+              "",
+              () => {
+                setSavingToCloud(true);
+                void saveLocalToCloud().finally(() => setSavingToCloud(false));
+              },
+              savingToCloud,
+            )}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}
           {item("AI の設定…", "", () => setSettingsOpen(true))}

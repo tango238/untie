@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { Platform } from "@untie/ui/platform";
 import { desktopPlatform } from "../platform";
@@ -105,5 +105,40 @@ describe("デスクトップアプリの閉じる前の確認", () => {
     off();
     expect(win.off).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(win.off).toHaveBeenCalled());
+  });
+});
+
+describe("サーバーとの接続", () => {
+  afterEach(() => localStorage.removeItem("untie.serverOrigin"));
+
+  it("serverOrigin は localStorage の untie.serverOrigin のオリジン。無ければ空 (サーバー未設定)", () => {
+    expect(platform.serverOrigin()).toBe("");
+    localStorage.setItem("untie.serverOrigin", "https://untie.example.com");
+    expect(platform.serverOrigin()).toBe("https://untie.example.com");
+  });
+
+  it("serverOrigin は URL として読み、パスや末尾のスラッシュは落とす。http(s) 以外や読めないものは空", () => {
+    for (const [value, expected] of [
+      ["https://untie.example.com/", "https://untie.example.com"],
+      ["http://localhost:8787/app/x?y=1#z", "http://localhost:8787"],
+      ["untie.example.com", ""],
+      ["ftp://untie.example.com", ""],
+      ["javascript:alert(1)", ""],
+      ["not a url", ""],
+      ["", ""],
+    ] as const) {
+      localStorage.setItem("untie.serverOrigin", value);
+      expect(platform.serverOrigin(), value).toBe(expected);
+    }
+  });
+
+  it("login は次の段階まで未対応", async () => {
+    await expect(platform.login("google", "#/")).rejects.toThrow("デスクトップ版のログインは次の段階で対応します");
+  });
+
+  it("authorize は 6 段階目まで init をそのまま返す (キーチェーンは読まない)", async () => {
+    const init = { method: "GET", headers: { Accept: "application/json" } };
+    expect(await platform.authorize(init)).toBe(init);
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

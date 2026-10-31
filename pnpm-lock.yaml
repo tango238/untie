@@ -200,6 +200,9 @@ importers:
       '@google/genai':
         specifier: ^2.31.0
         version: 2.31.0
+      '@untie/api':
+        specifier: workspace:*
+        version: link:../api
       '@untie/core':
         specifier: workspace:*
         version: link:../core

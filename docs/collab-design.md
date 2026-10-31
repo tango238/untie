@@ -109,8 +109,8 @@ export interface Platform {
   recentFiles: RecentFileStore;
   /** サーバーの URL (Web は自分のオリジン、デスクトップは設定で変えられる) */
   serverOrigin(): string;
-  /** ログイン。Web は同じタブで /auth/login へ移る。デスクトップは既定のブラウザを開いて deep link で戻る (7.3) */
-  login(provider: ProviderId): Promise<void>;
+  /** ログイン。Web は同じタブで /auth/login へ移り、returnTo (`#/...` のハッシュ) の画面へ戻る。デスクトップは既定のブラウザを開いて deep link で戻る (7.3)。ProviderId は `@untie/api` の `"google" | "dev"` */
+  login(provider: ProviderId, returnTo: string): Promise<void>;
   /** セッションの送り方。Web は Cookie (何もしない)、デスクトップはキーチェーンのトークンを Authorization に付ける */
   authorize(request: RequestInit): Promise<RequestInit>;
 }
@@ -142,7 +142,7 @@ apps/server ─┬─> core
 | クラウドファイル | サーバーに置くファイル。id は `nanoid` 21 文字。中身は Durable Object (ルーム) に、名前・所有者・メンバーは D1 に置く。開くと常に同時編集の経路になる |
 | メンバー | ファイルに付いたユーザーと役割。所有者は 1 人 (作った人。譲れる) |
 | 招待 | まだユーザーでないメールアドレスへの共有。受けた人がログインすると、そのメールのメンバーになる |
-| リンク閲覧 | 所有者が有効にしたファイルは、リンク (`/link/<トークン>`) を知っている人なら誰でも、ログインせずに閲覧できる。ゲストとして viewer 相当になる (3.6) |
+| リンク閲覧 | 所有者が有効にしたファイルは、リンク (`/#/link/<トークン>`) を知っている人なら誰でも、ログインせずに閲覧できる。ゲストとして viewer 相当になる (3.6) |
 | ゴミ箱 | 消したファイルは 30 日残し、所有者が戻せる。30 日で中身ごと消す |
 
 ### 3.2 役割と権限
@@ -244,7 +244,7 @@ create index invitations_email on invitations(email, accepted_at);
 
 ### 3.6 リンクを知っている人の閲覧
 
-- 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/link/<トークン>`。
+- 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/#/link/<トークン>` (画面側はハッシュでルーティングするため、`#` が要る)。
 - 無効にすると `link_token` を null にする。「リンクを作り直す」は新しいトークンに置き換える (前のリンクは使えなくなる)。
 - リンクを開いた人は、ログインしていなくても閲覧できる。`POST /api/links/:token/ticket` はセッションが無くても通り、`{ fileId, userId: null, name: "ゲスト", role: "guest", via: "link" }` のチケットを返す。ログインしていて、かつそのファイルのメンバーなら、メンバーの役割のチケットを返す (editor がリンクから開いても編集できる)。
 - ゲストはプレゼンスに「ゲスト」と番号で出る。書き出し (`GET /api/links/:token/export`) はできる。複製はログインしてから (「複製するにはログイン」を出す)。
@@ -478,16 +478,28 @@ export class UntieRoom extends YServer<Env> {
          ├ ローカルファイルを開く ─> エディタ (いまのまま)
          ├ 新規作成 ─> クラウド (ログイン済み) / ローカル
          └ ローカルファイルをクラウドへ (POST /files に model を送る)
-エディタ ─ ツールバー左の「ホーム」でファイル一覧へ戻る。右端にアカウントメニュー (名前・ログアウト)
+エディタ ─ ツールバー左の「ホーム」でファイル一覧へ戻る。アカウントメニュー (名前・ログアウト) はホームの右上に置き、エディタには出さない (ホームのアカウントメニューで代える)
 ```
+
+**ルート** (`packages/ui/src/router.ts`)。ハッシュで画面を分ける。サーバーには `#` の後ろが届かないので、どの URL も同じ `index.html` を返せばよい。サーバーが作る招待・リンクの URL は `/#/invite/<token>`・`/#/link/<token>` にする (`/invite/...` では開けない)。
+
+| ハッシュ | 画面 |
+| --- | --- |
+| `#/` | ホーム。空や、読めないハッシュもここ。起動時にハッシュが無ければ `#/` にする |
+| `#/local` | ローカル編集 (いまのエディタ) |
+| `#/f/<fileId>` | クラウドファイル (4 段階目から同時編集。3 段階目は案内だけ) |
+| `#/invite/<token>` | 招待を受ける (5 段階目。それまではホームを出す) |
+| `#/link/<token>` | リンクで開く (5 段階目。それまではホームを出す) |
+
+`fileId`・`token` は `/^[A-Za-z0-9_-]{1,64}$/` に合うものだけ受け、合わなければホームにする。
 
 | 場所 | 内容 |
 | --- | --- |
 | ホーム | 「自分のファイル」「共有されたファイル」「ゴミ箱」のタブ。名前・更新日時・役割・メンバー。行の操作: 開く、名前を変える、複製、書き出す、共有、ゴミ箱へ。「最近開いたローカルファイル」もここに並べる |
 | ログイン | 「Google でログイン」のボタン。デスクトップは「ブラウザでログインしています…」の待ち画面と、deep link が使えないときの引換コードの入力欄 |
 | 共有ダイアログ | メンバー一覧 (名前・メール・役割の選択・外す)、メールアドレスと役割で招待、未承諾の招待の一覧と取り消し、所有者を譲る。「リンクを知っている人が閲覧できる」のスイッチと、リンクを写す・作り直す。owner だけ開ける |
-| 招待を受ける画面 | `/invite/<token>` を開くと、ログイン (必要なら) → 受けるかの確認 → 受けたらそのファイルを開く |
-| リンクで開く画面 | `/link/<token>` を開くと、ログインせずにそのままエディタ (閲覧専用) を開く。上の帯に「リンクで閲覧中。ログインすると複製できます」。ログイン済みでメンバーならその役割で開く |
+| 招待を受ける画面 | `#/invite/<token>` を開くと、ログイン (必要なら) → 受けるかの確認 → 受けたらそのファイルを開く |
+| リンクで開く画面 | `#/link/<token>` を開くと、ログインせずにそのままエディタ (閲覧専用) を開く。上の帯に「リンクで閲覧中。ログインすると複製できます」。ログイン済みでメンバーならその役割で開く |
 | エディタ (クラウド) | ツールバーに接続状態 (接続中 / 切断。再接続します)、参加者の色玉 (ゲストは灰色)、役割。viewer と guest は上に「閲覧専用」の帯。Undo / Redo は無効。Cmd/Ctrl+S は書き出し |
 | カード・固定ボード | 他の人の選択を色付きの縁で出す (awareness) |
 | プロパティ欄 | 他の人が同じ要素を編集中なら名前の横に表示する (ロックはしない)。viewer は入力欄をすべて読み取り専用にする |
@@ -495,7 +507,10 @@ export class UntieRoom extends YServer<Env> {
 
 ### 8.2 ストア
 
-- `session: { status: "unknown" | "anonymous" | "signedIn", user? }` を足す。起動時に `GET /me` で決める。401 なら anonymous。
+- `session` ストア (`packages/ui/src/cloud/session.ts`): `status: "unknown" | "anonymous" | "signedIn"`、`user`、`providers: ProviderId[]` (`GET /auth/providers`)、`hasServer` (`Platform.serverOrigin()` が空でないか。空なら API を呼ばず anonymous)、`error` (つながらない・ログイン方法を取れない、など)。起動時に `Root` が `load()` を呼び、`GET /auth/providers` と `GET /api/me` で決める (実行中に重ねて呼んでも 1 回だけ叩く)。`/api/me` が 401 なら anonymous で、失敗ではない。
+- **401 の扱い**: 使っている途中の 401 (セッション切れ・別の端末でのログアウト) は `cloud/api.ts` の `onUnauthorized` 1 か所で受ける。`session` が anonymous に戻して「ログインの有効期限が切れました」を出し、`files` が一覧を空にする (両者は互いを import せず、この購読口だけでつながる)。`logout` / `logoutAll` は 401 を成功とみなして手元の状態を消す。
+- `files` ストア (`cloud/files.ts`): `mine` / `shared` / `trash` / `loading` / `loaded` / `error` と、`refresh`・`create`・`rename`・`duplicate`・`exportToFile`・`trashFile`・`restore`・`purge`。操作の失敗は `ApiError.message` をそのままトーストに出す。書き出しは `files.export` で JSON を取って `parseModel` で検めてから `Platform.saveTextFile` へ渡す (ダウンロード URL は使わない。デスクトップでも動く)。モデルの名前が空なら「名前なし」にして送る。
+- ローカルの編集 (ホーム画面まわり): ツールバーの「ホーム」は、未保存の変更があれば `confirmDiscard` で確かめ、破棄すると決めたら編集中のモデルを起動時のサンプル (未変更) に戻し、走っている AI エージェントを止めてから `#/` へ移る。`openDocument` / `openRecentDocument` は開けたら `true` を返す (ホームが `#/local` へ移るかの判定に使う)。閉じる前の確認 (`useCloseGuard`) は `Root` に置き、ホームでも効く。
 - `document: { kind: "local", file } | { kind: "cloud", fileId, role, doc: UntieDoc, connection: status }` に、いまの `file` を広げる。
 - `dispatch` / `commitDrag` / `agentApply` は `document.kind === "cloud"` のとき Y.Doc に書く。`role === "viewer"` なら何もしない。
 - `history` はクラウドのとき空にし、積まない。

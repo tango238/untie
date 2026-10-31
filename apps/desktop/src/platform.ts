@@ -79,6 +79,9 @@ const secrets: SecretStore = {
 
 // ---- Platform ----
 
+/** サーバーの URL を置く localStorage のキー */
+const SERVER_ORIGIN_KEY = "untie.serverOrigin";
+
 async function confirmDiscard(message: string, okLabel = "破棄して続ける"): Promise<boolean> {
   const { ask } = await import("@tauri-apps/plugin-dialog");
   return ask(message, { title: "Untie", kind: "warning", okLabel, cancelLabel: "キャンセル" });
@@ -136,5 +139,24 @@ export function desktopPlatform(): Platform {
 
     secrets,
     recentFiles,
+
+    // 設定したサーバーの URL。http(s) の URL として読めるものだけ、オリジン (末尾のパスなどを除いたもの) にして返す。
+    // 無い・読めない・http(s) でないときは空 (サーバー未設定)
+    serverOrigin: () => {
+      try {
+        const url = new URL(localStorage.getItem(SERVER_ORIGIN_KEY) ?? "");
+        return url.protocol === "http:" || url.protocol === "https:" ? url.origin : "";
+      } catch {
+        return "";
+      }
+    },
+    async login() {
+      throw new Error("デスクトップ版のログインは次の段階で対応します");
+    },
+    // 6 段階目 (デスクトップのログイン) まではそのまま返す。Rust の get_api_key の許可リストに "session" がまだ無く、
+    // キーチェーンを読むと実機では必ず失敗してしまうため。6 段階目で、トークンがあれば Authorization: Bearer を付ける
+    async authorize(init) {
+      return init;
+    },
   };
 }
