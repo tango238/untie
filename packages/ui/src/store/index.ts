@@ -1,0 +1,327 @@
+import { create } from "zustand";
+import type { CommandResult } from "@untie/core/model/commands";
+import type { UntieModel } from "@untie/core/model/types";
+import { moveNode, type Position, type Size } from "@untie/core/model/commands";
+import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "@untie/core/model/fixedBoards";
+import { analysisBoardId, parseAnalysisBoardId } from "@untie/core/model/analysis";
+import { emptyModel } from "@untie/core/model/types";
+import type { GlobalFilter } from "@untie/core/model/lineage";
+import { createHotelSample } from "@untie/core/sample";
+
+/** 履歴の上限 */
+export const HISTORY_LIMIT = 100;
+
+export type Selection = { type: "element"; id: string } | { type: "relation"; id: string } | null;
+export type RightPanel = "properties" | "issues" | "trace";
+
+export interface UiState {
+  /** 自由ボード (モデルのボード) の id か、固定ボードの id ("fixed:<レイヤー>") */
+  currentBoardId: string;
+  /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
+  fixedFilters?: Partial<Record<FixedLayer, string>>;
+  /** 固定ボード共通のグローバルフィルター (レイヤーごとに選んだ要素 id。保存しない・履歴に積まない) */
+  globalFilter?: GlobalFilter;
+  /** 固定ボードの「書き方のヒント」を開いているか (未設定は閉じる。履歴に積まない) */
+  guideOpen?: boolean;
+  selection: Selection;
+  rightPanel: RightPanel;
+  /** 右のペイン (プロパティ・課題一覧・検証) を開いているか (未設定は開く。履歴に積まない) */
+  rightPanelOpen?: boolean;
+  /** 自由ボードの左のペイン (要素一覧) を開いているか (未設定は開く。履歴に積まない) */
+  elementListOpen?: boolean;
+  /**
+   * いま作ったばかりの課題 (プロパティ欄を「追加フォーム」として出す)。作ったときの対象を覚え、
+   * 「次の課題を登録する」で同じ対象の課題を続けて作る。別の要素を選ぶと消える (以後は編集フォーム)
+   */
+  issueDraft?: { id: string; targetIds: string[] };
+  /** 増えるたびにプロパティ欄の名前入力へフォーカスする */
+  nameFocusNonce: number;
+}
+
+export type ToastTone = "info" | "error";
+export interface ToastItem {
+  id: number;
+  message: string;
+  tone: ToastTone;
+}
+
+/** 開いているファイル。path は保存先 (ブラウザではファイルのハンドルの番号。上書きできないブラウザでは無い)、name は表示名 */
+export interface DocumentFile {
+  path: string | null;
+  name: string;
+}
+
+export interface UntieState {
+  model: UntieModel;
+  /** 開いているファイル (サンプルや新規なら null) */
+  file: DocumentFile | null;
+  /** 最後に保存・読み込みしたときのモデル。model と同じ参照なら未保存の変更は無い */
+  savedModel: UntieModel | null;
+  history: { past: UntieModel[]; future: UntieModel[] };
+  ui: UiState;
+  /** ドラッグ開始時点のモデル (ドラッグ中のみ非 null) */
+  dragBase: UntieModel | null;
+  /** AI エージェントが編集を始めた時点のモデル (エージェントの 1 回の応答の間だけ非 null) */
+  agentBase: UntieModel | null;
+  toasts: ToastItem[];
+
+  /** コマンドを実行し、成功したら履歴に積む。失敗や変更なしは何もしない */
+  dispatch: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
+  undo: () => void;
+  redo: () => void;
+  /** ドラッグ中の一時的な座標更新 (履歴に積まない) */
+  previewNode: (boardId: string, elementId: string, position: Position, size?: Size) => void;
+  /** ドラッグ中の一時的な変更 (複数ノードをまとめて動かすとき)。履歴に積まない */
+  previewCommand: (command: (model: UntieModel) => CommandResult) => void;
+  /** ドラッグ終了。ドラッグ全体を 1 件の履歴として確定する */
+  commitDrag: (command?: (model: UntieModel) => CommandResult) => void;
+  /** ドラッグを取り消して開始時点に戻す */
+  cancelDrag: () => void;
+
+  /** AI エージェントの編集を始める。終わるまでの編集は 1 件の履歴にまとめる */
+  beginAgentEdit: () => void;
+  /** AI エージェントの編集を 1 つ当てる (履歴には積まない) */
+  agentApply: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
+  /** AI エージェントの編集を終え、変わっていれば 1 件の履歴として確定する */
+  endAgentEdit: () => void;
+  /**
+   * 新しい (まだ保存していない) モデルにする。履歴と選択は捨てる。
+   * pristine なら手を付けていないモデルとして、保存していない変更なしで始める
+   */
+  newDocument: (model: UntieModel, options?: { pristine?: boolean }) => void;
+  /** 読み込んだモデルに置き換える。履歴と選択は捨てる */
+  loadDocument: (model: UntieModel, file: DocumentFile) => void;
+  /** model を保存したことを記録する (保存中に編集が進んでいれば、その分は未保存のまま) */
+  markSaved: (file: DocumentFile, model: UntieModel) => void;
+  setCurrentBoard: (boardId: string) => void;
+  setFixedFilter: (layer: FixedLayer, query: string) => void;
+  setGuideOpen: (open: boolean) => void;
+  setGlobalFilter: (layer: FixedLayer, ids: string[]) => void;
+  resetGlobalFilter: () => void;
+  select: (selection: Selection) => void;
+  /** 右のペインの中身を切り替える。閉じていれば開く */
+  setRightPanel: (panel: RightPanel) => void;
+  setRightPanelOpen: (open: boolean) => void;
+  setElementListOpen: (open: boolean) => void;
+  requestNameFocus: () => void;
+  pushToast: (message: string, tone?: ToastTone) => void;
+  dismissToast: (id: number) => void;
+}
+
+let toastSeq = 0;
+
+/**
+ * 起動時・新規作成・ファイルを開いたときに最初に出す画面。課題から紐解くので、
+ * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
+ */
+export const START_BOARD_ID = analysisBoardId("issues");
+const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true };
+
+/** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
+function reconcileUi(ui: UiState, model: UntieModel): UiState {
+  let { currentBoardId, selection } = ui;
+  if (!isBuiltinBoard(currentBoardId) && !model.boards.some((b) => b.id === currentBoardId)) {
+    currentBoardId = model.boards[0]?.id ?? fixedBoardId("activity");
+  }
+  if (selection) {
+    const exists =
+      selection.type === "element"
+        ? model.elements.some((e) => e.id === selection!.id)
+        : model.relations.some((r) => r.id === selection!.id);
+    if (!exists) selection = null;
+  }
+  if (currentBoardId === ui.currentBoardId && selection === ui.selection) return ui;
+  return { ...ui, currentBoardId, selection };
+}
+
+function pushPast(past: UntieModel[], snapshot: UntieModel): UntieModel[] {
+  const next = [...past, snapshot];
+  return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+}
+
+/** 固定ボードを開いているか */
+export function isFixedBoard(boardId: string): boolean {
+  return parseFixedBoardId(boardId) !== null;
+}
+
+/** 分析ボードを開いているか */
+export function isAnalysisBoard(boardId: string): boolean {
+  return parseAnalysisBoardId(boardId) !== null;
+}
+
+/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード) か */
+export function isBuiltinBoard(boardId: string): boolean {
+  return isFixedBoard(boardId) || isAnalysisBoard(boardId);
+}
+
+/** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
+export function createUntieStore(
+  initial: UntieModel = createHotelSample(),
+  startBoardId = initial.boards[0]?.id ?? "",
+  startPanel: RightPanel = "properties",
+) {
+  return create<UntieState>()((set, get) => ({
+    model: initial,
+    file: null,
+    savedModel: null,
+    history: { past: [], future: [] },
+    ui: { currentBoardId: startBoardId, selection: null, rightPanel: startPanel, nameFocusNonce: 0 },
+    dragBase: null,
+    agentBase: null,
+    toasts: [],
+
+    dispatch: (command) => {
+      // ドラッグ途中ならそれを先に確定する
+      if (get().dragBase) get().commitDrag();
+      const { model, history, ui } = get();
+      const result = command(model);
+      if (!result.ok || result.model === model) return result;
+      set({
+        model: result.model,
+        history: { past: pushPast(history.past, model), future: [] },
+        ui: reconcileUi(ui, result.model),
+      });
+      return result;
+    },
+
+    undo: () => {
+      // ドラッグ中は無視する (確定して直後に取り消すと、ドラッグが丸ごと消えてしまう)
+      if (get().dragBase) return;
+      const { model, history, ui } = get();
+      const prev = history.past[history.past.length - 1];
+      if (!prev) return;
+      set({
+        model: prev,
+        history: { past: history.past.slice(0, -1), future: [model, ...history.future] },
+        ui: reconcileUi(ui, prev),
+      });
+    },
+
+    redo: () => {
+      if (get().dragBase) return;
+      const { model, history, ui } = get();
+      const next = history.future[0];
+      if (!next) return;
+      set({
+        model: next,
+        history: { past: pushPast(history.past, model), future: history.future.slice(1) },
+        ui: reconcileUi(ui, next),
+      });
+    },
+
+    previewNode: (boardId, elementId, position, size) => {
+      const { model, dragBase } = get();
+      const result = moveNode(model, { boardId, elementId, position, size });
+      if (!result.ok) return;
+      set({ model: result.model, dragBase: dragBase ?? model });
+    },
+
+    previewCommand: (command) => {
+      const { model, dragBase } = get();
+      const result = command(model);
+      if (!result.ok || result.model === model) return;
+      set({ model: result.model, dragBase: dragBase ?? model });
+    },
+
+    commitDrag: (command) => {
+      const { model, dragBase, history, ui } = get();
+      // ドラッグ終了時に所属変更などを同じ 1 件の履歴にまとめる
+      let finalModel = model;
+      if (command) {
+        const result = command(model);
+        if (result.ok) finalModel = result.model;
+      }
+      const base = dragBase ?? model;
+      if (base === finalModel) {
+        set({ dragBase: null });
+        return;
+      }
+      set({
+        model: finalModel,
+        dragBase: null,
+        history: { past: pushPast(history.past, base), future: [] },
+        ui: reconcileUi(ui, finalModel),
+      });
+    },
+
+    cancelDrag: () => {
+      const { dragBase, ui } = get();
+      if (!dragBase) return;
+      set({ model: dragBase, dragBase: null, ui: reconcileUi(ui, dragBase) });
+    },
+
+    beginAgentEdit: () => {
+      if (get().dragBase) get().commitDrag();
+      if (!get().agentBase) set({ agentBase: get().model });
+    },
+    agentApply: (command) => {
+      const { model, ui } = get();
+      const result = command(model);
+      if (result.ok && result.model !== model) set({ model: result.model, ui: reconcileUi(ui, result.model) });
+      return result;
+    },
+    endAgentEdit: () => {
+      const { model, agentBase, history } = get();
+      if (!agentBase) return;
+      if (agentBase === model) {
+        set({ agentBase: null });
+        return;
+      }
+      set({ agentBase: null, history: { past: pushPast(history.past, agentBase), future: [] } });
+    },
+    newDocument: (model, options) =>
+      set((s) => ({
+        model,
+        file: null,
+        // まだ一度も保存していないので、保存していない変更ありとして扱う (pristine なら変更なし)
+        savedModel: options?.pristine ? model : emptyModel(),
+        history: { past: [], future: [] },
+        dragBase: null,
+        agentBase: null,
+        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+      })),
+
+    loadDocument: (model, file) =>
+      set((s) => ({
+        model,
+        file,
+        savedModel: model,
+        history: { past: [], future: [] },
+        dragBase: null,
+        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+      })),
+    markSaved: (file, model) => set({ file, savedModel: model }),
+
+    setCurrentBoard: (boardId) => {
+      if (!isBuiltinBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
+      set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null } }));
+    },
+    setFixedFilter: (layer, query) =>
+      set((s) => ({ ui: { ...s.ui, fixedFilters: { ...s.ui.fixedFilters, [layer]: query } } })),
+    setGuideOpen: (guideOpen) => set((s) => ({ ui: { ...s.ui, guideOpen } })),
+    setGlobalFilter: (layer, ids) =>
+      set((s) => ({ ui: { ...s.ui, globalFilter: { ...s.ui.globalFilter, [layer]: [...new Set(ids)] } } })),
+    resetGlobalFilter: () => set((s) => ({ ui: { ...s.ui, globalFilter: {} } })),
+    select: (selection) =>
+      set((s) => {
+        const keepDraft = s.ui.issueDraft && selection?.type === "element" && selection.id === s.ui.issueDraft.id;
+        return { ui: { ...s.ui, selection, issueDraft: keepDraft ? s.ui.issueDraft : undefined } };
+      }),
+    setRightPanel: (rightPanel) => set((s) => ({ ui: { ...s.ui, rightPanel, rightPanelOpen: true } })),
+    setRightPanelOpen: (rightPanelOpen) => set((s) => ({ ui: { ...s.ui, rightPanelOpen } })),
+    setElementListOpen: (elementListOpen) => set((s) => ({ ui: { ...s.ui, elementListOpen } })),
+    requestNameFocus: () => set((s) => ({ ui: { ...s.ui, nameFocusNonce: s.ui.nameFocusNonce + 1 } })),
+    pushToast: (message, tone = "info") =>
+      set((s) => ({ toasts: [...s.toasts.slice(-4), { id: ++toastSeq, message, tone }] })),
+    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  }));
+}
+
+/** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、アクティビティの固定ボードを開く */
+export const useUntieStore = createUntieStore(createHotelSample(), START_BOARD_ID, "issues");
+
+/** 保存していない変更があるか (サンプルや新規は、一度も保存していなければ変更ありとみなさない) */
+export function hasUnsavedChanges(state: Pick<UntieState, "model" | "savedModel" | "file" | "history">): boolean {
+  if (state.savedModel) return state.model !== state.savedModel;
+  return state.history.past.length > 0;
+}

@@ -23,10 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
-src-tauri/target
-src-tauri/gen
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
 coverage
-src-tauri/gen/schemas
+apps/desktop/src-tauri/gen/schemas
 
 *.tsbuildinfo
 

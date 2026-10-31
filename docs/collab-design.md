@@ -82,7 +82,7 @@ untie/
 | `src/io/file.ts`・`recent.ts`・`useCloseGuard.ts`・`ai/keys.ts` の `isTauri()` 分岐 | `apps/web/src/platform.ts` と `apps/desktop/src/platform.ts` に分割 |
 | `src/main.tsx`、`index.html`、`vite.config.ts` | `apps/web/` と `apps/desktop/` にそれぞれ |
 | `src-tauri/` | `apps/desktop/src-tauri/` |
-| `public/_headers` | `apps/server/public/_headers` |
+| `public/_headers` | `apps/server/public/_headers` (`apps/server` ができるまでは `apps/web/public/_headers` に置く) |
 | `scripts/gen-validator.mjs`、`gen:types` | `packages/core/` の scripts |
 
 ### 2.1 Platform インターフェース (ui が受け取る)
@@ -92,10 +92,20 @@ export interface Platform {
   kind: "web" | "desktop";
   openTextFile(): Promise<OpenedFile | null>;
   saveTextFile(text: string, path: string | null, suggestedName: string): Promise<SavedFile | null>;
+  /** ファイルを開き直せるか (Web は File System Access API のあるブラウザだけ。最近開いたファイルの可否に使う) */
+  canReopenFiles(): boolean;
   confirmDiscard(message: string, okLabel?: string): Promise<boolean>;
   openExternalUrl(url: string): Promise<void>;
-  onCloseRequested(guard: () => Promise<boolean>): () => void;
-  secrets: { get(key: string): Promise<string | null>; set(key: string, value: string): Promise<void>; delete(key: string): Promise<void> };
+  /** 閉じる前の確認。Web の beforeunload は同期でしか止められないので、確認ではなく「変更があるか」を渡す。戻り値で登録を外す */
+  onCloseRequested(hasUnsavedChanges: () => boolean): () => void;
+  secrets: {
+    get(key: string): Promise<string | null>;
+    /** remember は Web だけ: true ならこのブラウザ (localStorage) にも置き、false ならこのタブの間だけ覚える */
+    set(key: string, value: string, options?: { remember?: boolean }): Promise<void>;
+    delete(key: string): Promise<void>;
+    /** ブラウザに保存しているか (デスクトップは常に false) */
+    isRemembered(key: string): boolean;
+  };
   recentFiles: RecentFileStore;
   /** サーバーの URL (Web は自分のオリジン、デスクトップは設定で変えられる) */
   serverOrigin(): string;
@@ -487,7 +497,7 @@ export class UntieRoom extends YServer<Env> {
 - **サーバー**: `pnpm --filter server deploy` = `pnpm --filter web build && wrangler deploy`。`wrangler.jsonc` に `assets` (`../web/dist`)、D1、Durable Object、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars.ALLOWED_EMAIL_DOMAINS` (空) を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。
 - **Web**: `apps/web` は Vite の成果物を作るだけ。`_headers` は `apps/server/public/` から静的ファイルと一緒に配る。CSP の `connect-src` に `'self'` と `wss:` の自分のオリジンを足す。`frame-ancestors 'none'` はいまのまま。
 - **デスクトップ**: `apps/desktop` に `vite.config.ts` と `src-tauri/`。Release は `apps/desktop` で `tauri-action` を動かす (`projectPath` を変えるだけ)。
-- **core / api / collab / ui**: ビルドせず、`apps/*` の Vite と Worker が TypeScript を直接取り込む (`exports` は `src/*.ts` を指す)。型検査は tsconfig の project references でパッケージごとに行う。
+- **core / api / collab / ui**: ビルドせず、`apps/*` の Vite と Worker が TypeScript を直接取り込む (`exports` は `src/*.ts` を指す)。型検査はルートの `tsc -b` (ルートの `tsconfig.json` は各パッケージを references に並べるだけ) で行い、各パッケージの `tsconfig.json` は `tsconfig.base.json` を継承して `src` を見る。`composite` は使わない (パッケージ同士は `exports` 経由でソースを直接読むため)。core の `lib` は DOM 抜き (ES2022) にして、DOM に依存しないことを型検査で守る。
 - **開発**: `pnpm dev` でルートから `wrangler dev` (server、D1 と DO はローカル) と `vite` (web、`/api`・`/auth`・`/parties` を wrangler に proxy) を同時に動かす。Google の OIDC はローカル用の client id を使い、redirect に `http://localhost:8787/auth/callback` を登録する。
 - **CI**: `pnpm -r typecheck`、`pnpm -r test`、`check:types` (core)、`apps/server` の `wrangler deploy --dry-run`、`apps/desktop` の Vite ビルド。
 

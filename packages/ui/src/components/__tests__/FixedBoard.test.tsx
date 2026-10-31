@@ -1,0 +1,232 @@
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
+import { useUntieStore } from "../../store";
+import { resetStore } from "../../test/utils";
+import { FIXED_LAYERS } from "@untie/core/model/fixedBoards";
+import { FixedBoard } from "../FixedBoard";
+
+const st = () => useUntieStore.getState();
+const groupEl = (title: string) => screen.getByRole("region", { name: title });
+
+beforeEach(() => {
+  resetStore();
+  act(() => st().setCurrentBoard("fixed:activity"));
+});
+
+describe("FixedBoard", () => {
+  it("上位の要素ごとの枠に下位の要素を並べ、担当アクターのラベルを出す", () => {
+    render(<FixedBoard layer="activity" />);
+    const checkin = within(groupEl("チェックイン"));
+    expect(checkin.getByRole("button", { name: /鍵を渡す/ })).toBeDefined();
+    expect(checkin.getByLabelText("担当: フロント担当、宿泊客")).toBeDefined();
+  });
+
+  it("活動・作業・操作のボードには 3 段を並べた書き方のヒントを出し、今の段を強調する。最初は閉じ、開閉を覚える", () => {
+    const { unmount } = render(<FixedBoard layer="activity" />);
+    const guide = screen.getByText(/書き方のヒント/).closest("details")!;
+    expect(guide.open).toBe(false);
+    guide.open = true;
+    fireEvent(guide, new Event("toggle"));
+    expect(st().ui.guideOpen).toBe(true);
+    const current = [...guide.querySelectorAll("thead th.is-current")].map((e) => e.textContent);
+    expect(current).toEqual(["作業"]);
+    expect(within(guide).getByText(/一続きでやり終える/)).toBeDefined();
+    guide.open = false;
+    fireEvent(guide, new Event("toggle"));
+    expect(st().ui.guideOpen).toBe(false);
+    unmount();
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getByText(/書き方のヒント/).closest("details")!.open).toBe(false);
+  });
+
+  it("どの固定ボードにも書き方のヒントを出す。登場人物は 3 種類とも並ぶので強調しない", () => {
+    for (const layer of FIXED_LAYERS) {
+      const { unmount } = render(<FixedBoard layer={layer} />);
+      expect(screen.getByText(/書き方のヒント/)).toBeDefined();
+      unmount();
+    }
+    render(<FixedBoard layer="actor" />);
+    const guide = screen.getByText(/書き方のヒント/).closest("details")!;
+    expect(guide.querySelector("summary")!.textContent).toContain("アクター・外部アクター・システム");
+    expect(guide.querySelectorAll(".is-current")).toHaveLength(0);
+  });
+
+  it("絞り込みで一致する要素だけを出す", () => {
+    render(<FixedBoard layer="activity" />);
+    fireEvent.change(screen.getByLabelText("絞り込み"), { target: { value: "鍵" } });
+    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label")).filter((l) => l !== "グローバルフィルター")).toEqual(["チェックイン", "チェックアウト"]);
+    expect(st().ui.fixedFilters?.activity).toBe("鍵");
+    fireEvent.change(screen.getByLabelText("絞り込み"), { target: { value: "該当なし" } });
+    expect(screen.getByText(/一致する要素はありません/)).toBeDefined();
+  });
+
+  it("枠の「＋」で要素を作って所属させ、選択して名前欄へのフォーカスを依頼する", () => {
+    render(<FixedBoard layer="activity" />);
+    fireEvent.click(screen.getByRole("button", { name: "「飲食提供」に作業を追加" }));
+    const sel = st().ui.selection!;
+    expect(st().model.elements.find((e) => e.id === sel.id)).toMatchObject({ kind: "activity", bucId: "buc_dining" });
+    expect(st().ui.nameFocusNonce).toBe(1);
+    // 1 件の履歴で戻せる
+    st().undo();
+    expect(st().model.elements.some((e) => e.id === sel.id)).toBe(false);
+  });
+
+  it("関係で結ぶ枠では、既存の要素を足したり外したりできる", () => {
+    act(() => st().setCurrentBoard("fixed:usecase"));
+    render(<FixedBoard layer="usecase" />);
+    const has = () =>
+      st().model.relations.some((r) => r.sourceId === "act_hand_key" && r.targetId === "uc_record_checkin");
+    fireEvent.change(screen.getByLabelText("「鍵を渡す」に既存の操作を足す"), { target: { value: "uc_record_checkin" } });
+    expect(has()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "チェックインを記録するを「鍵を渡す」から外す" }));
+    expect(has()).toBe(false);
+    expect(st().model.elements.some((e) => e.id === "uc_record_checkin")).toBe(true);
+  });
+
+  it("操作のボードは活動ごとの段落に分け、段落の見出しで活動を選べる", () => {
+    render(<FixedBoard layer="usecase" />);
+    const section = screen.getByRole("region", { name: "飲食提供" });
+    expect(section.className).toContain("fixed-section");
+    expect(within(section).getByRole("region", { name: "ルームサービスを提供する" })).toBeDefined();
+    fireEvent.click(within(section).getByRole("button", { name: "飲食提供" }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "buc_dining" });
+  });
+
+  it("カードや枠の見出しをクリックすると、その要素を選ぶ", () => {
+    render(<FixedBoard layer="activity" />);
+    fireEvent.click(within(groupEl("飲食提供")).getByRole("button", { name: "飲食提供" }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "buc_dining" });
+    fireEvent.click(screen.getByRole("button", { name: /ルームサービスを提供する/ }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_room_service" });
+  });
+});
+
+describe("FixedBoard の時間", () => {
+  it("作業のカードに、作業自身の時間と操作の合計を分けて出す", () => {
+    render(<FixedBoard layer="activity" />);
+    const card = document.querySelector('[data-fixed-card="act_verify_identity"]')!;
+    expect(card.textContent).toContain("作業 0.1 時間");
+    expect(card.textContent).toContain("操作の合計 0.2 時間");
+    const only = document.querySelector('[data-fixed-card="act_assign_room"]')!;
+    expect(only.textContent).toContain("操作の合計 0.1 時間");
+    expect(only.textContent).not.toContain("作業 ");
+  });
+});
+
+describe("FixedBoard の選択の引き継ぎ", () => {
+  it("選んだ要素が枠の見出しになっているボードでは、その枠を選択中として出す", () => {
+    act(() => st().setCurrentBoard("fixed:usecase"));
+    act(() => st().select({ type: "element", id: "act_hand_key" }));
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getByRole("region", { name: "鍵を渡す" }).className).toContain("is-selected");
+    expect(screen.getByRole("region", { name: "到着を確認する" }).className).not.toContain("is-selected");
+  });
+});
+
+describe("グローバルフィルター", () => {
+  it("あるボードで選んだフィルターが、ほかの固定ボードにも効く。チップで外せ、リセットで全部消える", () => {
+    const { unmount } = render(<FixedBoard layer="activity" />);
+    fireEvent.click(screen.getByRole("button", { name: /グローバルフィルター/ }));
+    fireEvent.change(screen.getByLabelText("グローバルフィルターに登場人物を足す"), { target: { value: "actor_housekeeping" } });
+    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label")).filter((l) => l !== "グローバルフィルター")).toEqual(["清掃・準備"]);
+    unmount();
+    // 操作のボードを開いても効いている
+    render(<FixedBoard layer="usecase" />);
+    expect(screen.getAllByText("清掃状況を更新する", { selector: ".fixed-card-name" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText("予約を登録する", { selector: ".fixed-card-name" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "フィルターから「清掃担当」を外す" }));
+    expect(st().ui.globalFilter?.actor).toEqual([]);
+    expect(screen.getByText("予約を登録する", { selector: ".fixed-card-name" })).toBeDefined();
+    act(() => st().setGlobalFilter("business", ["biz_checkin"]));
+    fireEvent.click(screen.getByRole("button", { name: "リセット" }));
+    expect(st().ui.globalFilter).toEqual({});
+  });
+});
+
+describe("コンテキストの固定ボード", () => {
+  it("コンテキストごとの枠に中身を出し、4 種類を足せる。「＋コンテキスト」で新しい枠ができる", () => {
+    act(() => st().setCurrentBoard("fixed:context"));
+    render(<FixedBoard layer="context" />);
+    const res = within(screen.getByRole("region", { name: "予約" }));
+    expect(res.getByText("取消料が発生する", { selector: ".fixed-card-name" })).toBeDefined();
+    expect(res.getByText("予約経路", { selector: ".fixed-card-name" })).toBeDefined();
+    for (const label of ["情報", "条件", "状態", "バリエーション"]) {
+      expect(res.getByRole("button", { name: `「予約」に${label}を追加` })).toBeDefined();
+    }
+    fireEvent.click(res.getByRole("button", { name: "「予約」に条件を追加" }));
+    expect(st().model.elements.find((e) => e.id === st().ui.selection!.id)).toMatchObject({ kind: "condition", contextId: "ctx_reservation" });
+
+    fireEvent.click(screen.getByRole("button", { name: "＋コンテキスト" }));
+    const created = st().model.elements.find((e) => e.id === st().ui.selection!.id)!;
+    expect(created.kind).toBe("context");
+    expect(screen.getByRole("region", { name: "新しいコンテキスト" })).toBeDefined();
+  });
+
+  it("別のコンテキストから移せ、× で未分類へ外せる", () => {
+    act(() => st().setCurrentBoard("fixed:context"));
+    render(<FixedBoard layer="context" />);
+    const room = within(screen.getByRole("region", { name: "客室" }));
+    fireEvent.change(room.getByLabelText("「客室」へ別のコンテキストから移す"), { target: { value: "info_reservation" } });
+    expect(st().model.elements.find((e) => e.id === "info_reservation")).toMatchObject({ contextId: "ctx_room" });
+    fireEvent.click(room.getByRole("button", { name: "部屋タイプを「客室」から外す" }));
+    expect(st().model.elements.find((e) => e.id === "var_room_type")).toMatchObject({ contextId: null });
+    expect(within(screen.getByRole("region", { name: "未分類" })).getByText("部屋タイプ", { selector: ".fixed-card-name" })).toBeDefined();
+  });
+
+  describe("名前をクリックしてその場で変える", () => {
+    const nameOf = (id: string) => st().model.elements.find((e) => e.id === id)?.name;
+    const startEdit = () => {
+      render(<FixedBoard layer="activity" />);
+      fireEvent.click(within(groupEl("チェックイン")).getByText("鍵を渡す", { selector: ".fixed-card-name" }));
+      return screen.getByLabelText("作業の名前") as HTMLInputElement;
+    };
+
+    it("名前のクリックで入力欄に変わり、Enter で確定する (1 件の履歴で戻せる)", () => {
+      const input = startEdit();
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe("鍵を渡す");
+      fireEvent.change(input, { target: { value: " カードキーを渡す " } });
+      fireEvent.submit(input.form!);
+      expect(nameOf("act_hand_key")).toBe("カードキーを渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+      expect(within(groupEl("チェックイン")).getByRole("button", { name: /カードキーを渡す/ })).toBeDefined();
+      st().undo();
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+    });
+
+    it("保存ボタンで確定する", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "鍵を手渡す" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      expect(nameOf("act_hand_key")).toBe("鍵を手渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+    });
+
+    it("Esc で取り消して元の表示に戻る", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "変えない" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+      expect(within(groupEl("チェックイン")).getByText("鍵を渡す", { selector: ".fixed-card-name" })).toBeDefined();
+    });
+
+    it("入力欄からフォーカスが外れたら取り消す。保存ボタンへの移動では取り消さない", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "変えない" } });
+      fireEvent.blur(input, { relatedTarget: screen.getByRole("button", { name: "保存" }) });
+      expect(screen.getByLabelText("作業の名前")).toBeDefined();
+      fireEvent.blur(input, { relatedTarget: null });
+      expect(nameOf("act_hand_key")).toBe("鍵を渡す");
+      expect(screen.queryByLabelText("作業の名前")).toBeNull();
+    });
+
+    it("変換確定の Enter では確定しない", () => {
+      const input = startEdit();
+      fireEvent.change(input, { target: { value: "かぎ" } });
+      const ev = fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+      expect(ev).toBe(false);
+      expect(screen.getByLabelText("作業の名前")).toBeDefined();
+    });
+  });
+});

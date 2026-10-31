@@ -100,21 +100,23 @@ Intel Mac は対象外です。
 ```sh
 pnpm install
 pnpm tauri dev      # アプリを起動して開発する
-pnpm dev            # ブラウザだけで UI を開発する (http://localhost:1420)
+pnpm dev            # ブラウザだけで UI を開発する (http://localhost:5173)
 pnpm typecheck      # 型検査
 pnpm test           # テスト (Vitest)
 pnpm check:types    # スキーマから生成した型が最新か確認する
 pnpm tauri build    # Mac 用の .app / .dmg を作る
 pnpm app:build      # 同上。手元の証明書「Untie Local Code Signing」で署名する
-pnpm build          # Web 版を dist/ に作る
+pnpm build          # Web 版を apps/web/dist/ に、デスクトップ用のフロントを apps/desktop/dist/ に作る
 pnpm web:deploy     # Web 版を作って Cloudflare Pages (プロジェクト untie) に上げる
 ```
 
 手元でアプリを作り直して使うときは `pnpm app:build` を使ってください。`pnpm tauri build` は簡易署名 (ad-hoc) になり、作り直すたびにアプリの識別が変わるので、キーチェーンに保存した AI の API キーが読み出せなくなります。`pnpm app:build` はログインキーチェーンにあるコード署名用の自己署名証明書 `Untie Local Code Signing` で署名するので、作り直してもキーを読めます。証明書が無い Mac では、キーチェーンアクセスの「証明書アシスタント」で同じ名前のコード署名用の自己署名証明書を作ってください。
 
-スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `src/model/schema.d.ts` を再生成してください。
+スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `packages/core/src/model/schema.d.ts` を再生成してください。
 
-アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm tauri icon assets/icon.png` で各サイズを再生成します。
+pnpm ワークスペースで、共通のモデルは `packages/core` (`@untie/core`)、画面は `packages/ui` (`@untie/ui`)、Web とデスクトップの入り口は `apps/web`・`apps/desktop` に分かれています。ファイルやキーの置き場所など Web とデスクトップで違う処理は、`packages/ui/src/platform.ts` の `Platform` を通し、実装を各 app の `src/platform.ts` に置いています。
+
+アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm icon` で各サイズを再生成します。
 
 ### Web 版の配信 (Cloudflare Pages)
 

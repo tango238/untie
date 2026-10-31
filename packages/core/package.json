@@ -1,0 +1,25 @@
+{
+  "name": "@untie/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/model/index.ts",
+    "./model": "./src/model/index.ts",
+    "./sample": "./src/sample/index.ts",
+    "./testing": "./src/model/__tests__/helpers.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "gen:types": "json2ts -i ../../schema/untie.schema.json -o src/model/schema.d.ts && node scripts/gen-validator.mjs",
+    "gen:validator": "node scripts/gen-validator.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "immer": "^11.2.7"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^16.0.0"
+  }
+}
