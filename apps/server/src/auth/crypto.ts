@@ -15,6 +15,7 @@ function fromBase64Url(text: string): Uint8Array {
 }
 
 export const base64UrlEncode = toBase64Url;
+export const base64UrlDecode = fromBase64Url;
 
 /** 32 バイトの乱数 → base64url (セッション・招待・リンクのトークン) */
 export function generateToken(): string {

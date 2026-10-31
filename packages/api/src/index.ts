@@ -2,3 +2,4 @@
 export * from "./permissions";
 export * from "./schemas";
 export * from "./client";
+export * from "./protocol";

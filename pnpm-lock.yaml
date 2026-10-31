@@ -153,6 +153,9 @@ importers:
 
   packages/collab:
     dependencies:
+      '@untie/api':
+        specifier: workspace:*
+        version: link:../api
       '@untie/core':
         specifier: workspace:*
         version: link:../core

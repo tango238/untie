@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/room"
   },
   "dependencies": {
+    "@untie/api": "workspace:*",
     "@untie/core": "workspace:*",
     "fractional-indexing": "^3.2.0",
     "partyserver": "^0.5.10",

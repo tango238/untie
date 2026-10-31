@@ -1,9 +1,13 @@
 import * as Y from "yjs";
 import { YServer } from "y-partyserver";
-import type { Connection } from "partyserver";
+import type { Connection, ConnectionContext } from "partyserver";
+import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, CLOSE_UNAUTHENTICATED, ROLES, ROOM_HEADERS, guestName } from "@untie/api";
+import type { Role, TicketVia } from "@untie/api";
 import { validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { getRoots, loadModel, rebuildModel, repairDoc } from "../doc";
+import { CLOSE_REASONS } from "./connectionState";
+import type { ConnectionState, KickTarget, PresenceEntry } from "./connectionState";
 import type { Env } from "./env";
 
 /** 1 時間ごとのスナップショットを残す件数 (3.4) */
@@ -13,10 +17,42 @@ const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * 書き込める役割は owner と editor だけ。viewer・guest・役割が無い接続 (認証を通っていない、state が未設定) は読み取り専用にする。
- * 接続の state.role は onConnect がチケットのヘッダーから写す (Phase 4)
+ * 接続の state.role は onConnect がチケットのヘッダーから写す
  */
 function canWriteRole(role: unknown): boolean {
   return role === "owner" || role === "editor";
+}
+
+/**
+ * kick の記録 (DO storage)。この時刻以前に発行されたチケットでの接続を、記録した code で閉じる。
+ * チケットは 60 秒使い回せるので、kick で閉じたあとにすぐ同じチケットでつなぎ直されるのを防ぐ
+ */
+interface Revocation {
+  /** kick した時刻 (エポックミリ秒) */
+  at: number;
+  code: number;
+  reason: string;
+}
+const REVOKED_USER = "revoked:user:";
+const REVOKED_LINK = "revoked:link";
+const REVOKED_ALL = "revoked:all";
+/** 記録を残す期間。チケットの有効期間 (60 秒) より十分長ければよい。過ぎた記録は次の kick で消す */
+const REVOKED_KEEP_MS = 5 * 60 * 1000;
+
+/** 接続の state から、onConnect が書いた ConnectionState を取り出す。まだ書かれていない・壊れていれば null */
+function readState(connection: Connection): ConnectionState | null {
+  const state = connection.state as Partial<ConnectionState> | null | undefined;
+  if (!state || typeof state.name !== "string" || typeof state.role !== "string") return null;
+  return state as ConnectionState;
+}
+
+/** ヘッダー (URL エンコード済み) の名前を戻す。壊れていればそのまま */
+function decodeName(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
@@ -75,6 +111,66 @@ export class UntieRoom extends YServer<Env> {
     if (old.length > 0) await this.ctx.storage.delete(old);
   }
 
+  /**
+   * 接続を受けたとき、Worker が付けたヘッダー (チケットの中身) を connection.state に写す。
+   * ヘッダーが無い・壊れている接続 (Worker を通らずに来た) は閉じる。ゲストの名前はここで「ゲスト N」にする
+   */
+  async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
+    const state = this.stateFromHeaders(ctx.request.headers);
+    const iatHeader = ctx.request.headers.get(ROOM_HEADERS.iat);
+    const issuedAt = iatHeader === null || iatHeader === "" ? NaN : Number(iatHeader);
+    if (!state || !Number.isFinite(issuedAt)) {
+      connection.close(CLOSE_UNAUTHENTICATED, CLOSE_REASONS.unauthenticated);
+      return;
+    }
+    // kick のあとに取り直していないチケット (古い役割) での再接続は閉じる
+    const revoked = await this.findRevocation(state, issuedAt);
+    if (revoked) {
+      connection.close(revoked.code, revoked.reason);
+      return;
+    }
+    if (state.role === "guest") state.name = guestName(this.freeGuestNumber());
+    connection.setState(state);
+    super.onConnect(connection, ctx);
+  }
+
+  /** そのチケット (発行時刻 issuedAt) が、kick より前のものなら記録を返す */
+  private async findRevocation(state: ConnectionState, issuedAt: number): Promise<Revocation | null> {
+    const keys = [REVOKED_ALL, ...(state.userId !== null ? [`${REVOKED_USER}${state.userId}`] : []), ...(state.via === "link" ? [REVOKED_LINK] : [])];
+    const found = await this.ctx.storage.get<Revocation>(keys);
+    for (const key of keys) {
+      const revocation = found.get(key);
+      if (revocation && issuedAt <= revocation.at) return revocation;
+    }
+    return null;
+  }
+
+  private stateFromHeaders(headers: Headers): ConnectionState | null {
+    const role = headers.get(ROOM_HEADERS.role);
+    const via = headers.get(ROOM_HEADERS.via);
+    const name = headers.get(ROOM_HEADERS.name);
+    if (role === null || name === null || (via !== "member" && via !== "link")) return null;
+    if (!ROLES.includes(role as Role)) return null;
+    const userId = headers.get(ROOM_HEADERS.user) || null;
+    // メンバーとして来た人には必ず userId がある (無ければ kick の対象にもならない)
+    if (via === "member" && userId === null) return null;
+    return { userId, name: decodeName(name), role: role as Role, via: via as TicketVia };
+  }
+
+  /** いまつながっているゲストの番号と重ならない、いちばん小さい番号 */
+  private freeGuestNumber(): number {
+    const used = new Set<number>();
+    for (const connection of this.getConnections()) {
+      const state = readState(connection);
+      if (state?.role !== "guest") continue;
+      const match = /^ゲスト (\d+)$/.exec(state.name);
+      if (match) used.add(Number(match[1]));
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
   /** owner と editor 以外 (viewer・guest・役割なし) の sync step2 と update は y-partyserver が捨てる (step1 と awareness は通る) */
   isReadOnly(connection: Connection): boolean {
     return !canWriteRole((connection.state as { role?: unknown } | null)?.role);
@@ -105,6 +201,73 @@ export class UntieRoom extends YServer<Env> {
       return snapshot;
     }
     return rebuildModel(this.document);
+  }
+
+  /** 保存を待たず、メモリ上の Y.Doc からモデルを作る (テスト・確認用) */
+  async currentModel(): Promise<UntieModel> {
+    return rebuildModel(this.document);
+  }
+
+  /**
+   * 条件に合う接続を閉じ、閉じた数を返す。あわせて「この時刻より前のチケットは使えない」を記録し、
+   * kick の直後に同じチケットでつなぎ直されても閉じる (onConnect)。
+   * - `{ userId, reason? }`: 役割が変わった (4001、既定)・メンバーから外された (reason: "removed"、4003)。複数のタブも閉じる
+   * - `{ via: "link" }`: リンク閲覧が無効になった (4004)。ゲストだけでなく、リンクから開いたメンバーも閉じる
+   * - `{ all: true }`: ファイルがゴミ箱に入った (4003)。全員を閉じる
+   */
+  async kick(target: KickTarget): Promise<number> {
+    let code: number;
+    let reason: string;
+    let key: string;
+    let matches: (state: ConnectionState) => boolean;
+    if ("all" in target && target.all === true) {
+      [code, reason, key, matches] = [CLOSE_REMOVED, CLOSE_REASONS.trashed, REVOKED_ALL, () => true];
+    } else if ("via" in target && target.via === "link") {
+      [code, reason, key, matches] = [CLOSE_LINK_DISABLED, CLOSE_REASONS.linkDisabled, REVOKED_LINK, (state) => state.via === "link"];
+    } else if ("userId" in target && typeof target.userId === "string" && target.userId !== "") {
+      // userId が null / 空のまま渡ってもゲスト (userId が null) を巻き込まない
+      const userId = target.userId;
+      const removed = target.reason === "removed";
+      [code, reason, key, matches] = [
+        removed ? CLOSE_REMOVED : CLOSE_ROLE_CHANGED,
+        removed ? CLOSE_REASONS.removed : CLOSE_REASONS.roleChanged,
+        `${REVOKED_USER}${userId}`,
+        (state) => state.userId === userId,
+      ];
+    } else {
+      throw new Error("kick の対象が正しくありません");
+    }
+
+    await this.revoke(key, { at: Date.now(), code, reason });
+    let closed = 0;
+    for (const connection of this.getConnections()) {
+      const state = readState(connection);
+      if (!state || !matches(state)) continue;
+      connection.close(code, reason);
+      closed++;
+    }
+    return closed;
+  }
+
+  /** 取り消しを記録し、期限を過ぎた記録を消す */
+  private async revoke(key: string, revocation: Revocation): Promise<void> {
+    await this.ctx.storage.put(key, revocation);
+    const now = Date.now();
+    const stale: string[] = [];
+    for (const [k, v] of await this.ctx.storage.list<Revocation>({ prefix: "revoked:" })) {
+      if (now - v.at > REVOKED_KEEP_MS) stale.push(k);
+    }
+    if (stale.length > 0) await this.ctx.storage.delete(stale);
+  }
+
+  /** いまつながっている人 (同じ人が複数のタブでつないでいれば、その数だけ出る) */
+  async presence(): Promise<PresenceEntry[]> {
+    const entries: PresenceEntry[] = [];
+    for (const connection of this.getConnections()) {
+      const state = readState(connection);
+      if (state) entries.push({ userId: state.userId, name: state.name, role: state.role });
+    }
+    return entries;
   }
 
   /** 名前を変える (meta.name を書き、すぐ保存する。一覧の写しも onSave が D1 へ反映する) */

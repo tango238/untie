@@ -149,7 +149,7 @@ pnpm dev     # http://localhost:5173 を開く
    ```sh
    cd apps/server
    pnpm wrangler secret put SESSION_SECRET      # Cookie の署名。長い乱数 (例: openssl rand -base64 32)
-   pnpm wrangler secret put TICKET_SECRET       # ルームへの接続チケットの署名。同上
+   pnpm wrangler secret put TICKET_SECRET       # ルームへの接続チケットの署名。同上 (32 文字以上が必須)
    pnpm wrangler secret put GOOGLE_CLIENT_ID
    pnpm wrangler secret put GOOGLE_CLIENT_SECRET
    ```

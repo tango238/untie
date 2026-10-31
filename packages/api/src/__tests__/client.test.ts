@@ -122,6 +122,22 @@ describe("createApi", () => {
   });
 });
 
+describe("files.ticket", () => {
+  it("POST /api/files/:id/ticket を呼び、ticket・role・expiresAt を返す", async () => {
+    const { fn, calls } = mockFetch(() => ({ body: { ticket: "a.b.c", role: "editor", expiresAt: 123 } }));
+    const result = await createApi({ baseUrl: "https://e.com", fetch: fn }).files.ticket("f 1");
+    expect(result).toEqual({ ticket: "a.b.c", role: "editor", expiresAt: 123 });
+    expect(calls[0].url).toBe("https://e.com/api/files/f%201/ticket");
+    expect(calls[0].init.method).toBe("POST");
+    expect((calls[0].init.headers as Record<string, string>)["X-Requested-With"]).toBe("untie");
+  });
+
+  it("形の違う返事は拒む", async () => {
+    const { fn } = mockFetch(() => ({ body: { ticket: "a.b.c", role: "admin", expiresAt: 1 } }));
+    await expect(createApi({ baseUrl: "", fetch: fn }).files.ticket("f1")).rejects.toThrow();
+  });
+});
+
 describe("parseFilename", () => {
   it("ヘッダーが無ければ null", () => {
     expect(parseFilename(null)).toBeNull();

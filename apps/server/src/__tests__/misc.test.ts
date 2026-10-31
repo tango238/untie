@@ -47,12 +47,13 @@ describe("ルーティング", () => {
     expect(await response.json()).toEqual({ error: { code: "not_found", message: "見つかりません" } });
   });
 
-  it("/parties はチケットの検査ができるまで 401 (WebSocket も HTTP も)", async () => {
+  it("/parties は HTTP も、チケットの無い WebSocket も 401", async () => {
     const http = await callWorker("/parties/untie-room/abc");
     expect(http.status).toBe(401);
     expect((await http.json<Json>()).error.code).toBe("unauthenticated");
     const ws = await callWorker("/parties/untie-room/abc", { headers: { Upgrade: "websocket" } });
     expect(ws.status).toBe(401);
+    expect((await ws.json<Json>()).error.code).toBe("invalid_ticket");
   });
 
   it("それ以外は ASSETS (SPA) に任せる", async () => {

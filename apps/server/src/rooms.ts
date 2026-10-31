@@ -1,5 +1,6 @@
 import { getServerByName } from "partyserver";
 import type { UntieModel } from "@untie/core";
+import type { KickTarget } from "@untie/collab/room";
 import type { Env } from "./env";
 
 /** Durable Object は最初に作られた場所に留まるので、作成の経路すべてで locationHint を付ける (設計書 3.7) */
@@ -31,4 +32,9 @@ export async function renameRoom(env: RoomEnv, fileId: string, name: string): Pr
 
 export async function destroyRoom(env: RoomEnv, fileId: string): Promise<void> {
   await (await getRoom(env, fileId)).destroy();
+}
+
+/** ルームの接続を閉じる (役割が変わった・外された・リンクが無効・ゴミ箱に入った)。閉じた数を返す */
+export async function kickRoom(env: RoomEnv, fileId: string, target: KickTarget): Promise<number> {
+  return (await getRoom(env, fileId)).kick(target);
 }

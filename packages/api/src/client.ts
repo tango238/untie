@@ -5,10 +5,11 @@ import {
   FilesResponseSchema,
   ErrorBodySchema,
   ProvidersResponseSchema,
+  TicketResponseSchema,
   TrashResponseSchema,
   UserSchema,
 } from "./schemas";
-import type { CreateFileRequest, FileDetail, FileSummary, FilesResponse, ProvidersResponse, User } from "./schemas";
+import type { CreateFileRequest, FileDetail, FileSummary, FilesResponse, ProvidersResponse, TicketResponse, User } from "./schemas";
 
 /** サーバーが返したエラー。本文は `{ error: { code, message } }` */
 export class ApiError extends Error {
@@ -64,6 +65,8 @@ export interface UntieApi {
     /** 完全に消す */
     purge(id: string): Promise<void>;
     trashList(): Promise<FileSummary[]>;
+    /** ルームに接続するチケット (60 秒だけ有効)。`wss://<host>/parties/untie-room/<id>?ticket=...` でつなぐ */
+    ticket(id: string): Promise<TicketResponse>;
   };
 }
 
@@ -138,6 +141,7 @@ export function createApi(options: ApiOptions): UntieApi {
       restore: (id) => json(FileSummarySchema, "POST", `${file(id)}/restore`),
       purge: (id) => empty("DELETE", `${file(id)}/purge`),
       trashList: async () => (await json(TrashResponseSchema, "GET", "/api/files/trash")).files,
+      ticket: (id) => json(TicketResponseSchema, "POST", `${file(id)}/ticket`),
     },
   };
 }

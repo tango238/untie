@@ -419,8 +419,31 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 ### 7.5 ルームへの接続
 
 - ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/:token/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
-- Worker 側は `routePartykitRequest(request, env, { locationHint: "apac", onBeforeConnect })` で、`onBeforeConnect` がチケットを検め、`x-untie-user`・`x-untie-name`・`x-untie-role`・`x-untie-via` のヘッダーを付けた Request に差し替えてルームへ渡す。合わなければ 401。チケットの `fileId` と URL のファイル id が違えば 403。
-- ルームは `onConnect` でヘッダーを `connection.setState({ userId, name, role, via })` に写す。ゲストの `name` は「ゲスト 1」のように、ルームが接続順に番号を振る。
+- Worker 側は `routePartykitRequest(request, env, { locationHint: "apac", onBeforeConnect, onBeforeRequest })`。
+  - `onBeforeConnect` は `?ticket=` を検める (署名・期限・形。`apps/server/src/auth/ticket.ts` の `verifyTicket`)。無効・無し・期限切れは **401** (`{ error: { code: "invalid_ticket", message } }`)。チケットの `fileId` と URL のルーム名が違えば **403**。通れば、受けた `x-untie-*` を**すべて上書きして** (クライアントが付けた値は信用しない。ゲストの `x-untie-user` は消す)、次のヘッダーを付けた Request をルームへ渡す。クエリの `ticket` はそのまま残す。**接続 id の `?_pk=` はクライアントに選ばせず、`crypto.randomUUID()` に必ず上書きする** (同じ id で 2 本つなぐと 1 本目が `getConnections()` から外れたまま書き込め、kick から逃れられるため)。
+  - `onBeforeRequest` (WebSocket でない HTTP) は **401** (`code: "unauthenticated"`)。ルームへの HTTP は使わない。
+  - 名前空間が `untie-room` 以外は 404 (7.6)。
+
+| ヘッダー | 中身 |
+| --- | --- |
+| `x-untie-user` | ユーザー id。ゲスト (ログインしていないリンク閲覧) は付けない |
+| `x-untie-name` | 表示名を `encodeURIComponent` したもの (日本語をヘッダーに載せるため) |
+| `x-untie-role` | `owner` / `editor` / `viewer` / `guest` |
+| `x-untie-via` | `member` / `link` |
+| `x-untie-iat` | チケットの発行時刻 (エポックミリ秒)。取り消しの判定に使う |
+
+- ルームは `onConnect(connection, ctx)` で `ctx.request` のヘッダーを `connection.setState({ userId, name, role, via })` (型は `ConnectionState`、`packages/collab/src/room/connectionState.ts`) に写し、最後に `super.onConnect` を呼ぶ。**ヘッダーが無い・役割が知らない値・メンバー (`via: member`) なのに userId が無い**接続 (Worker を通らずに来た) は `close(4000, "認証されていません")` で閉じる。
+- チケットの本文は `iat` (ミリ秒。秒に丸めると kick との前後が曖昧になる) と `exp` (JWT の決まりどおり秒) を持つ。検証は署名・期限に加えて、本文の形 (`role` が既知、`via: member` なら `userId` あり、`guest` なら `via: link`) を見る。`TICKET_SECRET` は 32 文字以上で、短ければ発行は例外、検証は null。
+- **取り消し (kick) の記録**: チケットは 60 秒使い回せるので、kick で閉じたあとに同じチケットで古い役割のままつなぎ直されうる。ルームは kick のたびに `revoked:user:<userId>` / `revoked:link` / `revoked:all` に `{ at: Date.now(), code, reason }` を DO storage に記録し (5 分より古い記録は次の kick で消す)、`onConnect` で `iat <= at` のチケットの接続を、記録した code で閉じる (`super.onConnect` を呼ぶ前)。kick のあとにチケットを取り直した接続は通る。
+- ゲスト (`role: "guest"`) の `name` は、チケットの値ではなくルームが「ゲスト 1」「ゲスト 2」のように振る。**いまつながっているゲストの番号と重ならない最小の番号**で、抜けた人の番号は次の人が使う (接続順の厳密な通し番号ではない)。
+- 閉じるコード (`packages/api/src/protocol.ts` の定数。server と ui が共有する):
+
+| コード | 定数 | 意味 | つなぎ直したとき |
+| --- | --- | --- | --- |
+| 4000 | `CLOSE_UNAUTHENTICATED` | 認証されていない (ヘッダーが無い) | チケットを取り直す |
+| 4001 | `CLOSE_ROLE_CHANGED` | 役割が変わった (`kick({ userId })`) | チケットの取得で新しい役割になる |
+| 4003 | `CLOSE_REMOVED` | メンバーから外された (`kick({ userId, reason: "removed" })`)、またはファイルがゴミ箱に入った (`kick({ all: true })`) | チケットの取得で 404 (外された) / 409 `in_trash` (ゴミ箱) |
+| 4004 | `CLOSE_LINK_DISABLED` | リンクが無効になった (`kick({ via: "link" })`) | チケットの取得で 404 |
 
 ```ts
 export class UntieRoom extends YServer<Env> {
@@ -438,35 +461,39 @@ export class UntieRoom extends YServer<Env> {
     await this.rotateSnapshots();
     await this.env.DB.prepare("update files set name = ?, updated_at = ? where id = ?").bind(model.meta.name, Date.now(), this.name).run();
   }
-  onMessage(connection, message) {
-    // 閲覧専用: 同期メッセージのうち step2 と update を捨て、step1 (読むための要求) と awareness だけ通す
-    if ((connection.state.role === "viewer" || connection.state.role === "guest") && isDocWrite(message)) return;
-    return super.onMessage(connection, message);
+  onConnect(connection, ctx) {
+    // ヘッダー → connection.setState。無ければ close(4000)。guest は「ゲスト N」を振る。最後に super.onConnect
   }
+  isReadOnly(connection) { return !(role === "owner" || role === "editor"); }  // y-partyserver が step2 / update を捨てる
   // RPC (Worker から getServerByName で呼ぶ)
   async importModel(model: UntieModel) { loadModel(this.document, model); await this.onSave(); }
   async exportModel(): Promise<UntieModel> { ... }
   async rename(name: string) { this.document.getMap("meta").set("name", name); }
   async destroy() { await this.ctx.storage.deleteAll(); }
+  async currentModel(): Promise<UntieModel> { return rebuildModel(this.document); }  // 保存を待たずにメモリ上の中身を読む
+  async kick(target: { userId: string; reason?: "roleChanged" | "removed" } | { via: "link" } | { all: true }): Promise<number> { ... }   // 閉じた接続の数
+  async presence(): Promise<{ userId: string | null; name: string; role: Role }[]> { ... }
 }
 ```
 
-- `isReadOnly` は、接続の `state.role` が **owner / editor 以外ならすべて読み取り専用**にする (viewer・guest のほか、役割が無い・知らない役割の接続も)。
-- `isDocWrite` は y-protocols の形 (先頭の varuint が `0 = sync`、次が `1 = step2` か `2 = update`) を読むだけ。awareness (`1`) は viewer も送れる (選択が他の人に見える)。`YServer` の `onMessage` を上書きできることは実装前に `y-partyserver` の版で確かめる (できなければ `onBeforeConnect` で viewer を別の読み取り専用経路に回す)。
+- `isReadOnly` は `y-partyserver` (2.2.0) に組み込みの仕組みで、`true` の接続からの sync step2 と update を捨てる (step1 への返事と awareness は通る)。`onMessage` の上書きや `isDocWrite` は要らない。UntieRoom は接続の `state.role` が **owner / editor 以外ならすべて読み取り専用**にする (viewer・guest のほか、役割が無い・知らない役割の接続も)。awareness は viewer も送れる (選択が他の人に見える)。
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
 - 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
-- 役割が変わった (editor → viewer、外された) ときは、Worker がルームの `kick({ userId })` を呼び、その人の接続を閉じる。リンク閲覧を無効にしたときは `kick({ via: "link" })` でゲストを全員閉じる。つなぎ直すとチケットの取得で新しい役割になる (リンクなら 404)。
+- `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければ例外 (null でゲストを巻き込まない)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
+- **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割の変更・メンバーを外す・リンクの無効化から `kick` を呼ぶ API は 5 段階目で作る。
+- `presence()` はいまつながっている接続の `{ userId, name, role }` の一覧 (同じ人が複数のタブなら、その数だけ出る)。`currentModel()` は保存を待たず、メモリ上の Y.Doc からモデルを作る (テストと確認用)。プレゼンスの表示そのもの (カーソル・選択) は awareness で運ぶ。
 
 ### 7.6 エラーの形と細部 (3 段階目の実装)
 
-- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code`: `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` (403)、`file_not_found` / `not_found` (404)、`invalid_request` / `invalid_model` (400)、`not_in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
+- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code`: `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` (403)、`file_not_found` / `not_found` (404)、`invalid_request` / `invalid_model` (400)、`not_in_trash` / `in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
 - **ブラウザが直接開く `/auth/login`・`/auth/callback`・`/auth/dev` の失敗**は JSON ではなく、戻るリンク付きの小さな HTML で返す。
 - **ログアウトは `/auth` の下**: `POST /auth/logout`、`POST /auth/logout-all` (7.4 の表の `/me/logout` ではなく)。`logout` はセッションが無くても成功し (204)、Cookie を消す。Cookie 認証なら `X-Requested-With` が要る。
 - **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members` は owner だけが受け取る。
 - **完全削除はゴミ箱の中のファイルだけ**: ゴミ箱に入っていないファイルへの `purge` は `409 not_in_trash`。
 - **開発用ログイン**: `DEV_LOGIN=true` で、かつリクエストのホストが localhost / 127.0.0.1 のときだけ `GET/POST /auth/dev` (メールと名前のフォーム) と `providers` の `dev` が有効。`false` なら `/auth/dev` は 404。ドメイン制限 (`ALLOWED_EMAIL_DOMAINS`) は Google と共通の `isEmailAllowed` を通る。
 - **`untie_auth` Cookie** (OIDC の `state`・`nonce`・`code_verifier`・戻り先) は `Path=/auth`、10 分、`SESSION_SECRET` の HMAC 署名付き。戻り先 (`return`) は `#` で始まる相対のものだけ受ける。
-- **`/parties/*`**: チケットの検査を入れるまで (4 段階目)、入口で 401 を返す。
+- **`/parties/*`**: 7.5 のとおり。`/parties/untie-room/<id>` は WebSocket だけを受け、チケットが無効なら 401 (`invalid_ticket`)、別のファイルのチケットなら 403、HTTP は 401。`untie-room` 以外の名前空間は JSON の 404。
+- **`POST /files/:id/ticket`**: `requireRole(..., "read")` を通り、`{ ticket, role, expiresAt }` (`TicketResponse`) を返す。`name` はユーザーの表示名。ゴミ箱の中のファイルは owner 以外は 404 (他の API と同じ)、owner には 409 `in_trash` (ゴミ箱の中のファイルは開けない。戻せば出る)。`name` が空ならメールアドレスの `@` より前 (メールアドレスそのものは他のメンバーに見せない)。
 
 ## 8. クライアント
 
@@ -584,10 +611,10 @@ export class UntieRoom extends YServer<Env> {
 - リンクを知っている人の閲覧を入れる (3.6)。
 - D1 と Durable Object は日本 (apac) に寄せる (3.7)。
 - 使われないファイルを自動では消さない。
+- viewer / guest の書き込みは `y-partyserver` 2.2.0 の `isReadOnly` で捨てる (確認済み。`onMessage` の上書きは要らない。7.5)。
 
 残っていること:
 
 - **Web 版でのローカルファイル**: ログイン前提のクラウド版にしても、Web でローカルの JSON を開く経路を残すか (本設計は残す)。
 - **ゴミ箱の保持期間** (本設計は 30 日)。
 - **AI の API キー**: いままでどおり各自の端末に置くか、将来サーバーで組織のキーを持つか。
-- **`YServer.onMessage` の上書き**: 採用する `y-partyserver` の版で、viewer / guest の書き込みを捨てられるかを実装前に確かめる (7.5)。

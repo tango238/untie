@@ -72,6 +72,15 @@ export type CreateFileRequest = z.infer<typeof CreateFileRequestSchema>;
 export const RenameFileRequestSchema = z.object({ name: NameSchema }).strict();
 export type RenameFileRequest = z.infer<typeof RenameFileRequestSchema>;
 
+/** `POST /files/:id/ticket` の返事。ticket は 60 秒だけ使える (設計書 7.5) */
+export const TicketResponseSchema = z.object({
+  ticket: z.string(),
+  role: RoleSchema,
+  /** エポックミリ秒 */
+  expiresAt: z.number(),
+});
+export type TicketResponse = z.infer<typeof TicketResponseSchema>;
+
 export const ErrorBodySchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });

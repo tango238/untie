@@ -21,7 +21,7 @@ export default defineConfig(async () => {
             APP_ORIGIN: "",
             ALLOWED_EMAIL_DOMAINS: "",
             SESSION_SECRET: "test-session-secret",
-            TICKET_SECRET: "test-ticket-secret",
+            TICKET_SECRET: "test-ticket-secret-0123456789abcdef",
             GOOGLE_CLIENT_ID: "test-google-client-id",
             GOOGLE_CLIENT_SECRET: "test-google-client-secret",
           },

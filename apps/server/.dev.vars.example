@@ -1,4 +1,5 @@
 # 開発専用の値の見本。`pnpm dev` が .dev.vars が無ければこれを写す (.dev.vars はコミットしない)。
+# TICKET_SECRET は 32 文字以上 (短いとチケットを発行も検証もできない)
 # 本番の秘密の値は `wrangler secret put` で入れる (README を参照)
 # DEV_LOGIN=true でも、リクエストのホストが localhost / 127.0.0.1 のときだけ開発用ログインが効く
 # wrangler dev は、Vite (5173) の proxy 越しでも 8787 に直接でも、リクエストの URL のオリジンを http://localhost:8787 にする (実測)。
@@ -6,6 +7,6 @@
 APP_ORIGIN=http://localhost:5173
 DEV_LOGIN=true
 SESSION_SECRET=dev-only-session-secret
-TICKET_SECRET=dev-only-ticket-secret
+TICKET_SECRET=dev-only-ticket-secret-0123456789abcdef
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=

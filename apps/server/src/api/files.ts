@@ -5,13 +5,14 @@ import type { ZodType } from "zod";
 import { emptyModel, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { CreateFileRequestSchema, RenameFileRequestSchema } from "@untie/api";
-import type { FileDetail, FilesResponse, TrashResponse } from "@untie/api";
+import type { FileDetail, FilesResponse, TicketResponse, TrashResponse } from "@untie/api";
+import { issueTicket } from "../auth/ticket";
 import type { AppEnv } from "../env";
 import { deleteFileRows, getFileForUser, insertFile, listFiles, listTrash, renameFile, setDeletedAt, toSummary } from "../db/files";
 import { newFileId } from "../db/ids";
 import { listMembers, toMember } from "../db/members";
 import { badRequest, conflict, errorBody } from "../errors";
-import { destroyRoom, exportRoomModel, importRoomModel, renameRoom } from "../rooms";
+import { destroyRoom, exportRoomModel, importRoomModel, kickRoom, renameRoom } from "../rooms";
 import { requireRole } from "./authz";
 
 export const fileRoutes = new Hono<AppEnv>();
@@ -138,10 +139,28 @@ fileRoutes.get("/:id/export", async (c) => {
   });
 });
 
+// ルームに接続するチケット (60 秒だけ有効。設計書 7.5)。ゴミ箱の中のファイルは owner 以外は 404 (requireRole)、owner には 409
+fileRoutes.post("/:id/ticket", async (c) => {
+  const file = await requireRole(c, c.req.param("id"), "read");
+  if (file.deleted_at !== null) throw conflict("ゴミ箱の中のファイルは開けません。先に戻してください", "in_trash");
+  const user = c.var.user;
+  const { ticket, expiresAt } = await issueTicket(c.env, {
+    fileId: file.id,
+    userId: user.id,
+    // 表示名が空なら、メールアドレスの @ より前 (メールアドレスそのものは他のメンバーに見せない)
+    name: user.name || user.email.split("@")[0],
+    role: file.role,
+    via: "member",
+  });
+  return c.json({ ticket, role: file.role, expiresAt } satisfies TicketResponse);
+});
+
 // ゴミ箱へ
 fileRoutes.delete("/:id", async (c) => {
   const file = await requireRole(c, c.req.param("id"), "delete");
   if (file.deleted_at === null) await setDeletedAt(c.env.DB, file.id, Date.now());
+  // つながっている人を全員外す (つなぎ直しは、チケットの取得が 404 / 409 になる)
+  await kickRoom(c.env, file.id, { all: true });
   return c.body(null, 204);
 });
 
