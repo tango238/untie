@@ -7,19 +7,22 @@
 | 項目 | 決定 |
 | --- | --- |
 | ファイルの置き場所 | **ローカルファイル** (いまの JSON。ログイン不要) と **クラウドファイル** (サーバーに置く。ログインが要る) の 2 種類。クラウドファイルは常に同時編集できる (1 人でも同じ経路) |
-| ユーザー | メールアドレスで識別する。パスワードは持たず、外部の ID プロバイダー (まず Google、次に Microsoft Entra ID) でログインする |
+| ユーザー | メールアドレスで識別する。パスワードは持たず、Google でログインする (OIDC)。他のプロバイダーは同じ形で後から足せる |
 | セッション | サーバーが発行する不透明なトークン。Web は HttpOnly Cookie、デスクトップは OS のキーチェーンに置く |
 | 権限 | ファイルごとに `owner` / `editor` / `viewer` の 3 役。権限の判定はサーバーで行い、UI は同じ規則で見せ方を変えるだけ |
-| 共有 | 所有者がメールアドレスで招待する。リンクを知っている人なら誰でも、は後回し (12 章) |
+| 共有 | 所有者がメールアドレスで招待する (editor / viewer)。加えて、所有者が有効にすれば**リンクを知っている人は誰でも閲覧**できる (ログイン不要。3.6) |
 | 同期の方式 | Yjs (CRDT)。ルームは `y-partyserver` の `YServer` を継承した Durable Object。1 クラウドファイル = 1 Durable Object |
 | 正本 | ローカルファイルはいまのストア (変えない)。クラウドファイルはルームの Durable Object の Y.Doc で、ストアの `model` はそこから組み立てる |
-| 一覧と権限の置き場所 | D1 (SQLite)。ユーザー・セッション・ファイルの一覧・メンバー・招待。ファイルの中身は Durable Object のストレージ |
+| 一覧と権限の置き場所 | D1 (SQLite)。ユーザー・セッション・ファイルの一覧・メンバー・招待・リンク。ファイルの中身は Durable Object のストレージ |
+| 置き場所の地域 | 日本に寄せる。D1 は `--location apac` で作り、Durable Object は `locationHint: "apac"` で作る (3.7) |
+| ファイルの寿命 | 使われないファイルを自動では消さない。消すのは所有者だけ (ゴミ箱に 30 日置いてから完全に消す) |
 | 編集 API | いまの `commands.ts` (純粋関数) をそのまま使う。コマンドの結果と直前のモデルの差分を Y.Doc に書く |
 | 保存形式 | JSON ファイルの形式 (`schema/untie.schema.json`、`version: 1`) は変えない。クラウドファイルは同じ JSON に書き出せる |
 | 衝突 | 項目ごとに後勝ち (Yjs の Y.Map)。名前と説明は文字単位では合流しない |
 | Undo / Redo | クラウドファイルでは使えない。ローカルファイルではいまのスナップショットの履歴をそのまま使う |
 | 参照整合性 | 合流後に壊れた参照 (消えた要素を指す関係など) をサーバーが直す (`repairModel`) |
 | 配信 | 1 つの Cloudflare Worker が Web の静的ファイル・API・Durable Object を持つ。デスクトップ版も同じ Worker につなぐ。Pages は使わない |
+| 登録 | Google のアカウントがあれば誰でもログインできる。ドメインでは絞らない (共有されなければ何も見えない) |
 
 ### 1.1 方式の比較 (同期)
 
@@ -41,7 +44,7 @@
 | サーバーの実装 | OIDC のやり取りとセッション | Access の JWT を読むだけ | メール送信サービスが要る | ハッシュ・再設定・漏えい対策が要る |
 | ユーザーの一覧・権限 | 自前 (D1) | 自前 (D1)。Access は認証だけ | 自前 (D1) | 自前 (D1) |
 
-業務整理ツールの利用者は会社の人なので、Google Workspace か Microsoft 365 のアカウントがあることが多い。パスワードは持たない (漏えい対策を背負わない)。Cloudflare Access は Worker の前にさらに置けるが (12 章)、ログイン自体の仕組みにはしない。magic link はメール送信サービスを足せば同じ `IdentityProvider` の形で足せる。
+まず Google だけで始める。パスワードは持たない (漏えい対策を背負わない)。Cloudflare Access は Worker の前にさらに置けるが、ログイン自体の仕組みにはしない。Microsoft Entra ID と magic link (メール送信サービスが要る) は、同じ `IdentityProvider` の形で後から足す (12 章)。
 
 ## 2. ディレクトリ構成 (pnpm ワークスペース)
 
@@ -129,23 +132,25 @@ apps/server ─┬─> core
 | クラウドファイル | サーバーに置くファイル。id は `nanoid` 21 文字。中身は Durable Object (ルーム) に、名前・所有者・メンバーは D1 に置く。開くと常に同時編集の経路になる |
 | メンバー | ファイルに付いたユーザーと役割。所有者は 1 人 (作った人。譲れる) |
 | 招待 | まだユーザーでないメールアドレスへの共有。受けた人がログインすると、そのメールのメンバーになる |
+| リンク閲覧 | 所有者が有効にしたファイルは、リンク (`/link/<トークン>`) を知っている人なら誰でも、ログインせずに閲覧できる。ゲストとして viewer 相当になる (3.6) |
 | ゴミ箱 | 消したファイルは 30 日残し、所有者が戻せる。30 日で中身ごと消す |
 
 ### 3.2 役割と権限
 
-| 操作 | owner | editor | viewer |
-| --- | --- | --- | --- |
-| 開く (読む)、プレゼンスに出る | ○ | ○ | ○ |
-| 編集する (コマンド、ドラッグ、AI エージェント) | ○ | ○ | × |
-| JSON に書き出す | ○ | ○ | ○ |
-| 複製して自分のファイルにする | ○ | ○ | ○ |
-| 名前を変える | ○ | ○ | × |
-| メンバーを足す・役割を変える・外す、招待する | ○ | × | × |
-| 所有者を譲る | ○ | × | × |
-| ゴミ箱に入れる・戻す・完全に消す | ○ | × | × |
-| 自分をメンバーから外す (共有をやめる) | × (譲ってから) | ○ | ○ |
+| 操作 | owner | editor | viewer | リンク閲覧 (ゲスト) |
+| --- | --- | --- | --- | --- |
+| 開く (読む)、プレゼンスに出る | ○ | ○ | ○ | ○ (「ゲスト」として) |
+| 編集する (コマンド、ドラッグ、AI エージェント) | ○ | ○ | × | × |
+| JSON に書き出す | ○ | ○ | ○ | ○ |
+| 複製して自分のファイルにする | ○ | ○ | ○ | ログインすれば ○ |
+| 名前を変える | ○ | ○ | × | × |
+| メンバーを足す・役割を変える・外す、招待する | ○ | × | × | × |
+| リンク閲覧を有効・無効にする、リンクを作り直す | ○ | × | × | × |
+| 所有者を譲る | ○ | × | × | × |
+| ゴミ箱に入れる・戻す・完全に消す | ○ | × | × | × |
+| 自分をメンバーから外す (共有をやめる) | × (譲ってから) | ○ | ○ | × (メンバーではない) |
 
-規則は `packages/api/src/permissions.ts` の純粋関数 `can(role, action)` に 1 か所で書く。サーバーは API ごとにこれで判定し、画面はこれでボタンの表示と無効化を決める。画面側は見せ方だけで、サーバーの判定が正本。
+役割の型は `Role = "owner" | "editor" | "viewer" | "guest"` で、リンク閲覧は `guest` として扱う (viewer との違いは複製とメンバー一覧の表示だけ)。規則は `packages/api/src/permissions.ts` の純粋関数 `can(role, action)` に 1 か所で書く。サーバーは API ごとにこれで判定し、画面はこれでボタンの表示と無効化を決める。画面側は見せ方だけで、サーバーの判定が正本。
 
 ### 3.3 D1 のテーブル
 
@@ -159,7 +164,7 @@ create table users (
   last_login_at integer
 );
 create table identities (                  -- どのプロバイダーの誰がこのユーザーか
-  provider    text not null,               -- 'google' | 'microsoft'
+  provider    text not null,               -- 'google' (将来 'microsoft' など)
   subject     text not null,               -- プロバイダー側の id (sub)
   user_id     text not null references users(id),
   primary key (provider, subject)
@@ -179,7 +184,8 @@ create table files (
   owner_id    text not null references users(id),
   created_at  integer not null,
   updated_at  integer not null,            -- ルームが onSave で更新する
-  deleted_at  integer                      -- ゴミ箱に入れた日時。null なら生きている
+  deleted_at  integer,                     -- ゴミ箱に入れた日時。null なら生きている
+  link_token  text unique                  -- リンク閲覧のトークンの SHA-256。null なら無効 (3.6)
 );
 create table file_members (
   file_id     text not null references files(id),
@@ -217,7 +223,7 @@ create index invitations_email on invitations(email, accepted_at);
 | `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件) | 誤って消したときに、その時点の JSON を取り出す (クラウドファイルには Undo が無い) |
 
 - 1 クラウドファイル = 1 Durable Object なので、ファイルの中身はその中で閉じる。モデルは数百 KB までなので、そのまま入る。R2 は使わない。
-- Worker からルームへは `getServerByName(env.UntieRoom, fileId)` で RPC を呼ぶ: `importModel(json)` (作成・複製)、`exportModel()` (書き出し。接続せずに読む)、`rename(name)`、`destroy()` (完全に消す)。
+- Worker からルームへは `getServerByName(env.UntieRoom, fileId, { locationHint: "apac" })` で RPC を呼ぶ: `importModel(json)` (作成・複製)、`exportModel()` (書き出し。接続せずに読む)、`rename(name)`、`destroy()` (完全に消す)。
 - ゴミ箱に入れても Durable Object は残す (戻せるように)。30 日経ったら Worker の cron (`scheduled`) が D1 から探して `destroy()` し、行を消す。
 
 ### 3.5 名前と更新日時
@@ -225,6 +231,23 @@ create index invitations_email on invitations(email, accepted_at);
 - 名前の正本はモデルの `meta.name` (Y.Doc の `meta`)。一覧の `files.name` はその写し。
 - ルームが `onSave` で `files.name` と `files.updated_at` を D1 に書く (ルームにも D1 のバインディングを渡す)。
 - 一覧から名前を変えるときは `PATCH /api/files/:id` がルームの `rename` を呼び、ルームが `meta.name` を書いて `onSave` で D1 に反映する。エディタで `meta.name` を変えたときも同じ経路で D1 に届く。
+
+### 3.6 リンクを知っている人の閲覧
+
+- 所有者が共有ダイアログで「リンクを知っている人が閲覧できる」を有効にすると、サーバーが 32 バイトの乱数のトークンを作り、SHA-256 を `files.link_token` に置く。URL は `https://<host>/link/<トークン>`。
+- 無効にすると `link_token` を null にする。「リンクを作り直す」は新しいトークンに置き換える (前のリンクは使えなくなる)。
+- リンクを開いた人は、ログインしていなくても閲覧できる。`POST /api/links/:token/ticket` はセッションが無くても通り、`{ fileId, userId: null, name: "ゲスト", role: "guest", via: "link" }` のチケットを返す。ログインしていて、かつそのファイルのメンバーなら、メンバーの役割のチケットを返す (editor がリンクから開いても編集できる)。
+- ゲストはプレゼンスに「ゲスト」と番号で出る。書き出し (`GET /api/links/:token/export`) はできる。複製はログインしてから (「複製するにはログイン」を出す)。
+- 無効にした・作り直したときは、Worker がルームの `kick({ via: "link" })` を呼び、リンクで入っている接続を閉じる。つなぎ直しはチケットの取得で 404 になり、画面は「このリンクは無効になりました」を出す。
+- リンクのトークンは URL に出るので、Referrer を外に漏らさないよう `_headers` の `Referrer-Policy: no-referrer` (いまのまま) を保つ。ゴミ箱の中のファイルはリンクでも開けない。
+- 編集できるリンク (誰でも editor) は作らない。編集は招待したメンバーだけ。
+
+### 3.7 データの置き場所の地域
+
+- D1 は `wrangler d1 create untie --location apac` で作る (作ったあとは動かせない)。
+- Durable Object は作るとき (`POST /api/files` の `importModel`、7.5 の `routePartykitRequest`) に `locationHint: "apac"` を渡す。Durable Object は最初に作られた場所に留まるので、作成の経路すべてで付ける。
+- `locationHint` は希望で、保証ではない (Cloudflare の `jurisdiction` は EU と FedRAMP だけで、日本は無い)。データの所在を約束する必要が出たら、R2 (`location: apac`) への書き出しと合わせて検討する。
+- Worker 自体は利用者に近い場所で動く。日本の利用者なら日本のデータセンターで動き、D1 と Durable Object へは apac の中で届く。
 
 ## 4. データの表現 (Y.Doc)
 
@@ -309,7 +332,7 @@ export default { fetch: app.fetch, scheduled: purgeTrash };
 | `ASSETS` | `apps/web/dist` の静的配信 (`not_found_handling: "single-page-application"`) |
 | `DB` (D1) | 3.3 のテーブル |
 | `UntieRoom` (Durable Object、`new_sqlite_classes`) | ファイルの中身 |
-| secrets | `SESSION_SECRET` (Cookie の署名)、`TICKET_SECRET` (7.5 のチケットの署名)、`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`、`MICROSOFT_...` |
+| secrets | `SESSION_SECRET` (Cookie の署名)、`TICKET_SECRET` (7.5 のチケットの署名)、`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
 
 ### 7.2 セッション
 
@@ -332,10 +355,10 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 ```
 
 - `state` と `nonce` と PKCE (`code_verifier`) は Worker が Cookie (`untie_auth`、10 分、HttpOnly) に署名付きで持ち、callback で照合する。
-- プロバイダーは `IdentityProvider` インターフェース (`authorizationUrl`、`exchange`、`profile`) で抽象化し、`google` と `microsoft` を実装する。ライブラリは `arctic` を使う (OIDC の定型を持ち、Workers で動く)。
+- プロバイダーは `IdentityProvider` インターフェース (`authorizationUrl`、`exchange`、`profile`) で抽象化し、まず `google` だけを実装する。ライブラリは `arctic` を使う (OIDC の定型を持ち、Workers で動く)。
 - メールアドレスは小文字に正規化して `users.email` に合わせる。プロバイダーが `email_verified: false` を返したら拒む。
 - デスクトップの引換コードは 1 回限り・5 分で、D1 ではなく `TICKET_SECRET` で署名した短い JWT にする (保存しない)。`state` はアプリが作ってキーチェーンに置き、戻ってきた `state` と照合する。deep link は `tauri-plugin-deep-link` で `untie://` を登録する。deep link が使えない環境 (Linux の一部) では、ブラウザ側のページに引換コードを表示し、アプリに貼る経路を残す。
-- 初回ログインで「このドメインのメールだけ許す」制限を `ALLOWED_EMAIL_DOMAINS` (環境変数、空なら制限なし) で掛けられるようにする。
+- 登録はドメインで絞らない。Google のアカウントがあれば誰でもログインでき、共有されなければ自分のファイルしか見えない。将来絞りたくなったときのために `ALLOWED_EMAIL_DOMAINS` (環境変数、空なら制限なし) の判定だけ入れておく。
 
 ### 7.4 API
 
@@ -359,17 +382,22 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role }`)。相手がユーザーでなければ 404 → 招待を使う | owner |
 | `DELETE /files/:id/members/:userId` | 外す。自分を外すのは editor / viewer もできる | owner (自分なら member) |
 | `POST /files/:id/transfer` | 所有者を譲る (`{ userId }`)。元の所有者は editor になる | owner |
+| `PUT /files/:id/link` | リンク閲覧を有効にする (`{ regenerate?: true }` で作り直す)。リンクの URL を返す | owner |
+| `DELETE /files/:id/link` | リンク閲覧を無効にする | owner |
 | `POST /files/:id/invitations` | メールで招待する (`{ email, role }`)。既にユーザーならその場でメンバーにする。招待リンクを返す (メール送信は PoC では画面から写して送る) | owner |
 | `DELETE /files/:id/invitations/:invitationId` | 招待を取り消す | owner |
 | `POST /invitations/:token/accept` | 招待を受ける。ログイン中のメールと招待のメールが同じときだけ | ログイン |
+| `GET /links/:token` | リンクのファイルの名前と自分の役割 (ゲストかメンバーか)。**セッション不要** | リンク |
+| `POST /links/:token/ticket` | リンクで接続するチケット (3.6)。**セッション不要** | リンク |
+| `GET /links/:token/export` | JSON に書き出す。**セッション不要** | リンク |
 
-権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。
+権限判定は `requireRole(fileId, "editor")` のようなミドルウェアで `file_members` を引き、`can(role, action)` で判定する。ゴミ箱の中のファイルは owner 以外は 404。`/links/*` だけは `requireSession` を通さず、トークンの SHA-256 で `files.link_token` を引く (無ければ 404)。
 
 ### 7.5 ルームへの接続
 
-- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` が `{ fileId, userId, name, role, exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
-- Worker 側は `routePartykitRequest(request, env, { onBeforeConnect })` で、`onBeforeConnect` がチケットを検め、`x-untie-user`・`x-untie-name`・`x-untie-role` のヘッダーを付けた Request に差し替えてルームへ渡す。合わなければ 401。チケットの `fileId` と URL のファイル id が違えば 403。
-- ルームは `onConnect` でヘッダーを `connection.setState({ userId, name, role })` に写す。
+- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/:token/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
+- Worker 側は `routePartykitRequest(request, env, { locationHint: "apac", onBeforeConnect })` で、`onBeforeConnect` がチケットを検め、`x-untie-user`・`x-untie-name`・`x-untie-role`・`x-untie-via` のヘッダーを付けた Request に差し替えてルームへ渡す。合わなければ 401。チケットの `fileId` と URL のファイル id が違えば 403。
+- ルームは `onConnect` でヘッダーを `connection.setState({ userId, name, role, via })` に写す。ゲストの `name` は「ゲスト 1」のように、ルームが接続順に番号を振る。
 
 ```ts
 export class UntieRoom extends YServer<Env> {
@@ -389,7 +417,7 @@ export class UntieRoom extends YServer<Env> {
   }
   onMessage(connection, message) {
     // 閲覧専用: 同期メッセージのうち step2 と update を捨て、step1 (読むための要求) と awareness だけ通す
-    if (connection.state.role === "viewer" && isDocWrite(message)) return;
+    if ((connection.state.role === "viewer" || connection.state.role === "guest") && isDocWrite(message)) return;
     return super.onMessage(connection, message);
   }
   // RPC (Worker から getServerByName で呼ぶ)
@@ -403,7 +431,7 @@ export class UntieRoom extends YServer<Env> {
 - `isDocWrite` は y-protocols の形 (先頭の varuint が `0 = sync`、次が `1 = step2` か `2 = update`) を読むだけ。awareness (`1`) は viewer も送れる (選択が他の人に見える)。`YServer` の `onMessage` を上書きできることは実装前に `y-partyserver` の版で確かめる (できなければ `onBeforeConnect` で viewer を別の読み取り専用経路に回す)。
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
 - 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
-- 役割が変わった (editor → viewer、外された) ときは、Worker がルームの `kick(userId)` を呼び、その人の接続を閉じる。つなぎ直すとチケットの取得で新しい役割になる。
+- 役割が変わった (editor → viewer、外された) ときは、Worker がルームの `kick({ userId })` を呼び、その人の接続を閉じる。リンク閲覧を無効にしたときは `kick({ via: "link" })` でゲストを全員閉じる。つなぎ直すとチケットの取得で新しい役割になる (リンクなら 404)。
 
 ## 8. クライアント
 
@@ -421,10 +449,11 @@ export class UntieRoom extends YServer<Env> {
 | 場所 | 内容 |
 | --- | --- |
 | ホーム | 「自分のファイル」「共有されたファイル」「ゴミ箱」のタブ。名前・更新日時・役割・メンバー。行の操作: 開く、名前を変える、複製、書き出す、共有、ゴミ箱へ。「最近開いたローカルファイル」もここに並べる |
-| ログイン | プロバイダーのボタン (Google / Microsoft)。デスクトップは「ブラウザでログインしています…」の待ち画面と、deep link が使えないときの引換コードの入力欄 |
-| 共有ダイアログ | メンバー一覧 (名前・メール・役割の選択・外す)、メールアドレスと役割で招待、未承諾の招待の一覧と取り消し、所有者を譲る。owner だけ開ける |
+| ログイン | 「Google でログイン」のボタン。デスクトップは「ブラウザでログインしています…」の待ち画面と、deep link が使えないときの引換コードの入力欄 |
+| 共有ダイアログ | メンバー一覧 (名前・メール・役割の選択・外す)、メールアドレスと役割で招待、未承諾の招待の一覧と取り消し、所有者を譲る。「リンクを知っている人が閲覧できる」のスイッチと、リンクを写す・作り直す。owner だけ開ける |
 | 招待を受ける画面 | `/invite/<token>` を開くと、ログイン (必要なら) → 受けるかの確認 → 受けたらそのファイルを開く |
-| エディタ (クラウド) | ツールバーに接続状態 (接続中 / 切断。再接続します)、参加者の色玉、役割。viewer は上に「閲覧専用」の帯。Undo / Redo は無効。Cmd/Ctrl+S は書き出し |
+| リンクで開く画面 | `/link/<token>` を開くと、ログインせずにそのままエディタ (閲覧専用) を開く。上の帯に「リンクで閲覧中。ログインすると複製できます」。ログイン済みでメンバーならその役割で開く |
+| エディタ (クラウド) | ツールバーに接続状態 (接続中 / 切断。再接続します)、参加者の色玉 (ゲストは灰色)、役割。viewer と guest は上に「閲覧専用」の帯。Undo / Redo は無効。Cmd/Ctrl+S は書き出し |
 | カード・固定ボード | 他の人の選択を色付きの縁で出す (awareness) |
 | プロパティ欄 | 他の人が同じ要素を編集中なら名前の横に表示する (ロックはしない)。viewer は入力欄をすべて読み取り専用にする |
 | AI の設定 | いまのまま各自の API キー (キーチェーン / localStorage)。viewer はエージェントを開けない (質問だけなら将来) |
@@ -436,7 +465,8 @@ export class UntieRoom extends YServer<Env> {
 - `dispatch` / `commitDrag` / `agentApply` は `document.kind === "cloud"` のとき Y.Doc に書く。`role === "viewer"` なら何もしない。
 - `history` はクラウドのとき空にし、積まない。
 - `peers: Peer[]` (awareness から) を足し、カードと参加者の色玉が読む。
-- 画面の `can(role, action)` は `document.role` から引く。ローカルは常に owner 相当。
+- 画面の `can(role, action)` は `document.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `document.link: token` を持ち、チケットと書き出しを `/api/links/*` で取る。
+- `session.status === "anonymous"` でもリンクのファイルは開ける。ホームは未ログインならログインとローカルファイルだけ出す。
 
 ### 8.3 接続
 
@@ -454,7 +484,7 @@ export class UntieRoom extends YServer<Env> {
 
 ## 9. 配信とビルド
 
-- **サーバー**: `pnpm --filter server deploy` = `pnpm --filter web build && wrangler deploy`。`wrangler.jsonc` に `assets` (`../web/dist`)、D1、Durable Object、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars.ALLOWED_EMAIL_DOMAINS` を書く。secrets は `wrangler secret put`。
+- **サーバー**: `pnpm --filter server deploy` = `pnpm --filter web build && wrangler deploy`。`wrangler.jsonc` に `assets` (`../web/dist`)、D1、Durable Object、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars.ALLOWED_EMAIL_DOMAINS` (空) を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。
 - **Web**: `apps/web` は Vite の成果物を作るだけ。`_headers` は `apps/server/public/` から静的ファイルと一緒に配る。CSP の `connect-src` に `'self'` と `wss:` の自分のオリジンを足す。`frame-ancestors 'none'` はいまのまま。
 - **デスクトップ**: `apps/desktop` に `vite.config.ts` と `src-tauri/`。Release は `apps/desktop` で `tauri-action` を動かす (`projectPath` を変えるだけ)。
 - **core / api / collab / ui**: ビルドせず、`apps/*` の Vite と Worker が TypeScript を直接取り込む (`exports` は `src/*.ts` を指す)。型検査は tsconfig の project references でパッケージごとに行う。
@@ -465,7 +495,8 @@ export class UntieRoom extends YServer<Env> {
 
 - セッションと招待のトークンは D1 にハッシュだけ置く。チケットと引換コードは短命の署名付き JWT で、保存しない。
 - 権限の判定はサーバーの `requireRole` が正本。画面の `can` は見せ方だけ。
-- OIDC は `state`・`nonce`・PKCE を必ず使い、`email_verified` を見る。`ALLOWED_EMAIL_DOMAINS` で社外を締め出せる。
+- OIDC は `state`・`nonce`・PKCE を必ず使い、`email_verified` を見る。
+- リンク閲覧のトークンは D1 にハッシュだけ置く。無効化と作り直しで即座に使えなくなり、ゲストの接続は切る。編集できるリンクは作らない。
 - Web の API は SameSite=Lax の Cookie と `X-Requested-With` で CSRF を防ぐ。デスクトップは Bearer だけ (Cookie は使わない)。
 - ゴミ箱の 30 日と完全削除は `destroy()` で Durable Object のストレージを消す。D1 の `files`・`file_members`・`invitations` も消す。
 - AI の API キーはいままでどおり各自の端末にだけ置き、サーバーには送らない。
@@ -481,8 +512,8 @@ export class UntieRoom extends YServer<Env> {
 | 合流 | Y.Doc を 2 つ作って別々のコマンドを当て、update を交換して同じモデルになること。同じ項目の後勝ち、別の項目はどちらも残ること |
 | repairModel | 消えた要素を指す関係・ノード・対象・`bucId`・`contextId`、重複した関係、業務の無い BUC、ボード 0 枚 |
 | ストア | いまの `store.test.ts` はそのまま通る (ローカルは変えない)。クラウドの `dispatch`・`commitDrag`・`agentApply` が Y.Doc に書き、他の Y.Doc の変更がストアに届く。viewer の `dispatch` が何もしない。Undo / Redo のボタンが無効で、ショートカットで何も変わらない |
-| サーバー (`@cloudflare/vitest-pool-workers`) | ログイン (OIDC はモック)、セッションの期限、API の権限 (役割ごとに 7.4 の表を当てる)、招待の受理 (メール不一致は拒む)、所有者の譲渡、ゴミ箱と cron の掃除、チケットの検証、viewer の update が捨てられること、`onSave` が D1 の名前と更新日時を書くこと |
-| UI | 既存の Testing Library のテストはそのまま (Platform はテスト用の実装を渡す)。ホーム・ログイン・共有ダイアログ・閲覧専用の帯を足す |
+| サーバー (`@cloudflare/vitest-pool-workers`) | ログイン (OIDC はモック)、セッションの期限、API の権限 (役割ごとに 7.4 の表を当てる)、招待の受理 (メール不一致は拒む)、所有者の譲渡、リンク閲覧 (有効・無効・作り直し、ゲストのチケットが guest になること、メンバーがリンクから開くと自分の役割になること、ゴミ箱の中は 404)、ゴミ箱と cron の掃除、チケットの検証、viewer と guest の update が捨てられること、`locationHint` が付くこと、`onSave` が D1 の名前と更新日時を書くこと |
+| UI | 既存の Testing Library のテストはそのまま (Platform はテスト用の実装を渡す)。ホーム・ログイン・共有ダイアログ (リンクのスイッチを含む)・閲覧専用の帯・リンクで開く画面を足す |
 
 ## 12. 進め方
 
@@ -490,16 +521,23 @@ export class UntieRoom extends YServer<Env> {
 2. **Y.Doc の往復** (まだつながない): `packages/collab/src/doc` を作り、往復と合流と `repairModel` のテストを通す。
 3. **サーバーの土台とログイン**: `apps/server` (Hono、D1、Google OIDC、セッション)、`packages/api`、ホーム画面とログイン画面。この段階ではファイルは「作る・一覧・名前・書き出し・ゴミ箱」まで (1 人で使うクラウドファイル。中身はルームに置く)。
 4. **同時編集**: `UntieRoom` への接続、ストアのクラウド経路、プレゼンス、サーバー側の `repairModel`、viewer の閲覧専用。
-5. **共有**: メンバー・招待・譲渡の API と共有ダイアログ、役割が変わったときの切断。
+5. **共有**: メンバー・招待・譲渡・リンク閲覧の API と共有ダイアログ、役割が変わったときとリンクを無効にしたときの切断、リンクで開く画面。
 6. **デスクトップ**: deep link でのログイン、キーチェーン、サーバー URL の設定。
-7. **あとで**: Microsoft Entra ID、magic link、リンクを知っている人の閲覧、フォルダ、名前・説明の文字単位の合流 (Y.Text)、オフライン時の手元キャッシュ、監査ログ、自社サーバーでの稼働 (Worker 一式を別アカウントに載せるだけ)。
+7. **あとで**: Microsoft Entra ID、magic link、ドメインでの登録制限、フォルダ、名前・説明の文字単位の合流 (Y.Text)、オフライン時の手元キャッシュ、監査ログ、自社サーバーでの稼働 (Worker 一式を別アカウントに載せるだけ)。
 
-## 13. 決めてもらいたいこと
+## 13. 決めたことと残っていること
 
-- **ID プロバイダー**: Google だけで始めてよいか。Microsoft 365 の会社が多いなら Microsoft を先にする。どちらのアカウントも無い人には magic link が要る (メール送信サービスの契約が要る)。
-- **登録の制限**: 誰でもログインできる (ファイルを共有されなければ何も見えない) か、`ALLOWED_EMAIL_DOMAINS` で会社のドメインに絞るか。
-- **リンクを知っている人の共有**: 招待だけで足りるか。「リンクで閲覧」を早めに欲しいか。
+決めたこと (2026-10-31):
+
+- ID プロバイダーは Google だけで始める。
+- 登録はドメインで絞らない。
+- リンクを知っている人の閲覧を入れる (3.6)。
+- D1 と Durable Object は日本 (apac) に寄せる (3.7)。
+- 使われないファイルを自動では消さない。
+
+残っていること:
+
 - **Web 版でのローカルファイル**: ログイン前提のクラウド版にしても、Web でローカルの JSON を開く経路を残すか (本設計は残す)。
-- **データの置き場所の地域**: Durable Object と D1 の `locationHint` / `jurisdiction` を日本 (apac) に寄せるか。
-- **ゴミ箱の保持期間** (本設計は 30 日) と、**使われないファイルを自動で消すか** (本設計は消さない)。
+- **ゴミ箱の保持期間** (本設計は 30 日)。
 - **AI の API キー**: いままでどおり各自の端末に置くか、将来サーバーで組織のキーを持つか。
+- **`YServer.onMessage` の上書き**: 採用する `y-partyserver` の版で、viewer / guest の書き込みを捨てられるかを実装前に確かめる (7.5)。
