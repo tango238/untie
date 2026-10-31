@@ -486,6 +486,28 @@ describe("openCloudFile", () => {
     expect(ticketCalls()).toBe(3);
   });
 
+  it("再接続のチケットの取得が致命的でない失敗 (5xx・429・ネットワーク) なら params は throw せず {} を返す。致命的 (401/403/404/409) は閉じて throw する", async () => {
+    await openCloudFile("a");
+    const params = provider().options.params;
+    await params(); // 最初のチケットを使い切る
+    for (const failure of [
+      () => apiError(500, "internal", "サーバーでエラーが起きました"),
+      () => apiError(429, "rate_limited", "しばらく待ってください"),
+      () => Promise.reject(new TypeError("Failed to fetch")) as never,
+    ]) {
+      server.overrides["POST /api/files/a/ticket"] = failure as never;
+      await expect(params()).resolves.toEqual({});
+      expect(st().cloud?.closed).toBeUndefined();
+    }
+    // 直れば次の再接続でまたチケットを取る
+    delete server.overrides["POST /api/files/a/ticket"];
+    expect((await params()).ticket).toBeTruthy();
+    // 致命的な失敗は、これまでどおり閉じた扱いにして throw する
+    server.overrides["POST /api/files/a/ticket"] = () => apiError(404, "file_not_found", "ファイルが見つかりません");
+    await expect(params()).rejects.toBeInstanceOf(ApiError);
+    expect(st().cloud?.closed).toMatchObject({ code: 4003 });
+  });
+
   it("サーバーの save_failed / save_ok で cloud.saveFailed が立ち、消える。切断で消える (つなぎ直すとサーバーがまた知らせる)", async () => {
     await openCloudFile("a");
     const p = provider();

@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { validateModel } from "@untie/core";
+import { NAME_MAX_LENGTH, truncateText, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import type { AppEnv } from "../env";
 import { deleteFileRows, getFileForUser, insertFile, toSummary } from "../db/files";
@@ -30,6 +30,6 @@ export async function duplicateFile(c: Context<AppEnv>, fileId: string) {
   const model = await exportRoomModel(c.env, fileId);
   // 壊れた中身を新しいファイルに写さない (500 ではなく画面に出せる 409 で返す)
   if (!validateModel(model).ok) throw conflict("ファイルの中身が壊れているため複製できません", "broken_model");
-  const copy: UntieModel = { ...model, meta: { ...model.meta, name: `${model.meta.name} のコピー`.slice(0, 200) } };
+  const copy: UntieModel = { ...model, meta: { ...model.meta, name: truncateText(`${model.meta.name} のコピー`, NAME_MAX_LENGTH) } };
   return createFile(c, copy);
 }

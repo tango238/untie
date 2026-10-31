@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@untie/core": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

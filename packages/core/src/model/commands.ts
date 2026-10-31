@@ -581,31 +581,6 @@ export function removeRelation(model: UntieModel, payload: RemoveRelationPayload
   return { ok: true, model: next };
 }
 
-// ---------------------------------------------------------------- メタ情報
-
-export interface UpdateMetaPayload {
-  name?: string;
-  /** 空文字で消す */
-  description?: string;
-}
-
-/** ファイル名 (meta.name) と説明を変える */
-export function updateMeta(model: UntieModel, payload: UpdateMetaPayload): CommandResult {
-  const tooLong = firstLengthProblem(
-    payload.name === undefined ? null : checkLength("metaName", payload.name.trim()),
-    payload.description === undefined ? null : checkLength("metaDescription", payload.description),
-  );
-  if (tooLong) return fail(tooLong);
-  const next = produce(model, (draft) => {
-    if (payload.name !== undefined) draft.meta.name = payload.name.trim();
-    if (payload.description !== undefined) {
-      if (payload.description === "") delete draft.meta.description;
-      else draft.meta.description = payload.description;
-    }
-  });
-  return { ok: true, model: next };
-}
-
 // ---------------------------------------------------------------- ボード
 
 export interface AddBoardPayload {

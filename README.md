@@ -248,6 +248,8 @@ pnpm dev     # http://localhost:5173 を開く
 3. `vars.APP_ORIGIN` を `https://<そのホスト>` にし、Google の OAuth クライアントの承認済みリダイレクト URI を `https://<そのホスト>/auth/callback` にします。
 4. `pnpm run deploy` します。
 
+`APP_ORIGIN` を設定すると、他のホスト (workers.dev やプレビュー URL) で開いても `APP_ORIGIN` へ移ります。**プレビューを画面で確かめるときは、一時的に `APP_ORIGIN` を空にしてください** (空なら移しません)。
+
 workers.dev も残す (`"workers_dev": true` のままにする) ときは、`APP_ORIGIN` を独自ドメインにしておいてください。`APP_ORIGIN` 以外のホスト (workers.dev など) で開かれた画面とログインは、`APP_ORIGIN` の同じパスへ自動で移ります (Cookie とログインを 1 つのホストに揃えるため。ルームの WebSocket・リンク閲覧・デスクトップの引換コードの交換は移しません)。
 
 ### 運用

@@ -92,16 +92,34 @@ export async function kickRoomQuietly(env: RoomEnv, fileId: string, target: Kick
 /** ログアウトの kick を、その場で待つ部屋の数の上限。これを超えたら応答を待たせず waitUntil で続ける */
 export const INLINE_KICK_LIMIT = 5;
 
+/** ログアウトで同時に送る kick の数 (簡単なセマフォ) */
+export const KICK_CONCURRENCY = 10;
+/** 1 回のリクエストで kick を送るファイルの数の上限 (Workers のサブリクエストの上限に収める)。超えた分は諦める */
+export const MAX_KICK_ROOMS = 40;
+
+/** items を最大 limit 個ずつ同時に fn へ渡す。fn は投げない前提 */
+async function mapLimited<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 /**
  * そのユーザーがメンバーのすべてのファイル (ゴミ箱の中も含む) のルームに kick を送る。ログアウトのとき、開いたままの接続を閉じる。
- * 失敗しても例外にしない (kickRoomQuietly)。ファイルが多いときは応答を待たせず、executionCtx.waitUntil で続ける
+ * 失敗しても例外にしない (kickRoomQuietly)。同時に送るのは KICK_CONCURRENCY 件まで、1 回に送るのは MAX_KICK_ROOMS 件まで
+ * (超えた分は件数をログに出して諦める。残った接続は、つなぎ直すときのチケットの取得 (401) で止まる)。
+ * ファイルが多いときは応答を待たせず、executionCtx.waitUntil で続ける
  */
 export async function kickRoomsOfUser(c: Context<AppEnv>, userId: string, target: KickTarget): Promise<void> {
-  const ids = await listFileIdsOfMember(c.env.DB, userId);
-  if (ids.length === 0) return;
-  const run = async () => {
-    await Promise.all(ids.map((id) => kickRoomQuietly(c.env, id, target)));
-  };
+  const all = await listFileIdsOfMember(c.env.DB, userId);
+  if (all.length === 0) return;
+  const ids = all.slice(0, MAX_KICK_ROOMS);
+  if (all.length > ids.length) {
+    console.error(`ログアウトで接続を閉じるファイルが多すぎます: ${all.length} 件中 ${all.length - ids.length} 件は閉じませんでした`);
+  }
+  const run = () => mapLimited(ids, KICK_CONCURRENCY, (id) => kickRoomQuietly(c.env, id, target));
   if (ids.length <= INLINE_KICK_LIMIT) return run();
   let ctx: Context<AppEnv>["executionCtx"] | null = null;
   try {

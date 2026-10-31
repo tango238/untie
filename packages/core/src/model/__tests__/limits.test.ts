@@ -5,7 +5,6 @@ import {
   addElement,
   renameBoard,
   updateElement,
-  updateMeta,
 } from "../commands";
 import {
   ANALYSIS_MAX_LENGTH,
@@ -150,15 +149,10 @@ describe("コマンドは上限を超える文字列を失敗にする", () => {
     expect(m.elements.find((e) => e.kind === "issue")!.name).toBe("課題");
   });
 
-  it("ボード名とファイル名・説明", () => {
+  it("ボード名", () => {
     const m = emptyModel();
     expectFail(addBoard(m, { name: long(201) }), /^ボード名は 200 文字までです$/);
     expectFail(renameBoard(m, { id: m.boards[0].id, name: long(201) }), /ボード名は 200 文字まで/);
-    expectFail(updateMeta(m, { name: long(201) }), /^ファイル名は 200 文字までです$/);
-    expectFail(updateMeta(m, { description: long(4001) }), /^ファイルの説明は 4000 文字までです$/);
-    const named = okModel(updateMeta(m, { name: ` ${long(200)} `, description: long(4000) }));
-    expect(named.meta.name).toBe(long(200));
-    expect(okModel(updateMeta(named, { description: "" })).meta.description).toBeUndefined();
     expect(okModel(renameBoard(m, { id: m.boards[0].id, name: long(200) })).boards[0].name).toHaveLength(200);
   });
 });

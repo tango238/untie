@@ -6,8 +6,8 @@ import { addElement, addRelation, emptyModel, validateModel } from "@untie/core"
 import type { UntieModel } from "@untie/core";
 import { getRoots, ORDER_KEY } from "@untie/collab";
 import { sha256Hex } from "../auth/crypto";
-import { getRoom } from "../rooms";
-import { breakUnrepairably, callWorker, env, inRoom, loginAs, resetDb } from "./helpers";
+import { getRoom, KICK_CONCURRENCY, kickRoomsOfUser, MAX_KICK_ROOMS } from "../rooms";
+import { breakUnrepairably, callWorker, env, inRoom, loginAs, resetDb, setCookies } from "./helpers";
 import { closedCode, createFile, join, share, tok, tokenOf } from "./shareHelpers";
 import { closeAllClients, connectRoom, expectClient } from "./roomClient";
 
@@ -83,6 +83,70 @@ describe("ログアウトで、そのセッションで開いているルーム�
     const rooms = [await join(taro, ids[0]), await join(taro, ids[7])];
     await taro.fetch("/auth/logout-all", { method: "POST" });
     for (const room of rooms) expect(await closedCode(room)).toBe(CLOSE_UNAUTHENTICATED);
+  });
+
+  it("kick の準備 (D1 の読み取り) に失敗しても、セッションは消えていて、Cookie を消して 204 を返す (logout・logout-all)", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const brokenDb = {
+        prepare: (sql: string) => {
+          if (sql.includes("select file_id from file_members")) throw new Error("D1 が落ちています");
+          return env.DB.prepare(sql);
+        },
+        batch: env.DB.batch.bind(env.DB),
+      } as unknown as D1Database;
+      for (const path of ["/auth/logout", "/auth/logout-all"]) {
+        const taro = await loginAs("taro@example.com", "", { DB: brokenDb });
+        const response = await taro.fetch(path, { method: "POST" });
+        expect(response.status).toBe(204);
+        expect(setCookies(response).some((c) => c.startsWith("untie_session=;"))).toBe(true);
+        expect((await env.DB.prepare("select count(*) as n from sessions").first<{ n: number }>())!.n).toBe(0);
+      }
+      expect(error.mock.calls.map((c) => String(c[0]))).toEqual(["ログアウトの kick に失敗しました", "ログアウトの kick に失敗しました"]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("ログアウトの kick は同時に 10 件まで、1 回に 40 ファイルまで。超えた分は件数をログに出して諦める", async () => {
+    await env.DB.batch([
+      env.DB.prepare("insert into users (id, email, name, created_at) values ('usr_many', 'many@example.com', 'M', 1)"),
+      ...Array.from({ length: 55 }, (_, i) => [
+        env.DB.prepare("insert into files (id, name, owner_id, created_at, updated_at) values (?, 'x', 'usr_many', 1, 1)").bind(`many-${String(i).padStart(2, "0")}`),
+        env.DB.prepare("insert into file_members (file_id, user_id, role, added_at) values (?, 'usr_many', 'owner', 1)").bind(`many-${String(i).padStart(2, "0")}`),
+      ]).flat(),
+    ]);
+    let running = 0;
+    let peak = 0;
+    const kicked: string[] = [];
+    const fakeRooms = {
+      idFromName: (name: string) => name,
+      get: (name: string) => ({
+        setName: async () => {},
+        kick: async () => {
+          running++;
+          peak = Math.max(peak, running);
+          kicked.push(name);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          running--;
+          return 0;
+        },
+      }),
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // executionCtx が無い環境と同じく、その場で待つ
+      const ctx = { env: { ...env, UntieRoom: fakeRooms }, get executionCtx(): never { throw new Error("no ctx"); } };
+      await kickRoomsOfUser(ctx as never, "usr_many", { userId: "usr_many", reason: "loggedOut" });
+      expect(kicked).toHaveLength(MAX_KICK_ROOMS);
+      expect(MAX_KICK_ROOMS).toBe(40);
+      expect(new Set(kicked).size).toBe(40);
+      expect(peak).toBe(KICK_CONCURRENCY);
+      expect(KICK_CONCURRENCY).toBe(10);
+      expect(error.mock.calls.map((c) => String(c[0]))).toEqual(["ログアウトで接続を閉じるファイルが多すぎます: 55 件中 15 件は閉じませんでした"]);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("セッションが無い・期限切れの logout は、何も閉じず 204", async () => {
@@ -213,6 +277,33 @@ describe("保存できないとき (save_failed / save_ok)", () => {
       // その後の保存では重ねて送らない
       await inRoom(stub, (room) => room.onSave());
       expect(a.custom).toEqual([SAVE_FAILED_MESSAGE, SAVE_OK_MESSAGE]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("save_ok は D1 の更新より先に流す。D1 の更新が失敗しても onSave は投げず、記録だけ残す", async () => {
+    const taro = await loginAs("taro@example.com");
+    const id = await createFile(taro);
+    const room = await join(taro, id);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await inRoom(await getRoom(env, id), async (instance) => {
+        breakUnrepairably(instance);
+        await instance.onSave();
+        getRoots(instance.document).elements.delete([...getRoots(instance.document).boards.keys()][0]);
+        const db = (instance as unknown as { env: { DB: D1Database } }).env.DB;
+        const prepare = vi.spyOn(db, "prepare").mockImplementation(() => {
+          throw new Error("D1 が落ちています");
+        });
+        try {
+          await expect(instance.onSave()).resolves.toBeUndefined();
+        } finally {
+          prepare.mockRestore();
+        }
+      });
+      await vi.waitFor(() => expect(room.custom).toEqual([SAVE_FAILED_MESSAGE, SAVE_OK_MESSAGE]));
+      expect(error.mock.calls.flat().join("\n")).toContain("一覧の名前と更新日時を書けませんでした");
     } finally {
       error.mockRestore();
     }

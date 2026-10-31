@@ -116,11 +116,16 @@ export class UntieRoom extends YServer<Env> {
       this.notifySaveFailed();
       return;
     }
-    // 一覧の写し。行が無ければ (取り込みの途中・消したあと) 何もしない
-    await this.env.DB.prepare("update files set name = ?, updated_at = ? where id = ?").bind(model.meta.name, Date.now(), this.name).run();
+    // 中身は保存できた。D1 の更新より先に知らせる (一覧の写しが失敗しても、保存できていないままの表示を残さない)
     if (this.saveFailed) {
       this.saveFailed = false;
       this.broadcastCustomMessage(SAVE_OK_MESSAGE);
+    }
+    // 一覧の写し。行が無ければ (取り込みの途中・消したあと) 何もしない。失敗しても中身は保存済みなので、記録だけして続ける
+    try {
+      await this.env.DB.prepare("update files set name = ?, updated_at = ? where id = ?").bind(model.meta.name, Date.now(), this.name).run();
+    } catch (e) {
+      console.error(`ルーム ${this.name}: 一覧の名前と更新日時を書けませんでした`, e instanceof Error ? e.message : e);
     }
   }
 
@@ -180,7 +185,8 @@ export class UntieRoom extends YServer<Env> {
 
   /**
    * チケットを使ったと記録する。すでに記録があれば false (使用済み)。
-   * get と put の間に await を挟まないので、同じチケットで同時に 2 本つないでも、通るのは 1 本だけ。
+   * Durable Object の input gate で直列になる (ストレージの読み書きの間に別の接続の処理は割り込めない) ので、
+   * 同じチケットで同時に 2 本つないでも、通るのは 1 本だけ。
    * 期限 (チケットが検証を通らなくなる時刻) を過ぎた記録は、記録のたびに消す
    */
   private async useTicket(jti: string, expiresAt: number): Promise<boolean> {

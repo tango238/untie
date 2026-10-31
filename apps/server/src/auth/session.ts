@@ -6,6 +6,7 @@ import { createSession, deleteSession, deleteSessionsOfUser, extendSession, find
 import type { SessionKind, SessionRow, UserRow } from "../db/types";
 import { forbidden, unauthorized } from "../errors";
 import { isDesktopOrigin } from "./cors";
+import type { KickTarget } from "@untie/collab/room";
 import { kickRoomsOfUser } from "../rooms";
 import { generateToken, sha256Hex } from "./crypto";
 import { sidOf } from "./ticket";
@@ -159,7 +160,8 @@ export async function endSession(c: Context<AppEnv>): Promise<void> {
     const id = await sha256Hex(credential.token);
     const userId = await findSessionOwner(c.env.DB, id);
     await deleteSession(c.env.DB, id);
-    if (userId) await kickRoomsOfUser(c, userId, { sid: sidOf(id) });
+    // 接続を閉じるのに失敗しても (D1 の読み取りを含む)、セッションは消えている。Cookie を消して 204 を返す
+    if (userId) await kickRoomsOfUserQuietly(c, userId, { sid: sidOf(id) });
   }
   clearSessionCookie(c);
 }
@@ -167,6 +169,15 @@ export async function endSession(c: Context<AppEnv>): Promise<void> {
 /** すべての端末からログアウト: ユーザーの全セッションを消し、そのユーザーが開いているルームの接続をすべて閉じる (4000「ログアウトしました」) */
 export async function endAllSessions(c: Context<AppEnv>, userId: string): Promise<void> {
   await deleteSessionsOfUser(c.env.DB, userId);
-  await kickRoomsOfUser(c, userId, { userId, reason: "loggedOut" });
+  await kickRoomsOfUserQuietly(c, userId, { userId, reason: "loggedOut" });
   clearSessionCookie(c);
+}
+
+/** ログアウトの kick。D1 から対象のファイルを引くところから、失敗しても投げない (ログにメッセージだけ残す) */
+async function kickRoomsOfUserQuietly(c: Context<AppEnv>, userId: string, target: KickTarget): Promise<void> {
+  try {
+    await kickRoomsOfUser(c, userId, target);
+  } catch (e) {
+    console.error("ログアウトの kick に失敗しました", e instanceof Error ? e.message : e);
+  }
 }

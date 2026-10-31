@@ -362,8 +362,13 @@ export async function openCloudFile(fileId: string, options: { link?: string; ke
           return { ticket: next.ticket };
         } catch (e) {
           const closed = closedByTicketError(e);
-          if (closed) close(closed);
-          throw e;
+          if (closed) {
+            close(closed);
+            throw e;
+          }
+          // 致命的でない失敗 (5xx・429・ネットワーク) は投げない。投げると provider は古い params (使用済みのチケット) のまま
+          // 再接続してしまう。ticket なしで返せば Worker が 401 にし、ハンドシェイクの失敗として provider のバックオフが効く
+          return {};
         }
       },
     });

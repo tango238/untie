@@ -1,14 +1,18 @@
 // API のリクエストとレスポンスの形 (設計書 7.4)。サーバーはリクエストの検証に、クライアントはレスポンスの検証に使う。
 import { z } from "zod";
-
-/** 名前の長さの上限 (一覧に出す名前なので長すぎるものは拒む) */
-export const NAME_MAX_LENGTH = 200;
+// 名前の長さの上限は core の limits.ts (スキーマの maxLength の写し) を使う。ここで二重に定義しない
+import { NAME_MAX_LENGTH, textLength } from "@untie/core/model/limits";
 
 export const RoleSchema = z.enum(["owner", "editor", "viewer", "guest"]);
 export const MemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
 export const ProviderIdSchema = z.enum(["google", "dev"]);
 
-const NameSchema = z.string().trim().min(1, "名前を入力してください").max(NAME_MAX_LENGTH, `名前は ${NAME_MAX_LENGTH} 文字までです`);
+// 長さはスキーマの maxLength と同じ数え方 (コードポイント)
+const NameSchema = z
+  .string()
+  .trim()
+  .min(1, "名前を入力してください")
+  .refine((name) => textLength(name) <= NAME_MAX_LENGTH, `名前は ${NAME_MAX_LENGTH} 文字までです`);
 
 export const UserSchema = z.object({
   id: z.string(),

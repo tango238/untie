@@ -45,8 +45,6 @@ export const LIMITS = {
   linkTitle: { max: LINK_TITLE_MAX_LENGTH, label: "リンクの表示名" },
   linkUrl: { max: LINK_URL_MAX_LENGTH, label: "リンクの URL" },
   boardName: { max: NAME_MAX_LENGTH, label: "ボード名" },
-  metaName: { max: NAME_MAX_LENGTH, label: "ファイル名" },
-  metaDescription: { max: DESCRIPTION_MAX_LENGTH, label: "ファイルの説明" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;
 

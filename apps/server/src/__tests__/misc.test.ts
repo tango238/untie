@@ -201,6 +201,13 @@ describe("APP_ORIGIN 以外のホストで開かれたとき", () => {
     expect((await redirected("https://untie.workers.dev/api/me")).headers.get("Location")).toBe("https://untie.example.com/api/me");
   });
 
+  it("HEAD も 302 する (GET と同じ移し先)", async () => {
+    const head = await redirected("https://untie.workers.dev/auth/login?provider=google", { method: "HEAD" });
+    expect(head.status).toBe(302);
+    expect(head.headers.get("Location")).toBe("https://untie.example.com/auth/login?provider=google");
+    expect((await redirected("https://untie.workers.dev/", { method: "HEAD" })).headers.get("Location")).toBe("https://untie.example.com/");
+  });
+
   it("APP_ORIGIN と同じオリジンなら移さない (末尾の / があっても)", async () => {
     expect((await redirected("https://untie.example.com/auth/providers")).status).toBe(200);
     expect((await redirected("https://untie.example.com/auth/providers", {}, { APP_ORIGIN: "https://untie.example.com/" })).status).toBe(200);
