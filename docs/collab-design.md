@@ -113,6 +113,14 @@ export interface Platform {
   login(provider: ProviderId, returnTo: string): Promise<void>;
   /** セッションの送り方。Web は Cookie (何もしない)、デスクトップはキーチェーンのトークンを Authorization に付ける */
   authorize(request: RequestInit): Promise<RequestInit>;
+  /** 手元のセッションを消す (ログアウトのあとに呼ぶ)。Web は何もしない (Cookie はサーバーが消す)。デスクトップはキーチェーンの `session` を消す */
+  clearSession(): Promise<void>;
+  /** 以下はデスクトップだけ (Web は未定義)。サーバーの URL を変える (検めて保存し、`session` を消す)。不正な URL は Error */
+  setServerOrigin?(url: string): Promise<void>;
+  /** ブラウザのログインが deep link か引換コードで終わった知らせ。画面は戻り先へ移って `session.load()` する。失敗 (state の不一致・期限切れ) は `{ ok: false, message }` */
+  onLoggedIn?(listener: (result: { ok: true } | { ok: false; message: string }) => void): () => void;
+  /** 引換コード (または deep link の URL) を貼ってログインを終える。deep link が開けない環境向け。失敗は Error */
+  completeLoginWithCode?(code: string): Promise<void>;
 }
 ```
 
@@ -361,7 +369,8 @@ export default { fetch: app.fetch, scheduled: purgeTrash };
 
 - ログインが済むと `sessions` に行を作り、トークン (32 バイトの乱数、base64url) を返す。D1 にはその SHA-256 だけを置く。
 - **Web**: `Set-Cookie: untie_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/`。`Secure` は**リクエストが https のとき**に付ける (`APP_ORIGIN` の設定には頼らない。http://localhost の開発では付かない)。Cookie は `kind = web` のセッションだけ、Bearer は `kind = desktop` のセッションだけを受ける。ログインし直したときは、持っていた Cookie のセッションの行を消す。開発用ログイン (`DEV_LOGIN=true`) は、リクエストのホストが localhost / 127.0.0.1 のときだけ効く (本番で誤って true にしても効かない)。API は Cookie で認証する。CSRF は SameSite=Lax に加え、状態を変える API は `X-Requested-With: untie` ヘッダーを要求する (フォームからは付けられない)。
-- **デスクトップ**: トークンを `Authorization: Bearer <token>` で送る。キーチェーンに `session` として置く (いまの `keyring` のコマンドを使う)。
+- **デスクトップ**: トークンを `Authorization: Bearer <token>` で送る。キーチェーンに `session` として置く (`keyring` のコマンド `get_secret` / `set_secret` / `delete_secret`。名前は `claude`・`codex`・`gemini`・`session` だけ受ける)。作った直後の desktop のセッションは `activated_at` が null で、**引換コードを交換する (7.3) まで認証に通らない**。交換されないまま 1 時間以上たった行は毎日の cron が消す(`delete … where expires_at < ?` と `delete … where kind = 'desktop' and activated_at is null and created_at < ?` の 2 本。前者は `sessions_expires`、後者は 0003 の部分 index `sessions_unactivated` を使う)。
+- **CORS** (デスクトップの WebView は別のオリジンから呼ぶ): `/api/*`・`/auth/providers`・`/auth/desktop/exchange`・`/auth/logout`・`/auth/logout-all` に、`Origin` が `tauri://localhost` (macOS / Linux)・`http://tauri.localhost` (Windows) のとき、および `http://localhost:1420` (`tauri dev`。**`DEV_LOGIN=true` のときだけ**。本番では許さない) のときだけ `Access-Control-Allow-Origin` にその値を返す (一覧に無い送り元には何も付けない。`Vary: Origin`)。プリフライトは許す送り元に 204 (`Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`、`Allow-Headers: Authorization, Content-Type, X-Untie-Token, X-Requested-With`、`Max-Age: 600`)、許さない送り元に 403。`Expose-Headers: Content-Disposition` (書き出しのファイル名を読むため)。**credentials は許さない** (`Access-Control-Allow-Credentials` は付けない)。**Cookie 認証は CORS 経由では使われない**: Cookie は SameSite=Lax なので別サイトからの fetch には付かず、さらにサーバーも、デスクトップの送り元から届いたリクエストの Cookie は読まない (Bearer だけを見る)。`/parties/*` の WebSocket は Origin を見ない (partyserver のまま。認証はチケット)。
 - `requireSession` ミドルウェアが Cookie か Authorization を読み、`sessions` を引いて `c.var.user` を入れる。期限切れは 401。使うたびに `last_seen_at` と `expires_at` を延ばす (1 日に 1 回だけ書く)。
 - ログアウトは行を消す。「すべての端末からログアウト」は `user_id` の行を全部消す。
 
@@ -373,14 +382,21 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
                                                              sessions を作成、Cookie を付けて 302 / (元の URL)
 デスクトップ: アプリ ─既定のブラウザで GET /auth/login?provider=google&client=desktop&state=<乱数>
             … 同じ流れで Worker がセッションを作る …
-            Worker ─302 untie://auth/callback?code=<1 回限りの引換コード>&state=
-            アプリ ─POST /auth/desktop/exchange { code, state } ─> { token }  → キーチェーンへ
+            Worker ─200 HTML (/auth/desktop/done の役目。callback の応答そのもの): untie://auth/callback?code=<引換コード>&state= へ自動遷移 + ボタン + コードの表示とコピー
+            アプリ ─deep link を受ける → state を照合 → POST /auth/desktop/exchange { code, state } ─> { token, user }  → キーチェーンへ
 ```
 
 - `state` と `nonce` と PKCE (`code_verifier`) は Worker が Cookie (`untie_auth`、10 分、HttpOnly) に署名付きで持ち、callback で照合する。
 - プロバイダーは `IdentityProvider` インターフェース (`authorizationUrl`、`exchange`、`profile`) で抽象化し、まず `google` だけを実装する。ライブラリは `arctic` を使う (OIDC の定型を持ち、Workers で動く)。
 - メールアドレスは小文字に正規化して `users.email` に合わせる。プロバイダーが `email_verified: false` を返したら拒む。
-- デスクトップの引換コードは 1 回限り・5 分で、D1 ではなく `TICKET_SECRET` で署名した短い JWT にする (保存しない)。`state` はアプリが作ってキーチェーンに置き、戻ってきた `state` と照合する。deep link は `tauri-plugin-deep-link` で `untie://` を登録する。deep link が使えない環境 (Linux の一部) では、ブラウザ側のページに引換コードを表示し、アプリに貼る経路を残す。
+- **デスクトップのログイン** (3 段階目まででき上がっていた Web の流れに、`client=desktop` を足したもの):
+  - `GET /auth/login?provider=…&client=desktop&state=<乱数>&code_challenge=<PKCE>`: `state` はアプリが作る乱数 (`[A-Za-z0-9_-]` の 16〜128 文字)、`code_challenge` は PKCE (RFC 7636 / RFC 8252) の `base64url(sha256(verifier))` (`[A-Za-z0-9_-]` の 43 文字)。どちらかが外れたら 400 `invalid_state`。`untie_auth` Cookie に `client: "desktop"`・`appState` (OIDC の `state` とは別)・`challenge` を入れる。Google も開発用ログイン (`/auth/dev` を経由する。Cookie は同じ) も流れはそのまま。デスクトップでないログイン (`client` が無い・`web`) は、前のデスクトップのログインが残した `untie_auth` を消してから進む (Google は新しい `untie_auth` で上書きする)。
+  - callback (Google の `/auth/callback`、開発用の `POST /auth/dev`) で `client === "desktop"` なら、`kind = "desktop"` のセッション (90 日。`activated_at` は null) を作り、**Cookie は付けずに**引換コードを入れた HTML を 200 で返す。ページは「アプリに戻ります」と、`location.href` での `untie://auth/callback?code=<引換コード>&state=<state>` への自動遷移、同じリンクのボタン、deep link が開けない環境のための引換コードの表示と「コピー」ボタン。`Cache-Control: no-store`、スクリプトは nonce つきの CSP。
+  - **引換コード**: `{ sessionHash, state, challenge, exp }` (`sessionHash` はこのときできた行の id=乱数のハッシュ、`challenge` は上の `code_challenge`、`exp` は 5 分後のエポックミリ秒) を JSON にして AES-GCM で暗号化した `base64url(iv ‖ 暗号文)`。**生のトークンは入れない**(この時点ではトークンはまだ存在しない)。鍵は `TICKET_SECRET` から HKDF-SHA256 (`info = "desktop-exchange-code-v1"`) で作り、チケットの HMAC の鍵と同じ秘密から別の鍵を派生する。追加認証データを固定にして他の用途に使い回せない。D1 には置かない。暗号化するのは、deep link の URL・ブラウザの履歴・クリップボードに残っても中身(state・challenge)が読めないようにするため。
+  - `POST /auth/desktop/exchange { code, state, code_verifier }` (セッション不要、CORS 対応。7.2。`code_verifier` は `[A-Za-z0-9_-]` の 43〜128 文字): 復号できなければ 400 `invalid_code`、`exp` を過ぎていれば 401 `code_expired`、`state` が違えば 400 `state_mismatch`、`base64url(sha256(code_verifier))` が `challenge` と違えば 400 `invalid_verifier` (どちらもコードは使われないまま)。そのうえで**新しいトークンをこのとき作り**、`update sessions set id = <新しいトークンの SHA-256>, activated_at = now, last_seen_at = now where id = <sessionHash> and kind = 'desktop' and activated_at is null and expires_at > now` で行の id を入れ替え、`meta.changes === 1` のときだけ `{ token, user }` を返す。書けなかった (2 回目・行が消えている) ら 401 `code_used`。1 回限りは D1 の `activated_at` で守る (同時に 2 本来ても通るのは 1 本)。コードを盗み見た者は、verifier を持たないので交換できない(PKCE)。マイグレーションは `0003_desktop_sessions.sql`。
+  - アプリ: `state` と PKCE の `verifier` (32 バイトの乱数の base64url) を作って `sessionStorage` に置き (戻り先とサーバーの URL も一緒に。**15 分**で無効)、`challenge` を付けて既定のブラウザで `/auth/login?…` を開く。deep link (`tauri-plugin-deep-link` の `onOpenUrl`。アプリが deep link で起動されたときは `getCurrent`) で `untie://auth/callback?code&state` を受けたら (URL は hostname に頼らず、頭の `untie://auth/callback` を文字列で比べ、クエリだけ `URL` で読む)、記録の `state` と照合して (合わなければ拒む)、`POST /auth/desktop/exchange` に `verifier` を添えて送る → 返った `token` を、**サーバーの URL とログインの記録がまだ同じときだけ**キーチェーンの `session` に置く(交換の最中に設定を変えたら、古いサーバーのトークンを保存しない)→ 戻り先 (`returnTo`) を `location.hash` に反映して `onLoggedIn` で知らせる。交換したコードがもう一度届いても何もしない。記録が無い・期限切れなら、それぞれ「ログインの記録がありません」(1 度だけ)・「時間切れです」と知らせる。`state` と `verifier` は短命なので、キーチェーンではなく `sessionStorage` に置く。
+  - deep link が使えない環境では、ブラウザ側のページに引換コードを表示し、アプリのログイン欄の「引換コードを貼る」に貼る経路 (`completeLoginWithCode`) を残す。Windows / Linux は deep link で別のプロセスが起動されるので、`tauri-plugin-single-instance` (deep-link 機能つき) が URL を動いているアプリに渡す。
+  - `POST /auth/logout`・`POST /auth/logout-all` は Bearer でも効く (行を消す。`X-Requested-With` は Cookie 認証のときだけ要る)。アプリは API の後で `clearSession()` でキーチェーンのトークンを消す。
 - 登録はドメインで絞らない。Google のアカウントがあれば誰でもログインでき、共有されなければ自分のファイルしか見えない。将来絞りたくなったときのために `ALLOWED_EMAIL_DOMAINS` (環境変数、空なら制限なし) の判定だけ入れておく。
 
 ### 7.4 API
@@ -501,7 +517,7 @@ export class UntieRoom extends YServer<Env> {
 - **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members`・`invitations`・`link` は owner だけが受け取る。`PUT /files/:id/members/:userId` は `200` と `Member`、`POST /files/:id/transfer` は `200` と `FileSummary`、`DELETE …/members/:userId`・`DELETE …/invitations/:invitationId`・`DELETE …/link` は `204`。
 - **完全削除はゴミ箱の中のファイルだけ**: ゴミ箱に入っていないファイルへの `purge` は `409 not_in_trash`。
 - **開発用ログイン**: `DEV_LOGIN=true` で、かつリクエストのホストが localhost / 127.0.0.1 のときだけ `GET/POST /auth/dev` (メールと名前のフォーム) と `providers` の `dev` が有効。`false` なら `/auth/dev` は 404。ドメイン制限 (`ALLOWED_EMAIL_DOMAINS`) は Google と共通の `isEmailAllowed` を通る。
-- **`untie_auth` Cookie** (OIDC の `state`・`nonce`・`code_verifier`・戻り先) は `Path=/auth`、10 分、`SESSION_SECRET` の HMAC 署名付き。戻り先 (`return`) は `#` で始まる相対のものだけ受ける。
+- **`untie_auth` Cookie** (OIDC の `state`・`nonce`・`code_verifier`・戻り先。デスクトップなら `client: "desktop"` と `appState` も。開発用ログインは `state` 以外が空) は `Path=/auth`、10 分、`SESSION_SECRET` の HMAC 署名付き。戻り先 (`return`) は `#` で始まる相対のものだけ受ける。
 - **`/parties/*`**: 7.5 のとおり。`/parties/untie-room/<id>` は WebSocket だけを受け、チケットが無効なら 401 (`invalid_ticket`)、別のファイルのチケットなら 403、HTTP は 401。`untie-room` 以外の名前空間は JSON の 404。
 - **`POST /files/:id/ticket`**: `requireRole(..., "read")` を通り、`{ ticket, role, expiresAt }` (`TicketResponse`) を返す。`name` はユーザーの表示名。ゴミ箱の中のファイルは owner 以外は 404 (他の API と同じ)、owner には 409 `in_trash` (ゴミ箱の中のファイルは開けない。戻せば出る)。`name` が空ならメールアドレスの `@` より前 (メールアドレスそのものは他のメンバーに見せない)。
 
@@ -578,10 +594,13 @@ export class UntieRoom extends YServer<Env> {
 
 ### 8.4 デスクトップ固有
 
-- サーバーの URL は設定画面で変えられる (既定は本番)。変えたらログアウトする。
-- セッションのトークンと deep link の `state` はキーチェーンに置く。
-- `tauri.conf.json` の CSP の `connect-src` にサーバーの `https://` と `wss://` を足す。`shell`/`opener` で既定のブラウザを開く (いまの `openExternalUrl`)。
-- deep link: `tauri-plugin-deep-link` で `untie://` を登録。Mac は `.app` の Info.plist、Windows はレジストリに入る (署名なしでも動く)。
+- **サーバーの URL**: 既定は無く (未設定のとき、クラウドの機能は使えない)、ホームの「サーバーの設定」(`platform.kind === "desktop"` のときだけ) で入れる。`localStorage` の `untie.serverOrigin` にオリジンだけを置く。設定のとき (`parseServerOrigin`) に検める: **`https:` の URL か、開発用の `http://localhost`・`http://127.0.0.1` だけ**。パス (末尾のスラッシュ以外)・クエリ・ハッシュ・ユーザー名・パスワードつきは拒む。読むときは手で書き換えた値でも使えるよう、http(s) のオリジンに直す。**変えたらログアウトする**: `setServerOrigin` は検めたあと、キーチェーンの `session` と始めたログインの記録を消してから URL を保存する (消せなければ URL も変えない。古いトークンを別のサーバーに送らない)。画面は、オリジンが変わらなければ何もせず、変わるときはログイン中なら先に (いまのサーバーで) `logout` を試し (失敗しても進める)、`setServerOrigin` のあと `session.load()` する。未設定のログイン欄には「サーバーを設定する」(入力欄へ移るボタン) を出す。
+- **キーチェーン**: AI の API キーとセッションのトークンを置く。Rust のコマンドは `get_secret` / `set_secret` / `delete_secret` (名前は許可リストの `claude`・`codex`・`gemini`・`session`。API キーの項目名は従来どおり `api-key-<名前>`、トークンは `session-token`)。ログインの `state` は短命なので `sessionStorage` に置く。
+- **`authorize`**: キーチェーンに `session` があれば `Authorization: Bearer` を `new Headers(init.headers)` に足す (呼び出し側のヘッダーは壊さない)。`credentials: "omit"` (Cookie は使わない)。トークンは初回に読んでメモリに写す。
+- **CSP**: `tauri.conf.json` の `connect-src` に `https: wss:` を足した (開発用の `devCsp` はさらに `http://localhost:8787 ws://localhost:8787`)。サーバーの URL が設定で変わり、ビルド時に通信先を決められないため、`https:` と `wss:` 全体を許す。代わりに `script-src` は `'self'` のまま (外のスクリプトは読めない)。通信先を絞りたければ、サーバーの URL を固定したビルドにして `connect-src` をそのホストだけにする。リリース版は https のサーバーだけにつながる (http の localhost は `tauri dev` のみ)。`tauri.conf.json` は JSON でコメントを書けないので、理由はここと README に置く。
+- **既定のブラウザ**: `plugin-opener` の `openUrl` (capability は `opener:allow-open-url`・`opener:allow-default-urls`)。ログインは `${origin}/auth/login?provider=…&client=desktop&state=…` を開く。
+- **deep link**: `tauri-plugin-deep-link` で `untie://` を登録する (`tauri.conf.json` の `plugins.deep-link.desktop.schemes`、capability は `deep-link:default`)。Mac は `.app` の Info.plist、Windows のインストーラーはレジストリに入る (署名なしでも動く)。実行時の `register_all()` は、開発ビルド (未インストール) の Windows と、**Linux はリリースでも**呼ぶ (`#[cfg(any(all(debug_assertions, windows), target_os = "linux"))]`。AppImage で配るのでインストーラーが `.desktop` を置かない。起動のたびに `~/.local/share/applications` に登録し、`update-desktop-database` が要る)。**macOS の `tauri dev` では deep link が届かない** (Info.plist が無い) ので、引換コードを貼る。Windows / Linux は新しいプロセスが起動されるので `tauri-plugin-single-instance` (`deep-link` 機能) を最初のプラグインに置き、動いているウィンドウを前に出す。
+- **ログインの画面**: 未ログインのログイン欄 (デスクトップ) は「Google でログイン (ブラウザが開きます)」。押すと「ブラウザでログインしています… 戻らない場合は、ブラウザの画面に出た引換コードを貼ってください」と、引換コードの入力欄・「ログインする」・「やめる」を出す。失敗 (引換コードの期限切れ・使用済み・state の不一致・つながらない) はコードの欄の下 (貼った場合) かトースト (deep link の場合) に出す。この待ちの案内と入力欄は部品 `DesktopLoginWait` で、ホームのログイン欄と、リンクで閲覧中の帯 (`LinkGuestNotice`) が共用する。ログアウトは、デスクトップではサーバーにつながらなくても手元のトークンを消す(「この端末のログイン情報だけ消しました」。サーバー側の行は期限まで残る)。
 
 ## 9. 配信とビルド
 
@@ -594,7 +613,7 @@ export class UntieRoom extends YServer<Env> {
 
 ## 10. セキュリティの要点
 
-- セッションと招待のトークンは D1 にハッシュだけ置く。チケットと引換コードは短命の署名付き JWT で、保存しない。
+- セッションと招待のトークンは D1 にハッシュだけ置く。チケットは短命の署名付き JWT、引換コードは短命の AES-GCM 暗号文で、どちらも保存しない。引換コードにトークンは入れず(交換のときにサーバーが新しいトークンを作って行の id を入れ替える)、1 回限りは `sessions.activated_at` で、コードを盗み見た者への備えは PKCE (`code_verifier`) で守る。
 - 権限の判定はサーバーの `requireRole` が正本。画面の `can` は見せ方だけ。
 - OIDC は `state`・`nonce`・PKCE を必ず使い、`email_verified` を見る。
 - リンク・招待のトークンは URL のパスに置かず `X-Untie-Token` ヘッダーで送る (パスは Workers のログに残る。画面の `/#/…` はハッシュなのでサーバーに届かない)。

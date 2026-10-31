@@ -5,6 +5,7 @@ import type { AppEnv } from "../env";
 import { createSession, deleteSession, extendSession, findSession } from "../db/sessions";
 import type { SessionKind, UserRow } from "../db/types";
 import { forbidden, unauthorized } from "../errors";
+import { isDesktopOrigin } from "./cors";
 import { generateToken, sha256Hex } from "./crypto";
 
 export const SESSION_COOKIE = "untie_session";
@@ -61,17 +62,41 @@ export async function startSession(c: Context<AppEnv>, userId: string, kind: Ses
   setSessionCookie(c, token, kind);
 }
 
+/**
+ * デスクトップのセッションを作る。Cookie は付けない (デスクトップは Cookie を使わない)。
+ * 作った時点では使えず (activated_at が null)、引換コードを交換して初めて Bearer で通る。行の id を返す (引換コードに入れる)
+ */
+export async function createDesktopSession(c: Context<AppEnv>, userId: string): Promise<{ sessionHash: string }> {
+  // 作った時点ではトークンは存在しない。行の id は乱数のハッシュで、交換のときに新しいトークンのハッシュへ入れ替える
+  const sessionHash = await sha256Hex(generateToken());
+  const now = Date.now();
+  await createSession(c.env.DB, {
+    id: sessionHash,
+    userId,
+    kind: "desktop",
+    userAgent: c.req.header("User-Agent")?.slice(0, 300) ?? null,
+    now,
+    expiresAt: now + SESSION_TTL_MS.desktop,
+  });
+  return { sessionHash };
+}
+
 export interface Credential {
   token: string;
   /** Cookie 認証のときだけ CSRF 対策のヘッダーが要る (Bearer はブラウザが勝手に付けない) */
   via: "cookie" | "bearer";
 }
 
-/** Authorization: Bearer か Cookie からトークンを読む */
+/**
+ * Authorization: Bearer か Cookie からトークンを読む。
+ * デスクトップアプリの WebView (CORS で許す送り元。cors.ts) から届いたリクエストの Cookie は読まない:
+ * デスクトップは Bearer だけで、Cookie が付いてくるのは何かの間違いか悪用なので、無かったことにする
+ */
 export function readCredential(c: Context<AppEnv>): Credential | null {
   const authorization = c.req.header("Authorization");
   const bearer = /^Bearer\s+(\S+)$/i.exec(authorization ?? "");
   if (bearer) return { token: bearer[1], via: "bearer" };
+  if (isDesktopOrigin(c.req.header("Origin"), c.env)) return null;
   const cookie = getCookie(c, SESSION_COOKIE);
   return cookie ? { token: cookie, via: "cookie" } : null;
 }

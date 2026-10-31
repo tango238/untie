@@ -7,6 +7,7 @@ import { ToastHost } from "../Toast";
 import { AccountMenu } from "./AccountMenu";
 import { CloudFiles } from "./CloudFiles";
 import { LoginPanel } from "./LoginPanel";
+import { ServerSettings } from "./ServerSettings";
 
 /** ホーム画面 (設計書 8.1): ローカルファイルを開く・クラウドのファイルを一覧する */
 export default function Home() {
@@ -75,6 +76,8 @@ export default function Home() {
           <h2>クラウド</h2>
           {status === "signedIn" ? <CloudFiles /> : <LoginPanel />}
         </section>
+
+        {getPlatform().kind === "desktop" && <ServerSettings />}
       </main>
       <ToastHost />
     </div>

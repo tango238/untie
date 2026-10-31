@@ -285,6 +285,22 @@ describe("リンクで閲覧中の帯 (ゲスト)", () => {
     expect(sessionStorage.getItem("untie.pendingLink")).toBe("tok");
   });
 
+  it("デスクトップでは、ログインを押すと待ちの案内と引換コードの入力欄が出る(ホームのログイン欄と同じ部品)", async () => {
+    memory().kind = "desktop";
+    useSessionStore.setState({ status: "anonymous", user: null, providers: ["dev"] });
+    openViaLink("guest");
+    render(<App />);
+    expect(screen.queryByLabelText("引換コード")).toBeNull();
+    sessionStorage.clear();
+    fireEvent.click(screen.getByRole("button", { name: "開発用ログイン (ブラウザが開きます)" }));
+    expect(await screen.findByText(/ブラウザでログインしています/)).toBeTruthy();
+    expect(memory().logins).toEqual([{ provider: "dev", returnTo: "#/link" }]);
+    fireEvent.change(screen.getByLabelText("引換コード"), { target: { value: "abc.def" } });
+    fireEvent.click(screen.getByRole("button", { name: "ログインする" }));
+    await vi.waitFor(() => expect(memory().codes).toEqual(["abc.def"]));
+    await vi.waitFor(() => expect(screen.queryByLabelText("引換コード")).toBeNull());
+  });
+
   it("ログイン済みには「複製して自分のファイルにする」を出し、複製したファイルのルートへ移る", async () => {
     server = fakeServer({});
     server.others = [summary({ id: "f1", name: "リンクのファイル", ownerId: "u9", ownerName: "山田" })];

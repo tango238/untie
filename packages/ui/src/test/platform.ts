@@ -5,6 +5,7 @@ import {
   baseName,
   getPlatform,
   type OpenedFile,
+  type LoginResult,
   type Platform,
   type RecentFile,
   type SavedFile,
@@ -27,6 +28,16 @@ export interface MemoryPlatform extends Platform {
   origin: string;
   /** login で呼ばれたログイン (provider と戻り先) */
   logins: { provider: string; returnTo: string }[];
+  /** clearSession が呼ばれた回数 */
+  clearedSessions: number;
+  /** completeLoginWithCode に渡された引換コード。completeError があれば失敗にする */
+  codes: string[];
+  completeError: string | null;
+  /** setServerOrigin に渡された URL */
+  serverSets: string[];
+  /** onLoggedIn の購読者。テストは emitLoggedIn で終わりを知らせる */
+  loginListeners: Set<(result: LoginResult) => void>;
+  emitLoggedIn(result?: LoginResult): void;
 }
 
 export function memoryPlatform(): MemoryPlatform {
@@ -43,6 +54,14 @@ export function memoryPlatform(): MemoryPlatform {
     closeGuards: new Set(),
     origin: "http://test",
     logins: [],
+    clearedSessions: 0,
+    codes: [],
+    completeError: null,
+    serverSets: [],
+    loginListeners: new Set(),
+    emitLoggedIn(result = { ok: true }) {
+      p.loginListeners.forEach((l) => l(result));
+    },
 
     async openTextFile() {
       return p.opened;
@@ -70,6 +89,22 @@ export function memoryPlatform(): MemoryPlatform {
       p.logins.push({ provider, returnTo });
     },
     authorize: async (init) => init,
+    async clearSession() {
+      p.clearedSessions++;
+    },
+    async setServerOrigin(url) {
+      if (!/^https?:\/\/[^\s/]+/.test(url)) throw new Error("http:// か https:// で始まる URL を入れてください");
+      p.serverSets.push(url);
+      p.origin = new URL(url).origin;
+    },
+    onLoggedIn(listener) {
+      p.loginListeners.add(listener);
+      return () => p.loginListeners.delete(listener);
+    },
+    async completeLoginWithCode(code) {
+      p.codes.push(code);
+      if (p.completeError) throw new Error(p.completeError);
+    },
 
     secrets: {
       async get(key) {

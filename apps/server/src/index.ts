@@ -3,6 +3,7 @@ import { routePartykitRequest } from "partyserver";
 import { ROOM_HEADERS } from "@untie/api";
 import type { AppEnv, Env } from "./env";
 import { apiRoutes } from "./api/routes";
+import { desktopCors } from "./auth/cors";
 import { authRoutes } from "./auth/routes";
 import { verifyTicket } from "./auth/ticket";
 import { errorBody, handleError } from "./errors";
@@ -14,6 +15,9 @@ export { UntieRoom } from "@untie/collab/room";
 const app = new Hono<AppEnv>();
 
 app.onError(handleError);
+
+// デスクトップアプリの WebView (別のオリジン) から呼ぶものだけに CORS を付ける。/parties/* の WebSocket は Origin を見ない (設計書 7.2)
+for (const path of ["/api/*", "/auth/providers", "/auth/desktop/exchange", "/auth/logout", "/auth/logout-all"]) app.use(path, desktopCors);
 
 app.route("/auth", authRoutes);
 app.route("/api", apiRoutes);

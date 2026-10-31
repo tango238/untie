@@ -86,6 +86,14 @@ export const ProvidersResponseSchema = z.object({ providers: z.array(ProviderIdS
 export type ProvidersResponse = z.infer<typeof ProvidersResponseSchema>;
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 
+/** `POST /auth/desktop/exchange` (設計書 7.3)。ブラウザのログインが済んだあと、deep link で受けた引換コードと、アプリが作った state・PKCE の code_verifier (code_challenge の元の乱数) を渡す */
+export const DesktopExchangeRequestSchema = z.object({ code: z.string().min(1), state: z.string().min(1), code_verifier: z.string().min(43) }).strict();
+export type DesktopExchangeRequest = z.infer<typeof DesktopExchangeRequestSchema>;
+
+/** 引換コードを交換した返事。token は `Authorization: Bearer` に使うセッションのトークン (キーチェーンに置く) */
+export const DesktopExchangeResponseSchema = z.object({ token: z.string().min(1), user: UserSchema });
+export type DesktopExchangeResponse = z.infer<typeof DesktopExchangeResponseSchema>;
+
 /** 作る。`{ name }` で空のモデル、`{ model }` で JSON を取り込む (中身の検証はサーバーが validateModel で行う) */
 export const CreateFileRequestSchema = z.union([
   z.object({ name: NameSchema }).strict(),

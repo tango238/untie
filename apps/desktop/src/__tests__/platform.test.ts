@@ -59,11 +59,11 @@ describe("デスクトップアプリの API キー (キーチェーン)", () =>
   it("Rust のコマンドで読み書きし、ブラウザへの保存は無い", async () => {
     vi.mocked(invoke).mockResolvedValueOnce("sk-a").mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
     expect(await platform.secrets.get("claude")).toBe("sk-a");
-    expect(invoke).toHaveBeenCalledWith("get_api_key", { provider: "claude" });
+    expect(invoke).toHaveBeenCalledWith("get_secret", { name: "claude" });
     await platform.secrets.set("claude", "sk-b", { remember: true });
-    expect(invoke).toHaveBeenCalledWith("set_api_key", { provider: "claude", key: "sk-b" });
+    expect(invoke).toHaveBeenCalledWith("set_secret", { name: "claude", value: "sk-b" });
     await platform.secrets.delete("claude");
-    expect(invoke).toHaveBeenCalledWith("delete_api_key", { provider: "claude" });
+    expect(invoke).toHaveBeenCalledWith("delete_secret", { name: "claude" });
     expect(platform.secrets.isRemembered("claude")).toBe(false);
     vi.mocked(invoke).mockResolvedValueOnce(null);
     expect(await platform.secrets.get("gemini")).toBeNull();
@@ -130,15 +130,5 @@ describe("サーバーとの接続", () => {
       localStorage.setItem("untie.serverOrigin", value);
       expect(platform.serverOrigin(), value).toBe(expected);
     }
-  });
-
-  it("login は次の段階まで未対応", async () => {
-    await expect(platform.login("google", "#/")).rejects.toThrow("デスクトップ版のログインは次の段階で対応します");
-  });
-
-  it("authorize は 6 段階目まで init をそのまま返す (キーチェーンは読まない)", async () => {
-    const init = { method: "GET", headers: { Accept: "application/json" } };
-    expect(await platform.authorize(init)).toBe(init);
-    expect(invoke).not.toHaveBeenCalled();
   });
 });

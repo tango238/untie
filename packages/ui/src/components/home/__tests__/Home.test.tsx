@@ -521,3 +521,132 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(now - 90 * 86_400_000, now)).toMatch(/^2026\/\d+\/\d+$/);
   });
 });
+
+describe("Home: デスクトップ (サーバーの設定とブラウザでのログイン)", () => {
+  beforeEach(() => {
+    memory().kind = "desktop";
+  });
+
+  it("Web ではサーバーの設定を出さない", () => {
+    memory().kind = "web";
+    anonymous(["google"]);
+    render(<Home />);
+    expect(screen.queryByRole("region", { name: "サーバーの設定" })).toBeNull();
+    expect(screen.queryByLabelText("サーバーの URL")).toBeNull();
+  });
+
+  it("サーバーの設定にいまの URL が入り、保存すると setServerOrigin のあと状態を読み直す", async () => {
+    memory().origin = "http://test";
+    anonymous(["google"]);
+    server.signedIn = false;
+    render(<Home />);
+    const input = screen.getByLabelText("サーバーの URL") as HTMLInputElement;
+    expect(input.value).toBe("http://test");
+    fireEvent.change(input, { target: { value: " https://untie.example.com/ " } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(memory().serverSets).toEqual(["https://untie.example.com/"]));
+    // 保存された形 (オリジン) に直る
+    await waitFor(() => expect(input.value).toBe("https://untie.example.com"));
+    await waitFor(() => expect(server.calls.some((c) => c.path === "/auth/providers")).toBe(true));
+  });
+
+  it("不正な URL は理由を出して、いまの設定のまま", async () => {
+    anonymous(["google"]);
+    render(<Home />);
+    fireEvent.change(screen.getByLabelText("サーバーの URL"), { target: { value: "untie.example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByText(/http:\/\/ か https:\/\/ で始まる/)).toBeTruthy();
+    expect(memory().origin).toBe("http://test");
+  });
+
+  it("パス・クエリ付きや、localhost 以外の http は理由を出して拒む", async () => {
+    anonymous(["google"]);
+    render(<Home />);
+    const save = async (value: string) => {
+      fireEvent.change(screen.getByLabelText("サーバーの URL"), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    };
+    await save("https://untie.example.com/app");
+    expect(await screen.findByText(/パスやクエリは付けられません/)).toBeTruthy();
+    await save("http://untie.example.com");
+    expect(await screen.findByText(/http:\/\/ を使えるのは localhost と 127.0.0.1 だけ/)).toBeTruthy();
+    expect(memory().serverSets).toEqual([]);
+  });
+
+  it("ログイン中にサーバーを変えると、ログアウトすることを案内する", () => {
+    signedIn();
+    render(<Home />);
+    expect(screen.getByText(/変えるとログアウトします/)).toBeTruthy();
+  });
+
+  it("サーバー未設定の文言に、設定への導線 (入力欄へ移るボタン) が付く", () => {
+    memory().origin = "";
+    anonymous([], false);
+    render(<Home />);
+    expect(screen.getByText(/サーバーが設定されていないため、クラウドの機能は使えません/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "サーバーを設定する" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("サーバーの URL"));
+    expect((screen.getByLabelText("サーバーの URL") as HTMLInputElement).value).toBe("");
+  });
+
+  it("Web では未設定の文言に導線を付けない", () => {
+    memory().kind = "web";
+    anonymous([], false);
+    render(<Home />);
+    expect(screen.queryByRole("button", { name: "サーバーを設定する" })).toBeNull();
+  });
+
+  it("ログインの欄: 「Google でログイン (ブラウザが開きます)」を押すと、待ちの案内と引換コードの入力欄が出る", async () => {
+    anonymous(["google"]);
+    render(<Home />);
+    expect(screen.queryByLabelText("引換コード")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Google でログイン (ブラウザが開きます)" }));
+    expect(await screen.findByText(/ブラウザでログインしています… 戻らない場合は/)).toBeTruthy();
+    expect(memory().logins).toEqual([{ provider: "google", returnTo: "#/" }]);
+    expect(screen.getByLabelText("引換コード")).toBeTruthy();
+  });
+
+  it("ログインを始められなかったら (ブラウザが開けない) 待ちの欄は出さない", async () => {
+    anonymous(["google"]);
+    memory().login = async () => {
+      throw new Error("ブラウザを開けません");
+    };
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: /Google でログイン/ }));
+    await waitFor(() => expect(useUntieStore.getState().toasts.map((t) => t.message)).toContain("ブラウザを開けません"));
+    expect(screen.queryByLabelText("引換コード")).toBeNull();
+  });
+
+  it("引換コードを貼って「ログインする」を押すと completeLoginWithCode に渡る。失敗したら理由を出す", async () => {
+    anonymous(["google"]);
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: /Google でログイン/ }));
+    const input = await screen.findByLabelText("引換コード");
+    const submit = screen.getByRole("button", { name: "ログインする" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    memory().completeError = "この引換コードはすでに使われています";
+    fireEvent.change(input, { target: { value: " abc.def " } });
+    fireEvent.click(submit);
+    expect(await screen.findByText("この引換コードはすでに使われています")).toBeTruthy();
+    expect(memory().codes).toEqual(["abc.def"]);
+    // 直してもう一度
+    memory().completeError = null;
+    fireEvent.click(screen.getByRole("button", { name: "ログインする" }));
+    await waitFor(() => expect(screen.queryByLabelText("引換コード")).toBeNull());
+    expect(memory().codes).toEqual(["abc.def", "abc.def"]);
+  });
+
+  it("「やめる」で待ちの欄を閉じ、Web ではそもそも出ない", async () => {
+    anonymous(["google"]);
+    const { unmount } = render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: /Google でログイン/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "やめる" }));
+    expect(screen.queryByLabelText("引換コード")).toBeNull();
+    unmount();
+
+    memory().kind = "web";
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Google でログイン" }));
+    expect(screen.queryByLabelText("引換コード")).toBeNull();
+  });
+});

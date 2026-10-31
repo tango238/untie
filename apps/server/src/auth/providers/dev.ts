@@ -1,10 +1,12 @@
 import type { Context } from "hono";
+import { getCookie } from "hono/cookie";
 import type { AppEnv } from "../../env";
 import { upsertUser } from "../../db/users";
 import { ApiFailure } from "../../errors";
 import { isEmailAllowed, normalizeEmail } from "../allowed";
+import { finishDesktopLogin } from "../desktop";
 import { startSession } from "../session";
-import { sanitizeReturn } from "./google";
+import { AUTH_COOKIE, sanitizeReturn, takeAuthCookie } from "./google";
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);
 
@@ -40,7 +42,7 @@ export function devLoginForm(c: Context<AppEnv>): Response {
 </form></body></html>`);
 }
 
-/** POST /auth/dev: users を upsert してセッションを作り、`/` + return へ 302 */
+/** POST /auth/dev: users を upsert してセッションを作り、`/` + return へ 302。デスクトップ (untie_auth の client) なら引換コードのページを返す */
 export async function devLogin(c: Context<AppEnv>): Promise<Response> {
   assertEnabled(c);
   const form = await c.req.parseBody();
@@ -50,6 +52,9 @@ export async function devLogin(c: Context<AppEnv>): Promise<Response> {
   if (!isEmailAllowed(c.env, email)) throw new ApiFailure(403, "email_not_allowed", "このメールアドレスのドメインではログインできません");
 
   const user = await upsertUser(c.env.DB, { provider: "dev", subject: email, email, name });
+  // /auth/login?client=desktop が付けた untie_auth があれば読んで消す (Google の callback と同じ)
+  const auth = getCookie(c, AUTH_COOKIE) ? await takeAuthCookie(c) : null;
+  if (auth?.client === "desktop") return finishDesktopLogin(c, user.id, auth.appState, auth.challenge);
   await startSession(c, user.id, "web");
   return c.redirect(`/${sanitizeReturn(typeof form.return === "string" ? form.return : "")}`, 302);
 }

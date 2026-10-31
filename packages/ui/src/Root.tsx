@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import App from "./App";
-import { useSessionStore } from "./cloud/session";
+import { listenForPlatformLogin, useSessionStore } from "./cloud/session";
 import { CloudEditor } from "./components/CloudEditor";
 import Home from "./components/home/Home";
 import { InvitePage } from "./components/InvitePage";
@@ -23,6 +23,9 @@ export default function Root() {
   useEffect(() => {
     void useSessionStore.getState().load();
   }, []);
+
+  // デスクトップ: ブラウザでのログインが deep link で戻ってきたら読み直す
+  useEffect(() => listenForPlatformLogin(), []);
 
   switch (route.name) {
     case "local":

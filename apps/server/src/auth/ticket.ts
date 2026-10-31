@@ -46,7 +46,7 @@ function hmacKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
 }
 
 /** 鍵が短すぎれば false (理由はログにだけ出す。鍵の値は出さない) */
-function secretIsStrong(secret: string | undefined): secret is string {
+export function secretIsStrong(secret: string | undefined): secret is string {
   if (typeof secret === "string" && secret.length >= MIN_SECRET_LENGTH) return true;
   console.error(`TICKET_SECRET が ${MIN_SECRET_LENGTH} 文字未満のため、チケットを扱えません`);
   return false;

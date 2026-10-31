@@ -295,5 +295,7 @@ export function webPlatform(): Platform {
     },
     // Cookie で認証するので、リクエストはそのまま
     authorize: async (init) => init,
+    // Cookie はログアウトの API の応答でサーバーが消す。手元に置くものは無い
+    async clearSession() {},
   };
 }

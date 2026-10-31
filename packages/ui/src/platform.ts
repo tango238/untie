@@ -50,6 +50,9 @@ export interface SecretStore {
   isRemembered(key: string): boolean;
 }
 
+/** ブラウザでのログインが deep link か引換コードで終わった知らせ (デスクトップ)。失敗は state の不一致・コードの期限切れなど */
+export type LoginResult = { ok: true } | { ok: false; message: string };
+
 export interface Platform {
   kind: "web" | "desktop";
   /** ファイルを選んで中身を読む。取り消したら null */
@@ -77,11 +80,31 @@ export interface Platform {
   serverOrigin(): string;
   /**
    * ログインを始める。Web は同じタブで /auth/login へ移る (戻ってくるときは returnTo の画面)。
-   * デスクトップは既定のブラウザを開いて deep link で戻る (別の段階で対応)
+   * デスクトップは既定のブラウザを開いて deep link で戻る (設計書 7.3)。ブラウザを開けたところで解決し、終わったことは onLoggedIn で知らせる
    */
   login(provider: ProviderId, returnTo: string): Promise<void>;
   /** セッションの送り方。Web は Cookie なのでそのまま返す。デスクトップはキーチェーンのトークンを Authorization に付ける */
   authorize(init: RequestInit): Promise<RequestInit>;
+  /**
+   * 手元に持っているセッションを消す。ログアウトのあとに呼ぶ (サーバーの行を消すのは API の logout)。
+   * Web の Cookie はサーバーが消すので何もしない。デスクトップはキーチェーンのトークンを消す
+   */
+  clearSession(): Promise<void>;
+  /**
+   * サーバーの URL を変える (デスクトップだけ)。http(s) の URL でなければ Error を投げる。
+   * 変えるとセッションは消える (別のサーバーにトークンを送らないため)。Web は自分のオリジンなので無い
+   */
+  setServerOrigin?(url: string): Promise<void>;
+  /**
+   * ブラウザのログインが終わったときの知らせを受ける (デスクトップ。deep link か、completeLoginWithCode で終わったとき)。
+   * 受けたら画面は `session.load()` する。戻り値で購読を外す。Web は同じタブで戻ってくるので無い
+   */
+  onLoggedIn?(listener: (result: LoginResult) => void): () => void;
+  /**
+   * 引換コードを貼ってログインを終える (デスクトップ)。deep link が開けない環境で、ブラウザの画面に出たコードを使う。
+   * 失敗したら理由を Error で投げる (画面に出す)
+   */
+  completeLoginWithCode?(code: string): Promise<void>;
 }
 
 let current: Platform | null = null;
@@ -94,6 +117,32 @@ export function setPlatform(platform: Platform): void {
 export function getPlatform(): Platform {
   if (!current) throw new Error("Platform が設定されていません。createApp(platform) から起動してください");
   return current;
+}
+
+/** http で使ってよいホスト (開発用のサーバー)。それ以外は https だけ */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/**
+ * サーバーの URL を検めてオリジンにする (デスクトップの設定。設計書 8.4)。
+ * https の URL か、開発用の http://localhost・http://127.0.0.1 だけ。ユーザー名・パスワード・パス・クエリ・ハッシュ付きは拒む。
+ * 末尾のスラッシュだけは許す。通らなければ画面に出せる文言の Error
+ */
+export function parseServerOrigin(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("サーバーの URL が正しくありません。http:// か https:// で始まる URL (例: https://untie.example.com) を入れてください");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("サーバーの URL は http:// か https:// で始まる URL を入れてください");
+  if (url.protocol === "http:" && !LOCAL_HOSTS.has(url.hostname)) {
+    throw new Error("サーバーの URL に http:// を使えるのは localhost と 127.0.0.1 だけです。https:// の URL を入れてください");
+  }
+  if (url.username || url.password) throw new Error("サーバーの URL にユーザー名やパスワードは入れられません");
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("サーバーの URL にパスやクエリは付けられません。https://untie.example.com のように、サーバーのアドレスだけを入れてください");
+  }
+  return url.origin;
 }
 
 /** パスの末尾のファイル名 */

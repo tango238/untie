@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-deep-link": "^2.6.3",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2.7.2",
+    "@untie/api": "workspace:*",
     "@untie/ui": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

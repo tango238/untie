@@ -19,6 +19,8 @@ export interface SessionRow {
   expires_at: number;
   last_seen_at: number;
   user_agent: string | null;
+  /** デスクトップのセッションを引換コードで受け取った時刻。null の間は使えない (web は常に null) */
+  activated_at: number | null;
 }
 
 /** ファイルの一覧・詳細に使う行 (files に、見ている人の役割と所有者名・メンバー数を足したもの) */

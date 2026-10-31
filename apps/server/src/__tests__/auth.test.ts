@@ -85,8 +85,8 @@ describe("開発用ログインとセッション", () => {
   async function createDesktopToken(client: Client): Promise<string> {
     const token = generateToken();
     const now = Date.now();
-    await env.DB.prepare("insert into sessions (id, user_id, kind, created_at, expires_at, last_seen_at) values (?, ?, 'desktop', ?, ?, ?)")
-      .bind(await sha256Hex(token), await userIdOf(client), now, now + 90 * 24 * 60 * 60 * 1000, now)
+    await env.DB.prepare("insert into sessions (id, user_id, kind, created_at, expires_at, last_seen_at, activated_at) values (?, ?, 'desktop', ?, ?, ?, ?)")
+      .bind(await sha256Hex(token), await userIdOf(client), now, now + 90 * 24 * 60 * 60 * 1000, now, now)
       .run();
     return token;
   }

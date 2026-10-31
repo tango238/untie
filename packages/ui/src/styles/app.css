@@ -522,6 +522,8 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .home-recent { margin-top: 12px; }
 .home-recent ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .home-login-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.home-login-code { margin-top: 12px; }
+.home-login-code input, .home-main form.home-actions input { flex: 1; min-width: 220px; }
 .home-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 12px; }
 .home-tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 12px; color: var(--muted); }
 .home-tabs button:hover:not(:disabled) { background: #f0ede7; }

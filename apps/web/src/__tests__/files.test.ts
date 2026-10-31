@@ -158,4 +158,11 @@ describe("サーバーとの接続 (Platform)", () => {
     const init = { method: "GET", headers: { Accept: "application/json" } };
     expect(await platform.authorize(init)).toBe(init);
   });
+
+  it("clearSession は何もしない (Cookie はログアウトの応答でサーバーが消す)。サーバーの設定・引換コードの口は無い", async () => {
+    await expect(platform.clearSession()).resolves.toBeUndefined();
+    expect(platform.setServerOrigin).toBeUndefined();
+    expect(platform.completeLoginWithCode).toBeUndefined();
+    expect(platform.onLoggedIn).toBeUndefined();
+  });
 });

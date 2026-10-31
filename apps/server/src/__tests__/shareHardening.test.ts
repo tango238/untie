@@ -296,8 +296,12 @@ describe("書き出しのファイル名", () => {
 });
 
 describe("マイグレーション", () => {
-  it("0001 と 0002 が当たり、invitations(file_id, accepted_at) の index がある", async () => {
-    expect(env.TEST_MIGRATIONS.map((m) => m.name)).toEqual(["0001_init.sql", "0002_invitations_index.sql"]);
+  it("0001〜0003 が当たり、invitations(file_id, accepted_at) の index と sessions.activated_at がある", async () => {
+    expect(env.TEST_MIGRATIONS.map((m) => m.name)).toEqual(["0001_init.sql", "0002_invitations_index.sql", "0003_desktop_sessions.sql"]);
+    const sessionColumns = await env.DB.prepare("pragma table_info(sessions)").all<{ name: string }>();
+    expect(sessionColumns.results.map((r) => r.name)).toContain("activated_at");
+    const sessionIndexes = await env.DB.prepare("pragma index_list(sessions)").all<{ name: string }>();
+    expect(sessionIndexes.results.map((r) => r.name)).toEqual(expect.arrayContaining(["sessions_expires", "sessions_unactivated"]));
     const { results } = await env.DB.prepare("pragma index_list(invitations)").all<{ name: string }>();
     expect(results.map((r) => r.name)).toContain("invitations_file");
     const columns = await env.DB.prepare("pragma index_info(invitations_file)").all<{ name: string }>();
@@ -325,8 +329,8 @@ describe("リンクの応答とセッションの読み方", () => {
     // desktop のセッションを D1 に直接作る (トークンは SHA-256 で持つ)
     const desktopToken = "desktop-token-0123456789abcdef";
     const now = Date.now();
-    await env.DB.prepare("insert into sessions (id, user_id, kind, created_at, expires_at, last_seen_at) values (?, ?, 'desktop', ?, ?, ?)")
-      .bind(await sha256Hex(desktopToken), await userIdOf(hanako), now, now + 100000, now)
+    await env.DB.prepare("insert into sessions (id, user_id, kind, created_at, expires_at, last_seen_at, activated_at) values (?, ?, 'desktop', ?, ?, ?, ?)")
+      .bind(await sha256Hex(desktopToken), await userIdOf(hanako), now, now + 100000, now, now)
       .run();
     const asDesktop = await callWorker("/api/links/info", { headers: { ...tok(token), Authorization: `Bearer ${desktopToken}` } });
     expect(asDesktop.status).toBe(200);
