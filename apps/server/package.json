@@ -1,0 +1,31 @@
+{
+  "name": "@untie/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/ensure-dev-vars.mjs && node -e \"require('node:fs').mkdirSync('../web/dist',{recursive:true})\" && wrangler d1 migrations apply untie --local && wrangler dev --port 8787",
+    "deploy": "pnpm --filter @untie/web build && node scripts/copy-headers.mjs && wrangler deploy",
+    "d1:migrate": "wrangler d1 migrations apply untie --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "node scripts/copy-headers.mjs && wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@untie/api": "workspace:*",
+    "@untie/collab": "workspace:*",
+    "@untie/core": "workspace:*",
+    "arctic": "^3.7.0",
+    "hono": "^4.13.14",
+    "nanoid": "^6.0.2",
+    "partyserver": "^0.5.10",
+    "yjs": "^13.6.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.11",
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.156.0"
+  }
+}

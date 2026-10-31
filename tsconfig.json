@@ -2,8 +2,12 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
+    { "path": "./packages/api" },
     { "path": "./packages/collab" },
+    { "path": "./packages/collab/src/room" },
     { "path": "./packages/ui" },
+    { "path": "./apps/server" },
+    { "path": "./apps/server/tsconfig.node.json" },
     { "path": "./apps/web" },
     { "path": "./apps/web/tsconfig.node.json" },
     { "path": "./apps/desktop" },

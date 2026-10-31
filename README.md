@@ -87,7 +87,7 @@ Intel Mac は対象外です。
 
 ### ブラウザ (Web 版)
 
-同じソースを静的なサイトとしても配信できます (Cloudflare Pages)。インストールは要りません。アプリとの違いは次のとおりです。
+同じソースを Cloudflare の Worker から配信できます (手順は「開発」の「サーバー (Cloudflare Worker)」)。インストールは要りません。アプリとの違いは次のとおりです。
 
 - **保存**: Chrome・Edge では、開いた (または一度保存した) ファイルにそのまま上書きします。それ以外のブラウザでは、保存のたびにダウンロードになります。
 - **API キー**: ふだんはタブを閉じるまでだけ覚えます。「AI の設定」で「このブラウザに保存する」を選ぶと、次に開いたときも使えます (ブラウザの localStorage に置くので、共用のパソコンでは選ばないでください)。キーはブラウザから各社の API に直接送り、配信元のサーバーには送りません。
@@ -100,40 +100,74 @@ Intel Mac は対象外です。
 ```sh
 pnpm install
 pnpm tauri dev      # アプリを起動して開発する
-pnpm dev            # ブラウザだけで UI を開発する (http://localhost:5173)
+pnpm dev            # Web とサーバーを同時に動かして開発する (http://localhost:5173。API は 8787 に proxy)
 pnpm typecheck      # 型検査
 pnpm test           # テスト (Vitest)
 pnpm check:types    # スキーマから生成した型が最新か確認する
 pnpm tauri build    # Mac 用の .app / .dmg を作る
 pnpm app:build      # 同上。手元の証明書「Untie Local Code Signing」で署名する
-pnpm build          # Web 版を apps/web/dist/ に、デスクトップ用のフロントを apps/desktop/dist/ に作る
-pnpm web:deploy     # Web 版を作って Cloudflare Pages (プロジェクト untie) に上げる
+pnpm build          # Web 版を apps/web/dist/ に、デスクトップ用のフロントを apps/desktop/dist/ に作り、サーバーの wrangler deploy --dry-run も通す
+pnpm run deploy     # Web 版を作って Cloudflare Worker (untie) に上げる (`pnpm deploy` は pnpm の別のコマンドなので `run` を付ける)
 ```
 
 手元でアプリを作り直して使うときは `pnpm app:build` を使ってください。`pnpm tauri build` は簡易署名 (ad-hoc) になり、作り直すたびにアプリの識別が変わるので、キーチェーンに保存した AI の API キーが読み出せなくなります。`pnpm app:build` はログインキーチェーンにあるコード署名用の自己署名証明書 `Untie Local Code Signing` で署名するので、作り直してもキーを読めます。証明書が無い Mac では、キーチェーンアクセスの「証明書アシスタント」で同じ名前のコード署名用の自己署名証明書を作ってください。
 
 スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `packages/core/src/model/schema.d.ts` を再生成してください。
 
-pnpm ワークスペースで、共通のモデルは `packages/core` (`@untie/core`)、画面は `packages/ui` (`@untie/ui`)、Web とデスクトップの入り口は `apps/web`・`apps/desktop` に分かれています。ファイルやキーの置き場所など Web とデスクトップで違う処理は、`packages/ui/src/platform.ts` の `Platform` を通し、実装を各 app の `src/platform.ts` に置いています。
+pnpm ワークスペースで、共通のモデルは `packages/core` (`@untie/core`)、画面は `packages/ui` (`@untie/ui`)、Web とデスクトップの入り口は `apps/web`・`apps/desktop`、API の契約は `packages/api`、同時編集のルームは `packages/collab`、Cloudflare Worker (API・ログイン・静的ファイルの配信) は `apps/server` に分かれています。設計は [docs/collab-design.md](docs/collab-design.md) を参照してください。ファイルやキーの置き場所など Web とデスクトップで違う処理は、`packages/ui/src/platform.ts` の `Platform` を通し、実装を各 app の `src/platform.ts` に置いています。
 
 アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm icon` で各サイズを再生成します。
 
-### Web 版の配信 (Cloudflare Pages)
+### サーバー (Cloudflare Worker)
 
-`pnpm build` で `dist/` に静的なファイルができます。`public/_headers` が `dist/_headers` に入り、Cloudflare Pages が配信するときに CSP などのヘッダーを付けます (読み込むスクリプトは自分のサイトだけ、通信先は自分のサイトと Anthropic・OpenAI・Google の API だけ)。AI のプロバイダーを足したときは `connect-src` も足してください。
+クラウドファイルのためのサーバーは `apps/server` にあります。1 つの Worker が、Web の静的ファイル (`apps/web/dist`)・API (`/api`)・ログイン (`/auth`)・ファイルの中身を持つ Durable Object (`UntieRoom`、`/parties`) を受け持ち、一覧と権限は D1 (SQLite) に置きます。
 
-GitHub と連携して push のたびに配信する場合は、Cloudflare のダッシュボードで Workers & Pages → Create → Pages → Connect to Git からこのリポジトリを選び、次のように設定します。
+#### 手元で動かす
 
-| 項目 | 値 |
-|---|---|
-| Production branch | `main` |
-| Build command | `pnpm build` |
-| Build output directory | `dist` |
-| 環境変数 | `NODE_VERSION` = `22` |
+```sh
+pnpm install
+pnpm dev     # http://localhost:5173 を開く
+```
 
-手元から上げる場合は、初回に `pnpm dlx wrangler@4 login` で Cloudflare にログインしてから `pnpm web:deploy` を実行します (プロジェクト `untie` が無ければ作るか聞かれます)。
+`pnpm dev` は Vite (5173) と `wrangler dev` (8787) を同時に起動します。Vite が `/api`・`/auth`・`/parties` を 8787 に proxy するので、ブラウザは 5173 だけ見れば足ります。D1 と Durable Object はローカルのファイル (`apps/server/.wrangler/`) に作られ、`pnpm dev` のたびにマイグレーションが当たります。wrangler のテレメトリを送りたくないときは `WRANGLER_SEND_METRICS=false` を付けてください。
 
-利用者を絞りたいときは、Cloudflare Zero Trust の Access でアプリケーションを作り、Pages のドメインにメールアドレスなどの条件を付けます。
+ログインは、開発中は `dev` プロバイダーを使います。`/auth/dev` の画面でメールアドレスを打つだけでログインできます (`apps/server/.dev.vars` の `DEV_LOGIN=true` のときだけ。本番の `wrangler.jsonc` は `"false"`)。Google でログインするには、`.dev.vars` に `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` を書き (空だと Google は出ません)、Google Cloud の OAuth クライアントのリダイレクト URI に `http://localhost:5173/auth/callback` を登録します (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るため、`.dev.vars` の `APP_ORIGIN=http://localhost:5173` で Vite 側に固定しています。5173 のリクエストは Vite が 8787 に proxy します)。
+
+`.dev.vars` はコミットしません (`.gitignore` 済み)。`pnpm dev` が、無ければ見本の `apps/server/.dev.vars.example` から写します。開発専用の値だけを書き、本番の秘密の値は書かないでください。開発用ログインは `DEV_LOGIN=true` でも、リクエストのホストが `localhost` / `127.0.0.1` のときだけ効きます。
+
+#### 本番に上げる
+
+1. D1 を日本に寄せて作ります。出力の `database_id` を `apps/server/wrangler.jsonc` の `d1_databases[0].database_id` に書きます。
+
+   ```sh
+   pnpm dlx wrangler@4 login
+   pnpm dlx wrangler@4 d1 create untie --location apac
+   ```
+
+2. 秘密の値を入れます (`apps/server` で実行)。Google の OAuth クライアントは Google Cloud Console で作り、リダイレクト URI に `https://<ホスト>/auth/callback` を登録します。
+
+   ```sh
+   cd apps/server
+   pnpm wrangler secret put SESSION_SECRET      # Cookie の署名。長い乱数 (例: openssl rand -base64 32)
+   pnpm wrangler secret put TICKET_SECRET       # ルームへの接続チケットの署名。同上
+   pnpm wrangler secret put GOOGLE_CLIENT_ID
+   pnpm wrangler secret put GOOGLE_CLIENT_SECRET
+   ```
+
+3. `wrangler.jsonc` の `vars.APP_ORIGIN` に公開の URL (例: `https://untie.example.com`) を書きます。Google の redirect URI の組み立てに使われます (空ならリクエストのオリジン)。Cookie の `Secure` は APP_ORIGIN ではなく、リクエストが https かどうかで付きます。ログインを許すドメインを絞るときは `ALLOWED_EMAIL_DOMAINS` にカンマ区切りで書きます (空なら誰でも)。`DEV_LOGIN` は `"false"` のままにします。
+
+4. マイグレーションを当てて、上げます。
+
+   ```sh
+   pnpm --filter @untie/server d1:migrate    # D1 に apps/server/migrations/*.sql を当てる
+   pnpm run deploy                           # Web を build して wrangler deploy
+   ```
+
+`pnpm run deploy` は `apps/web` を build し、`apps/server/public/_headers` (CSP などのヘッダー) を `apps/web/dist/_headers` に写してから `wrangler deploy` します。読み込めるスクリプトは自分のサイトだけ、通信先は自分のサイトと Anthropic・OpenAI・Google の API だけです。AI のプロバイダーを足したときは `_headers` の `connect-src` も足してください。同じオリジンの WebSocket は `'self'` で許されます。
+
+`pnpm --filter @untie/server check` は `wrangler deploy --dry-run` で、バンドルと設定が通るかだけを確かめます (`pnpm build` と CI が実行します)。ゴミ箱に入れて 30 日を過ぎたファイルは、毎日 03:00 (UTC) の cron が Durable Object ごと消します。
+
+利用者をさらに絞りたいときは、Cloudflare Zero Trust の Access でアプリケーションを作り、Worker のドメインにメールアドレスなどの条件を付けます。
 
 ### リリース
 

@@ -137,7 +137,7 @@ apps/server ─┬─> core
 
 | 概念 | 内容 |
 | --- | --- |
-| ユーザー | メールアドレスで一意。表示名とアイコンは ID プロバイダーからもらう。同じメールで別のプロバイダーからログインしても同じユーザー |
+| ユーザー | メールアドレスで一意。表示名とアイコンは ID プロバイダーからもらう。ログインのたびに、`identities` の (provider, subject) で見つかればそのユーザー、無ければメールで既存のユーザーに結び (同じメールで別のプロバイダーからログインしても同じユーザー)、どちらも無ければ作る。同じメールアドレスが別の人に再割り当てされたケースは区別しない (PoC) |
 | ローカルファイル | いまの JSON ファイル。ログインしなくても使える。サーバーは関与しない |
 | クラウドファイル | サーバーに置くファイル。id は `nanoid` 21 文字。中身は Durable Object (ルーム) に、名前・所有者・メンバーは D1 に置く。開くと常に同時編集の経路になる |
 | メンバー | ファイルに付いたユーザーと役割。所有者は 1 人 (作った人。譲れる) |
@@ -230,7 +230,7 @@ create index invitations_email on invitations(email, accepted_at);
 | --- | --- | --- |
 | `ydoc` | Yjs の状態 (`Y.encodeStateAsUpdate`) | 次に誰かが入ったときに `onLoad` で戻す |
 | `snapshot` | JSON 形式のモデル (`rebuildModel` の結果) | 書き出し、複製、壊れたときの戻し先 |
-| `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件) | 誤って消したときに、その時点の JSON を取り出す (クラウドファイルには Undo が無い) |
+| `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件)。その時間の**最初の保存の直前の状態** (上書きする前の `snapshot`) を入れ、同じ時間の 2 回目以降は上書きしない | 誤って消したときに、消す直前の状態の JSON を取り出す (クラウドファイルには Undo が無い) |
 
 - 1 クラウドファイル = 1 Durable Object なので、ファイルの中身はその中で閉じる。モデルは数百 KB までなので、そのまま入る。R2 は使わない。
 - Worker からルームへは `getServerByName(env.UntieRoom, fileId, { locationHint: "apac" })` で RPC を呼ぶ: `importModel(json)` (作成・複製)、`exportModel()` (書き出し。接続せずに読む)、`rename(name)`、`destroy()` (完全に消す)。
@@ -360,7 +360,7 @@ export default { fetch: app.fetch, scheduled: purgeTrash };
 ### 7.2 セッション
 
 - ログインが済むと `sessions` に行を作り、トークン (32 バイトの乱数、base64url) を返す。D1 にはその SHA-256 だけを置く。
-- **Web**: `Set-Cookie: untie_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/`。API は Cookie で認証する。CSRF は SameSite=Lax に加え、状態を変える API は `X-Requested-With: untie` ヘッダーを要求する (フォームからは付けられない)。
+- **Web**: `Set-Cookie: untie_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/`。`Secure` は**リクエストが https のとき**に付ける (`APP_ORIGIN` の設定には頼らない。http://localhost の開発では付かない)。Cookie は `kind = web` のセッションだけ、Bearer は `kind = desktop` のセッションだけを受ける。ログインし直したときは、持っていた Cookie のセッションの行を消す。開発用ログイン (`DEV_LOGIN=true`) は、リクエストのホストが localhost / 127.0.0.1 のときだけ効く (本番で誤って true にしても効かない)。API は Cookie で認証する。CSRF は SameSite=Lax に加え、状態を変える API は `X-Requested-With: untie` ヘッダーを要求する (フォームからは付けられない)。
 - **デスクトップ**: トークンを `Authorization: Bearer <token>` で送る。キーチェーンに `session` として置く (いまの `keyring` のコマンドを使う)。
 - `requireSession` ミドルウェアが Cookie か Authorization を読み、`sessions` を引いて `c.var.user` を入れる。期限切れは 401。使うたびに `last_seen_at` と `expires_at` を延ばす (1 日に 1 回だけ書く)。
 - ログアウトは行を消す。「すべての端末からログアウト」は `user_id` の行を全部消す。
@@ -451,10 +451,22 @@ export class UntieRoom extends YServer<Env> {
 }
 ```
 
+- `isReadOnly` は、接続の `state.role` が **owner / editor 以外ならすべて読み取り専用**にする (viewer・guest のほか、役割が無い・知らない役割の接続も)。
 - `isDocWrite` は y-protocols の形 (先頭の varuint が `0 = sync`、次が `1 = step2` か `2 = update`) を読むだけ。awareness (`1`) は viewer も送れる (選択が他の人に見える)。`YServer` の `onMessage` を上書きできることは実装前に `y-partyserver` の版で確かめる (できなければ `onBeforeConnect` で viewer を別の読み取り専用経路に回す)。
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
 - 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
 - 役割が変わった (editor → viewer、外された) ときは、Worker がルームの `kick({ userId })` を呼び、その人の接続を閉じる。リンク閲覧を無効にしたときは `kick({ via: "link" })` でゲストを全員閉じる。つなぎ直すとチケットの取得で新しい役割になる (リンクなら 404)。
+
+### 7.6 エラーの形と細部 (3 段階目の実装)
+
+- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code`: `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` (403)、`file_not_found` / `not_found` (404)、`invalid_request` / `invalid_model` (400)、`not_in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
+- **ブラウザが直接開く `/auth/login`・`/auth/callback`・`/auth/dev` の失敗**は JSON ではなく、戻るリンク付きの小さな HTML で返す。
+- **ログアウトは `/auth` の下**: `POST /auth/logout`、`POST /auth/logout-all` (7.4 の表の `/me/logout` ではなく)。`logout` はセッションが無くても成功し (204)、Cookie を消す。Cookie 認証なら `X-Requested-With` が要る。
+- **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members` は owner だけが受け取る。
+- **完全削除はゴミ箱の中のファイルだけ**: ゴミ箱に入っていないファイルへの `purge` は `409 not_in_trash`。
+- **開発用ログイン**: `DEV_LOGIN=true` で、かつリクエストのホストが localhost / 127.0.0.1 のときだけ `GET/POST /auth/dev` (メールと名前のフォーム) と `providers` の `dev` が有効。`false` なら `/auth/dev` は 404。ドメイン制限 (`ALLOWED_EMAIL_DOMAINS`) は Google と共通の `isEmailAllowed` を通る。
+- **`untie_auth` Cookie** (OIDC の `state`・`nonce`・`code_verifier`・戻り先) は `Path=/auth`、10 分、`SESSION_SECRET` の HMAC 署名付き。戻り先 (`return`) は `#` で始まる相対のものだけ受ける。
+- **`/parties/*`**: チケットの検査を入れるまで (4 段階目)、入口で 401 を返す。
 
 ## 8. クライアント
 

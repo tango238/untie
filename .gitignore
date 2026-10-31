@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 apps/desktop/src-tauri/target
+apps/server/.wrangler
 apps/desktop/src-tauri/gen
 coverage
 apps/desktop/src-tauri/gen/schemas
@@ -32,3 +33,4 @@ apps/desktop/src-tauri/gen/schemas
 
 # Claude Code の作業用 worktree
 .claude/
+apps/server/.dev.vars

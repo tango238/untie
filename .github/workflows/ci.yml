@@ -9,6 +9,9 @@ jobs:
   check:
     name: 型検査とテスト
     runs-on: ubuntu-latest
+    env:
+      # wrangler のテレメトリを送らない (サーバーの test・build が wrangler を使う)
+      WRANGLER_SEND_METRICS: "false"
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -22,5 +25,6 @@ jobs:
       - name: 生成型がスキーマと一致しているか
         run: pnpm check:types
       - run: pnpm typecheck
+      # typecheck・test・build には apps/server (Worker の型検査、D1 と Durable Object を使うテスト、wrangler deploy --dry-run) も入っている
       - run: pnpm test
       - run: pnpm build

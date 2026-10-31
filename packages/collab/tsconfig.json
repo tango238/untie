@@ -6,5 +6,7 @@
     // Node のグローバル (process・Buffer など) を使っていないことも型検査で守る
     "types": []
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Worker の API を使う room は、types が違うので src/room/tsconfig.json で検査する
+  "exclude": ["src/room"]
 }

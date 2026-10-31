@@ -1,0 +1,49 @@
+{
+  // 1 つの Worker が Web の静的ファイル・API・Durable Object (UntieRoom) を持つ (docs/collab-design.md 7 章・9 章)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "untie",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // apps/web のビルド結果 (SPA)。存在しないパスは index.html を返す
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // ブラウザの画面遷移 (Sec-Fetch-Mode: navigate) は、SPA の設定だと存在しないパスが index.html になってしまう。
+    // これらのパスは必ず先に Worker が受ける (ログイン画面・コールバック・書き出しのダウンロード・WebSocket)
+    "run_worker_first": ["/auth/*", "/api/*", "/parties/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "untie",
+      // 本番では `wrangler d1 create untie --location apac` で出た id に置き換える
+      "database_id": "<本番で置き換える>",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "UntieRoom", "class_name": "UntieRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UntieRoom"] }],
+
+  // ゴミ箱の掃除 (毎日 03:00 UTC)
+  "triggers": { "crons": ["0 3 * * *"] },
+
+  // 秘密の値 (SESSION_SECRET・TICKET_SECRET・GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET) は `wrangler secret put` で入れる。
+  // 開発用の値は .dev.vars にある
+  "vars": {
+    // ログインを許すメールのドメイン (カンマ区切り)。空なら制限なし
+    "ALLOWED_EMAIL_DOMAINS": "",
+    // 開発用ログイン (メールを打つだけ)。本番は "false" のまま
+    "DEV_LOGIN": "false",
+    // 公開の URL (例: https://untie.example.com)。https なら Cookie に Secure を付け、OIDC の redirect URI に使う。空なら受けたリクエストのオリジン
+    "APP_ORIGIN": ""
+  },
+
+  "observability": { "enabled": true }
+}

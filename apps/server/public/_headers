@@ -1,4 +1,6 @@
-# Cloudflare Pages が配信するときに付けるヘッダー (デスクトップアプリでは使わない)
+# Worker の静的ファイル配信 (assets) が付けるヘッダー (デスクトップアプリでは使わない)
+# deploy / check のときに scripts/copy-headers.mjs が apps/web/dist/_headers に写す
+# connect-src の 'self' は同じオリジンの fetch と WebSocket (wss://<host>/parties/...) を許す。wss: だけを足すと任意のホストへの WebSocket も許してしまうので足さない
 # API キーをブラウザに置くので、読み込めるスクリプトと通信先を絞る
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'

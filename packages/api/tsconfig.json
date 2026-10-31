@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // DOM にも Worker にも依存しない (fetch の型は client.ts で最小限だけ宣言する)
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"]
+}
