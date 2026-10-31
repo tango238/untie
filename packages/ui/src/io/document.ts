@@ -116,3 +116,26 @@ export async function saveDocument(asNew = false): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * 手元のモデルを JSON に書き出す (保存先は毎回選ぶ)。クラウドファイルの Cmd/Ctrl+S と、メニューの「JSON に書き出す」。
+ * 開いているファイルや最近開いたファイルは変えない。書き出せたら true (取り消し・失敗は false)
+ */
+export async function exportModelToFile(): Promise<boolean> {
+  const st = useUntieStore.getState();
+  // 入力中の名前・説明を確定させてから書き出す
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  if (st.dragBase) st.commitDrag();
+  const { model } = useUntieStore.getState();
+  try {
+    // 名前が空のときは、ホームの書き出しと同じ「名前なし」にする
+    const name = `${safeFileName(model.meta.name.trim() || "名前なし")}.json`;
+    const saved = await getPlatform().saveTextFile(serializeModel(model), null, name);
+    if (!saved) return false;
+    st.pushToast(`「${saved.name}」に書き出しました`, "info");
+    return true;
+  } catch (e) {
+    st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
+    return false;
+  }
+}

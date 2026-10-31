@@ -301,23 +301,23 @@ doc
 ## 5. 編集の流れ (クラウドファイル)
 
 ```
-コマンド (純粋関数)            Y.Doc (正本の写し)           ストア (表示用)
+コマンド (純粋関数)            Y.Doc (正本)                    ストア (表示用)
 dispatch(cmd)
  ├ after = cmd(model)          applyModelDiff(before, after, origin=local)
- ├ model = after  ─────────────────────────────────────────> 即時反映 (差分適用と同じ結果になる前提)
- │                             ← 他の人の update / repair
- │                             doc.observeDeep → 変わった id だけ rebuildModel(doc, prev) ─> model
+ └ model = rebuildModel(doc, after) <───────────────────────── 表示に出す (Doc を通した結果)
+                               ← 他の人の update / repair
+                               observeModelChanges → rebuildModel(doc, model) ─> applyRemoteModel(model)
 ```
 
-- **dispatch**: コマンドをいまのモデルに当て、成功したら結果を表示に出し、差分を `origin = local` のトランザクションで Y.Doc に書く。失敗 (`ok: false`) はいままでどおり何もしない。`viewer` のときは `dispatch` が何もせず `{ ok: false, reason: "閲覧専用です" }` を返す。
-- **他の人の変更**: `observeDeep` のイベントから変わった id を集め、その分だけ組み立て直す。`reconcileUi` で選択やボードの参照先が消えていたら外す (既存の処理)。
-- **ドラッグ中** (`previewNode` / `previewCommand`): Y.Doc には書かず表示だけ動かし、`commitDrag` で 1 トランザクションとして書く。ドラッグ中に同じノードを他の人が動かしたら、確定時に自分の座標で上書きする (後勝ち)。
-- **AI エージェント** (`beginAgentEdit` 〜 `endAgentEdit`): 途中の `agentApply` は Y.Doc に書く (他の人にも見える)。`viewer` は使えない。
+- **dispatch**: コマンドをいまのモデルに当て、成功したら差分を `origin = local` のトランザクションで Y.Doc に書き、**そのあと `rebuildModel(doc, after)` を表示のモデルにする** (Doc が正本。コマンドの結果をそのまま出すのではない)。同時に届いていた他の人の変更も、消した側が勝つ規則も、ここで Doc の側で揃う。失敗 (`ok: false`) はいままでどおり何もしない。`viewer` のときは `dispatch` が何もせず `{ ok: false, reason: "閲覧専用です" }` を返す。
+- **他の人の変更**: `observeModelChanges` が `origin` が自分以外のトランザクションを知らせるたびに、**変わった id だけではなく毎回 `rebuildModel(doc, prev)` で全体を組み立て直す** (届く id と組み立て直して変わる範囲が一致しないため。6 章)。`prev` を渡すので、内容が同じ要素・関係・ボード・ノード・線は参照が使い回され (構造共有)、React の再描画は変わった分に絞られる。`reconcileUi` で選択やボードの参照先が消えていたら外す (既存の処理)。
+- **ドラッグ中** (`previewNode` / `previewCommand`): Y.Doc には書かず表示だけ動かす。ドラッグ中に届いたリモートの変更は後回しにし (`pendingRemote`)、`commitDrag` / `cancelDrag` のあとで Doc から組み立て直す。`commitDrag` が書くのは `dragBase` と確定後の差だけなので、他の人の変更は消さない (同じノードを他の人が動かしていたら、確定時に自分の座標で上書きする。後勝ち)。`dispatch` と `agentApply` は、ドラッグ中なら先に `commitDrag` する (`before` が Doc とずれないように)。
+- **AI エージェント** (`beginAgentEdit` 〜 `endAgentEdit`): 途中の `agentApply` は Y.Doc に書く (他の人にも見える)。クラウドでは `beginAgentEdit` の間だけ書ける (開く前から走っていたローカルのエージェントを通さないため)。`viewer` は使えない。
 - **Undo / Redo**: クラウドファイルでは使えない。開いたときに履歴を捨て、ツールバーのボタンを無効にし、Cmd/Ctrl+Z・Shift+Cmd/Ctrl+Z・Ctrl+Y を無視する。
   - 理由: 共有中の Undo は「自分の変更だけを戻す」ことになるが、他の人の変更と絡むと結果が読めない (自分が足した作業を戻したら、他の人がそこに付けた課題の対象や関係が消える、など)。PoC では入れない。
   - 誤って消したときの戻し先は、書き出した JSON と、サーバーのスナップショット (3.4)。
 - **ローカルファイルはいまのまま**: Y.Doc を持たない。`dispatch`・履歴・保存していない変更の判定 (`model === savedModel` の参照比較) は、いまのコードを変えない。ストアに `UntieDoc` が付いているときだけ、上の経路を通る。
-- **保存していない変更**: クラウドファイルはサーバーが正本なので「未保存」の概念が無い。Cmd/Ctrl+S は「JSON に書き出す」になり、閉じる前の確認もしない。つながっていない間の変更は手元の Y.Doc に溜まり、つながると合流する。
+- **保存していない変更**: クラウドファイルはサーバーが正本なので、つながっている間は「未保存」の概念が無い。Cmd/Ctrl+S は「JSON に書き出す」になる。つながっていない間の変更は手元の Y.Doc に溜まり、つながると合流する。**その溜まった分はタブを閉じると失われる**ので、「最後の同期のあとに、つながっていない間に自分が書いた変更がある」ときだけ、閉じる前の確認とホームへ戻る確認の対象にする (8.3)。
 
 ## 6. 参照整合性
 
@@ -440,7 +440,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 
 | コード | 定数 | 意味 | つなぎ直したとき |
 | --- | --- | --- | --- |
-| 4000 | `CLOSE_UNAUTHENTICATED` | 認証されていない (ヘッダーが無い) | チケットを取り直す |
+| 4000 | `CLOSE_UNAUTHENTICATED` | 認証されていない (ヘッダーが無い) | チケットを取り直す (画面は理由を出してホームへ戻す) |
 | 4001 | `CLOSE_ROLE_CHANGED` | 役割が変わった (`kick({ userId })`) | チケットの取得で新しい役割になる |
 | 4003 | `CLOSE_REMOVED` | メンバーから外された (`kick({ userId, reason: "removed" })`)、またはファイルがゴミ箱に入った (`kick({ all: true })`) | チケットの取得で 404 (外された) / 409 `in_trash` (ゴミ箱) |
 | 4004 | `CLOSE_LINK_DISABLED` | リンクが無効になった (`kick({ via: "link" })`) | チケットの取得で 404 |
@@ -479,7 +479,7 @@ export class UntieRoom extends YServer<Env> {
 - `isReadOnly` は `y-partyserver` (2.2.0) に組み込みの仕組みで、`true` の接続からの sync step2 と update を捨てる (step1 への返事と awareness は通る)。`onMessage` の上書きや `isDocWrite` は要らない。UntieRoom は接続の `state.role` が **owner / editor 以外ならすべて読み取り専用**にする (viewer・guest のほか、役割が無い・知らない役割の接続も)。awareness は viewer も送れる (選択が他の人に見える)。
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
 - 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
-- `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければ例外 (null でゲストを巻き込まない)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
+- `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければならない (null でゲストを巻き込まない)。**不正な対象は Worker 側の `kickRoom` (`apps/server/src/rooms.ts`) で弾いて例外にする。ルームは警告を出して 0 を返す** (RPC の中で投げるとテスト基盤が未処理の拒否として数えるため)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
 - **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割の変更・メンバーを外す・リンクの無効化から `kick` を呼ぶ API は 5 段階目で作る。
 - `presence()` はいまつながっている接続の `{ userId, name, role }` の一覧 (同じ人が複数のタブなら、その数だけ出る)。`currentModel()` は保存を待たず、メモリ上の Y.Doc からモデルを作る (テストと確認用)。プレゼンスの表示そのもの (カーソル・選択) は awareness で運ぶ。
 
@@ -527,9 +527,9 @@ export class UntieRoom extends YServer<Env> {
 | 共有ダイアログ | メンバー一覧 (名前・メール・役割の選択・外す)、メールアドレスと役割で招待、未承諾の招待の一覧と取り消し、所有者を譲る。「リンクを知っている人が閲覧できる」のスイッチと、リンクを写す・作り直す。owner だけ開ける |
 | 招待を受ける画面 | `#/invite/<token>` を開くと、ログイン (必要なら) → 受けるかの確認 → 受けたらそのファイルを開く |
 | リンクで開く画面 | `#/link/<token>` を開くと、ログインせずにそのままエディタ (閲覧専用) を開く。上の帯に「リンクで閲覧中。ログインすると複製できます」。ログイン済みでメンバーならその役割で開く |
-| エディタ (クラウド) | ツールバーに接続状態 (接続中 / 切断。再接続します)、参加者の色玉 (ゲストは灰色)、役割。viewer と guest は上に「閲覧専用」の帯。Undo / Redo は無効。Cmd/Ctrl+S は書き出し |
+| エディタ (クラウド) | ツールバーのタイトルの横に接続状態 (接続中 / 切断。再接続します)、役割、参加者の色玉 (title に名前。同じ人の複数のタブは 1 つ。ゲストは接続 id から決めた色)。viewer と guest は上に「閲覧専用です (役割: …)」の帯 (`role="status"`)。Undo / Redo は無効 (title「共有中は取り消せません」)。Cmd/Ctrl+S は書き出し。ファイルメニューは「ホーム」「JSON に書き出す」「クラウドへ保存 (複製)」だけ |
 | カード・固定ボード | 他の人の選択を色付きの縁で出す (awareness) |
-| プロパティ欄 | 他の人が同じ要素を編集中なら名前の横に表示する (ロックはしない)。viewer は入力欄をすべて読み取り専用にする |
+| プロパティ欄 | 他の人が同じ要素を**選んでいる**なら、要素の種類の横に「○○さんも選択中」を出す (awareness は選択しか運ばないので「編集中」とは言わない。ロックはしない)。viewer は入力欄をすべて読み取り専用にし、追加・削除・移動・関係のボタンを出さない |
 | AI の設定 | いまのまま各自の API キー (キーチェーン / localStorage)。viewer はエージェントを開けない (質問だけなら将来) |
 
 ### 8.2 ストア
@@ -538,19 +538,31 @@ export class UntieRoom extends YServer<Env> {
 - **401 の扱い**: 使っている途中の 401 (セッション切れ・別の端末でのログアウト) は `cloud/api.ts` の `onUnauthorized` 1 か所で受ける。`session` が anonymous に戻して「ログインの有効期限が切れました」を出し、`files` が一覧を空にする (両者は互いを import せず、この購読口だけでつながる)。`logout` / `logoutAll` は 401 を成功とみなして手元の状態を消す。
 - `files` ストア (`cloud/files.ts`): `mine` / `shared` / `trash` / `loading` / `loaded` / `error` と、`refresh`・`create`・`rename`・`duplicate`・`exportToFile`・`trashFile`・`restore`・`purge`。操作の失敗は `ApiError.message` をそのままトーストに出す。書き出しは `files.export` で JSON を取って `parseModel` で検めてから `Platform.saveTextFile` へ渡す (ダウンロード URL は使わない。デスクトップでも動く)。モデルの名前が空なら「名前なし」にして送る。
 - ローカルの編集 (ホーム画面まわり): ツールバーの「ホーム」は、未保存の変更があれば `confirmDiscard` で確かめ、破棄すると決めたら編集中のモデルを起動時のサンプル (未変更) に戻し、走っている AI エージェントを止めてから `#/` へ移る。`openDocument` / `openRecentDocument` は開けたら `true` を返す (ホームが `#/local` へ移るかの判定に使う)。閉じる前の確認 (`useCloseGuard`) は `Root` に置き、ホームでも効く。
-- `document: { kind: "local", file } | { kind: "cloud", fileId, role, doc: UntieDoc, connection: status }` に、いまの `file` を広げる。
-- `dispatch` / `commitDrag` / `agentApply` は `document.kind === "cloud"` のとき Y.Doc に書く。`role === "viewer"` なら何もしない。
-- `history` はクラウドのとき空にし、積まない。
-- `peers: Peer[]` (awareness から) を足し、カードと参加者の色玉が読む。
-- 画面の `can(role, action)` は `document.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `document.link: token` を持ち、チケットと書き出しを `/api/links/*` で取る。
-- `session.status === "anonymous"` でもリンクのファイルは開ける。ホームは未ログインならログインとローカルファイルだけ出す。
+- **`cloud: CloudInfo | null`** (`{ fileId, role, doc: Y.Doc, status: "loading" | "connecting" | "connected" | "offline", closed?: { code, reason }, link?: string }`)。ローカルなら null。当初の案の `document: { kind: "local" | "cloud" }` で `file` を包む形にはせず、いまの `file` / `savedModel` / `history` はそのまま、`cloud` を足すだけにした (ローカルのコードに触れない)。`status` は最初の同期が済むまで `loading`。他に `peers: Peer[]` (`{ clientId, userId, name, color, boardId, selection }`、自分を除く) と `pendingRemote` (ドラッグ中に届いた変更を後回しにしているか)。
+- 関数: `loadCloudDocument(model, cloud)` (履歴・選択・ドラッグを捨てて開いた状態にする)、`setCloudStatus` / `setCloudRole` / `setCloudClosed` / `setPeers`、`applyRemoteModel(model)`、`closeCloud()` (起動時のサンプル・未変更に戻す。クラウドを開いていなければ何もしない。ローカルの編集中のモデルを壊さないため)。`newDocument` / `loadDocument` も `cloud` を外す。
+- **書き込みの経路**: `dispatch` / `commitDrag` / `agentApply` は、`cloud` があれば結果を `applyModelDiff(doc, before, after, LOCAL_ORIGIN)` で Doc に書き、そのあと **`model = rebuildModel(doc, after)`** にする (Doc が正本。他の人の変更との合流、消した側が勝つ規則はここで揃う)。`history` には積まず、`endAgentEdit` も履歴を積まない。`previewNode` / `previewCommand` は Doc に書かない (表示だけ)。`commitDrag` が書くのは `dragBase` と確定後の差だけなので、ドラッグ中に届いた他の人の変更は消さない。
+- **リモートの変更**: `attachCloudDoc` が `observeModelChanges` で `LOCAL_ORIGIN` 以外の変更を受け、`rebuildModel(doc, store.model)` を `applyRemoteModel` に渡す。ドラッグ中 (`dragBase` が非 null) は `pendingRemote` を立てて後回しにし (組み立て直しもしない)、`commitDrag` / `cancelDrag` が Doc から組み立て直す。`dispatch` はドラッグ中なら先に `commitDrag` するので、`before` が Doc とずれない (消えたものの復活を防ぐ。6 章)。AI エージェントの編集中 (`agentBase`) は後回しにせず、そのまま反映する。部分的な組み立て直し (`changed` の id だけ) はしない: 届く id と変わる範囲が一致しないため (6 章)。構造共有で変わった分だけが新しい参照になる。
+- **閲覧専用**: セレクタ `selectReadOnly` (`cloud && !can(cloud.role, "edit")`)。`dispatch` / `agentApply` は `{ ok: false, reason: "閲覧専用です" }` を返し、`previewNode` / `previewCommand` / `commitDrag` / `beginAgentEdit` は何もしない。画面は `useUntieStore(selectReadOnly)` で出し分ける (入力欄の `readOnly`、追加・削除・移動・関係のボタンを出さない、キャンバスの `nodesDraggable` を切る、AI のボタンとペインを出さない)。選ぶことはできる。
+- **Undo / Redo**: `cloud` があれば `undo` / `redo` は何もしない。
+- **`hasUnsavedChanges`**: `cloud` があれば `cloud.status !== "connected" && cloud.dirtySinceOffline`。`dirtySinceOffline` は、つながっていない間 (`connected` でない間) に自分の書き込み (`dispatch` / `commitDrag` / `agentApply`) があると立ち、同期が済んで `connected` になると戻る。
+- **役割が変わったとき** (`setCloudRole`): 閲覧専用になったら、途中のドラッグ (`cancelDrag`) と AI の編集を捨てる。閲覧専用のときの `commitDrag` も、`dragBase` を残さずドラッグを捨てる。
+- 画面の `can(role, action)` は `cloud.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `cloud.link: token` を持ち、チケットと書き出しを `/api/links/*` で取る (5 段階目)。
+- `session.status === "anonymous"` でもリンクのファイルは開ける (5 段階目)。ホームは未ログインならログインとローカルファイルだけ出す。4 段階目の `#/f/<id>` は、未ログインならホームへ戻して「クラウドのファイルを開くにはログインしてください」を出す。
+- クラウドファイルを開くと、ローカルの編集中のモデルはストアから置き換わる (戻るとサンプル)。そのため `CloudEditor` が、開く前に保存していない変更があれば `confirmDiscardIfDirty` で確かめ、断られたら `#/local` へ戻す (ホームの「開く」だけでなく、戻る/進む・URL の直打ちで来たときも守る)。
 
 ### 8.3 接続
 
-- `YProvider(serverOrigin, fileId, doc, { params: async () => ({ ticket: await api.ticket(fileId) }) })`。`params` は再接続のたびに呼ばれるので、チケットが 60 秒で切れても困らない。
-- 401 / 403 で切られたら (役割が変わった・外された・セッション切れ)、再接続せずにホームへ戻し、理由をトーストで出す。
-- つながっていない間の編集は手元の Y.Doc に溜まり、つながると合流する。長く切れていたら (例: 10 分) 「つながっていません。変更は接続後に反映されます」の帯を出す。
-- プレゼンス: `{ userId, name, color, boardId, selection }`。色はユーザー id のハッシュから決める。
+実装は `packages/ui/src/cloud/collab.ts`。provider に依存しない中核 (`attachCloudDoc(doc, { fileId, role, link? })`: ストアへの取り付けと、リモートの変更の反映。戻り値の `detach()`) と、その外側 (`openCloudFile(fileId)` / `closeCloudFile()`: チケット・`YProvider`・接続の状態・プレゼンス) に分けてある。テストは中核に 2 つの Y.Doc をつなぎ、外側は偽の provider で確かめる。
+
+- `openCloudFile` は先に `files.ticket(id)` を取り (401/403/404/409 ならその `ApiError` を投げる。何も付けない)、`new YProvider(host, fileId, doc, { party: "untie-room", protocol, disableBc: true, connect: false, params })` をつなぐ。`host` / `protocol` は `Platform.serverOrigin()` から決める。`params` は最初の 1 回は取ったチケットを使い、**再接続のたびに取り直す** (チケットは 60 秒で切れる)。取り直したチケットの `role` が変わっていたら、ストアの役割を更新する (切れている間に viewer から editor になった、など)。開く途中で `closeCloudFile()` や別の `openCloudFile()` が呼ばれたら、世代の番号で古い方が何も付けずに戻る (React の StrictMode でも二重につながない)。
+- **接続の状態** (`cloud.status`): 最初の同期 (`sync` が true) までは `loading` (画面は「読み込み中…」。Doc が空のまま編集させない。15 秒たっても終わらなければ「サーバーにつながっていません」を添える)。以後は `status` イベントを写す: `disconnected` → `offline`、`connecting` → `connecting`、`connected` → 同期が済むまでは `connecting`、`sync` → `connected`。
+- **閉じられたとき**: `connection-close` イベントの `code` が 4000〜4004 なら、再接続せず (`provider.disconnect()`)、`cloud.closed = { code, reason }` にする (`reason` はサーバーが付けた理由。空なら画面側の `CLOSE_REASONS`: 4000「認証されていません。ログインし直してください」、4001「役割が変わりました。開き直してください」、4003「共有から外されたか、ファイルがゴミ箱に入りました」、4004「リンクが無効になりました」)。`CloudEditor` が `closed` を見て、理由をトーストに出してホームへ戻す。再接続のチケットの取得が 401/403/404/409 だった場合 (切れている間に外された・ゴミ箱に入った、など) も、同じく `closed` にして再接続しない。4001 (役割が変わった) も開き直しではなくホームへ戻す (5 段階目で、その場で新しい役割につなぎ直すか決める)。
+- **接続の状態は切れたら戻らない**: 一度 `offline` になったら、`connected` かつ同期済みになるまで、再接続を試している `connecting` も `offline` として扱う (再接続に失敗し続けても「接続しています」と出さない)。
+- **ログイン中に開く前から走っていた AI** を止める: `openCloudFile` の先頭で `useAgentStore.getState().cancel()` を呼ぶ。止め損ねても、クラウドの `agentApply` は `beginAgentEdit` の間にしか書けず、開くと `agentBase` は捨てられる。
+- **途中で失敗したとき**: `openCloudFile` が attach のあとで例外になったら、provider を `destroy` し、`detach()` と `doc.destroy()` をしてから投げる (ストアに `cloud` を残さない)。
+- **取れなかったとき**: チケットが 401 ならホーム (ログイン欄)、403/404 ならホームへ戻して「このファイルは開けません」、409 なら「ゴミ箱の中のファイルです」。
+- つながっていない間の編集は手元の Y.Doc に溜まり、つながると合流する。ただし**タブを閉じると失われる**ので、`hasUnsavedChanges` (8.2) が true の間は、閉じる前の確認 (`useCloseGuard`) と、ツールバーの「ホーム」の確認 (「つながっていない間の変更はまだ送れていません」) を出す。「つながっていません。変更は接続後に反映されます」の長期の帯 (10 分など) は**まだ入れていない** (いまはツールバーの「切断。再接続します」だけ)。
+- **プレゼンス**: `awareness.setLocalState({ userId, name, color, boardId, selection })`。`color` はユーザー id (ゲストは awareness の clientId) の FNV-1a ハッシュで 8 色から決める。ストアの `ui.currentBoardId` と `ui.selection` を購読して `setLocalStateField` で更新する。`awareness.on("change")` で `peers` を組み立てる (自分を除く)。**自分の別のタブ** (`userId` が同じ) は他の人として数えず、`peers`・色玉・「〜さんも選択中」から除く (ゲストは `userId` が無いので clientId で区別する)。自分の状態だけが変わった `change` では組み立て直さず、前の `peers` と比べて変わっていなければ `setPeers` しない (変わっていない人の参照は使い回す)。カードは `usePeersSelecting(elementId)` (その要素の結果だけを返し、`useShallow` で比べる) を読むので、自分が選ぶたびに全カードが描き直されることはない。**プレゼンスは偽れる**: awareness はクライアントが書く値で、サーバーは中身を検めない (`userId` や名前を他人に見せかけることができる)。見た目の補助にとどめ、権限には使わない。5 段階目で、サーバーの `presence()` (接続のチケットから決めた `userId`・名前・役割) と照らして、偽りを表示から外す。他の人の状態は信用せず、形を確かめて作る (色は `#rrggbb` だけ受け、外れたら決め直す。選択は形が違えば外す)。表示は同じボードにいる人 (`peer.boardId === 開いているボード`) の選択だけ: 自由ボードのカード・枠と固定ボードのカード・枠に、その人の色の 2px の縁 (複数なら 2px ずつ外へ重ねる) と、右上に名前のラベルを出す。
 
 ### 8.4 デスクトップ固有
 

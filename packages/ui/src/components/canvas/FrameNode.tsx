@@ -1,16 +1,24 @@
 import { NodeResizer, type NodeProps } from "@xyflow/react";
-import { useUntieStore } from "../../store";
+import { selectReadOnly, useUntieStore } from "../../store";
 import { IssueBadge } from "../IssueBadge";
+import { PeerLabel, peerStyle, usePeersSelecting } from "../PeerMarks";
 import { ActorChips } from "./ActorChips";
 import { NodeHandles } from "./NodeHandles";
 import type { FrameFlowNode } from "./toFlow";
 
 export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
   const isBuc = data.kind === "buc";
+  const readOnly = useUntieStore(selectReadOnly);
+  const peers = usePeersSelecting(data.elementId);
   return (
-    <div className={`frame-node kind-${data.kind}${selected ? " is-selected" : ""}`} data-testid={`node-${data.elementId}`}>
+    <div
+      className={`frame-node kind-${data.kind}${selected ? " is-selected" : ""}`}
+      style={peerStyle(peers)}
+      data-testid={`node-${data.elementId}`}
+    >
+      <PeerLabel peers={peers} />
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !readOnly}
         minWidth={isBuc ? 160 : 240}
         minHeight={isBuc ? 120 : 160}
         onResizeEnd={() => useUntieStore.getState().commitDrag()}

@@ -16,7 +16,7 @@ import {
 import { issueSummaries } from "@untie/core/model/selectors";
 import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { addElement, updateElement } from "@untie/core/model/commands";
-import { useUntieStore } from "../store";
+import { selectReadOnly, useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
 import { SystemChips } from "./canvas/SystemChips";
@@ -25,6 +25,7 @@ import { GRANULARITY, LAYER_GUIDES, type GranularityGuide, type GuideKind } from
 import { HoursLabel } from "./Hours";
 import { GlobalFilterBar } from "./GlobalFilterBar";
 import { IssueBadge } from "./IssueBadge";
+import { PeerLabel, peerStyle, usePeersSelecting } from "./PeerMarks";
 import { globalFilterScope } from "@untie/core/model/lineage";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
@@ -51,6 +52,8 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
   const selection = useUntieStore((s) => s.ui.selection);
   const query = useUntieStore((s) => s.ui.fixedFilters?.[layer] ?? "");
   const setFixedFilter = useUntieStore((s) => s.setFixedFilter);
+  // 閲覧専用では、追加・紐づけ・外す・名前の変更を出さない
+  const readOnly = useUntieStore(selectReadOnly);
 
   const allGroups = useMemo(() => fixedGroups(model, layer), [model, layer]);
   const globalFilter = useUntieStore((s) => s.ui.globalFilter);
@@ -79,7 +82,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
       <div className="fixed-head">
         <h2 className="fixed-title">{FIXED_LAYER_LABELS[layer]}</h2>
         <span className="fixed-hint">{LAYER_HINTS[layer]}</span>
-        {layer === "context" && <AddContextButton />}
+        {layer === "context" && !readOnly && <AddContextButton />}
         <input
           type="search"
           className="fixed-filter"
@@ -106,6 +109,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
                 summaries={summaries}
                 actors={actors}
                 systems={systems}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -217,12 +221,15 @@ function SectionView({ section, model, children }: { section: FixedSection; mode
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const parent = section.parentId ? model.elements.find((e) => e.id === section.parentId) : undefined;
   const selected = useUntieStore((s) => !!parent && s.ui.selection?.type === "element" && s.ui.selection.id === parent.id);
+  const peers = usePeersSelecting(parent?.id);
   return (
     <section
       className={`fixed-section${parent ? ` kind-${parent.kind}` : ""}${selected ? " is-selected" : ""}`}
+      style={peerStyle(peers)}
       aria-label={section.title}
       data-fixed-group={section.key}
     >
+      <PeerLabel peers={peers} />
       <h3 className="fixed-section-head">
         {parent ? (
           <button
@@ -253,6 +260,7 @@ function GroupView({
   summaries,
   actors,
   systems,
+  readOnly,
 }: {
   group: FixedGroup;
   /** 絞り込み前の枠 (既存の要素を足す候補はこちらで決める) */
@@ -262,6 +270,7 @@ function GroupView({
   summaries: ReturnType<typeof issueSummaries>;
   actors: ReturnType<typeof actorLabels>;
   systems: Map<string, SystemLabel[]>;
+  readOnly: boolean;
 }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const select = useUntieStore((s) => s.select);
@@ -272,7 +281,8 @@ function GroupView({
   const parent = group.parentId ? model.elements.find((e) => e.id === group.parentId) : undefined;
   const parentKind = parent?.kind ?? (group.link.type === "none" && group.parentId === null && group.key === group.childKind ? group.childKind : undefined);
   const contextMembers = group.link.type === "contextMembers";
-  const canUnlink = group.link.type === "relation" || (contextMembers && group.parentId !== null);
+  const canUnlink = !readOnly && (group.link.type === "relation" || (contextMembers && group.parentId !== null));
+  const peers = usePeersSelecting(parent?.id);
   const candidates = linkCandidates(model, fullGroup);
   const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
   const addKinds = group.addKinds ?? [group.childKind];
@@ -297,9 +307,11 @@ function GroupView({
   return (
     <section
       className={`fixed-group${parentKind ? ` kind-${parentKind}` : ""}${parent && selectedId === parent.id ? " is-selected" : ""}`}
+      style={peerStyle(peers)}
       aria-label={group.title}
       data-fixed-group={group.key}
     >
+      <PeerLabel peers={peers} />
       <header className="fixed-group-head">
         {parent ? (
           <button type="button" className="fixed-group-title link-plain" onClick={() => choose(parent.id)}>
@@ -323,6 +335,7 @@ function GroupView({
               actors={actors.get(e.id)}
               systems={systems.get(e.id)}
               showStateGroup={contextMembers}
+              readOnly={readOnly}
               onClick={() => choose(e.id)}
             />
             {canUnlink && (
@@ -342,7 +355,7 @@ function GroupView({
           </li>
         ))}
       </ul>
-      {!group.noAdd && <div className="fixed-add">
+      {!group.noAdd && !readOnly && <div className="fixed-add">
         {addKinds.map((kind) => (
           <button key={kind} type="button" onClick={() => add(kind)} aria-label={`「${group.title}」に${ELEMENT_KIND_LABELS[kind]}を追加`}>
             ＋{ELEMENT_KIND_LABELS[kind]}
@@ -408,6 +421,7 @@ function FixedCard({
   actors,
   systems,
   showStateGroup,
+  readOnly,
   onClick,
 }: {
   element: Element;
@@ -418,11 +432,13 @@ function FixedCard({
   systems?: SystemLabel[];
   /** 状態に状態グループ名を添える (コンテキストの枠では、複数のグループが同じ枠に並ぶので) */
   showStateGroup?: boolean;
+  readOnly?: boolean;
   onClick: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  // 既定の活動の名前は業務の名前と同じで、直接は変えられない
-  const renamable = !(element.kind === "buc" && element.isDefault);
+  // 既定の活動の名前は業務の名前と同じで、直接は変えられない。閲覧専用では変えられない
+  const renamable = !readOnly && !(element.kind === "buc" && element.isDefault);
+  const peers = usePeersSelecting(element.id);
   const className = `fixed-card kind-${element.kind}${selected ? " is-selected" : ""}`;
 
   const top = (
@@ -450,7 +466,8 @@ function FixedCard({
   // 入力欄はボタンの中に置けないので、編集中はカードを div にする
   if (editing) {
     return (
-      <div className={className} data-fixed-card={element.id}>
+      <div className={className} style={peerStyle(peers)} data-fixed-card={element.id}>
+        <PeerLabel peers={peers} />
         {top}
         <NameForm element={element} onDone={() => setEditing(false)} />
         {rest}
@@ -459,7 +476,8 @@ function FixedCard({
   }
 
   return (
-    <button type="button" className={className} data-fixed-card={element.id} aria-pressed={selected} onClick={onClick}>
+    <button type="button" className={className} style={peerStyle(peers)} data-fixed-card={element.id} aria-pressed={selected} onClick={onClick}>
+      <PeerLabel peers={peers} />
       {top}
       <span
         className={`fixed-card-name${renamable ? " is-renamable" : ""}`}

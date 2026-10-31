@@ -34,7 +34,20 @@ export async function destroyRoom(env: RoomEnv, fileId: string): Promise<void> {
   await (await getRoom(env, fileId)).destroy();
 }
 
-/** ルームの接続を閉じる (役割が変わった・外された・リンクが無効・ゴミ箱に入った)。閉じた数を返す */
+/** kick の対象として正しい形か。userId は空でない文字列 (null や空でゲストを巻き込まない) */
+function isKickTarget(target: unknown): target is KickTarget {
+  if (typeof target !== "object" || target === null) return false;
+  const t = target as Record<string, unknown>;
+  if (t.all === true) return true;
+  if (t.via === "link") return true;
+  return typeof t.userId === "string" && t.userId !== "" && (t.reason === undefined || t.reason === "roleChanged" || t.reason === "removed");
+}
+
+/**
+ * ルームの接続を閉じる (役割が変わった・外された・リンクが無効・ゴミ箱に入った)。閉じた数を返す。
+ * 不正な対象はここで例外にする (ルームの RPC の中で投げず、呼び出し側のバグをルームに届ける前に止める)
+ */
 export async function kickRoom(env: RoomEnv, fileId: string, target: KickTarget): Promise<number> {
+  if (!isKickTarget(target)) throw new Error("kick の対象が正しくありません");
   return (await getRoom(env, fileId)).kick(target);
 }

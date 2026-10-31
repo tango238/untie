@@ -509,6 +509,8 @@ describe("PropertyPanel の関係一覧", () => {
 
 describe("PropertyPanel のトレース", () => {
   it("関係と課題の間に、上下のレイヤーと要素を表で出し、行ごとにそのレイヤーへ移れる", () => {
+    // 移ると描画後のスクロール (setTimeout) が走るので、実時間で残さず、テストの中で片付ける
+    vi.useFakeTimers();
     resetStore();
     act(() => st().setCurrentBoard("fixed:activity"));
     act(() => st().select({ type: "element", id: "act_verify_identity" }));
@@ -531,9 +533,13 @@ describe("PropertyPanel のトレース", () => {
     fireEvent.click(within(ucRow).getByRole("button", { name: /固定ボード「操作」へ移る/ }));
     expect(st().ui.currentBoardId).toBe("fixed:usecase");
     expect(st().ui.selection).toEqual({ type: "element", id: "act_verify_identity" });
+    act(() => {
+      vi.runAllTimers();
+    });
   });
 
   it("つながる要素の無いレイヤーも (未設定) の行で出し、そのレイヤーへ移れる", () => {
+    vi.useFakeTimers();
     resetStore();
     act(() => st().setCurrentBoard("fixed:usecase"));
     act(() => {
@@ -549,5 +555,8 @@ describe("PropertyPanel のトレース", () => {
     expect(within(actRow).getByText("(未設定)")).toBeDefined();
     fireEvent.click(within(actRow).getByRole("button", { name: /固定ボード「作業」へ移る/ }));
     expect(st().ui.currentBoardId).toBe("fixed:activity");
+    act(() => {
+      vi.runAllTimers();
+    });
   });
 });

@@ -33,13 +33,13 @@ describe("Root", () => {
     expect(useSessionStore.getState().status).toBe("anonymous");
   });
 
-  it("#/local ではエディタ、#/f/<id> ではプレースホルダー、招待・リンクはホームを出す", async () => {
+  it("#/local ではエディタ、#/f/<id> ではクラウドファイルの読み込み、招待・リンクはホームを出す", async () => {
     render(<Root />);
     act(() => navigate({ name: "local" }));
     expect(screen.getByRole("button", { name: "ホーム" })).toBeTruthy();
 
     act(() => navigate({ name: "file", fileId: "abc" }));
-    expect(screen.getByText(/同時編集は次の段階で対応します/)).toBeTruthy();
+    expect(screen.getByText("読み込み中…")).toBeTruthy();
     act(() => navigate({ name: "home" }));
     expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
 

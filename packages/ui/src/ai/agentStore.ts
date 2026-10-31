@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import { ELEMENT_KIND_LABELS } from "@untie/core/model/types";
 import { FIXED_LAYER_LABELS, parseFixedBoardId } from "@untie/core/model/fixedBoards";
-import { useUntieStore } from "../store";
+import { selectReadOnly, useUntieStore } from "../store";
 import { createChatSession, describeChatError, type ChatSession, type SeedTurn } from "./chat";
 import { executeGrillTool, GRILL_TOOLS, grillOpening, grillSystemPrompt } from "./grill";
 import { getApiKey } from "./keys";
@@ -180,6 +180,11 @@ export const useAgentStore = create<AgentState>()((set, get) => {
     {
       const message = text.trim();
       if (!message || get().running) return;
+      // 閲覧専用のファイルでは、モデルを直せないので使わせない
+      if (selectReadOnly(useUntieStore.getState())) {
+        push("error", "閲覧専用のため、AI エージェントは使えません。");
+        return;
+      }
       const { provider, models } = get().settings;
       const model = models[provider] || PROVIDERS[provider].defaultModel;
       // 作り直すときに引き継ぐ履歴は、この発言を表示に足す前に取る (この発言は send で送る)

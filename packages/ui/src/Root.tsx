@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import App from "./App";
 import { useSessionStore } from "./cloud/session";
-import { CloudFilePlaceholder } from "./components/CloudFilePlaceholder";
+import { CloudEditor } from "./components/CloudEditor";
 import Home from "./components/home/Home";
 import { useCloseGuard } from "./io/useCloseGuard";
 import { useRoute } from "./router";
@@ -21,7 +21,7 @@ export default function Root() {
     case "local":
       return <App />;
     case "file":
-      return <CloudFilePlaceholder fileId={route.fileId} />;
+      return <CloudEditor fileId={route.fileId} />;
     // 招待・リンクで開く画面は次の段階。それまではホームを出す
     case "home":
     case "invite":

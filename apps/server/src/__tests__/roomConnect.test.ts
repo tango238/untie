@@ -4,7 +4,7 @@ import { applyModelDiff, rebuildModel } from "@untie/collab";
 import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, ROOM_HEADERS } from "@untie/api";
 import { issueTicket } from "../auth/ticket";
 import type { TicketClaims } from "../auth/ticket";
-import { getRoom } from "../rooms";
+import { getRoom, kickRoom } from "../rooms";
 import { callWorker, env, loginAs, resetDb, userIdOf } from "./helpers";
 
 /** workerd の時計は I/O や待ちで進む。kick の時刻より後に発行したチケットにするため、少し待つ */
@@ -373,16 +373,28 @@ describe("kick", () => {
     expect(fresh.closed).toBeNull();
   });
 
-  it("kick の userId が空・null・無いときは例外で、ゲストを巻き込まない", async () => {
+  it("kick の userId が空・null・無いときは何も閉じず、ゲストを巻き込まない", async () => {
     const taro = await loginAs("taro@example.com");
     const id = await createFile(taro);
     const guest = await joinWith(id, { userId: null, name: "ゲスト", role: "guest", via: "link" });
     const room = await getRoom(env, id);
     for (const bad of [{ userId: null }, { userId: "" }, {}, { userId: 5 }, { all: false }]) {
-      await expect(room.kick(bad as never)).rejects.toThrow("kick の対象が正しくありません");
+      expect(await room.kick(bad as never)).toBe(0);
     }
     expect(guest.closed).toBeNull();
     expect(await room.presence()).toHaveLength(1);
+  });
+
+  it("kickRoom は不正な対象を RPC の前に例外にし、ゲストを巻き込まない。正しい対象は通す", async () => {
+    const taro = await loginAs("taro@example.com");
+    const id = await createFile(taro);
+    const guest = await joinWith(id, { userId: null, name: "ゲスト", role: "guest", via: "link" });
+    for (const bad of [{ userId: null }, { userId: "" }, {}, { userId: 5 }, { all: false }, { userId: "u", reason: "x" }, null, "all"]) {
+      await expect(kickRoom(env, id, bad as never)).rejects.toThrow("kick の対象が正しくありません");
+    }
+    expect(guest.closed).toBeNull();
+    expect(await kickRoom(env, id, { userId: "usr_nobody" })).toBe(0);
+    expect(await kickRoom(env, id, { via: "link" })).toBe(1);
   });
 
   it("kick({ via: \"link\" }) でゲストだけが 4004 で閉じる", async () => {

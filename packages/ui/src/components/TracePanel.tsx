@@ -4,7 +4,7 @@ import { contextNotices, type ContextNotice } from "@untie/core/model/contexts";
 import { issuesByScope } from "@untie/core/model/selectors";
 import { traceToActors, type TraceProblem } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
-import { useUntieStore } from "../store";
+import { selectReadOnly, useUntieStore } from "../store";
 import { revealOnFixedBoard } from "./actions";
 
 /**
@@ -85,6 +85,7 @@ export function TracePanel() {
 
 function NoticeRow({ notice, element, contextName }: { notice: ContextNotice; element: Element; contextName: string }) {
   const dispatch = useUntieStore((s) => s.dispatch);
+  const readOnly = useUntieStore(selectReadOnly);
   return (
     <li className="trace-row is-info" data-testid={`notice-${element.id}`}>
       <div className="trace-head">
@@ -92,7 +93,7 @@ function NoticeRow({ notice, element, contextName }: { notice: ContextNotice; el
         <ElementLink element={element} />
       </div>
       <div className="trace-notice">{notice.message}</div>
-      {notice.suggestedId && (
+      {notice.suggestedId && !readOnly && (
         <div>
           <button
             type="button"

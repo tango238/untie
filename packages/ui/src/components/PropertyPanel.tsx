@@ -43,11 +43,12 @@ import {
   type UntieModel,
   type Variation,
 } from "@untie/core/model/types";
-import { isAnalysisBoard, isFixedBoard, useUntieStore } from "../store";
+import { isAnalysisBoard, isFixedBoard, selectReadOnly, useUntieStore } from "../store";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { getPlatform } from "../platform";
 import { CommitField } from "./CommitField";
+import { usePeersSelecting } from "./PeerMarks";
 import { HoursField } from "./Hours";
 import { GRANULARITY, isGuideKind } from "./granularity";
 
@@ -88,6 +89,7 @@ function RelationEditor({ relation, model }: { relation: Relation; model: UntieM
   const source = model.elements.find((e) => e.id === relation.sourceId);
   const target = model.elements.find((e) => e.id === relation.targetId);
   const rule = relationRule(relation.kind);
+  const readOnly = useUntieStore(selectReadOnly);
   const sourceLabel = rule.undirected ? "両端" : "始点";
   const targetLabel = rule.undirected ? "もう一方" : "終点";
   // 自由ボードでは、線をどの辺から出してどの辺に入れるかをそのボードだけで変えられる
@@ -116,7 +118,7 @@ function RelationEditor({ relation, model }: { relation: Relation; model: UntieM
           </button>
         )}
       </div>
-      {onBoard && <EdgeSidesEditor board={board} relation={relation} sourceLabel={sourceLabel} targetLabel={targetLabel} />}
+      {onBoard && <EdgeSidesEditor board={board} relation={relation} sourceLabel={sourceLabel} targetLabel={targetLabel} readOnly={readOnly} />}
       <p className="hint">関係の追加・削除は固定ボードで、要素を選んで行います。</p>
     </div>
   );
@@ -128,11 +130,13 @@ function EdgeSidesEditor({
   relation,
   sourceLabel,
   targetLabel,
+  readOnly,
 }: {
   board: Board;
   relation: Relation;
   sourceLabel: string;
   targetLabel: string;
+  readOnly: boolean;
 }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
@@ -156,7 +160,7 @@ function EdgeSidesEditor({
     </label>
   );
   return (
-    <fieldset className="edge-sides">
+    <fieldset className="edge-sides" disabled={readOnly}>
       <legend className="field-label">線の付け根 (このボードだけ)</legend>
       <div className="edge-sides-row">
         {sideSelect(`${sourceLabel}の辺`, sourceSide, "sourceSide")}
@@ -183,10 +187,13 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const issueDraft = useUntieStore((s) => s.ui.issueDraft);
   const pushToast = useUntieStore((s) => s.pushToast);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
+  const readOnly = useUntieStore(selectReadOnly);
+  const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
-  const structural = isFixedBoard(boardId) || element.kind === "issue";
+  // 閲覧専用のファイルでは、どれも変えられない
+  const structural = !readOnly && (isFixedBoard(boardId) || element.kind === "issue");
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
   // 処理済みの番号をモジュールに持ち、増えているときだけ発火する
@@ -215,8 +222,20 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       <div className="kind-line">
         <span className="kind-dot" />
         {ELEMENT_KIND_LABELS[element.kind]}
+        {peers.length > 0 && (
+          // 同時編集: 他の人が同じ要素を選んでいる (ロックはしない)
+          <span className="peer-note" data-testid="peer-note">
+            {/* 同じ人が複数のタブで選んでいても 1 回 */}
+            {peers.filter((p, i) => peers.findIndex((q) => (q.userId ?? `c${q.clientId}`) === (p.userId ?? `c${p.clientId}`)) === i).map((p) => (
+              <span key={p.clientId} className="peer-note-item">
+                <span className="peer-dot" style={{ background: p.color }} aria-hidden="true" />
+                {p.name}さんも選択中
+              </span>
+            ))}
+          </span>
+        )}
       </div>
-      <CommitField label="名前" value={element.name} inputRef={nameRef} onCommit={(name) => update({ name })} />
+      <CommitField label="名前" value={element.name} inputRef={nameRef} readOnly={readOnly} onCommit={(name) => update({ name })} />
       {isGuideKind(element.kind) && !(element.kind === "buc" && element.isDefault) && (
         <p className="hint name-hint">{GRANULARITY[element.kind].nameHint}</p>
       )}
@@ -224,21 +243,26 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         label="説明"
         multiline
         value={element.description ?? ""}
+        readOnly={readOnly}
         onCommit={(description) => update({ description })}
       />
       {(element.kind === "activity" || element.kind === "usecase") && (
         <>
-          <HoursField value={element.hours} onCommit={(hours) => update({ hours })} onError={(r) => pushToast(r, "error")} />
+          <HoursField value={element.hours} readOnly={readOnly} onCommit={(hours) => update({ hours })} onError={(r) => pushToast(r, "error")} />
           {element.kind === "activity" && <ActivityHoursBreakdown activityId={element.id} model={model} />}
-          <LinksEditor links={element.links ?? []} onChange={(links) => update({ links })} />
+          <LinksEditor links={element.links ?? []} readOnly={readOnly} onChange={(links) => update({ links })} />
         </>
       )}
 
-      {!structural && (
-        <p className="hint">
-          {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
-          では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
-        </p>
+      {readOnly ? (
+        <p className="hint">閲覧専用のため、内容は変えられません。</p>
+      ) : (
+        !structural && (
+          <p className="hint">
+            {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
+            では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
+          </p>
+        )
       )}
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
@@ -324,7 +348,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       )}
 
       <div className="actions">
-        {!structural && onBoard && (
+        {!structural && !readOnly && onBoard && (
           <button
             type="button"
             onClick={() => dispatch((m) => removeFromBoard(m, { boardId, elementId: element.id }))}
@@ -671,7 +695,7 @@ function ActivityHoursBreakdown({ activityId, model }: { activityId: string; mod
 }
 
 /** マニュアルなどへのリンク (作業・操作)。名前をクリックすると既定のブラウザで開く */
-function LinksEditor({ links, onChange }: { links: Link[]; onChange: (links: Link[]) => void }) {
+function LinksEditor({ links, onChange, readOnly }: { links: Link[]; onChange: (links: Link[]) => void; readOnly?: boolean }) {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const pushToast = useUntieStore((s) => s.pushToast);
@@ -703,31 +727,35 @@ function LinksEditor({ links, onChange }: { links: Link[]; onChange: (links: Lin
               <button type="button" className="link" title={l.url} onClick={() => void getPlatform().openExternalUrl(l.url)}>
                 {l.title}
               </button>
-              <button type="button" className="icon-button" aria-label={`リンク「${l.title}」を上へ`} disabled={i === 0} onClick={() => move(i, i - 1)}>
-                ↑
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`リンク「${l.title}」を下へ`}
-                disabled={i === links.length - 1}
-                onClick={() => move(i, i + 1)}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`リンク「${l.title}」を削除`}
-                onClick={() => onChange(links.filter((_, k) => k !== i))}
-              >
-                ×
-              </button>
+              {!readOnly && (
+                <>
+                  <button type="button" className="icon-button" aria-label={`リンク「${l.title}」を上へ`} disabled={i === 0} onClick={() => move(i, i - 1)}>
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`リンク「${l.title}」を下へ`}
+                    disabled={i === links.length - 1}
+                    onClick={() => move(i, i + 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`リンク「${l.title}」を削除`}
+                    onClick={() => onChange(links.filter((_, k) => k !== i))}
+                  >
+                    ×
+                  </button>
+                </>
+              )}
             </li>
           ))}
         </ul>
       )}
-      <div className="link-add">
+      {!readOnly && <div className="link-add">
         <input aria-label="リンクの表示名" placeholder="表示名 (例: 鍵の受け渡しマニュアル)" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className="inline-add">
           <input
@@ -743,7 +771,7 @@ function LinksEditor({ links, onChange }: { links: Link[]; onChange: (links: Lin
             追加
           </button>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
@@ -944,14 +972,17 @@ function IssueAnalysisFields({ issue }: { issue: Issue }) {
   const agentMode = useAgentStore((s) => s.mode);
   const agentRunning = useAgentStore((s) => s.running);
   const startGrill = useAgentStore((s) => s.startGrill);
+  const readOnly = useUntieStore(selectReadOnly);
   const grilling = agentMode.kind === "grill" && agentMode.issueId === issue.id;
   return (
     <section className="subsection" aria-label="分析">
       <div className="subsection-head">
         <h3>分析</h3>
-        <button type="button" className="link" onClick={() => void startGrill(issue.id)} disabled={grilling || agentRunning}>
-          {grilling ? "深掘り中…" : "AI と深掘りする"}
-        </button>
+        {!readOnly && (
+          <button type="button" className="link" onClick={() => void startGrill(issue.id)} disabled={grilling || agentRunning}>
+            {grilling ? "深掘り中…" : "AI と深掘りする"}
+          </button>
+        )}
       </div>
       <p className="hint">困りごとがどこで、なぜ起きているかを突き止めた内容。AI の質問に答えて埋めるか、手で入力します。</p>
       {ISSUE_ANALYSIS_KEYS.map((key) => (
@@ -960,6 +991,7 @@ function IssueAnalysisFields({ issue }: { issue: Issue }) {
           label={ISSUE_ANALYSIS_LABELS[key]}
           multiline
           placeholder={ISSUE_ANALYSIS_QUESTIONS[key]}
+          readOnly={readOnly}
           value={issue.analysis?.[key] ?? ""}
           onCommit={(v) => {
             const r = dispatch((m) => updateElement(m, { id: issue.id, patch: { analysis: { [key]: v } } }));

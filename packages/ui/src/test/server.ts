@@ -101,12 +101,17 @@ export function fakeServer(initial: Partial<Pick<FakeServer, "mine" | "shared" |
       s.mine = [file, ...s.mine];
       return json(file, 201);
     }
-    const m = /^\/api\/files\/([^/]+)(?:\/(duplicate|restore|purge|export))?$/.exec(path);
+    const m = /^\/api\/files\/([^/]+)(?:\/(duplicate|restore|purge|export|ticket))?$/.exec(path);
     if (m) {
       const [, id, action] = m;
       const all = [...s.mine, ...s.shared];
       const file = all.find((f) => f.id === id) ?? s.trash.find((f) => f.id === id);
       if (!file) return apiError(404, "file_not_found", "ファイルが見つかりません");
+      // ルームに接続するチケット。ゴミ箱の中のファイルは owner にも 409 (戻せば開ける)
+      if (method === "POST" && action === "ticket") {
+        if (s.trash.some((f) => f.id === id)) return apiError(409, "in_trash", "ゴミ箱の中のファイルです");
+        return json({ ticket: `ticket-${id}`, role: file.role, expiresAt: Date.now() + 60_000 });
+      }
       // 役割の規則は本物と同じ (名前変更は editor 以上、ゴミ箱の操作は owner だけ)
       if (method === "PATCH" && file.role !== "owner" && file.role !== "editor") return forbidden();
       if (((method === "DELETE" && !action) || action === "restore" || action === "purge") && file.role !== "owner") return forbidden();

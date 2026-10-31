@@ -9,7 +9,7 @@ import {
   type Issue,
   type IssueScope,
 } from "@untie/core/model/types";
-import { useUntieStore } from "../store";
+import { selectReadOnly, useUntieStore } from "../store";
 import { createIssue, revealOnFixedBoard, selectAndReveal } from "./actions";
 
 type View = "issues" | "targets";
@@ -29,6 +29,7 @@ const SCOPE_HINTS: Record<IssueScope, string> = {
 export function IssuePanel() {
   const model = useUntieStore((s) => s.model);
   const selection = useUntieStore((s) => s.ui.selection);
+  const readOnly = useUntieStore(selectReadOnly);
   const [view, setView] = useState<View>("issues");
   const byScope = useMemo(() => issuesByScope(model), [model]);
   const sections = useMemo(() => issueBoardSections(model), [model]);
@@ -40,9 +41,11 @@ export function IssuePanel() {
     <aside className="issue-panel" aria-label="課題一覧">
       <div className="issue-panel-head">
         <h2 className="panel-title">課題一覧 ({total})</h2>
-        <button type="button" className="issue-add" onClick={() => createIssue()}>
-          ＋課題
-        </button>
+        {!readOnly && (
+          <button type="button" className="issue-add" onClick={() => createIssue()}>
+            ＋課題
+          </button>
+        )}
       </div>
       <p className="hint">現場で困っていることを先に書き出し、あとから対象を付けて紐解きます。対象は付け替えられます。</p>
       <div className="segmented issue-view" role="group" aria-label="並べ方">
@@ -72,7 +75,7 @@ export function IssuePanel() {
               ))}
             </ul>
           ) : (
-            sec.groups.map((g) => <TargetGroup key={g.target!.id} group={g} selectedId={selectedId} />)
+            sec.groups.map((g) => <TargetGroup key={g.target!.id} group={g} selectedId={selectedId} readOnly={readOnly} />)
           )}
         </section>
       ))}
@@ -115,7 +118,7 @@ function IssueRow({ issue, selected, byId }: { issue: Issue; selected: boolean; 
 }
 
 /** 対象ごとのまとまり: 対象の種類・名前、そのレイヤーの固定ボードへの「移動」、その対象の課題を足す「＋課題」 */
-function TargetGroup({ group, selectedId }: { group: IssueTargetGroup; selectedId: string | null }) {
+function TargetGroup({ group, selectedId, readOnly }: { group: IssueTargetGroup; selectedId: string | null; readOnly: boolean }) {
   const target = group.target!;
   return (
     <div className={`issue-target-group kind-${target.kind}`} data-testid={`issue-target-${target.id}`}>
@@ -133,14 +136,16 @@ function TargetGroup({ group, selectedId }: { group: IssueTargetGroup; selectedI
         >
           移動
         </button>
-        <button
-          type="button"
-          className="link issue-target-action"
-          aria-label={`「${target.name}」を対象に課題を追加`}
-          onClick={() => createIssue([target.id])}
-        >
-          ＋課題
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className="link issue-target-action"
+            aria-label={`「${target.name}」を対象に課題を追加`}
+            onClick={() => createIssue([target.id])}
+          >
+            ＋課題
+          </button>
+        )}
       </div>
       <ul className="issue-rows">
         {group.issues.map((i) => (

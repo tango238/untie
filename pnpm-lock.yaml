@@ -206,6 +206,9 @@ importers:
       '@untie/api':
         specifier: workspace:*
         version: link:../api
+      '@untie/collab':
+        specifier: workspace:*
+        version: link:../collab
       '@untie/core':
         specifier: workspace:*
         version: link:../core
@@ -221,6 +224,15 @@ importers:
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
+      y-partyserver:
+        specifier: ^2.2.0
+        version: 2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.33)
+      y-protocols:
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.33)
+      yjs:
+        specifier: ^13.6.0
+        version: 13.6.33
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@18.3.31)(immer@11.2.7)(react@18.3.1)(use-sync-external-store@1.7.0(react@18.3.1))

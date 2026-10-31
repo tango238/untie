@@ -9,7 +9,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
-import { useUntieStore } from "../../store";
+import { selectReadOnly, useUntieStore } from "../../store";
 import { placeElement } from "../actions";
 import { ELEMENT_DRAG_TYPE, canvasApi } from "./canvasApi";
 import { CardNode } from "./CardNode";
@@ -28,6 +28,8 @@ function CanvasInner() {
   const model = useUntieStore((s) => s.model);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
   const selection = useUntieStore((s) => s.ui.selection);
+  // 閲覧専用では、動かせない・つなげない (選ぶことはできる)
+  const readOnly = useUntieStore(selectReadOnly);
   const rf = useReactFlow();
 
   const selectedElementId = selection?.type === "element" ? selection.id : null;
@@ -92,14 +94,18 @@ function CanvasInner() {
     useUntieStore.getState().commitDrag();
   }, []);
 
-  const onDragOver = useCallback((e: DragEvent) => {
-    if (!e.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  }, []);
+  const onDragOver = useCallback(
+    (e: DragEvent) => {
+      if (readOnly || !e.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [readOnly],
+  );
 
   const onDrop = useCallback(
     (e: DragEvent) => {
+      if (readOnly) return;
       const elementId = e.dataTransfer.getData(ELEMENT_DRAG_TYPE);
       if (!elementId) return;
       e.preventDefault();
@@ -113,7 +119,7 @@ function CanvasInner() {
       if (!result.ok) st.pushToast(result.reason, "info");
       st.select({ type: "element", id: elementId });
     },
-    [rf],
+    [rf, readOnly],
   );
 
   return (
@@ -146,6 +152,7 @@ function CanvasInner() {
       minZoom={0.1}
       maxZoom={2}
       elementsSelectable
+      nodesDraggable={!readOnly}
       nodesConnectable={false}
       zoomOnDoubleClick={false}
     >

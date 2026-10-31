@@ -10,7 +10,8 @@ import { useKeyboard } from "./components/useKeyboard";
 import { parseAnalysisBoardId } from "@untie/core/model/analysis";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
-import { useUntieStore } from "./store";
+import { selectReadOnly, useUntieStore } from "./store";
+import { ROLE_LABELS } from "@untie/api";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
 
@@ -23,11 +24,18 @@ export default function App() {
   const setRightPanelOpen = useUntieStore((s) => s.setRightPanelOpen);
   const elementListOpen = useUntieStore((s) => s.ui.elementListOpen ?? true);
   const agentOpen = useAgentStore((s) => s.open);
+  const readOnly = useUntieStore(selectReadOnly);
+  const role = useUntieStore((s) => s.cloud?.role);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const builtin = fixedLayer !== null || analysis !== null;
   return (
     <div className="app">
+      {readOnly && role && (
+        <div className="readonly-banner" role="status">
+          閲覧専用です (役割: {ROLE_LABELS[role]})
+        </div>
+      )}
       <Toolbar />
       {/* 固定ボード・分析ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
@@ -64,7 +72,7 @@ export default function App() {
           )}
         </div>
       </div>
-      {agentOpen && <AgentPane />}
+      {agentOpen && !readOnly && <AgentPane />}
       <ToastHost />
     </div>
   );

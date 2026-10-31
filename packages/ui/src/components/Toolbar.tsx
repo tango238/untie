@@ -3,13 +3,14 @@ import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { traceToActors } from "@untie/core/model/trace";
 import { createHotelSample } from "@untie/core/sample";
+import { ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
 import { useSessionStore } from "../cloud/session";
-import { confirmDiscardIfDirty, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { confirmDiscardIfDirty, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
 import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
-import { hasUnsavedChanges, isBuiltinBoard, useUntieStore } from "../store";
+import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
@@ -38,6 +39,9 @@ export function Toolbar() {
   const aiSettingsOpen = useAgentStore((s) => s.settingsOpen);
   const modelName = useUntieStore((s) => s.model.meta.name);
   const dirty = useUntieStore(hasUnsavedChanges);
+  // クラウドファイル: 履歴を持たず (Undo / Redo は使えない)、閲覧専用の役割もある
+  const cloud = useUntieStore((s) => s.cloud);
+  const readOnly = useUntieStore(selectReadOnly);
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
   const setCurrentBoard = useUntieStore((s) => s.setCurrentBoard);
@@ -59,8 +63,13 @@ export function Toolbar() {
   // (ホームで次に開くときに、同じ確認をもう一度聞かないため)
   const goHome = async () => {
     if (dirty) {
-      if (!(await confirmDiscardIfDirty("保存していない変更があります。破棄してホームへ戻りますか？", "破棄してホームへ"))) return;
-      useUntieStore.getState().newDocument(createHotelSample(), { pristine: true });
+      // クラウドファイルで未保存と数えるのは、つながっていない間の変更だけ (つながるまで手元にしか無い)
+      const message = cloud
+        ? "つながっていない間の変更はまだ送れていません。ホームへ戻ると失われます。破棄してホームへ戻りますか？"
+        : "保存していない変更があります。破棄してホームへ戻りますか？";
+      if (!(await confirmDiscardIfDirty(message, "破棄してホームへ"))) return;
+      // クラウドファイルは、画面を離れるときに閉じてサンプルへ戻す (CloudEditor)。ここでは触らない
+      if (!cloud) useUntieStore.getState().newDocument(createHotelSample(), { pristine: true });
     }
     // 走っている AI エージェントはモデルを書き換え続けてしまうので、ホームへ出る前に止める
     useAgentStore.getState().cancel();
@@ -94,9 +103,13 @@ export function Toolbar() {
             Untie
           </button>
         </h1>
+        {cloud && <CloudBadges name={modelName} status={cloud.status} role={cloud.role} />}
 
         <div className="toolbar-group">
           <FileMenu
+            cloud={cloud !== null}
+            readOnly={readOnly}
+            onHome={() => void goHome()}
             onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
             onCreateFromPrompt={() => setDialog("createFromPrompt")}
           />
@@ -139,15 +152,19 @@ export function Toolbar() {
                   </optgroup>
                 </select>
               </label>
-              <button type="button" title="自由ボードを追加" onClick={handleAddBoard}>
-                ＋ボード
-              </button>
-              <button type="button" disabled={fixed} onClick={() => setRenaming(board?.name ?? "")}>
-                名前変更
-              </button>
-              <button type="button" disabled={fixed || boards.length <= 1} onClick={() => setDialog("removeBoard")}>
-                ボード削除
-              </button>
+              {!readOnly && (
+                <>
+                  <button type="button" title="自由ボードを追加" onClick={handleAddBoard}>
+                    ＋ボード
+                  </button>
+                  <button type="button" disabled={fixed} onClick={() => setRenaming(board?.name ?? "")}>
+                    名前変更
+                  </button>
+                  <button type="button" disabled={fixed || boards.length <= 1} onClick={() => setDialog("removeBoard")}>
+                    ボード削除
+                  </button>
+                </>
+              )}
             </>
           ) : (
             <form
@@ -179,10 +196,22 @@ export function Toolbar() {
         <div className="toolbar-spacer" />
 
         <div className="toolbar-group">
-          <button type="button" aria-label="元に戻す" title="元に戻す (Cmd/Ctrl+Z)" disabled={!canUndo} onClick={undo}>
+          <button
+            type="button"
+            aria-label="元に戻す"
+            title={cloud ? SHARED_NO_UNDO : "元に戻す (Cmd/Ctrl+Z)"}
+            disabled={cloud !== null || !canUndo}
+            onClick={undo}
+          >
             ↶
           </button>
-          <button type="button" aria-label="やり直す" title="やり直す (Shift+Cmd/Ctrl+Z)" disabled={!canRedo} onClick={redo}>
+          <button
+            type="button"
+            aria-label="やり直す"
+            title={cloud ? SHARED_NO_UNDO : "やり直す (Shift+Cmd/Ctrl+Z)"}
+            disabled={cloud !== null || !canRedo}
+            onClick={redo}
+          >
             ↷
           </button>
           <button
@@ -202,22 +231,27 @@ export function Toolbar() {
           >
             課題一覧
           </button>
-          <button
-            type="button"
-            aria-pressed={agentOpen}
-            className={agentOpen ? "active" : ""}
-            title="AI エージェントと会話して、モデルを直す"
-            onClick={() => setAgentOpen(!agentOpen)}
-          >
-            AI
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              aria-pressed={agentOpen}
+              className={agentOpen ? "active" : ""}
+              title="AI エージェントと会話して、モデルを直す"
+              onClick={() => setAgentOpen(!agentOpen)}
+            >
+              AI
+            </button>
+          )}
         </div>
       </div>
 
-      <div className={`notice${dirty ? " is-dirty" : ""}`} role="status" aria-label="ファイルの状態">
-        {file ? `ファイル: ${file.name}` : `${modelName} (まだ保存していません)`}
-        {dirty && <span className="notice-dirty">● 保存していない変更があります</span>}
-      </div>
+      {/* クラウドファイルの名前と状態は、上の名前の横に出している */}
+      {!cloud && (
+        <div className={`notice${dirty ? " is-dirty" : ""}`} role="status" aria-label="ファイルの状態">
+          {file ? `ファイル: ${file.name}` : `${modelName} (まだ保存していません)`}
+          {dirty && <span className="notice-dirty">● 保存していない変更があります</span>}
+        </div>
+      )}
 
       {dialog === "removeBoard" && board && (
         <ConfirmDialog
@@ -258,8 +292,66 @@ export function Toolbar() {
   );
 }
 
-/** ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・クラウドへ保存・プロンプトから作成 */
-function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFromPrompt: () => void }) {
+const SHARED_NO_UNDO = "共有中は取り消せません";
+
+const CONNECTION_LABELS: Record<CloudStatus, string> = {
+  loading: "接続しています…",
+  connecting: "接続しています…",
+  connected: "接続中",
+  offline: "切断。再接続します",
+};
+
+/** クラウドファイルの名前の横: 接続の状態・自分の役割・一緒に開いている人の色玉 (title に名前) */
+function CloudBadges({ name, status, role }: { name: string; status: CloudStatus; role: Role }) {
+  const peers = useUntieStore((s) => s.peers);
+  // 同じ人が複数のタブで開いていても 1 つにまとめる
+  const people = useMemo(() => {
+    const seen = new Map<string, (typeof peers)[number]>();
+    for (const p of peers) {
+      const key = p.userId ?? `guest:${p.clientId}`;
+      if (!seen.has(key)) seen.set(key, p);
+    }
+    return [...seen.values()];
+  }, [peers]);
+  const SHOWN = 8;
+  return (
+    <div className="toolbar-group cloud-badges">
+      <span className="cloud-name" title={name}>
+        {name || "名前なし"}
+      </span>
+      <span className={`cloud-status is-${status}`} role="status" aria-label="接続の状態">
+        {CONNECTION_LABELS[status]}
+      </span>
+      <span className="cloud-role">{ROLE_LABELS[role]}</span>
+      <span className="peer-dots" role="group" aria-label="一緒に開いている人">
+        {people.slice(0, SHOWN).map((p) => (
+          <span key={p.clientId} className="peer-dot" style={{ background: p.color }} title={p.name} data-testid="peer-dot">
+            <span className="visually-hidden">{p.name}</span>
+          </span>
+        ))}
+        {people.length > SHOWN && <span className="peer-more">+{people.length - SHOWN}</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・クラウドへ保存・プロンプトから作成。
+ * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製) だけ
+ */
+function FileMenu({
+  cloud,
+  readOnly,
+  onHome,
+  onNew,
+  onCreateFromPrompt,
+}: {
+  cloud: boolean;
+  readOnly: boolean;
+  onHome: () => void;
+  onNew: () => void;
+  onCreateFromPrompt: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   // 読み込むまでは null (前に開いたときの一覧を出すと、読み込み後に並びが変わってフォーカスが外れる)
@@ -319,12 +411,29 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
     </button>
   );
   const reopenable = getPlatform().canReopenFiles();
+  const saveCopyToCloud = () => {
+    setSavingToCloud(true);
+    void saveLocalToCloud().finally(() => setSavingToCloud(false));
+  };
   return (
     <div className="menu" ref={ref} onKeyDown={(e) => e.key === "Escape" && close()}>
       <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         ファイル ▾
       </button>
-      {open && (
+      {open && cloud && (
+        <div className="menu-list" role="menu" aria-label="ファイル">
+          {item("ホーム", "", onHome)}
+          {item("JSON に書き出す…", "⌘S", () => void exportModelToFile())}
+          {signedIn && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
+          {!readOnly && (
+            <>
+              <div className="menu-sep" role="separator" />
+              {item("AI の設定…", "", () => setSettingsOpen(true))}
+            </>
+          )}
+        </div>
+      )}
+      {open && !cloud && (
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("新規作成", "", onNew)}
           {item("開く…", "⌘O", () => void openDocument())}
@@ -408,16 +517,7 @@ function FileMenu({ onNew, onCreateFromPrompt }: { onNew: () => void; onCreateFr
           </div>
           {item("保存", "⌘S", () => void saveDocument())}
           {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
-          {signedIn &&
-            item(
-              "クラウドへ保存",
-              "",
-              () => {
-                setSavingToCloud(true);
-                void saveLocalToCloud().finally(() => setSavingToCloud(false));
-              },
-              savingToCloud,
-            )}
+          {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}
           {item("AI の設定…", "", () => setSettingsOpen(true))}

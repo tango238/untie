@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { issueSummaries, listableElements } from "@untie/core/model/selectors";
 import { ELEMENT_KINDS, ELEMENT_KIND_LABELS, type Element, type ElementKind } from "@untie/core/model/types";
-import { isFixedBoard, useUntieStore } from "../store";
+import { isFixedBoard, selectReadOnly, useUntieStore } from "../store";
 import { placeElementAtCenter, selectAndReveal } from "./actions";
 import { ELEMENT_DRAG_TYPE } from "./canvas/canvasApi";
 import { IssueBadge } from "./IssueBadge";
@@ -12,6 +12,8 @@ export function ElementList() {
   const selection = useUntieStore((s) => s.ui.selection);
   // 要素を置けるのは自由ボードだけ (固定ボードは自動で並ぶ)
   const freeBoard = !isFixedBoard(boardId);
+  // 閲覧専用では、置く・ドラッグはできない
+  const readOnly = useUntieStore(selectReadOnly);
   const [collapsed, setCollapsed] = useState<Set<ElementKind>>(new Set());
 
   const onBoard = useMemo(
@@ -64,7 +66,7 @@ export function ElementList() {
                 {items.map((e) => {
                   const placed = onBoard.has(e.id);
                   const summary = summaries.get(e.id);
-                  const placeable = freeBoard && e.kind !== "issue";
+                  const placeable = freeBoard && e.kind !== "issue" && !readOnly;
                   const selected = selection?.type === "element" && selection.id === e.id;
                   return (
                     <li

@@ -28,10 +28,12 @@ export function HoursField({
   value,
   onCommit,
   onError,
+  readOnly,
 }: {
   value: number | undefined;
   onCommit: (hours: number | null) => void;
   onError: (reason: string) => void;
+  readOnly?: boolean;
 }) {
   const [local, setLocal] = useState(value === undefined ? "" : String(value));
   useEffect(() => setLocal(value === undefined ? "" : String(value)), [value]);
@@ -60,6 +62,7 @@ export function HoursField({
         min={0}
         step={0.1}
         placeholder="例: 0.5"
+        readOnly={readOnly}
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={commit}

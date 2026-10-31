@@ -9,6 +9,8 @@ interface Props {
   multiline?: boolean;
   placeholder?: string;
   inputRef?: Ref<HTMLInputElement>;
+  /** 読み取り専用 (閲覧専用のファイル。選んで写すことはできる) */
+  readOnly?: boolean;
   /** 入力が止まって確定するまでの時間 */
   delay?: number;
 }
@@ -17,7 +19,7 @@ interface Props {
  * 入力中はローカル state に持ち、フォーカスが外れたとき・入力が止まって delay ミリ秒たったとき・
  * アンマウント時に 1 回だけ onCommit する (履歴を 1 件にするため)。
  */
-export function CommitField({ value, onCommit, label, multiline, placeholder, inputRef, delay = COMMIT_DELAY_MS }: Props) {
+export function CommitField({ value, onCommit, label, multiline, placeholder, inputRef, readOnly, delay = COMMIT_DELAY_MS }: Props) {
   const [local, setLocal] = useState(value);
   const localRef = useRef(value);
   const dirty = useRef(false);
@@ -27,11 +29,12 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
   const focused = useRef(false);
   const composing = useRef(false);
 
-  // 外から値が変わった (Undo など) ら取り込む。
+  // 外から値が変わった (Undo や他の人の編集など) ら取り込む。
   // ただし入力中に、確定した値 (前後の空白を除いたもの) が戻ってきただけなら上書きしない
-  // (「予約 」と打ったあとの続きの入力で、末尾の空白が消えるのを防ぐ)
+  // (「予約 」と打ったあとの続きの入力で、末尾の空白が消えるのを防ぐ)。
+  // まだ確定していない入力があるときも上書きしない (同時編集で、打っている途中の文字が消えるのを防ぐ。確定すると後勝ちになる)
   useEffect(() => {
-    if (focused.current && value === localRef.current.trim()) return;
+    if (focused.current && (value === localRef.current.trim() || dirty.current)) return;
     setLocal(value);
     localRef.current = value;
     dirty.current = false;
@@ -100,6 +103,7 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           value={local}
           placeholder={placeholder}
           rows={4}
+          readOnly={readOnly}
           onChange={(e) => change(e.target.value)}
           {...handlers}
         />
@@ -109,6 +113,7 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           ref={inputRef}
           value={local}
           placeholder={placeholder}
+          readOnly={readOnly}
           onChange={(e) => change(e.target.value)}
           {...handlers}
           onKeyDown={(e) => {
