@@ -31,6 +31,11 @@ describe("id 生成", () => {
     for (let i = 0; i < 50; i++) expect(newId("activity")).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
   });
 
+  it("ランダム部分は 8 文字の英小文字・数字", () => {
+    for (let i = 0; i < 50; i++) expect(newId("activity")).toMatch(/^act_[a-z0-9]{8}$/);
+    expect(newId("externalActor")).toMatch(/^ext_[a-z0-9]{8}$/);
+  });
+
   it("連続して作っても重複しない", () => {
     const ids = new Set(Array.from({ length: 1000 }, () => newId("activity")));
     expect(ids.size).toBe(1000);

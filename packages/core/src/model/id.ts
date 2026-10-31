@@ -23,7 +23,8 @@ export const ID_PREFIXES: Record<IdKind, string> = {
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-function randomSuffix(length = 6): string {
+// 同時編集では別々の端末で同じ id を引く恐れがあるので 8 文字 (36^8 ≈ 2.8 兆通り。設計書 6 章)
+function randomSuffix(length = 8): string {
   let s = "";
   for (let i = 0; i < length; i++) {
     s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
@@ -31,7 +32,7 @@ function randomSuffix(length = 6): string {
   return s;
 }
 
-/** 種類の接頭辞 + ランダム文字列の id を作る (例: act_k3f9x2) */
+/** 種類の接頭辞 + ランダム文字列の id を作る (例: act_k3f9x2ab) */
 export function newId(kind: IdKind): string {
   return `${ID_PREFIXES[kind]}_${randomSuffix()}`;
 }

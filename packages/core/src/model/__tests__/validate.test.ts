@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateModel } from "../validate";
+import { isValidElementShape, validateModel } from "../validate";
 import { emptyModel } from "../types";
 import { sample } from "./helpers";
 
@@ -223,5 +223,17 @@ describe("validateModel: 追加の検査", () => {
     const buc = j.elements.find((e: Json) => e.kind === "buc" && e.isDefault && e.businessId === "biz_checkin");
     buc.name = "違う名前";
     expect(errorsOf(j).some((e) => e.includes("業務名") && e.includes("一致しません"))).toBe(true);
+  });
+});
+
+describe("isValidElementShape", () => {
+  it("サンプルの全要素が通り、項目が欠けた・型が違う・種類が不明な要素は通らない", () => {
+    for (const e of sample().elements) expect(isValidElementShape(JSON.parse(JSON.stringify(e)))).toBe(true);
+    expect(isValidElementShape({ id: "i", kind: "issue", name: "x", severity: 3 })).toBe(false);
+    expect(isValidElementShape({ id: "v", kind: "variation", name: "x", contextId: null })).toBe(false);
+    expect(isValidElementShape({ id: "a", kind: "activity", name: "x", bucId: 5 })).toBe(false);
+    expect(isValidElementShape({ id: "a", kind: "mystery", name: "x" })).toBe(false);
+    expect(isValidElementShape(null)).toBe(false);
+    expect(isValidElementShape("x")).toBe(false);
   });
 });

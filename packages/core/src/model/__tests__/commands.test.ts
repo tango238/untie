@@ -183,6 +183,16 @@ describe("removeElement", () => {
     expectValid(m);
   });
 
+  it("消えた関係のボードごとの線の設定も掃除される", () => {
+    const before = sample();
+    const rel = before.relations.find((r) => r.sourceId === "act_clean" || r.targetId === "act_clean")!;
+    const withEdge = okModel(setEdgeSides(before, { boardId: before.boards[0].id, relationId: rel.id, sourceSide: "top" }));
+    expect(withEdge.boards[0].edges?.some((e) => e.relationId === rel.id)).toBe(true);
+    const m = okModel(removeElement(withEdge, { id: "act_clean" }));
+    expect(m.boards.some((b) => b.edges?.some((e) => e.relationId === rel.id))).toBe(false);
+    expectValid(m);
+  });
+
   it("課題自体は対象を消しても残る", () => {
     const m = okModel(removeElement(sample(), { id: "uc_register_extra" }));
     expect(el(m, "issue_extra_missing")).toBeDefined();

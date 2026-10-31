@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
+    { "path": "./packages/collab" },
     { "path": "./packages/ui" },
     { "path": "./apps/web" },
     { "path": "./apps/web/tsconfig.node.json" },

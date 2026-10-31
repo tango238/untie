@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // DOM にも React にも依存しない (サーバーの Durable Object からも使う)。型検査で守る
+    "lib": ["ES2022"],
+    // Node のグローバル (process・Buffer など) を使っていないことも型検査で守る
+    "types": []
+  },
+  "include": ["src"]
+}

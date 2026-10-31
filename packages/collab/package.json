@@ -1,0 +1,20 @@
+{
+  "name": "@untie/collab",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@untie/core": "workspace:*",
+    "fractional-indexing": "^3.2.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  }
+}

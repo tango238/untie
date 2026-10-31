@@ -156,8 +156,14 @@ function checkLinks(links: Link[]): string | null {
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
 function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void {
   draft.relations = draft.relations.filter((r) => !removed.has(r.sourceId) && !removed.has(r.targetId));
+  const relationIds = new Set(draft.relations.map((r) => r.id));
   for (const board of draft.boards) {
     board.nodes = board.nodes.filter((n) => !removed.has(n.elementId));
+    // 消えた関係のボードごとの線の見た目も一緒に消す (removeRelation と同じ)
+    if (board.edges) {
+      board.edges = board.edges.filter((e) => relationIds.has(e.relationId));
+      if (board.edges.length === 0) delete board.edges;
+    }
   }
   for (const e of draft.elements) {
     if (e.kind === "issue") e.targetIds = e.targetIds.filter((id) => !removed.has(id));

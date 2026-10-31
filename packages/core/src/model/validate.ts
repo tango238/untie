@@ -98,6 +98,17 @@ function summarizeSchemaErrors(json: unknown, errors: readonly ErrorObject[]): s
   return [...new Set(messages)];
 }
 
+/**
+ * 要素 1 つがスキーマ (種類ごとの形) に合うか。参照整合性は見ない。
+ * 同時編集で Y.Doc から組み立てるとき、形の壊れた要素 (項目が欠けた課題など) を外すのに使う。
+ */
+export function isValidElementShape(json: unknown): json is Element {
+  const kind = (json as { kind?: unknown } | null)?.kind;
+  if (typeof kind !== "string" || !(ELEMENT_KINDS as readonly string[]).includes(kind)) return false;
+  const validate = elementValidator(kind);
+  return validate !== undefined && validate(json);
+}
+
 /** 参照整合性の検査。問題を日本語で列挙する */
 export function checkIntegrity(model: UntieModel): string[] {
   const errors: string[] = [];
