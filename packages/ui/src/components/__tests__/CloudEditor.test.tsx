@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ApiError, type Role } from "@untie/api";
@@ -6,7 +7,7 @@ import { createHotelSample } from "@untie/core/sample";
 import { useAgentStore } from "../../ai/agentStore";
 import { useSessionStore } from "../../cloud/session";
 import { currentRoute, navigate } from "../../router";
-import { useUntieStore } from "../../store";
+import { useUntieStore, type Selection } from "../../store";
 import { memory } from "../../test/platform";
 import { fakeServer, summary, user, type FakeServer } from "../../test/server";
 import { resetStore } from "../../test/utils";
@@ -14,7 +15,7 @@ import { CloudEditor } from "../CloudEditor";
 
 // 接続そのもの (collab.ts) と、エディタ本体 (キャンバスが ResizeObserver を使う) は代役にする
 const { openCloudFile, closeCloudFile } = vi.hoisted(() => ({
-  openCloudFile: vi.fn<(fileId: string, options?: { link?: string }) => Promise<void>>(),
+  openCloudFile: vi.fn<(fileId: string, options?: { link?: string; keepUi?: { currentBoardId: string; selection: Selection } }) => Promise<void>>(),
   closeCloudFile: vi.fn<() => void>(),
 }));
 vi.mock("../../cloud/collab", () => ({ openCloudFile, closeCloudFile }));
@@ -52,6 +53,37 @@ describe("CloudEditor", () => {
     expect(closeCloudFile).not.toHaveBeenCalled();
     unmount();
     expect(closeCloudFile).toHaveBeenCalled();
+  });
+
+  it("開発モード (StrictMode) で effect が 2 回走っても、保存していないローカルの編集の確認は 1 回だけ出す", async () => {
+    act(() => {
+      st().dispatch((m) => ({ ok: true, model: { ...m, meta: { ...m.meta, name: "ローカルの編集" } } }));
+    });
+    const confirm = vi.spyOn(memory(), "confirmDiscard").mockResolvedValue(true);
+    render(
+      <StrictMode>
+        <CloudEditor fileId="f1" />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalled());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    // 開くのは、確認に答えたあとの 1 回 (最初の effect は捨てられる)
+    expect(openCloudFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("確認で断ったら、StrictMode でもローカルの編集へ戻る (開かない)", async () => {
+    act(() => {
+      st().dispatch((m) => ({ ok: true, model: { ...m, meta: { ...m.meta, name: "ローカルの編集" } } }));
+    });
+    const confirm = vi.spyOn(memory(), "confirmDiscard").mockResolvedValue(false);
+    render(
+      <StrictMode>
+        <CloudEditor fileId="f1" />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(currentRoute()).toEqual({ name: "local" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(openCloudFile).not.toHaveBeenCalled();
   });
 
   it("最初の同期が済むまでは、cloud があってもエディタを出さない", () => {
@@ -200,7 +232,8 @@ describe("CloudEditor: 役割が変わったとき (4001)", () => {
     });
     act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
     await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
-    expect(openCloudFile).toHaveBeenLastCalledWith("f1");
+    // 開いているボードと選択は引き継ぐ
+    expect(openCloudFile).toHaveBeenLastCalledWith("f1", { keepUi: { currentBoardId: st().ui.currentBoardId, selection: null } });
     await waitFor(() => expect(toasts()).toEqual(["役割が閲覧者に変わりました"]));
     // 落ち着いたあとも、つなぎ直しは 1 回だけ (開き直しがまた 4001 を呼ぶ・effect が走り直す、などで増えない)
     await act(async () => {
@@ -211,6 +244,92 @@ describe("CloudEditor: 役割が変わったとき (4001)", () => {
     expect(currentRoute()).toEqual({ name: "file", fileId: "f1" });
     expect(st().cloud?.role).toBe("viewer");
     expect(st().cloud?.closed).toBeUndefined();
+  });
+
+  it("開いているボードと選択を引き継いでつなぎ直す。役割が実際には変わらなかったときはトーストを出さない", async () => {
+    render(<CloudEditor fileId="f1" />);
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+    loadCloud("f1", "connected", "editor");
+    act(() => {
+      st().setCurrentBoard(st().model.boards[0]!.id);
+      st().select({ type: "element", id: "actor_front" });
+    });
+    const ui = st().ui;
+    expect(ui.selection).toEqual({ type: "element", id: "actor_front" });
+    // 役割は変わらないまま (editor → editor) つなぎ直す
+    openCloudFile.mockImplementationOnce(async (id) => {
+      loadCloud(id, "connected", "editor");
+    });
+    act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+    await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+    expect(openCloudFile).toHaveBeenLastCalledWith("f1", { keepUi: { currentBoardId: ui.currentBoardId, selection: { type: "element", id: "actor_front" } } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(toasts()).toEqual([]);
+  });
+
+  describe("送れていない変更があるとき", () => {
+    const markDirty = () => useUntieStore.setState((s) => ({ cloud: { ...s.cloud!, status: "offline", dirtySinceOffline: true } }));
+
+    it("つなぎ直す前に「JSON に書き出しますか」と聞く。「捨てて続ける」でそのままつなぎ直す", async () => {
+      render(<CloudEditor fileId="f1" />);
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+      loadCloud("f1", "connected", "editor");
+      act(() => markDirty());
+      openCloudFile.mockImplementationOnce(async (id) => loadCloud(id, "connected", "viewer"));
+      act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+
+      const dialog = await screen.findByRole("dialog", { name: "送れていない変更" });
+      expect(dialog.textContent).toContain("送れていない変更があります。JSON に書き出しますか");
+      // 答えるまでつなぎ直さない
+      expect(openCloudFile).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "捨てて続ける" }));
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+      expect(memory().saved).toHaveLength(0);
+      expect(screen.queryByRole("dialog", { name: "送れていない変更" })).toBeNull();
+      await waitFor(() => expect(toasts()).toContain("役割が閲覧者に変わりました"));
+    });
+
+    it("「書き出す」で JSON を書き出してからつなぎ直す", async () => {
+      render(<CloudEditor fileId="f1" />);
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+      loadCloud("f1", "connected", "editor");
+      act(() => markDirty());
+      openCloudFile.mockImplementationOnce(async (id) => loadCloud(id, "connected", "viewer"));
+      act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "書き出す" }));
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+      expect(memory().saved).toHaveLength(1);
+      expect(JSON.parse(memory().saved[0]!.text).meta.name).toBe(createHotelSample().meta.name);
+    });
+
+    it("書き出しを取り消したら、つなぎ直さずにもう一度聞く", async () => {
+      render(<CloudEditor fileId="f1" />);
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+      loadCloud("f1", "connected", "editor");
+      act(() => markDirty());
+      const save = vi.spyOn(memory(), "saveTextFile").mockResolvedValueOnce(null);
+      act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "書き出す" }));
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+      // 取り消されたので、つなぎ直さず、聞き直す
+      const again = await screen.findByRole("dialog", { name: "送れていない変更" });
+      expect(openCloudFile).toHaveBeenCalledTimes(1);
+      fireEvent.click(within(again).getByRole("button", { name: "捨てて続ける" }));
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+    });
+
+    it("送れていない変更が無ければ聞かない", async () => {
+      render(<CloudEditor fileId="f1" />);
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(1));
+      loadCloud("f1", "connected", "editor");
+      act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
+      await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
+      expect(screen.queryByRole("dialog", { name: "送れていない変更" })).toBeNull();
+    });
   });
 
   it("つなぎ直しに失敗したら (外された、など) ホームへ戻して理由を出す", async () => {
@@ -319,7 +438,7 @@ describe("CloudEditor: リンクで開く (#/link/<token>)", () => {
     });
     act(() => st().setCloudClosed({ code: 4001, reason: "役割が変わりました" }));
     await waitFor(() => expect(openCloudFile).toHaveBeenCalledTimes(2));
-    expect(openCloudFile).toHaveBeenLastCalledWith("f1", { link: "tok" });
+    expect(openCloudFile).toHaveBeenLastCalledWith("f1", { link: "tok", keepUi: { currentBoardId: st().ui.currentBoardId, selection: null } });
     await waitFor(() => expect(toasts()).toEqual(["役割が編集者に変わりました"]));
     // links.get はつなぎ直しでは引き直さない
     expect(server.calls.filter((c) => c.path === "/api/links/info")).toHaveLength(1);

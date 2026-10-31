@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import type { ProvidersResponse } from "@untie/api";
 import type { AppEnv } from "../env";
-import { deleteSessionsOfUser } from "../db/sessions";
 import { ApiFailure } from "../errors";
 import { deleteCookie } from "hono/cookie";
 import { exchangeDesktopCode, isValidAppState, isValidChallenge } from "./desktop";
 import { devLogin, devLoginEnabled, devLoginForm } from "./providers/dev";
 import { AUTH_COOKIE, finishGoogleLogin, googleEnabled, newAuthCookie, sanitizeReturn, setAuthCookie, startGoogleLogin } from "./providers/google";
-import { clearSessionCookie, endSession, isSecureRequest, requireSession } from "./session";
+import { endAllSessions, endSession, isSecureRequest, requireSession } from "./session";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -63,7 +62,6 @@ authRoutes.post("/logout", async (c) => {
 
 /** すべての端末からログアウト */
 authRoutes.post("/logout-all", requireSession, async (c) => {
-  await deleteSessionsOfUser(c.env.DB, c.var.user.id);
-  clearSessionCookie(c);
+  await endAllSessions(c, c.var.user.id);
   return c.body(null, 204);
 });

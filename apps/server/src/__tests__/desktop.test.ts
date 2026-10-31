@@ -96,12 +96,12 @@ describe("デスクトップのログイン: /auth/login", () => {
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get("Location")!);
     const { verifyPayload } = await import("../auth/crypto");
-    const payload = await verifyPayload<Json>("test-session-secret", cookieFrom(response, "untie_auth")!.split("=")[1]);
+    const payload = await verifyPayload<Json>(env.SESSION_SECRET, cookieFrom(response, "untie_auth")!.split("=")[1]);
     expect(payload).toMatchObject({ client: "desktop", appState: STATE, challenge, state: location.searchParams.get("state") });
     expect(payload!.state).not.toBe(STATE);
     // Web のログインには client も appState も入らない
     const web = await callWorker("/auth/login?provider=google");
-    const webPayload = await verifyPayload<Json>("test-session-secret", cookieFrom(web, "untie_auth")!.split("=")[1]);
+    const webPayload = await verifyPayload<Json>(env.SESSION_SECRET, cookieFrom(web, "untie_auth")!.split("=")[1]);
     expect(webPayload).not.toHaveProperty("client");
     expect(webPayload).not.toHaveProperty("appState");
     expect(webPayload).not.toHaveProperty("challenge");

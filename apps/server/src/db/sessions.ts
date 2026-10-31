@@ -56,6 +56,12 @@ export async function extendSession(db: D1Database, id: string, now: number, exp
   await db.prepare("update sessions set last_seen_at = ?, expires_at = ? where id = ?").bind(now, expiresAt, id).run();
 }
 
+/** セッションの持ち主 (期限切れでもよい。ログアウトで、そのユーザーのルームの接続を閉じる相手を知るため)。無ければ null */
+export async function findSessionOwner(db: D1Database, id: string): Promise<string | null> {
+  const row = await db.prepare("select user_id from sessions where id = ?").bind(id).first<{ user_id: string }>();
+  return row?.user_id ?? null;
+}
+
 export async function deleteSession(db: D1Database, id: string): Promise<void> {
   await db.prepare("delete from sessions where id = ?").bind(id).run();
 }

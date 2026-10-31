@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { YServer } from "y-partyserver";
 import type { Connection, ConnectionContext } from "partyserver";
-import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, CLOSE_UNAUTHENTICATED, ROLES, ROOM_HEADERS, guestName } from "@untie/api";
+import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, CLOSE_UNAUTHENTICATED, ROLES, ROOM_HEADERS, SAVE_FAILED_MESSAGE, SAVE_OK_MESSAGE, guestName } from "@untie/api";
 import type { Role, TicketVia } from "@untie/api";
 import { validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
@@ -34,16 +34,31 @@ interface Revocation {
   reason: string;
 }
 const REVOKED_USER = "revoked:user:";
+const REVOKED_SID = "revoked:sid:";
 const REVOKED_LINK = "revoked:link";
 const REVOKED_ALL = "revoked:all";
 /** 記録を残す期間。チケットの有効期間 (60 秒) より十分長ければよい。過ぎた記録は次の kick で消す */
 const REVOKED_KEEP_MS = 5 * 60 * 1000;
+
+/** 使用済みのチケットの記録 (DO storage)。`ticket:<jti>` に期限 (エポックミリ秒) を入れ、期限を過ぎたものは次の接続で消す */
+const TICKET_PREFIX = "ticket:";
+
+/** ログ用に、名前などの中身 (「…」の中) を伏せる。検証エラーの文言は要素の名前を含むことがある */
+function redact(message: string): string {
+  return message.replace(/「[^」]*」/g, "「…」");
+}
 
 /** 接続の state から、onConnect が書いた ConnectionState を取り出す。まだ書かれていない・壊れていれば null */
 function readState(connection: Connection): ConnectionState | null {
   const state = connection.state as Partial<ConnectionState> | null | undefined;
   if (!state || typeof state.name !== "string" || typeof state.role !== "string") return null;
   return state as ConnectionState;
+}
+
+/** 数のヘッダー。無い・空・数でないときは NaN */
+function numberHeader(headers: Headers, name: string): number {
+  const value = headers.get(name);
+  return value === null || value === "" ? NaN : Number(value);
 }
 
 /** ヘッダー (URL エンコード済み) の名前を戻す。壊れていればそのまま */
@@ -64,6 +79,8 @@ export class UntieRoom extends YServer<Env> {
 
   /** destroy 済み。遅れて来る保存で、消したストレージに書き戻さないための目印 */
   private destroyed = false;
+  /** 直近の保存が失敗している (検証に通らない・書き込みの失敗)。つながった人に知らせ、保存できたら save_ok で消す */
+  private saveFailed = false;
 
   async onLoad(): Promise<void> {
     const saved = await this.ctx.storage.get<Uint8Array>("ydoc");
@@ -74,24 +91,43 @@ export class UntieRoom extends YServer<Env> {
     if (this.destroyed) return;
     // 空のルームは保存するものが無い
     if (this.isDocEmpty()) return;
-    // 壊れた参照を直してから保存する (直すのはサーバーだけ。6 章)
+    // 壊れた参照を直し、長すぎる文字列を切り詰めてから保存する (直すのはサーバーだけ。6 章)。
+    // changes は id・種類・項目名と件数だけで、名前などの中身は含まない (repairModel がそう書く)
     const changes = repairDoc(this.document, "repair");
-    if (changes.length > 0) console.log(`ルーム ${this.name}: 壊れた参照を直しました`, changes);
+    if (changes.length > 0) console.log(`ルーム ${this.name}: 壊れた参照などを ${changes.length} 件直しました`, changes);
 
     const model = rebuildModel(this.document);
-    // 検証に通らない中身は保存しない。直前の正常な ydoc と snapshot を残して記録する (設計書 7.5)
+    // 検証に通らない中身は保存しない。直前の正常な ydoc と snapshot を残して記録し、つながっている人に知らせる (設計書 7.5)
     const result = validateModel(model);
     if (!result.ok) {
-      console.error(`ルーム ${this.name}: 検証に通らないので保存しませんでした`, result.errors.slice(0, 5));
+      console.error(`ルーム ${this.name}: 検証に通らないので保存しませんでした (${result.errors.length} 件)`, result.errors.slice(0, 5).map(redact));
+      this.notifySaveFailed();
       return;
     }
 
-    const previous = await this.ctx.storage.get<UntieModel>("snapshot");
-    await this.keepHourlySnapshot(previous);
-    await this.ctx.storage.put("ydoc", Y.encodeStateAsUpdate(this.document));
-    await this.ctx.storage.put("snapshot", model);
+    try {
+      const previous = await this.ctx.storage.get<UntieModel>("snapshot");
+      await this.keepHourlySnapshot(previous);
+      await this.ctx.storage.put("ydoc", Y.encodeStateAsUpdate(this.document));
+      await this.ctx.storage.put("snapshot", model);
+    } catch (e) {
+      // DO の 1 つの値の大きさの上限などで失敗しうる。モデルは 1 MB までにしてあるが、Y.Doc の履歴を含む ydoc は超えうる
+      console.error(`ルーム ${this.name}: 保存に失敗しました`, e instanceof Error ? e.message : e);
+      this.notifySaveFailed();
+      return;
+    }
     // 一覧の写し。行が無ければ (取り込みの途中・消したあと) 何もしない
     await this.env.DB.prepare("update files set name = ?, updated_at = ? where id = ?").bind(model.meta.name, Date.now(), this.name).run();
+    if (this.saveFailed) {
+      this.saveFailed = false;
+      this.broadcastCustomMessage(SAVE_OK_MESSAGE);
+    }
+  }
+
+  /** 保存できていないことを、つながっている全員に知らせる (あとから入った人にも onConnect が知らせる) */
+  private notifySaveFailed(): void {
+    this.saveFailed = true;
+    this.broadcastCustomMessage(SAVE_FAILED_MESSAGE);
   }
 
   /**
@@ -117,9 +153,10 @@ export class UntieRoom extends YServer<Env> {
    */
   async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
     const state = this.stateFromHeaders(ctx.request.headers);
-    const iatHeader = ctx.request.headers.get(ROOM_HEADERS.iat);
-    const issuedAt = iatHeader === null || iatHeader === "" ? NaN : Number(iatHeader);
-    if (!state || !Number.isFinite(issuedAt)) {
+    const issuedAt = numberHeader(ctx.request.headers, ROOM_HEADERS.iat);
+    const jti = ctx.request.headers.get(ROOM_HEADERS.jti);
+    const expiresAt = numberHeader(ctx.request.headers, ROOM_HEADERS.exp);
+    if (!state || !Number.isFinite(issuedAt) || !jti || !Number.isFinite(expiresAt)) {
       connection.close(CLOSE_UNAUTHENTICATED, CLOSE_REASONS.unauthenticated);
       return;
     }
@@ -129,14 +166,44 @@ export class UntieRoom extends YServer<Env> {
       connection.close(revoked.code, revoked.reason);
       return;
     }
+    // チケットは 1 回しか使えない (盗み見られても、先に使われていれば通らない)。画面は再接続のたびにチケットを取り直す
+    if (!(await this.useTicket(jti, expiresAt))) {
+      connection.close(CLOSE_UNAUTHENTICATED, CLOSE_REASONS.ticketUsed);
+      return;
+    }
     if (state.role === "guest") state.name = guestName(this.freeGuestNumber());
     connection.setState(state);
     super.onConnect(connection, ctx);
+    // 直前の保存が失敗したままなら、あとから入った人にも知らせる
+    if (this.saveFailed) this.sendCustomMessage(connection, SAVE_FAILED_MESSAGE);
+  }
+
+  /**
+   * チケットを使ったと記録する。すでに記録があれば false (使用済み)。
+   * get と put の間に await を挟まないので、同じチケットで同時に 2 本つないでも、通るのは 1 本だけ。
+   * 期限 (チケットが検証を通らなくなる時刻) を過ぎた記録は、記録のたびに消す
+   */
+  private async useTicket(jti: string, expiresAt: number): Promise<boolean> {
+    const key = `${TICKET_PREFIX}${jti}`;
+    if ((await this.ctx.storage.get(key)) !== undefined) return false;
+    await this.ctx.storage.put(key, expiresAt);
+    const now = Date.now();
+    const stale: string[] = [];
+    for (const [k, v] of await this.ctx.storage.list<number>({ prefix: TICKET_PREFIX })) {
+      if (v <= now) stale.push(k);
+    }
+    if (stale.length > 0) await this.ctx.storage.delete(stale);
+    return true;
   }
 
   /** そのチケット (発行時刻 issuedAt) が、kick より前のものなら記録を返す */
   private async findRevocation(state: ConnectionState, issuedAt: number): Promise<Revocation | null> {
-    const keys = [REVOKED_ALL, ...(state.userId !== null ? [`${REVOKED_USER}${state.userId}`] : []), ...(state.via === "link" ? [REVOKED_LINK] : [])];
+    const keys = [
+      REVOKED_ALL,
+      ...(state.userId !== null ? [`${REVOKED_USER}${state.userId}`] : []),
+      ...(state.sid !== null ? [`${REVOKED_SID}${state.sid}`] : []),
+      ...(state.via === "link" ? [REVOKED_LINK] : []),
+    ];
     const found = await this.ctx.storage.get<Revocation>(keys);
     for (const key of keys) {
       const revocation = found.get(key);
@@ -154,7 +221,8 @@ export class UntieRoom extends YServer<Env> {
     const userId = headers.get(ROOM_HEADERS.user) || null;
     // メンバーとして来た人には必ず userId がある (無ければ kick の対象にもならない)
     if (via === "member" && userId === null) return null;
-    return { userId, name: decodeName(name), role: role as Role, via: via as TicketVia };
+    const sid = headers.get(ROOM_HEADERS.sid) || null;
+    return { userId, name: decodeName(name), role: role as Role, via: via as TicketVia, sid };
   }
 
   /** いまつながっているゲストの番号と重ならない、いちばん小さい番号 */
@@ -211,7 +279,8 @@ export class UntieRoom extends YServer<Env> {
   /**
    * 条件に合う接続を閉じ、閉じた数を返す。あわせて「この時刻より前のチケットは使えない」を記録し、
    * kick の直後に同じチケットでつなぎ直されても閉じる (onConnect)。
-   * - `{ userId, reason? }`: 役割が変わった (4001、既定)・メンバーから外された (reason: "removed"、4003)。複数のタブも閉じる
+   * - `{ userId, reason? }`: 役割が変わった (4001、既定)・メンバーから外された (reason: "removed"、4003)・すべての端末からログアウトした (reason: "loggedOut"、4000)。複数のタブも閉じる
+   * - `{ sid }`: そのセッションがログアウトした (4000)。そのセッションで取ったチケットの接続だけを閉じる
    * - `{ via: "link" }`: リンク閲覧が無効になった (4004)。ゲストだけでなく、リンクから開いたメンバーも閉じる
    * - `{ all: true }`: ファイルがゴミ箱に入った (4003)。全員を閉じる
    */
@@ -227,13 +296,16 @@ export class UntieRoom extends YServer<Env> {
     } else if ("userId" in target && typeof target.userId === "string" && target.userId !== "") {
       // userId が null / 空のまま渡ってもゲスト (userId が null) を巻き込まない
       const userId = target.userId;
-      const removed = target.reason === "removed";
+      const why = target.reason;
       [code, reason, key, matches] = [
-        removed ? CLOSE_REMOVED : CLOSE_ROLE_CHANGED,
-        removed ? CLOSE_REASONS.removed : CLOSE_REASONS.roleChanged,
+        why === "removed" ? CLOSE_REMOVED : why === "loggedOut" ? CLOSE_UNAUTHENTICATED : CLOSE_ROLE_CHANGED,
+        why === "removed" ? CLOSE_REASONS.removed : why === "loggedOut" ? CLOSE_REASONS.loggedOut : CLOSE_REASONS.roleChanged,
         `${REVOKED_USER}${userId}`,
         (state) => state.userId === userId,
       ];
+    } else if ("sid" in target && typeof target.sid === "string" && target.sid !== "") {
+      const sid = target.sid;
+      [code, reason, key, matches] = [CLOSE_UNAUTHENTICATED, CLOSE_REASONS.loggedOut, `${REVOKED_SID}${sid}`, (state) => state.sid === sid];
     } else {
       // RPC の中で投げるとテスト基盤が未処理の拒否として数えるので、投げずに 0 を返す
       console.warn("kick の対象が正しくありません", target);

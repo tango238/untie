@@ -2,16 +2,16 @@ import { Hono } from "hono";
 import { emptyModel, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { CreateFileRequestSchema, RenameFileRequestSchema } from "@untie/api";
-import type { FileDetail, FilesResponse, PresenceResponse, TicketResponse, TrashResponse } from "@untie/api";
-import { issueTicket } from "../auth/ticket";
+import type { FileDetail, FilesResponse, PresenceResponse, SnapshotsResponse, TicketResponse, TrashResponse } from "@untie/api";
+import { issueTicket, sidOf } from "../auth/ticket";
 import type { AppEnv } from "../env";
 import { deleteFileRows, getFileForUser, listFiles, listTrash, renameFile, setDeletedAt, toSummary } from "../db/files";
 import { listPendingInvitations, toInvitation } from "../db/invitations";
 import { isLinkEnabled } from "../db/links";
 import { listMembers, toMember } from "../db/members";
-import { badRequest, conflict } from "../errors";
-import { destroyRoom, exportRoomModel, kickRoom, presenceRoom, renameRoom } from "../rooms";
-import { requireRole } from "./authz";
+import { badRequest, conflict, notFound } from "../errors";
+import { destroyRoom, exportRoomModel, getRoomSnapshot, kickRoom, listRoomSnapshots, presenceRoom, renameRoom } from "../rooms";
+import { assertNotInTrash, requireRole } from "./authz";
 import { limitBody, parseBody } from "./body";
 import { createFile, duplicateFile } from "./createFile";
 import { exportResponse } from "./exportResponse";
@@ -20,6 +20,9 @@ import { linkManageRoutes } from "./links";
 import { memberRoutes } from "./members";
 
 export const fileRoutes = new Hono<AppEnv>();
+
+/** スナップショットのキー (`snapshot:<1 時間単位の ISO 日時>`)。それ以外は引かない */
+const SNAPSHOT_KEY = /^snapshot:\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/;
 
 // 自分のファイルと共有されたファイル
 fileRoutes.get("/", async (c) => {
@@ -70,6 +73,8 @@ fileRoutes.get("/:id", async (c) => {
 // 名前を変える (ルームの meta.name と D1 の両方)
 fileRoutes.patch("/:id", limitBody, async (c) => {
   const file = await requireRole(c, c.req.param("id"), "rename");
+  // ゴミ箱の中のファイルは名前も変えられない (戻してから変える。共有の API と同じ 409 in_trash)
+  assertNotInTrash(file);
   const { name } = await parseBody(c, RenameFileRequestSchema);
   await renameRoom(c.env, file.id, name);
   await renameFile(c.env.DB, file.id, name, Date.now());
@@ -101,6 +106,8 @@ fileRoutes.post("/:id/ticket", async (c) => {
     name: user.name || user.email.split("@")[0],
     role: file.role,
     via: "member",
+    // ログアウトで、このセッションの接続だけを閉じるための印
+    sid: sidOf(c.var.session.id),
   });
   return c.json({ ticket, role: file.role, expiresAt } satisfies TicketResponse);
 });
@@ -111,6 +118,20 @@ fileRoutes.get("/:id/presence", async (c) => {
   const file = await requireRole(c, c.req.param("id"), "read");
   if (file.deleted_at !== null) throw conflict("ゴミ箱の中のファイルは開けません。先に戻してください", "in_trash");
   return c.json({ presence: await presenceRoom(c.env, file.id) } satisfies PresenceResponse);
+});
+
+// 過去の状態 (1 時間ごとのスナップショット。設計書 3.4)。誤って消したときに、消す直前の状態を取り出す。owner だけ
+fileRoutes.get("/:id/snapshots", async (c) => {
+  const file = await requireRole(c, c.req.param("id"), "snapshots");
+  return c.json({ keys: await listRoomSnapshots(c.env, file.id) } satisfies SnapshotsResponse);
+});
+
+fileRoutes.get("/:id/snapshots/:key", async (c) => {
+  const file = await requireRole(c, c.req.param("id"), "snapshots");
+  const key = c.req.param("key");
+  const model = SNAPSHOT_KEY.test(key) ? await getRoomSnapshot(c.env, file.id, key) : null;
+  if (!model) throw notFound("その時点の状態は見つかりません", "snapshot_not_found");
+  return exportResponse(model);
 });
 
 // ゴミ箱へ

@@ -1,5 +1,7 @@
 import { env as rawEnv, runInDurableObject, SELF } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
+import * as Y from "yjs";
+import { getRoots, ORDER_KEY } from "@untie/collab";
 import type { UntieRoom } from "@untie/collab/room";
 import worker from "../index";
 import type { Env } from "../env";
@@ -10,6 +12,19 @@ export const env = rawEnv as unknown as Env & { TEST_MIGRATIONS: D1Migration[] }
 /** ルームの Durable Object の中で callback を走らせる (instance のメソッドや storage を直接触る) */
 export function inRoom<R>(stub: unknown, callback: (room: UntieRoom, state: DurableObjectState) => R | Promise<R>): Promise<R> {
   return runInDurableObject(stub as DurableObjectStub, callback as never) as Promise<R>;
+}
+
+/**
+ * ルームの Y.Doc を、validateModel に通らず repairModel でも直らない状態にする (要素とボードが同じ id を使う。設計書 6 章の「対象外」)。
+ * 文字列が長すぎる状態は repairModel が切り詰めて直すので、保存に失敗する例には使えない
+ */
+export function breakUnrepairably(room: UntieRoom): void {
+  const element = new Y.Map<unknown>();
+  element.set("kind", "actor");
+  element.set("name", "衝突");
+  element.set(ORDER_KEY, "a0");
+  const roots = getRoots(room.document);
+  roots.elements.set([...roots.boards.keys()][0], element);
 }
 
 /** Set-Cookie のヘッダーを全部返す */

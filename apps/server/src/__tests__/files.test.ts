@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getRoots } from "@untie/collab";
 import { getRoom } from "../rooms";
 import { validateModel } from "@untie/core";
 import { hotelSample } from "@untie/core/sample";
 import { createApi } from "@untie/api";
-import { callWorker, env, inRoom, loginAs, resetDb, userIdOf } from "./helpers";
+import { breakUnrepairably, callWorker, env, inRoom, loginAs, resetDb, userIdOf } from "./helpers";
 import type { Client, Json } from "./helpers";
 
 beforeEach(resetDb);
@@ -74,14 +73,15 @@ describe("作成", () => {
 });
 
 describe("入力の上限と失敗時の後始末", () => {
-  it("2 MB を超える本文は POST /files も PATCH も 413", async () => {
+  it("1 MB を超える本文は POST /files も PATCH も 413 (モデルは 1 MB まで)", async () => {
     const taro = await loginAs("taro@example.com");
     const file = (await create(taro, { name: "A" })).body;
-    const huge = JSON.stringify({ name: "x".repeat(3 * 1024 * 1024) });
+    const huge = JSON.stringify({ name: "x".repeat(1024 * 1024 + 1) });
     const headers = { "Content-Type": "application/json", "Content-Length": String(huge.length) };
     const post = await taro.json("/api/files", { method: "POST", body: huge, headers });
     expect(post.status).toBe(413);
     expect(post.body.error.code).toBe("too_large");
+    expect(post.body.error.message).toContain("1 MB");
     expect((await taro.json(`/api/files/${file.id}`, { method: "PATCH", body: huge, headers })).status).toBe(413);
     expect((await taro.json("/api/files")).body.mine).toHaveLength(1);
   });
@@ -113,9 +113,9 @@ describe("入力の上限と失敗時の後始末", () => {
   it("複製: ルームの中身が検証に通らなければ 500 ではなく 409 broken_model", async () => {
     const taro = await loginAs("taro@example.com");
     const file = (await create(taro, { model: hotelSample })).body;
-    // 他の端末が、スキーマの上限を超える名前を入れた状態 (repair では直らない)
+    // 他の端末が、要素とボードに同じ id を使った状態 (repair では直らない)
     await inRoom(await getRoom(env, file.id), (room) => {
-      getRoots(room.document).meta.set("name", "x".repeat(5000));
+      breakUnrepairably(room);
     });
     const { status, body } = await taro.json(`/api/files/${file.id}/duplicate`, { method: "POST" });
     expect(status).toBe(409);
@@ -305,6 +305,22 @@ describe("ゴミ箱", () => {
     }
   });
 
+  it("ゴミ箱の中のファイルは PATCH (名前の変更) も 409 in_trash。戻せば変えられる", async () => {
+    const taro = await loginAs("taro@example.com");
+    const file = (await create(taro, { name: "A" })).body;
+    await taro.fetch(`/api/files/${file.id}`, { method: "DELETE" });
+
+    const renamed = await taro.json(`/api/files/${file.id}`, { method: "PATCH", json: { name: "B" } });
+    expect(renamed.status).toBe(409);
+    expect(renamed.body.error.code).toBe("in_trash");
+    // 名前は変わっていない (D1 もルームも)
+    expect((await taro.json("/api/files/trash")).body.files[0].name).toBe("A");
+    expect((await taro.json(`/api/files/${file.id}/export`)).body.meta.name).toBe("A");
+
+    await taro.json(`/api/files/${file.id}/restore`, { method: "POST" });
+    expect((await taro.json(`/api/files/${file.id}`, { method: "PATCH", json: { name: "B" } })).body.name).toBe("B");
+  });
+
   it("ゴミ箱の中のファイルは owner 以外には 404", async () => {
     const taro = await loginAs("taro@example.com");
     const editor = await loginAs("editor@example.com");
@@ -317,6 +333,60 @@ describe("ゴミ箱", () => {
     expect((await editor.json("/api/files")).body.shared).toEqual([]);
     // owner からは見える
     expect((await taro.json(`/api/files/${file.id}`)).status).toBe(200);
+  });
+});
+
+describe("過去の状態 (スナップショット)", () => {
+  it("owner は一覧と各時点の JSON を取り出せる。JSON は export と同じ形 (Content-Disposition 付き)", async () => {
+    const taro = await loginAs("taro@example.com");
+    const file = (await create(taro, { model: hotelSample })).body;
+    // 最初の保存は取り込み。名前を変えると、その直前の状態が「この時間」のスナップショットに入る
+    expect((await taro.json(`/api/files/${file.id}/snapshots`)).body).toEqual({ keys: [] });
+    await taro.json(`/api/files/${file.id}`, { method: "PATCH", json: { name: "改名後" } });
+    await taro.json(`/api/files/${file.id}`, { method: "PATCH", json: { name: "さらに改名" } });
+
+    const list = await taro.json(`/api/files/${file.id}/snapshots`);
+    expect(list.status).toBe(200);
+    expect(list.body.keys).toHaveLength(1);
+    const key: string = list.body.keys[0];
+    expect(key).toMatch(/^snapshot:\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/);
+
+    const snapshot = await taro.fetch(`/api/files/${file.id}/snapshots/${encodeURIComponent(key)}`);
+    expect(snapshot.status).toBe(200);
+    expect(snapshot.headers.get("Content-Disposition")).toContain("attachment");
+    const text = await snapshot.text();
+    expect(text.endsWith("\n")).toBe(true);
+    const model = JSON.parse(text);
+    expect(model.meta.name).toBe(hotelSample.meta.name);
+    expect(validateModel(model).ok).toBe(true);
+    expect(model.elements).toHaveLength(hotelSample.elements.length);
+    // 現在の書き出しは最新の名前
+    expect((await taro.json(`/api/files/${file.id}/export`)).body.meta.name).toBe("さらに改名");
+  });
+
+  it("owner だけ (editor / viewer は 403、メンバーでない人は 404)。キーが正しくない・無いときは 404 snapshot_not_found", async () => {
+    const taro = await loginAs("taro@example.com");
+    const editor = await loginAs("editor@example.com");
+    const viewer = await loginAs("viewer@example.com");
+    const stranger = await loginAs("stranger@example.com");
+    const file = (await create(taro, { name: "A" })).body;
+    await addMember(file.id, await userIdOf(editor), "editor");
+    await addMember(file.id, await userIdOf(viewer), "viewer");
+    await taro.json(`/api/files/${file.id}`, { method: "PATCH", json: { name: "B" } });
+    const key: string = (await taro.json(`/api/files/${file.id}/snapshots`)).body.keys[0];
+
+    for (const client of [editor, viewer]) {
+      expect((await client.json(`/api/files/${file.id}/snapshots`)).status).toBe(403);
+      expect((await client.json(`/api/files/${file.id}/snapshots/${encodeURIComponent(key)}`)).status).toBe(403);
+    }
+    expect((await stranger.json(`/api/files/${file.id}/snapshots`)).status).toBe(404);
+    expect((await stranger.json(`/api/files/${file.id}/snapshots/${encodeURIComponent(key)}`)).status).toBe(404);
+
+    for (const bad of ["snapshot:2000-01-01T00:00:00.000Z", "snapshot", "ydoc", "snapshot:../x", "revoked:all"]) {
+      const response = await taro.json(`/api/files/${file.id}/snapshots/${encodeURIComponent(bad)}`);
+      expect(response.status).toBe(404);
+      expect(response.body.error.code).toBe("snapshot_not_found");
+    }
   });
 });
 
@@ -335,6 +405,12 @@ describe("@untie/api のクライアントから", () => {
     const created = await api.files.create({ name: "API から" });
     expect((await api.files.list()).mine.map((f) => f.id)).toEqual([created.id]);
     expect((await api.files.rename(created.id, "改名")).name).toBe("改名");
+    await api.files.rename(created.id, "改名 2");
+    const [key] = await api.files.snapshots(created.id);
+    const past = await api.files.snapshot(created.id, key);
+    expect(JSON.parse(past.text).meta.name).toBe("API から");
+    expect(past.filename).toMatch(/\.json$/);
+    await api.files.rename(created.id, "改名");
     const copy = await api.files.duplicate(created.id);
     expect(copy.name).toBe("改名 のコピー");
     const exported = await api.files.export(created.id);

@@ -8,6 +8,22 @@ export function toInvitation(row: InvitationRow): Invitation {
   return { id: row.id, email: row.email, role: row.role, createdAt: row.created_at, expiresAt: row.expires_at };
 }
 
+/** 古い招待を残しておく日数。期限が切れてから、または受けてから、これを過ぎた行は cron が消す */
+export const INVITATION_RETENTION_DAYS = 30;
+
+/**
+ * 古い招待の行を消す: 受けられないまま期限が切れて 30 日たったもの (accepted_at is null and expires_at < now - 30 日) と、
+ * 受けて 30 日たったもの (accepted_at < now - 30 日)。2 本の delete に分けるのは、それぞれ部分 index (0004) を使うため。消した行の数を返す
+ */
+export async function deleteStaleInvitations(db: D1Database, now: number): Promise<number> {
+  const cutoff = now - INVITATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const [unaccepted, accepted] = await db.batch([
+    db.prepare("delete from invitations where accepted_at is null and expires_at < ?").bind(cutoff),
+    db.prepare("delete from invitations where accepted_at is not null and accepted_at < ?").bind(cutoff),
+  ]);
+  return unaccepted.meta.changes + accepted.meta.changes;
+}
+
 /** まだ受けられていない招待 (期限切れも含む。所有者が取り消す・出し直すため)。古い順 */
 export async function listPendingInvitations(db: D1Database, fileId: string): Promise<InvitationRow[]> {
   const { results } = await db

@@ -28,6 +28,25 @@ function mockFetch(responder: (call: Call) => { status?: number; body?: unknown;
 
 const summary = { id: "f1", name: "x", ownerId: "u", ownerName: "U", role: "owner", memberCount: 1, updatedAt: 1, createdAt: 1 };
 
+describe("createApi: 過去の状態", () => {
+  it("snapshots は { keys } を配列で返し、snapshot はキーをエンコードして取り、ファイル名を Content-Disposition から読む", async () => {
+    const key = "snapshot:2026-10-31T10:00:00.000Z";
+    const { fn, calls } = mockFetch(({ url }) =>
+      url.endsWith("/snapshots")
+        ? { body: { keys: [key] } }
+        : { text: '{"version":1}\n', headers: { "Content-Disposition": "attachment; filename=\"untie.json\"; filename*=UTF-8''%E5%AE%BF.json" } },
+    );
+    const api = createApi({ baseUrl: "", fetch: fn });
+    expect(await api.files.snapshots("f1")).toEqual([key]);
+    const past = await api.files.snapshot("f1", key);
+    expect(past).toEqual({ filename: "宿.json", text: '{"version":1}\n' });
+    expect(calls.map((c) => [c.init.method, c.url])).toEqual([
+      ["GET", "/api/files/f1/snapshots"],
+      ["GET", `/api/files/f1/snapshots/${encodeURIComponent(key)}`],
+    ]);
+  });
+});
+
 describe("createApi", () => {
   it("GET には CSRF ヘッダーを付けず、Cookie を送る設定にする", async () => {
     const { fn, calls } = mockFetch(() => ({ body: { id: "u", email: "a@b.c", name: "A" } }));

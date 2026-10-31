@@ -1,9 +1,10 @@
 import { createExecutionContext, createScheduledController, SELF, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHotelSample } from "@untie/core/sample";
 import worker from "../index";
 import { PURGE_BATCH_SIZE, purgeTrash, TRASH_RETENTION_DAYS } from "../jobs/purgeTrash";
 import { getRoom } from "../rooms";
+import { resetConfigReport } from "../config";
 import { callWorker, env, loginAs, resetDb } from "./helpers";
 import type { Json } from "./helpers";
 
@@ -107,5 +108,118 @@ describe("cron: ゴミ箱の掃除", () => {
     // 残りは次の回で消える
     expect(await purgeTrash(env)).toBe(5);
     expect((await env.DB.prepare("select count(*) as n from files").first<{ n: number }>())!.n).toBe(0);
+  });
+});
+
+describe("cron: 古い招待の掃除", () => {
+  it("受けられないまま期限が切れて 30 日たったものと、受けて 30 日たったものを消す。それ以外は残す", async () => {
+    const taro = await loginAs("taro@example.com");
+    const file = (await taro.json("/api/files", { method: "POST", json: { name: "A" } })).body.id as string;
+    const userId = (await taro.json("/api/me")).body.id as string;
+    const now = Date.now();
+    const insert = (id: string, expiresAt: number, acceptedAt: number | null) =>
+      env.DB.prepare("insert into invitations (id, file_id, email, role, created_by, created_at, expires_at, accepted_at) values (?, ?, ?, 'viewer', ?, 1, ?, ?)").bind(
+        id,
+        file,
+        `${id}@example.com`,
+        userId,
+        expiresAt,
+        acceptedAt,
+      );
+    await env.DB.batch([
+      insert("expired-old", now - 31 * DAY, null), // 消す
+      insert("expired-recent", now - 29 * DAY, null), // 期限が切れて 30 日たっていない
+      insert("pending", now + 5 * DAY, null), // まだ有効
+      insert("accepted-old", now + 5 * DAY, now - 31 * DAY), // 消す
+      insert("accepted-recent", now + 5 * DAY, now - 29 * DAY),
+      insert("accepted-old-expired", now - 40 * DAY, now - 45 * DAY), // 消す
+    ]);
+
+    const ctx = createExecutionContext();
+    await worker.scheduled!(createScheduledController({ cron: "0 3 * * *" }), env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const ids = (await env.DB.prepare("select id from invitations order by id").all<{ id: string }>()).results.map((r) => r.id);
+    expect(ids).toEqual(["accepted-recent", "expired-recent", "pending"]);
+    // ファイルとメンバーには触れない
+    expect((await env.DB.prepare("select count(*) as n from file_members").first<{ n: number }>())!.n).toBe(1);
+  });
+});
+
+describe("秘密の値が短いとき", () => {
+  afterEach(() => resetConfigReport());
+
+  it("SESSION_SECRET が 32 文字未満なら、/api・/auth は 500 ではなく 503 misconfigured。原因は最初の 1 回だけログに出す (値は出さない)", async () => {
+    resetConfigReport();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const weak = { SESSION_SECRET: "short-session-secret" };
+      for (const path of ["/auth/providers", "/api/me"]) {
+        const response = await callWorker(path, {}, weak);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ error: { code: "misconfigured" } });
+      }
+      // ブラウザが直接開く画面は、JSON ではなく戻るリンク付きの HTML
+      const page = await callWorker("/auth/dev", {}, weak);
+      expect(page.status).toBe(503);
+      expect(await page.text()).toContain("設定が不完全");
+      expect(error).toHaveBeenCalledTimes(1);
+      const logged = String(error.mock.calls[0][0]);
+      expect(logged).toContain("SESSION_SECRET");
+      expect(logged).not.toContain("short-session-secret");
+      expect(logged).not.toContain("TICKET_SECRET");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("TICKET_SECRET が短い・空のときも 503。32 文字ちょうどなら通る。静的ファイルは配る", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await callWorker("/api/me", {}, { TICKET_SECRET: "" })).status).toBe(503);
+      expect((await callWorker("/auth/providers", {}, { SESSION_SECRET: "x".repeat(31) })).status).toBe(503);
+      expect((await callWorker("/auth/providers", {}, { SESSION_SECRET: "x".repeat(32), TICKET_SECRET: "y".repeat(32) })).status).toBe(200);
+      const spa = await callWorker("/some/spa/route", {}, { SESSION_SECRET: "" });
+      expect(spa.headers.get("Content-Type") ?? "").not.toContain("application/json");
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+describe("APP_ORIGIN 以外のホストで開かれたとき", () => {
+  const APP = { APP_ORIGIN: "https://untie.example.com" };
+  const redirected = async (url: string, init: RequestInit = {}, overrides: Record<string, string> = APP) => callWorker(url, init, overrides);
+
+  it("画面 (/) もログインも、APP_ORIGIN の同じパス・クエリへ 302 する", async () => {
+    const root = await redirected("https://untie.workers.dev/");
+    expect(root.status).toBe(302);
+    expect(root.headers.get("Location")).toBe("https://untie.example.com/");
+    const login = await redirected("https://untie.workers.dev/auth/login?provider=google&return=%23%2Ff%2Fabc");
+    expect(login.status).toBe(302);
+    expect(login.headers.get("Location")).toBe("https://untie.example.com/auth/login?provider=google&return=%23%2Ff%2Fabc");
+    expect((await redirected("https://untie.workers.dev/api/me")).headers.get("Location")).toBe("https://untie.example.com/api/me");
+  });
+
+  it("APP_ORIGIN と同じオリジンなら移さない (末尾の / があっても)", async () => {
+    expect((await redirected("https://untie.example.com/auth/providers")).status).toBe(200);
+    expect((await redirected("https://untie.example.com/auth/providers", {}, { APP_ORIGIN: "https://untie.example.com/" })).status).toBe(200);
+  });
+
+  it("/parties・/api/links/*・/auth/desktop/exchange は移さない", async () => {
+    expect((await redirected("https://untie.workers.dev/parties/untie-room/x")).status).not.toBe(302);
+    const link = await redirected("https://untie.workers.dev/api/links/info", { headers: { "X-Untie-Token": "none" } });
+    expect(link.status).toBe(404);
+    const exchange = await redirected("https://untie.workers.dev/auth/desktop/exchange", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+    expect(exchange.status).toBe(400);
+  });
+
+  it("APP_ORIGIN が空なら移さない。ループバック (wrangler dev) も、デスクトップアプリからの呼び出しも、GET / HEAD 以外も移さない", async () => {
+    expect((await redirected("https://untie.workers.dev/auth/providers", {}, { APP_ORIGIN: "" })).status).toBe(200);
+    expect((await redirected("http://localhost:8787/auth/providers")).status).toBe(200);
+    expect((await redirected("http://127.0.0.1:8787/auth/providers")).status).toBe(200);
+    expect((await redirected("https://untie.workers.dev/auth/providers", { headers: { Origin: "tauri://localhost" } })).status).toBe(200);
+    expect((await redirected("https://untie.workers.dev/api/me", { headers: { Authorization: "Bearer abc" } })).status).toBe(401);
+    expect((await redirected("https://untie.workers.dev/auth/logout", { method: "POST" })).status).toBe(204);
   });
 });

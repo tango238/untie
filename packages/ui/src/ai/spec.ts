@@ -1,6 +1,7 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
 import { addElement, addRelation, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { defaultBucOf } from "@untie/core/model/selectors";
 import { emptyModel, isIssueTargetKind, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import type { ToolDef } from "./tools";
@@ -156,6 +157,17 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
 
 // ---------------------------------------------------------------- 組み立て
 
+/** 状態グループとバリエーションの値も上限に収める */
+function clipInit(init: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...init };
+  if (typeof out.group === "string") out.group = truncateText(out.group, GROUP_MAX_LENGTH);
+  if (Array.isArray(out.values)) out.values = out.values.map((v) => (typeof v === "string" ? truncateText(v, VALUE_MAX_LENGTH) : v));
+  return out;
+}
+
+/** AI の出力は長さが読めないので、スキーマの上限 (limits.ts) に収まるよう切り詰める (要素ごと作れなくなるより、末尾が欠ける方がよい) */
+const nameOf = (text: string) => truncateText(text.trim(), NAME_MAX_LENGTH);
+
 export interface BuildResult {
   model: UntieModel;
   /** 名前が見つからなかったなど、組み立てで気づいたこと */
@@ -165,12 +177,12 @@ export interface BuildResult {
 
 /** 下書きをモデルに組み立てる。参照先の名前が無ければ、その参照を飛ばして warnings に残す */
 export function buildModelFromSpec(spec: ModelSpec): BuildResult {
-  let model = emptyModel(spec.system_name || "新しいモデル");
-  if (spec.overview) model = { ...model, meta: { ...model.meta, description: spec.overview } };
+  let model = emptyModel(nameOf(spec.system_name || "") || "新しいモデル");
+  if (spec.overview) model = { ...model, meta: { ...model.meta, description: truncateText(spec.overview, DESCRIPTION_MAX_LENGTH) } };
   const warnings: string[] = [];
   // 種類ごとの名前 → id
   const ids = new Map<string, Map<string, string>>();
-  const idOf = (group: string, name: string) => ids.get(group)?.get(name.trim());
+  const idOf = (group: string, name: string) => ids.get(group)?.get(nameOf(name));
 
   const apply = <T>(r: CommandResult<T>, what: string): (T & { model: UntieModel }) | null => {
     if (!r.ok) {
@@ -181,12 +193,12 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     return r as T & { model: UntieModel };
   };
   const add = (kind: ElementKind, group: string, item: SpecNamed, init: Record<string, unknown> = {}): string | null => {
-    const name = item.name?.trim();
+    const name = item.name ? nameOf(item.name) : "";
     if (!name) return null;
     const existing = idOf(group, name);
     if (existing) return existing;
     const r = apply(
-      addElement(model, { kind, name, init: { ...(item.description ? { description: item.description } : {}), ...init } as ElementInit }),
+      addElement(model, { kind, name, init: { ...(item.description ? { description: truncateText(item.description, DESCRIPTION_MAX_LENGTH) } : {}), ...clipInit(init) } as ElementInit }),
       `${name} を作れません`,
     );
     if (!r) return null;
@@ -268,7 +280,7 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   // 課題
   for (const issue of spec.issues ?? []) {
     const found = (issue.targets ?? [])
-      .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === n.trim()))
+      .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === nameOf(n)))
       .filter((e): e is Element => !!e);
     // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は混ぜられないので、最初の対象と同じ区分だけを残す
     const scope = found[0] && isIssueTargetKind(found[0].kind) ? issueScopeOfKind(found[0].kind) : null;
@@ -276,8 +288,12 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     apply(
       addElement(model, {
         kind: "issue",
-        name: issue.name,
-        init: { severity: Math.min(5, Math.max(1, Math.round(issue.severity ?? 3))), targetIds: targets, ...(issue.description ? { description: issue.description } : {}) },
+        name: nameOf(issue.name),
+        init: {
+          severity: Math.min(5, Math.max(1, Math.round(issue.severity ?? 3))),
+          targetIds: targets,
+          ...(issue.description ? { description: truncateText(issue.description, DESCRIPTION_MAX_LENGTH) } : {}),
+        },
       }),
       `課題「${issue.name}」を作れません`,
     );

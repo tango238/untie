@@ -17,6 +17,7 @@ export type Action =
   | "manageLink"
   | "transfer"
   | "delete"
+  | "snapshots"
   | "leave";
 
 export const ROLES: readonly Role[] = ["owner", "editor", "viewer", "guest"];
@@ -49,6 +50,8 @@ const ALLOWED: Record<Action, readonly Role[]> = {
   transfer: ["owner"],
   // ゴミ箱に入れる・戻す・完全に消す
   delete: ["owner"],
+  // 過去の状態 (1 時間ごとのスナップショット) の一覧と書き出し
+  snapshots: ["owner"],
   // 自分をメンバーから外す (所有者は譲ってから。ゲストはメンバーではない)
   leave: ["editor", "viewer"],
 };

@@ -33,8 +33,8 @@ invitationRoutes.post("/:id/invitations", limitBody, async (c) => {
   if (user) {
     if (user.id === file.owner_id) throw conflict("そのユーザーはこのファイルの所有者です", "already_owner");
     const { previous } = await putMemberRole(c.env.DB, { fileId: file.id, userId: user.id, role, addedBy: c.var.user.id, now });
-    // (putMemberRole が、そのメール宛の未承諾の招待も同じ batch で消す)。行があったときは役割が同じでも切る
-    if (previous !== null) await kickRoomQuietly(c.env, file.id, { userId: user.id, reason: "roleChanged" });
+    // (putMemberRole が、そのメール宛の未承諾の招待も同じ batch で消す)。役割が実際に変わったときだけ切る
+    if (previous !== null && previous !== role) await kickRoomQuietly(c.env, file.id, { userId: user.id, reason: "roleChanged" });
     return c.json({ kind: "member", userId: user.id } satisfies CreateInvitationResponse);
   }
 

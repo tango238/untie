@@ -65,8 +65,8 @@ export const MODEL_TOOLS: ToolDef[] = [
       type: "object",
       properties: {
         kind: { type: "string", enum: [...ELEMENT_KINDS], description: "要素の種類" },
-        name: str("名前"),
-        description: str("説明 (任意)"),
+        name: str("名前 (200 文字まで)"),
+        description: str("説明 (任意。4000 文字まで)"),
         business_id: str("buc の所属業務。activity を業務に直接置くときの業務"),
         buc_id: str("activity の所属 BUC"),
         context_id: str("information / state / condition / variation の所属コンテキスト"),
@@ -88,8 +88,8 @@ export const MODEL_TOOLS: ToolDef[] = [
       type: "object",
       properties: {
         id: str("要素の id"),
-        name: str("名前"),
-        description: str("説明 (空文字で消す)"),
+        name: str("名前 (200 文字まで)"),
+        description: str("説明 (空文字で消す。4000 文字まで)"),
         group: str("state の状態グループ名 (空文字で消す)"),
         values: strArray("variation の値の一覧 (全部を置き換える)"),
         hours: { type: ["number", "null"], description: "activity / usecase の時間。null で消す" },

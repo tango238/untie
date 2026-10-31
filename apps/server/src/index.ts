@@ -6,8 +6,10 @@ import { apiRoutes } from "./api/routes";
 import { desktopCors } from "./auth/cors";
 import { authRoutes } from "./auth/routes";
 import { verifyTicket } from "./auth/ticket";
+import { requireConfig } from "./config";
 import { errorBody, handleError } from "./errors";
 import { purgeTrash } from "./jobs/purgeTrash";
+import { redirectToAppOrigin } from "./redirect";
 import { LOCATION_HINT } from "./rooms";
 
 export { UntieRoom } from "@untie/collab/room";
@@ -16,8 +18,14 @@ const app = new Hono<AppEnv>();
 
 app.onError(handleError);
 
+// 公開の URL (APP_ORIGIN) 以外のホストで開かれたら、そちらへ移す (workers.dev と独自ドメインの両方で開けても、ログインは 1 つのホストで済む)
+app.use("*", redirectToAppOrigin);
+
 // デスクトップアプリの WebView (別のオリジン) から呼ぶものだけに CORS を付ける。/parties/* の WebSocket は Origin を見ない (設計書 7.2)
 for (const path of ["/api/*", "/auth/providers", "/auth/desktop/exchange", "/auth/logout", "/auth/logout-all"]) app.use(path, desktopCors);
+
+// 秘密の値 (SESSION_SECRET・TICKET_SECRET) が短いまま動かさない。足りなければログと 503 misconfigured (静的ファイルは配る)
+for (const path of ["/api/*", "/auth/*", "/parties/*"]) app.use(path, requireConfig);
 
 app.route("/auth", authRoutes);
 app.route("/api", apiRoutes);
@@ -43,6 +51,10 @@ async function onBeforeConnect(request: Request, lobby: { name: string }, env: E
   headers.set(ROOM_HEADERS.role, claims.role);
   headers.set(ROOM_HEADERS.via, claims.via);
   headers.set(ROOM_HEADERS.iat, String(claims.iat));
+  if (claims.sid !== null) headers.set(ROOM_HEADERS.sid, claims.sid);
+  else headers.delete(ROOM_HEADERS.sid);
+  headers.set(ROOM_HEADERS.jti, claims.jti);
+  headers.set(ROOM_HEADERS.exp, String(claims.expMs));
   return new Request(url.toString(), new Request(request, { headers }));
 }
 

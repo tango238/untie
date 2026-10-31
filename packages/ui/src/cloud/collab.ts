@@ -10,13 +10,15 @@ import {
   CLOSE_LINK_DISABLED,
   CLOSE_REMOVED,
   CLOSE_UNAUTHENTICATED,
+  parseRoomMessage,
+  TICKET_USED_REASON,
   type PresenceEntry,
   type Role,
 } from "@untie/api";
 import { observeModelChanges, rebuildModel } from "@untie/collab";
 import { useAgentStore } from "../ai/agentStore";
 import { getPlatform } from "../platform";
-import { LOCAL_ORIGIN, useUntieStore, type Peer, type Selection } from "../store";
+import { LOCAL_ORIGIN, useUntieStore, type Peer, type Selection, type UiState } from "../store";
 import { getApi } from "./api";
 import { useSessionStore } from "./session";
 
@@ -28,8 +30,13 @@ export const CLOSE_REASONS: Record<number, string> = {
   [CLOSE_CODES.linkDisabled]: "リンクが無効になりました",
 };
 
-/** サーバーが再接続を許さない閉じ方か (4000〜4004) */
-export const isFatalClose = (code: number) => code >= CLOSE_UNAUTHENTICATED && code <= CLOSE_LINK_DISABLED;
+/**
+ * サーバーが再接続を許さない閉じ方か (4000〜4004)。
+ * ただし「チケットが使用済み」(4000) は別で、provider が再接続のたびに取り直すチケットが重なって使われただけなので、
+ * 閉じた扱いにせず provider の再接続に任せる (次の接続では新しいチケットを取る)
+ */
+export const isFatalClose = (code: number, reason = "") =>
+  code >= CLOSE_UNAUTHENTICATED && code <= CLOSE_LINK_DISABLED && !(code === CLOSE_UNAUTHENTICATED && reason === TICKET_USED_REASON);
 
 // ---------------------------------------------------------------- Y.Doc とストア
 
@@ -38,6 +45,8 @@ export interface AttachOptions {
   role: Role;
   /** リンクで開いたときのトークン */
   link?: string;
+  /** 開いているボードと選択を引き継ぐ (役割が変わったときのつなぎ直し)。参照先が無ければ最初の同期のあと reconcileUi が直す */
+  keepUi?: Pick<UiState, "currentBoardId" | "selection">;
 }
 
 /**
@@ -47,7 +56,7 @@ export interface AttachOptions {
  */
 export function attachCloudDoc(doc: Y.Doc, options: AttachOptions): () => void {
   const store = useUntieStore;
-  store.getState().loadCloudDocument(rebuildModel(doc), { fileId: options.fileId, role: options.role, doc, link: options.link });
+  store.getState().loadCloudDocument(rebuildModel(doc), { fileId: options.fileId, role: options.role, doc, link: options.link }, { keepUi: options.keepUi });
   const stop = observeModelChanges(doc, (_changed, origin) => {
     // 自分の編集は dispatch の中で組み立て直し済み
     if (origin === LOCAL_ORIGIN) return;
@@ -298,10 +307,11 @@ function closedByTicketError(e: unknown): { code: number; reason: string } | nul
  * クラウドファイルを開く。チケットを取り (401/403/404/409 ならその ApiError を投げる)、Y.Doc と YProvider をつないでストアに付ける。
  * `link` を渡すと、リンクを知っている人の閲覧として開く: チケットは `links.ticket(link)` で取り (再接続のたびも同じ)、
  * ログインしていなければゲスト、メンバーならその役割で開く (サーバーが決める。3.6)。
+ * `keepUi` を渡すと、開いているボードと選択を引き継ぐ (役割が変わったあとのつなぎ直し)。
  * 開く途中で closeCloudFile() や別の openCloudFile() が呼ばれたら、何も付けずに戻る。
  * 閉じられた (kick など) ときは store の cloud.closed に入れる。呼び出し側が見てホームへ戻す
  */
-export async function openCloudFile(fileId: string, options: { link?: string } = {}): Promise<void> {
+export async function openCloudFile(fileId: string, options: { link?: string; keepUi?: AttachOptions["keepUi"] } = {}): Promise<void> {
   closeCloudFile();
   // ファイルを開く前から走っていたローカルの AI エージェントが、開いたクラウドファイルを書き換えないよう止める
   useAgentStore.getState().cancel();
@@ -314,7 +324,7 @@ export async function openCloudFile(fileId: string, options: { link?: string } =
 
   const store = useUntieStore;
   const doc = new Y.Doc();
-  const detach = attachCloudDoc(doc, { fileId, role: first.role, link });
+  const detach = attachCloudDoc(doc, { fileId, role: first.role, link, keepUi: options.keepUi });
   let provider: YProvider | null = null;
   // attach 以降のどこかで例外になったら、ストアに cloud を残さない
   try {
@@ -360,6 +370,8 @@ export async function openCloudFile(fileId: string, options: { link?: string } =
     const p = provider;
 
     p.on("status", ({ status }: { status: "connecting" | "connected" | "disconnected" }) => {
+      // つながっていない間は「保存できていない」の知らせも古くなる。つなぎ直したとき、まだ失敗していればサーバーがもう一度知らせる
+      if (status === "disconnected" && !closing) store.getState().setCloudSaveFailed(false);
       if (closing || !synced) return;
       if (status === "disconnected") offline = true;
       const next = status === "connected" && p.synced ? "connected" : offline ? "offline" : "connecting";
@@ -377,8 +389,14 @@ export async function openCloudFile(fileId: string, options: { link?: string } =
         s.setCloudStatus("connected");
       }
     });
+    // サーバーからの「保存できていない / 保存できた」の知らせ (y-partyserver の custom message)
+    p.on("custom-message", (text: string) => {
+      const message = parseRoomMessage(text);
+      if (!message || closing) return;
+      store.getState().setCloudSaveFailed(message.type === "save_failed");
+    });
     p.on("connection-close", (event: CloseEvent) => {
-      if (!isFatalClose(event.code)) return;
+      if (!isFatalClose(event.code, event.reason)) return;
       close({ code: event.code, reason: event.reason || CLOSE_REASONS[event.code] || "接続が閉じられました" });
     });
 

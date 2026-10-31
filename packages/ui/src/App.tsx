@@ -28,6 +28,7 @@ export default function App() {
   const readOnly = useUntieStore(selectReadOnly);
   const role = useUntieStore((s) => s.cloud?.role);
   const link = useUntieStore((s) => s.cloud?.link);
+  const saveFailed = useUntieStore((s) => s.cloud?.saveFailed ?? false);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const builtin = fixedLayer !== null || analysis !== null;
@@ -38,6 +39,12 @@ export default function App() {
           <span role="status">閲覧専用です (役割: {ROLE_LABELS[role]})</span>
           {/* リンクで閲覧しているゲストには、ログイン (または複製) の導線を添える */}
           {link !== undefined && role === "guest" && <LinkGuestNotice token={link} />}
+        </div>
+      )}
+      {/* サーバーが保存できていない (検証に通らない・書き込みの失敗)。いまの画面の内容を JSON に書き出して残すよう促す */}
+      {saveFailed && (
+        <div className="save-failed-banner" role="alert">
+          サーバーに保存できていません。JSON に書き出して保存してください
         </div>
       )}
       <Toolbar />

@@ -72,6 +72,8 @@ export interface FakeServer {
   inviteTokens: Record<string, FakeInvitation>;
   /** ファイル id → いまルームにつながっている人 (GET /presence の答え)。無ければ空 */
   presence: Record<string, PresenceEntry[]>;
+  /** ファイル id → 過去の状態 (キー `snapshot:<日時>` → その時点の JSON の文字列)。キーは新しい順に返す。無ければ空 */
+  snapshots: Record<string, Record<string, string>>;
   /** 未ログイン (GET /api/me を 401 にする) */
   signedIn: boolean;
   providers: string[];
@@ -102,6 +104,7 @@ export function fakeServer(initial: Partial<Pick<FakeServer, "mine" | "shared" |
     users: [],
     inviteTokens: {},
     presence: {},
+    snapshots: {},
     signedIn: true,
     providers: ["dev"],
     appOrigin: "http://test",
@@ -345,6 +348,17 @@ export function fakeServer(initial: Partial<Pick<FakeServer, "mine" | "shared" |
       const file = [...s.mine, ...s.shared, ...s.trash].find((f) => f.id === decodeURIComponent(shareMatch[1]!));
       if (!file) return apiError(404, "file_not_found", "ファイルが見つかりません");
       return handleShare(method, file, shareMatch[2]!, body) ?? apiError(404, "not_found", "見つかりません");
+    }
+    const snapshotMatch = /^\/api\/files\/([^/]+)\/snapshots(?:\/([^/]+))?$/.exec(path);
+    if (snapshotMatch && method === "GET") {
+      const id = decodeURIComponent(snapshotMatch[1]!);
+      const file = s.mine.find((f) => f.id === id);
+      if (!file) return apiError(404, "file_not_found", "ファイルが見つかりません");
+      const past = s.snapshots[id] ?? {};
+      if (!snapshotMatch[2]) return json({ keys: Object.keys(past).sort().reverse() });
+      const text = past[decodeURIComponent(snapshotMatch[2])];
+      if (text === undefined) return apiError(404, "snapshot_not_found", "その時点の状態は見つかりません");
+      return new Response(text, { headers: { "Content-Disposition": `attachment; filename*=UTF-8''past.json` } });
     }
     const m = /^\/api\/files\/([^/]+)(?:\/(duplicate|restore|purge|export|ticket|presence))?$/.exec(path);
     if (m) {

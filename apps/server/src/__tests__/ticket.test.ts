@@ -18,7 +18,7 @@ async function forge(payload: Record<string, unknown>, secret = secretEnv.TICKET
   return `${input}.${b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input))))}`;
 }
 
-const goodPayload = (now = Date.now()) => ({ ...claims, iat: now, exp: Math.floor(now / 1000) + 60 });
+const goodPayload = (now = Date.now()) => ({ ...claims, sid: null, jti: "0123456789abcdef0123456789", iat: now, exp: Math.floor(now / 1000) + 60 });
 
 /** 署名はそのままに、本文だけ差し替えた偽物 */
 function withPayload(token: string, change: (payload: Record<string, unknown>) => void): string {
@@ -39,7 +39,17 @@ describe("チケットの署名と検証", () => {
     expect(decode(header)).toEqual({ alg: "HS256", typ: "JWT" });
     // iat はミリ秒 (kick との前後を秒の丸めで曖昧にしない)、exp は JWT の決まりどおり秒
     expect(decode(body)).toMatchObject({ iat: now, exp: now / 1000 + 60 });
-    expect(await verifyTicket(secretEnv, ticket, now + 1000)).toEqual({ ...claims, iat: now });
+    const verified = await verifyTicket(secretEnv, ticket, now + 1000);
+    expect(verified).toEqual({ ...claims, sid: null, iat: now, jti: decode(body).jti, expMs: now + TICKET_TTL_MS });
+    expect(verified!.jti).toMatch(/^[\w-]{22}$/);
+  });
+
+  it("チケットごとに jti (乱数) が違う。sid はそのまま運ばれる", async () => {
+    const a = await verifyTicket(secretEnv, (await issueTicket(secretEnv, { ...claims, sid: "0123456789abcdef" })).ticket);
+    const b = await verifyTicket(secretEnv, (await issueTicket(secretEnv, claims)).ticket);
+    expect(a!.jti).not.toBe(b!.jti);
+    expect(a!.sid).toBe("0123456789abcdef");
+    expect(b!.sid).toBeNull();
   });
 
   it("ゲスト (userId が null) のチケットも通る", async () => {
@@ -99,6 +109,8 @@ describe("チケットの署名と検証", () => {
       { ...goodPayload(now), role: "guest", via: "member" },
       { ...goodPayload(now), userId: "" },
       { ...goodPayload(now), iat: "now" },
+      { ...goodPayload(now), jti: undefined },
+      { ...goodPayload(now), jti: "short" },
     ]) {
       expect(await verifyTicket(secretEnv, await forge(bad), now)).toBeNull();
     }

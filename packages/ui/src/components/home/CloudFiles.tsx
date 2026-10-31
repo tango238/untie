@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { can, ROLE_LABELS, type FileSummary } from "@untie/api";
 import { useFilesStore } from "../../cloud/files";
 import { useSessionStore } from "../../cloud/session";
@@ -132,6 +133,7 @@ export function CloudFiles() {
             <input
               aria-label="新しいファイルの名前"
               placeholder="ファイルの名前"
+              maxLength={NAME_MAX_LENGTH}
               value={newName}
               autoFocus
               onChange={(e) => setNewName(e.target.value)}
@@ -216,6 +218,7 @@ export function CloudFiles() {
                       >
                         <input
                           aria-label="新しい名前"
+                          maxLength={NAME_MAX_LENGTH}
                           value={renaming.name}
                           autoFocus
                           onChange={(e) => setRenaming({ id: file.id, name: e.target.value })}

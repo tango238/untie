@@ -52,6 +52,8 @@ export interface RoomClient {
   doc: Y.Doc;
   /** 受け取った awareness メッセージの中身 (JSON の状態の文字列)。メッセージに複数の更新が入っていても、1 件目だけを読む */
   awareness: string[];
+  /** 受け取った custom message の本文 (`__YPS:` を除いたもの。y-partyserver の broadcastCustomMessage) */
+  custom: string[];
   /** 閉じられたときのコードと理由。まだなら null */
   closed: { code: number; reason: string } | null;
   send(message: Uint8Array): void;
@@ -86,6 +88,7 @@ export async function connectRoom(roomId: string, ticket: string | null, extraQu
     ws,
     doc,
     awareness: [],
+    custom: [],
     closed: null,
     send: (message) => ws.send(message),
     async sync() {
@@ -110,7 +113,11 @@ export async function connectRoom(roomId: string, ticket: string | null, extraQu
 
   ws.addEventListener("message", (event) => {
     const data = event.data;
-    if (typeof data === "string") return;
+    if (typeof data === "string") {
+      if (data.startsWith("__YPS:")) client.custom.push(data.slice("__YPS:".length));
+      for (const waiter of waiters.splice(0)) waiter();
+      return;
+    }
     const buf = new Uint8Array(data as ArrayBuffer);
     const [kind, p1] = readVarUint(buf, 0);
     if (kind === MESSAGE_SYNC) {

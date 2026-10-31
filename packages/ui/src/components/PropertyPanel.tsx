@@ -14,6 +14,7 @@ import {
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "@untie/core/model/relations";
 import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
+import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { activityHours, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
@@ -235,13 +236,14 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
           </span>
         )}
       </div>
-      <CommitField label="名前" value={element.name} inputRef={nameRef} readOnly={readOnly} onCommit={(name) => update({ name })} />
+      <CommitField label="名前" maxLength={NAME_MAX_LENGTH} value={element.name} inputRef={nameRef} readOnly={readOnly} onCommit={(name) => update({ name })} />
       {isGuideKind(element.kind) && !(element.kind === "buc" && element.isDefault) && (
         <p className="hint name-hint">{GRANULARITY[element.kind].nameHint}</p>
       )}
       <CommitField
         label="説明"
         multiline
+        maxLength={DESCRIPTION_MAX_LENGTH}
         value={element.description ?? ""}
         readOnly={readOnly}
         onCommit={(description) => update({ description })}
@@ -269,7 +271,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
         {isContextMemberKind(element.kind) && <ContextField element={element} model={model} />}
         {element.kind === "state" && (
-          <CommitField label="状態グループ" value={element.group ?? ""} onCommit={(group) => update({ group })} />
+          <CommitField label="状態グループ" maxLength={GROUP_MAX_LENGTH} value={element.group ?? ""} onCommit={(group) => update({ group })} />
         )}
         {element.kind === "variation" && (
           <VariationValues variation={element} onChange={(values) => update({ values })} />
@@ -706,7 +708,7 @@ function LinksEditor({ links, onChange, readOnly }: { links: Link[]; onChange: (
       pushToast("URL は http:// か https:// で始めてください", "error");
       return;
     }
-    onChange([...links, { title: title.trim() || u, url: u }]);
+    onChange([...links, { title: title.trim() || truncateText(u, LINK_TITLE_MAX_LENGTH), url: u }]);
     setTitle("");
     setUrl("");
   };
@@ -756,11 +758,12 @@ function LinksEditor({ links, onChange, readOnly }: { links: Link[]; onChange: (
         </ul>
       )}
       {!readOnly && <div className="link-add">
-        <input aria-label="リンクの表示名" placeholder="表示名 (例: 鍵の受け渡しマニュアル)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input aria-label="リンクの表示名" placeholder="表示名 (例: 鍵の受け渡しマニュアル)" maxLength={LINK_TITLE_MAX_LENGTH} value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className="inline-add">
           <input
             aria-label="リンクの URL"
             placeholder="https://..."
+            maxLength={LINK_URL_MAX_LENGTH}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -798,6 +801,7 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
           <li key={i}>
             <CommitField
               label={`値 ${i + 1}`}
+              maxLength={VALUE_MAX_LENGTH}
               value={v}
               onCommit={(nv) => {
                 const t = nv.trim();
@@ -831,6 +835,7 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
       <div className="inline-add">
         <input
           aria-label="追加する値"
+          maxLength={VALUE_MAX_LENGTH}
           value={adding}
           placeholder="新しい値"
           onChange={(e) => setAdding(e.target.value)}
@@ -990,6 +995,7 @@ function IssueAnalysisFields({ issue }: { issue: Issue }) {
           key={key}
           label={ISSUE_ANALYSIS_LABELS[key]}
           multiline
+          maxLength={ANALYSIS_MAX_LENGTH}
           placeholder={ISSUE_ANALYSIS_QUESTIONS[key]}
           readOnly={readOnly}
           value={issue.analysis?.[key] ?? ""}

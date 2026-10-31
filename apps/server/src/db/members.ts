@@ -25,6 +25,12 @@ export async function listMembers(db: D1Database, fileId: string): Promise<Membe
   return results;
 }
 
+/** そのユーザーがメンバーのファイルの id すべて (ゴミ箱の中も含む。ログアウトで、ルームの接続を閉じる先を知るため) */
+export async function listFileIdsOfMember(db: D1Database, userId: string): Promise<string[]> {
+  const { results } = await db.prepare("select file_id from file_members where user_id = ? order by file_id").bind(userId).all<{ file_id: string }>();
+  return results.map((r) => r.file_id);
+}
+
 /** そのファイルのメンバー 1 人 (メンバーでなければ null) */
 export async function getMember(db: D1Database, fileId: string, userId: string): Promise<MemberRow | null> {
   return db.prepare(`${SELECT_MEMBER} where m.file_id = ? and m.user_id = ?`).bind(fileId, userId).first<MemberRow>();

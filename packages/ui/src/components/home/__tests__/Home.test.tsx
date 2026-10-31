@@ -238,6 +238,7 @@ describe("Home: クラウドのファイル", () => {
     await screen.findByText("ホテルの業務");
     fireEvent.click(screen.getByRole("button", { name: "新しいファイル" }));
     const input = screen.getByRole("textbox", { name: "新しいファイルの名前" });
+    expect(input.getAttribute("maxlength")).toBe("200");
     fireEvent.submit(input.closest("form")!);
     expect(useUntieStore.getState().toasts.slice(-1)[0]?.message).toBe("ファイルの名前を入力してください");
     fireEvent.change(input, { target: { value: "営業" } });

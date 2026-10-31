@@ -5,11 +5,11 @@ import { PutLinkRequestSchema } from "@untie/api";
 import type { LinkInfo, LinkResponse, PresenceResponse, Role, TicketResponse } from "@untie/api";
 import type { AppEnv } from "../env";
 import { generateToken, sha256Hex } from "../auth/crypto";
-import { appOrigin, optionalUser, requireSession } from "../auth/session";
-import { issueTicket } from "../auth/ticket";
+import { appOrigin, optionalSession, requireSession } from "../auth/session";
+import { issueTicket, sidOf } from "../auth/ticket";
 import { getFileByLink, getMemberRole, setLinkToken, setLinkTokenIfNone } from "../db/links";
 import type { LinkedFile } from "../db/links";
-import type { UserRow } from "../db/types";
+import type { SessionRow, UserRow } from "../db/types";
 import { notFound } from "../errors";
 import { exportRoomModel, kickRoomQuietly, presenceRoom } from "../rooms";
 import { assertNotInTrash, requireRole } from "./authz";
@@ -62,12 +62,13 @@ linkRoutes.use("*", async (c, next) => {
 });
 
 /** トークンで引いたファイルと、見ている人の役割。ログインしていてメンバーならその役割、それ以外は guest。無効なトークン・ゴミ箱の中は 404 */
-async function resolveLink(c: Context<AppEnv>): Promise<{ file: LinkedFile; user: UserRow | null; role: Role }> {
+async function resolveLink(c: Context<AppEnv>): Promise<{ file: LinkedFile; user: UserRow | null; session: SessionRow | null; role: Role }> {
   const file = await getFileByLink(c.env.DB, await sha256Hex(readToken(c)));
   if (!file) throw notFound("このリンクは無効です", "link_not_found");
-  const user = await optionalUser(c);
+  const found = await optionalSession(c);
+  const user = found?.user ?? null;
   const role: Role = (user ? await getMemberRole(c.env.DB, file.id, user.id) : null) ?? "guest";
-  return { file, user, role };
+  return { file, user, session: found?.session ?? null, role };
 }
 
 linkRoutes.get("/info", async (c) => {
@@ -77,7 +78,7 @@ linkRoutes.get("/info", async (c) => {
 
 // ルームに接続するチケット。メンバーならその役割と userId、それ以外は userId なしのゲスト (名前はルームが「ゲスト N」に振り直す)
 linkRoutes.post("/ticket", async (c) => {
-  const { file, user, role } = await resolveLink(c);
+  const { file, user, session, role } = await resolveLink(c);
   const member = user !== null && role !== "guest";
   const { ticket, expiresAt } = await issueTicket(c.env, {
     fileId: file.id,
@@ -85,6 +86,8 @@ linkRoutes.post("/ticket", async (c) => {
     name: member ? user.name || user.email.split("@")[0] : "ゲスト",
     role,
     via: "link",
+    // メンバーがリンクから開いたときだけ、ログアウトで閉じられるようにセッションの印を付ける (ゲストはセッションと無関係)
+    sid: member && session ? sidOf(session.id) : null,
   });
   return c.json({ ticket, role, expiresAt } satisfies TicketResponse);
 });

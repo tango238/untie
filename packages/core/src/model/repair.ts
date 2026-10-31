@@ -13,6 +13,9 @@
 // - 関係が消えたボードの線の設定は消す
 // - 置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・活動) のノードに width / height が無ければ既定の大きさを補う
 // - ボードが 0 枚なら「ボード 1」を作る
+// - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
+//
+// changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
 //
 // 対象外 (validateModel が検査するが、同時編集では起きにくいので直さない):
 // - 要素・関係・ボードをまたいだ id の重複
@@ -22,6 +25,7 @@ import { produce } from "immer";
 import { DEFAULT_FRAME_SIZE } from "./commands";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
+import { truncateModelStrings } from "./truncate";
 import { ELEMENT_KIND_LABELS, isContextMemberKind } from "./types";
 import type { Board, Buc, Element, UntieModel } from "./types";
 
@@ -38,8 +42,11 @@ export const FALLBACK_BOARD_ID = "board_main";
  * 壊れた参照を直す。壊れていなければ同じ参照を返し、changes は空。
  * 直す規則と対象外の規則は、このファイルの冒頭に書いてある。
  */
-export function repairModel(model: UntieModel): RepairResult {
-  const changes: string[] = [];
+export function repairModel(input: UntieModel): RepairResult {
+  // 長すぎる文字列は先に切り詰める (切り詰めないと、以降の検証で形の壊れた要素として扱われる)
+  const truncated = truncateModelStrings(input);
+  const model = truncated.model;
+  const changes: string[] = [...truncated.changes];
 
   const next = produce(model, (draft) => {
     const label = (e: Element) => `${ELEMENT_KIND_LABELS[e.kind]} ${e.id}`;
@@ -92,7 +99,7 @@ export function repairModel(model: UntieModel): RepairResult {
         changes.push(`${label(dup)} を消した (業務 ${biz.id} の既定の活動が複数あり、${keep.id} を残した)`);
       }
       if (keep.name !== biz.name) {
-        changes.push(`${label(keep)} の名前を業務名「${biz.name}」に揃えた`);
+        changes.push(`${label(keep)} の名前を業務 ${biz.id} の名前に揃えた`);
         keep.name = biz.name;
       }
     }
@@ -188,17 +195,17 @@ export function repairModel(model: UntieModel): RepairResult {
       for (const n of b.nodes) {
         const el = byId.get(n.elementId);
         if (!el) {
-          changes.push(`ボード「${b.name}」のノード ${n.elementId} を消した (要素が無い)`);
+          changes.push(`ボード ${b.id} のノード ${n.elementId} を消した (要素が無い)`);
           continue;
         }
         if (el.kind === "issue" || (el.kind === "buc" && el.isDefault)) {
-          changes.push(`ボード「${b.name}」のノード ${n.elementId} を消した (${el.kind === "issue" ? "課題" : "既定の活動"}は置けない)`);
+          changes.push(`ボード ${b.id} のノード ${n.elementId} を消した (${el.kind === "issue" ? "課題" : "既定の活動"}は置けない)`);
           continue;
         }
         if (el.kind === "business" || el.kind === "buc") {
           const size = DEFAULT_FRAME_SIZE[el.kind];
           if (n.width === undefined || n.height === undefined) {
-            changes.push(`ボード「${b.name}」の${ELEMENT_KIND_LABELS[el.kind]} ${el.id} のノードに枠の大きさを補った`);
+            changes.push(`ボード ${b.id} の${ELEMENT_KIND_LABELS[el.kind]} ${el.id} のノードに枠の大きさを補った`);
             if (n.width === undefined) n.width = size.width;
             if (n.height === undefined) n.height = size.height;
           }
@@ -213,8 +220,8 @@ export function repairModel(model: UntieModel): RepairResult {
             if (relationIds.has(e.relationId)) continue;
             changes.push(
               dupRelationIds.has(e.relationId)
-                ? `ボード「${b.name}」の重複した関係の線 ${e.relationId} を消した`
-                : `ボード「${b.name}」の線の設定 ${e.relationId} を消した (関係が無い)`,
+                ? `ボード ${b.id} の重複した関係の線 ${e.relationId} を消した`
+                : `ボード ${b.id} の線の設定 ${e.relationId} を消した (関係が無い)`,
             );
           }
           if (edges.length > 0) b.edges = edges;

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidElementShape, repairModel } from "@untie/core";
+import { EDGE_SIDES, isValidElementShape, repairModel, truncateElementStrings, truncateModelStrings } from "@untie/core";
 import type { Board, BoardEdge, BoardNode, Element, Meta, Relation, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
@@ -37,9 +37,11 @@ function readElements(map: Y.Map<Y.Map<unknown>>): Element[] {
     // 分析が空の Y.Map は分析なし (コマンドは空の分析を作らない)
     if (typeof fields.analysis === "object" && fields.analysis !== null && Object.keys(fields.analysis).length === 0) delete fields.analysis;
     const element = { id, ...cloneJson(fields) };
+    // 形の検査は、長すぎる文字列を切り詰めた写しで行う。上限を超えただけの要素を外すと、その要素と関係が全員の画面から消える。
+    // 値は切り詰めずに返す (readRawModel。サーバーの repairDoc が Y.Doc に切り詰めを書けるよう、「直す前」はそのまま)
     // 種類が分からない要素や、形の壊れた要素 (項目が欠けた課題など。壊れた update) は組み立てない。1 つで全員が落ちるのを防ぐ
-    if (!isValidElementShape(element)) return;
-    items.push({ order, id, value: element });
+    if (!isValidElementShape(truncateElementStrings(element).element)) return;
+    items.push({ order, id, value: element as Element });
   });
   return sortedValues(items);
 }
@@ -146,12 +148,13 @@ function shareModel(next: UntieModel, prev: UntieModel): UntieModel {
 }
 
 /**
- * Y.Doc の中身をそのままモデルにする。order で並べ、order は出力に含めない。
- * 壊れた参照 (消えた要素を指す関係など) は外さない。サーバーが Y.Doc を直す差分 (repairDoc) の「直す前」に使う。
- * ただし形の壊れた要素・ノード・関係・線 (項目が欠けている、種類が不明など) は外す。1 つで組み立てが落ちるのを防ぐため。
+ * Y.Doc の中身を、長すぎる文字列も含めてそのままモデルにする。サーバーが Y.Doc を直す差分 (repairDoc) の「直す前」に使う
+ * (切り詰めた結果との差分を Y.Doc に書くため、ここでは切り詰めない)。返すモデルはスキーマの文字数の上限を超えうる。
+ * 壊れた参照 (消えた要素を指す関係など) は外さない。ただし形の壊れた要素・ノード・関係・線 (項目が欠けている、種類が不明など) は外す。
+ * 1 つで組み立てが落ちるのを防ぐため。文字列が上限を超えているだけの要素は外さない (形の検査は切り詰めた写しで行う)。
  * ボードが 0 枚でも補わない。
  */
-export function readModel(doc: Y.Doc): UntieModel {
+export function readRawModel(doc: Y.Doc): UntieModel {
   const roots = getRoots(doc);
   return {
     version: 1,
@@ -160,6 +163,15 @@ export function readModel(doc: Y.Doc): UntieModel {
     relations: readRelations(roots.relations),
     boards: readBoards(roots.boards) as UntieModel["boards"],
   };
+}
+
+/**
+ * Y.Doc の中身をモデルにする。壊れた参照は外さず、ボードが 0 枚でも補わない。
+ * ただし形の壊れた要素・ノード・関係・線は外し、長すぎる文字列は外さずに上限へ切り詰める
+ * (外すと、上限を超えただけの要素が全員の画面から消え、関係もサーバーに消される)。
+ */
+export function readModel(doc: Y.Doc): UntieModel {
+  return truncateModelStrings(readRawModel(doc)).model;
 }
 
 /**
@@ -172,6 +184,6 @@ export function readModel(doc: Y.Doc): UntieModel {
  *   (配列全体が同じなら配列自体も)。全部同じなら prev 自体を返す。
  */
 export function rebuildModel(doc: Y.Doc, prev?: UntieModel): UntieModel {
-  const model = repairModel(readModel(doc)).model;
+  const model = repairModel(readRawModel(doc)).model;
   return prev ? shareModel(model, prev) : model;
 }

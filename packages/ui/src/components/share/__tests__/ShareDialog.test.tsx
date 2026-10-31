@@ -4,6 +4,7 @@ import { useFilesStore } from "../../../cloud/files";
 import { useSessionStore } from "../../../cloud/session";
 import { useUntieStore } from "../../../store";
 import { apiError, fakeServer, member, summary, user, type FakeServer } from "../../../test/server";
+import { memory } from "../../../test/platform";
 import { resetStore } from "../../../test/utils";
 import { ShareDialog } from "../ShareDialog";
 
@@ -358,5 +359,63 @@ describe("ShareDialog: 確認ダイアログとの関係", () => {
     fireEvent.click(within(confirm).getByRole("button", { name: "キャンセル" }));
     await act(async () => {});
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "閉じる" }));
+  });
+});
+
+describe("ShareDialog: 過去の状態", () => {
+  const at = (iso: string) => `snapshot:${iso}`;
+
+  it("1 時間ごとのスナップショットを新しい順に並べ、「書き出す」で platform.saveTextFile に JSON をそのまま渡す", async () => {
+    const older = at("2026-10-31T01:00:00.000Z");
+    const newer = at("2026-10-31T05:00:00.000Z");
+    server.snapshots.f1 = { [older]: '{"older":true}\n', [newer]: '{"newer":true}\n' };
+    await open();
+    const section = within(await screen.findByRole("region", { name: "過去の状態" }));
+    const buttons = await section.findAllByRole("button", { name: /を書き出す$/ });
+    expect(buttons).toHaveLength(2);
+    // 新しい順 (先頭が newer)
+    const expectedLabel = (iso: string) => {
+      const d = new Date(iso);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00 の状態を書き出す`;
+    };
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([expectedLabel("2026-10-31T05:00:00.000Z"), expectedLabel("2026-10-31T01:00:00.000Z")]);
+
+    fireEvent.click(buttons[0]!);
+    await waitFor(() => expect(memory().saved).toHaveLength(1));
+    expect(memory().saved[0]).toMatchObject({ text: '{"newer":true}\n', path: null });
+    expect(memory().saved[0]!.name).toMatch(/^業務 \d{4}-\d{2}-\d{2}_\d{4}\.json$/);
+    expect(calls("GET", `/api/files/f1/snapshots/${encodeURIComponent(newer)}`)).toHaveLength(1);
+    await waitFor(() => expect(toasts().some((t) => t.includes("に書き出しました"))).toBe(true));
+  });
+
+  it("まだ無ければそう伝える。読めなくても共有の設定は使える", async () => {
+    await open();
+    await screen.findByText("まだありません。");
+
+    server.overrides["GET /api/files/f1/snapshots"] = () => apiError(500, "internal", "サーバーでエラーが起きました");
+    document.body.innerHTML = "";
+    await open();
+    await screen.findByText(/過去の状態を読めませんでした: サーバーでエラーが起きました/);
+    expect(screen.getByRole("switch")).toBeTruthy();
+  });
+
+  it("書き出しに失敗したらトーストに出す", async () => {
+    const key = at("2026-10-31T01:00:00.000Z");
+    server.snapshots.f1 = { [key]: "{}" };
+    server.overrides[`GET /api/files/f1/snapshots/${encodeURIComponent(key)}`] = () => apiError(404, "snapshot_not_found", "その時点の状態は見つかりません");
+    await open();
+    fireEvent.click(await screen.findByRole("button", { name: /を書き出す$/ }));
+    await waitFor(() => expect(toasts()).toContain("書き出せませんでした: その時点の状態は見つかりません"));
+    expect(memory().saved).toHaveLength(0);
+  });
+
+  it("所有者でなければ出さず、一覧も取りにいかない", async () => {
+    server.mine = [];
+    server.shared = [summary({ id: "f1", name: "業務", role: "editor", ownerId: "u2", ownerName: "田中" })];
+    render(<ShareDialog fileId="f1" onClose={onClose} />);
+    await screen.findByText("共有を設定できるのは所有者だけです。");
+    expect(screen.queryByRole("region", { name: "過去の状態" })).toBeNull();
+    expect(calls("GET", "/api/files/f1/snapshots")).toHaveLength(0);
   });
 });

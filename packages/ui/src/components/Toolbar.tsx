@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
+import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { traceToActors } from "@untie/core/model/trace";
 import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
@@ -97,7 +98,8 @@ export function Toolbar() {
       pushToast("ボード名を入力してください", "error");
       return;
     }
-    dispatch((m) => renameBoard(m, { id: board.id, name }));
+    const result = dispatch((m) => renameBoard(m, { id: board.id, name }));
+    if (!result.ok) pushToast(result.reason, "error");
   };
 
   return (
@@ -191,6 +193,7 @@ export function Toolbar() {
             >
               <input
                 aria-label="ボード名"
+                maxLength={NAME_MAX_LENGTH}
                 value={renaming}
                 autoFocus
                 onChange={(e) => setRenaming(e.target.value)}

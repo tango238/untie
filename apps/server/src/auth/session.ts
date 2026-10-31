@@ -2,11 +2,13 @@ import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../env";
-import { createSession, deleteSession, extendSession, findSession } from "../db/sessions";
-import type { SessionKind, UserRow } from "../db/types";
+import { createSession, deleteSession, deleteSessionsOfUser, extendSession, findSession, findSessionOwner } from "../db/sessions";
+import type { SessionKind, SessionRow, UserRow } from "../db/types";
 import { forbidden, unauthorized } from "../errors";
 import { isDesktopOrigin } from "./cors";
+import { kickRoomsOfUser } from "../rooms";
 import { generateToken, sha256Hex } from "./crypto";
+import { sidOf } from "./ticket";
 
 export const SESSION_COOKIE = "untie_session";
 /** 状態を変えるリクエストに Cookie 認証で付ける必須のヘッダー (フォームからは付けられない) */
@@ -133,24 +135,38 @@ export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 /**
- * セッションがあればユーザーを返す。無い・期限切れ・種類違いは null (エラーにせず、Cookie も触らない)。
+ * セッションがあればユーザーとセッションを返す。無い・期限切れ・種類違いは null (エラーにせず、Cookie も触らない)。
  * リンク閲覧のようにログインしなくても通る API が、ログインしていればメンバーとして扱うために使う。
  * 状態を変えるのはチケットの発行だけで、Cookie の送り元を悪用されても返事は読めないので CSRF のヘッダーは見ない
  */
-export async function optionalUser(c: Context<AppEnv>): Promise<UserRow | null> {
+export async function optionalSession(c: Context<AppEnv>): Promise<{ user: UserRow; session: SessionRow } | null> {
   const credential = readCredential(c);
   if (!credential) return null;
   const found = await findSession(c.env.DB, await sha256Hex(credential.token), Date.now());
   const expectedKind: SessionKind = credential.via === "cookie" ? "web" : "desktop";
-  return found && found.session.kind === expectedKind ? found.user : null;
+  return found && found.session.kind === expectedKind ? found : null;
 }
 
-/** ログアウト: セッションの行を消し、Cookie を消す。セッションが無くても成功にする */
+
+/**
+ * ログアウト: セッションの行を消し、Cookie を消す。セッションが無くても成功にする。
+ * そのセッションで開いているルームの接続も閉じる (チケットの sid が一致するもの。4000「ログアウトしました」)
+ */
 export async function endSession(c: Context<AppEnv>): Promise<void> {
   const credential = readCredential(c);
   if (credential) {
     assertCsrf(c, credential);
-    await deleteSession(c.env.DB, await sha256Hex(credential.token));
+    const id = await sha256Hex(credential.token);
+    const userId = await findSessionOwner(c.env.DB, id);
+    await deleteSession(c.env.DB, id);
+    if (userId) await kickRoomsOfUser(c, userId, { sid: sidOf(id) });
   }
+  clearSessionCookie(c);
+}
+
+/** すべての端末からログアウト: ユーザーの全セッションを消し、そのユーザーが開いているルームの接続をすべて閉じる (4000「ログアウトしました」) */
+export async function endAllSessions(c: Context<AppEnv>, userId: string): Promise<void> {
+  await deleteSessionsOfUser(c.env.DB, userId);
+  await kickRoomsOfUser(c, userId, { userId, reason: "loggedOut" });
   clearSessionCookie(c);
 }

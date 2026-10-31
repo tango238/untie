@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { ApiError, type PresenceEntry, type Role } from "@untie/api";
+import { ApiError, LOGGED_OUT_REASON, SAVE_FAILED_MESSAGE, SAVE_OK_MESSAGE, TICKET_USED_REASON, type PresenceEntry, type Role } from "@untie/api";
 import { createHotelSample } from "@untie/core/sample";
 import { hasUnsavedChanges, useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -462,6 +462,56 @@ describe("openCloudFile", () => {
     provider().emit("connection-close", { code, reason: "" });
     expect(st().cloud?.closed).toEqual({ code, reason });
     expect(provider().disconnected).toBe(true);
+  });
+
+  it("使用済みのチケットでの接続が閉じられた (4000) ときは閉じた扱いにしない。provider が新しいチケットで再接続する", async () => {
+    await openCloudFile("a");
+    provider().emit("connection-close", { code: 4000, reason: TICKET_USED_REASON });
+    expect(st().cloud?.closed).toBeUndefined();
+    expect(provider().disconnected).toBe(false);
+    // ログアウトなど、ほかの 4000 は閉じた扱い
+    provider().emit("connection-close", { code: 4000, reason: LOGGED_OUT_REASON });
+    expect(st().cloud?.closed).toEqual({ code: 4000, reason: LOGGED_OUT_REASON });
+  });
+
+  it("再接続のたびにチケットを取り直す: 最初の 1 回は取ったチケット、2 回目からは新しく取る (同じチケットを二度使わない)", async () => {
+    await openCloudFile("a");
+    const ticketCalls = () => server.calls.filter((c) => c.method === "POST" && c.path === "/api/files/a/ticket").length;
+    expect(ticketCalls()).toBe(1);
+    const params = provider().options.params;
+    await params(); // 最初の接続: 取ってあったチケットを使う (新しく取らない)
+    expect(ticketCalls()).toBe(1);
+    await params(); // 再接続: 取り直す
+    await params();
+    expect(ticketCalls()).toBe(3);
+  });
+
+  it("サーバーの save_failed / save_ok で cloud.saveFailed が立ち、消える。切断で消える (つなぎ直すとサーバーがまた知らせる)", async () => {
+    await openCloudFile("a");
+    const p = provider();
+    expect(st().cloud?.saveFailed).toBe(false);
+    p.emit("custom-message", SAVE_FAILED_MESSAGE);
+    expect(st().cloud?.saveFailed).toBe(true);
+    p.emit("custom-message", SAVE_OK_MESSAGE);
+    expect(st().cloud?.saveFailed).toBe(false);
+    p.emit("custom-message", SAVE_FAILED_MESSAGE);
+    p.emit("status", { status: "disconnected" });
+    expect(st().cloud?.saveFailed).toBe(false);
+    // 知らない・壊れた知らせは無視する
+    p.emit("custom-message", "not json");
+    p.emit("custom-message", JSON.stringify({ type: "other" }));
+    expect(st().cloud?.saveFailed).toBe(false);
+  });
+
+  it("keepUi を渡すと、開いているボードと選択を引き継ぐ。最初の同期で参照先が無ければ直る", async () => {
+    await openCloudFile("a", { keepUi: { currentBoardId: "board_free", selection: { type: "element", id: "gone" } } });
+    // 同期前は引き継いだまま (まだ中身が届いていないので外さない)
+    expect(st().ui.currentBoardId).toBe("board_free");
+    expect(st().ui.selection).toEqual({ type: "element", id: "gone" });
+    // 最初の同期で、無いボード・要素は直る
+    provider().emit("sync", true);
+    expect(st().ui.currentBoardId).not.toBe("board_free");
+    expect(st().ui.selection).toBeNull();
   });
 
   it("それ以外の閉じ方 (ネットワークの切断など) は閉じた扱いにしない", async () => {

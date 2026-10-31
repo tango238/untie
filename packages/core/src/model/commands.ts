@@ -2,6 +2,7 @@
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
 import { newUniqueId } from "./id";
+import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
   DEFAULT_EDGE_SIDES,
@@ -148,7 +149,23 @@ export function checkHours(hours: number): string | null {
 
 function checkLinks(links: Link[]): string | null {
   for (const l of links) {
-    if (!/^https?:\/\//.test(l.url.trim())) return `リンクの URL は http:// か https:// で始めてください: ${l.url}`;
+    const url = l.url.trim();
+    if (!/^https?:\/\//.test(url)) return `リンクの URL は http:// か https:// で始めてください: ${truncateText(l.url, 80)}`;
+    const reason = checkLength("linkUrl", url) ?? checkLength("linkTitle", l.title.trim());
+    if (reason) return reason;
+  }
+  return null;
+}
+
+/** 文字列の項目の長さを検査する。最初に見つかった問題の理由を返す */
+function firstLengthProblem(...problems: (string | null)[]): string | null {
+  return problems.find((p) => p !== null) ?? null;
+}
+
+function checkValues(values: readonly string[]): string | null {
+  for (const v of values) {
+    const reason = checkLength("value", v);
+    if (reason) return reason;
   }
   return null;
 }
@@ -189,6 +206,14 @@ export interface AddElementPayload {
 export function addElement(model: UntieModel, payload: AddElementPayload): CommandResult<{ id: string }> {
   const { kind, boardId, init = {} } = payload;
   const name = payload.name.trim();
+
+  const tooLong = firstLengthProblem(
+    checkLength("name", name),
+    init.description === undefined ? null : checkLength("description", init.description),
+    init.group === undefined ? null : checkLength("group", init.group),
+    init.values === undefined ? null : checkValues(init.values),
+  );
+  if (tooLong) return fail(tooLong);
 
   if (boardId !== undefined) {
     if (!model.boards.some((b) => b.id === boardId)) return fail(`ボードが存在しません: ${boardId}`);
@@ -309,6 +334,14 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
   for (const key of Object.keys(patch)) {
     if (!allowed.has(key)) return fail(`この要素では「${key}」を変更できません`);
   }
+  const tooLong = firstLengthProblem(
+    patch.name === undefined ? null : checkLength("name", patch.name.trim()),
+    patch.description === undefined ? null : checkLength("description", patch.description),
+    patch.group === undefined ? null : checkLength("group", patch.group),
+    patch.values === undefined ? null : checkValues(patch.values),
+    ...(patch.analysis ? ISSUE_ANALYSIS_KEYS.map((key) => (patch.analysis![key] === undefined ? null : checkLength("analysis", patch.analysis![key]!.trim()))) : []),
+  );
+  if (tooLong) return fail(tooLong);
   if (patch.links !== undefined) {
     const reason = checkLinks(patch.links);
     if (reason) return fail(reason);
@@ -355,7 +388,8 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       else el.hours = Math.round(patch.hours * 10) / 10;
     }
     if ((el.kind === "activity" || el.kind === "usecase") && patch.links !== undefined) {
-      const links = patch.links.map((l) => ({ title: l.title.trim() || l.url.trim(), url: l.url.trim() }));
+      // 表示名が空なら URL を表示名にする (表示名の上限に収まるよう切り詰める)
+      const links = patch.links.map((l) => ({ title: l.title.trim() || truncateText(l.url.trim(), LINK_TITLE_MAX_LENGTH), url: l.url.trim() }));
       if (links.length === 0) delete el.links;
       else el.links = links;
     }
@@ -547,6 +581,31 @@ export function removeRelation(model: UntieModel, payload: RemoveRelationPayload
   return { ok: true, model: next };
 }
 
+// ---------------------------------------------------------------- メタ情報
+
+export interface UpdateMetaPayload {
+  name?: string;
+  /** 空文字で消す */
+  description?: string;
+}
+
+/** ファイル名 (meta.name) と説明を変える */
+export function updateMeta(model: UntieModel, payload: UpdateMetaPayload): CommandResult {
+  const tooLong = firstLengthProblem(
+    payload.name === undefined ? null : checkLength("metaName", payload.name.trim()),
+    payload.description === undefined ? null : checkLength("metaDescription", payload.description),
+  );
+  if (tooLong) return fail(tooLong);
+  const next = produce(model, (draft) => {
+    if (payload.name !== undefined) draft.meta.name = payload.name.trim();
+    if (payload.description !== undefined) {
+      if (payload.description === "") delete draft.meta.description;
+      else draft.meta.description = payload.description;
+    }
+  });
+  return { ok: true, model: next };
+}
+
 // ---------------------------------------------------------------- ボード
 
 export interface AddBoardPayload {
@@ -555,6 +614,8 @@ export interface AddBoardPayload {
 }
 
 export function addBoard(model: UntieModel, payload: AddBoardPayload): CommandResult<{ id: string }> {
+  const tooLong = checkLength("boardName", payload.name.trim());
+  if (tooLong) return fail(tooLong);
   if (payload.id !== undefined && usedIds(model).has(payload.id)) return fail(`id が重複しています: ${payload.id}`);
   const id = payload.id ?? newUniqueId("board", usedIds(model));
   const next = produce(model, (draft) => {
@@ -569,6 +630,8 @@ export interface RenameBoardPayload {
 }
 
 export function renameBoard(model: UntieModel, payload: RenameBoardPayload): CommandResult {
+  const tooLong = checkLength("boardName", payload.name.trim());
+  if (tooLong) return fail(tooLong);
   if (!model.boards.some((b) => b.id === payload.id)) return fail(`ボードが存在しません: ${payload.id}`);
   const next = produce(model, (draft) => {
     draft.boards.find((b) => b.id === payload.id)!.name = payload.name.trim();

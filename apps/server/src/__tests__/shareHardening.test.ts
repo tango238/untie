@@ -75,7 +75,7 @@ describe("kick の失敗と再試行", () => {
     expect(String(error.mock.calls[0][1])).toBe("kick に失敗");
   });
 
-  it("再試行でも kick する: 外し済みの人への DELETE は kick してから 404、同じ役割への PUT も kick する", async () => {
+  it("再試行でも kick する: 外し済みの人への DELETE は kick してから 404。同じ役割への PUT・招待し直しは kick しない", async () => {
     const taro = await loginAs("taro@example.com");
     const hanako = await loginAs("hanako@example.com");
     const id = await createFile(taro);
@@ -84,13 +84,22 @@ describe("kick の失敗と再試行", () => {
     const owner = await loginAs("taro@example.com", "", { UntieRoom: namespace });
 
     expect((await owner.json(`/api/files/${id}/members/${hanakoId}`, { method: "PUT", json: { role: "editor" } })).status).toBe(200);
-    expect(kicks).toEqual([{ userId: hanakoId, reason: "roleChanged" }]);
+    expect((await owner.json(`/api/files/${id}/invitations`, { method: "POST", json: { email: "hanako@example.com", role: "editor" } })).status).toBe(200);
+    expect(kicks).toEqual([]);
+    // 役割が変わったときだけ切る
+    expect((await owner.json(`/api/files/${id}/members/${hanakoId}`, { method: "PUT", json: { role: "viewer" } })).status).toBe(200);
+    expect((await owner.json(`/api/files/${id}/invitations`, { method: "POST", json: { email: "hanako@example.com", role: "editor" } })).status).toBe(200);
+    expect(kicks).toEqual([
+      { userId: hanakoId, reason: "roleChanged" },
+      { userId: hanakoId, reason: "roleChanged" },
+    ]);
+    kicks.length = 0;
 
     expect((await owner.fetch(`/api/files/${id}/members/${hanakoId}`, { method: "DELETE" })).status).toBe(204);
     const again = await owner.json(`/api/files/${id}/members/${hanakoId}`, { method: "DELETE" });
     expect(again.status).toBe(404);
     expect(again.body.error.code).toBe("member_not_found");
-    expect(kicks.slice(1)).toEqual([
+    expect(kicks).toEqual([
       { userId: hanakoId, reason: "removed" },
       { userId: hanakoId, reason: "removed" },
     ]);
@@ -251,10 +260,10 @@ describe("リンクの有効化の並行", () => {
     expect(row.link_token).toBe(await sha256Hex(tokenOf(urls[0], "link")));
   });
 
-  it("PUT /link は 2 MB を超える本文を 413 にする", async () => {
+  it("PUT /link は 1 MB を超える本文を 413 にする", async () => {
     const taro = await loginAs("taro@example.com");
     const id = await createFile(taro);
-    const huge = JSON.stringify({ regenerate: true, pad: "x".repeat(3 * 1024 * 1024) });
+    const huge = JSON.stringify({ regenerate: true, pad: "x".repeat(1024 * 1024 + 1) });
     const response = await taro.json(`/api/files/${id}/link`, { method: "PUT", body: huge, headers: { "Content-Type": "application/json", "Content-Length": String(huge.length) } });
     expect(response.status).toBe(413);
   });
@@ -296,14 +305,19 @@ describe("書き出しのファイル名", () => {
 });
 
 describe("マイグレーション", () => {
-  it("0001〜0003 が当たり、invitations(file_id, accepted_at) の index と sessions.activated_at がある", async () => {
-    expect(env.TEST_MIGRATIONS.map((m) => m.name)).toEqual(["0001_init.sql", "0002_invitations_index.sql", "0003_desktop_sessions.sql"]);
+  it("0001〜0004 が当たり、invitations(file_id, accepted_at) の index と sessions.activated_at、古い招待の掃除の部分 index がある", async () => {
+    expect(env.TEST_MIGRATIONS.map((m) => m.name)).toEqual([
+      "0001_init.sql",
+      "0002_invitations_index.sql",
+      "0003_desktop_sessions.sql",
+      "0004_invitations_cleanup.sql",
+    ]);
     const sessionColumns = await env.DB.prepare("pragma table_info(sessions)").all<{ name: string }>();
     expect(sessionColumns.results.map((r) => r.name)).toContain("activated_at");
     const sessionIndexes = await env.DB.prepare("pragma index_list(sessions)").all<{ name: string }>();
     expect(sessionIndexes.results.map((r) => r.name)).toEqual(expect.arrayContaining(["sessions_expires", "sessions_unactivated"]));
     const { results } = await env.DB.prepare("pragma index_list(invitations)").all<{ name: string }>();
-    expect(results.map((r) => r.name)).toContain("invitations_file");
+    expect(results.map((r) => r.name)).toEqual(expect.arrayContaining(["invitations_file", "invitations_expired", "invitations_accepted"]));
     const columns = await env.DB.prepare("pragma index_info(invitations_file)").all<{ name: string }>();
     expect(columns.results.map((r) => r.name)).toEqual(["file_id", "accepted_at"]);
   });

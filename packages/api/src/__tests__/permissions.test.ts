@@ -22,6 +22,8 @@ const TABLE: Record<Action, Record<Role, boolean>> = {
   transfer: { owner: true, editor: false, viewer: false, guest: false },
   // ゴミ箱に入れる・戻す・完全に消す
   delete: { owner: true, editor: false, viewer: false, guest: false },
+  // 過去の状態 (1 時間ごとのスナップショット) の一覧と書き出し
+  snapshots: { owner: true, editor: false, viewer: false, guest: false },
   // 自分をメンバーから外す (所有者は譲ってから、ゲストはメンバーではない)
   leave: { owner: false, editor: true, viewer: true, guest: false },
 };

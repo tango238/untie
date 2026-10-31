@@ -20,18 +20,23 @@
 | 保存形式 | JSON ファイルの形式 (`schema/untie.schema.json`、`version: 1`) は変えない。クラウドファイルは同じ JSON に書き出せる |
 | 衝突 | 項目ごとに後勝ち (Yjs の Y.Map)。名前と説明は文字単位では合流しない |
 | Undo / Redo | クラウドファイルでは使えない。ローカルファイルでは従来のスナップショットの履歴をそのまま使う |
-| 参照整合性 | 合流後に壊れた参照 (消えた要素を指す関係など) をサーバーが直す (`repairModel`) |
+| 参照整合性 | 合流後に壊れた参照 (消えた要素を指す関係など) をサーバーが直す (`repairModel`)。スキーマの文字数の上限を超えた文字列は、要素を外さず切り詰める (6 章) |
+| 文字数の上限 | スキーマの `maxLength` (名前 200・説明 4000・状態グループ 200・バリエーションの値 200・分析の各項目 4000・リンクの表示名 200 / URL 2000) を、`packages/core/src/model/limits.ts` に定数で写す。すべてのコマンドが超える入力を `{ ok: false, reason: "名前は 200 文字までです" }` のように断り、入力欄には `maxLength` を付ける。超えたものが Y.Doc に入っても、`readModel` / `repairModel` が切り詰める (6 章) |
+| モデルの大きさ | **モデルは 1 MB まで**。取り込み (`POST /files` の `{ model }`) の本文を 1 MB で断る (413 `too_large`)。Durable Object の 1 つの値の上限に備えるため。保存の書き込みが失敗したら `save_failed` で知らせる (7.5) |
 | 配信 | 1 つの Cloudflare Worker が Web の静的ファイル・API・Durable Object を持つ。デスクトップ版も同じ Worker につなぐ。Pages は使わない |
 | 登録 | Google のアカウントがあれば誰でもログインできる。ドメインでは絞らない (共有されなければ何も見えない)。絞りたくなったときのために `ALLOWED_EMAIL_DOMAINS` の判定だけ入れてある (空なら制限なし) |
 | デスクトップのログイン | 既定のブラウザで Google にログインし、`untie://` の deep link でアプリに戻る。セッションの受け渡しは**引換コード** (5 分・1 回限り。トークンは入れず、AES-GCM で暗号化) と **PKCE** (`code_verifier`) で守る。deep link が開けない環境では、ブラウザの画面に出たコードをアプリに貼る (7.3) |
-| トークンの渡し方 | セッションは Cookie か `Authorization` ヘッダー。リンク閲覧・招待のトークンはパスではなく**ヘッダー `X-Untie-Token`** で送る (パスは Workers のログに残るため。7.4)。ルームへの接続は 60 秒だけ有効な署名付きの**チケット** (7.5) |
+| トークンの渡し方 | セッションは Cookie か `Authorization` ヘッダー。リンク閲覧・招待のトークンはパスではなく**ヘッダー `X-Untie-Token`** で送る (パスは Workers のログに残るため。7.4)。ルームへの接続は 60 秒だけ有効で**1 回しか使えない**署名付きの**チケット** (7.5) |
 | CORS | デスクトップの WebView のオリジン (`tauri://localhost`、`http://tauri.localhost`。`tauri dev` の `http://localhost:1420` は `DEV_LOGIN=true` のときだけ) にだけ許す。credentials は許さない (7.2) |
 | 未交換のセッション | デスクトップのログインでできた行は、引換コードを交換する (`activated_at` が入る) まで認証に通らない。交換されないまま 1 時間たった行は cron が消す (7.2) |
 | 閲覧専用 | owner / editor 以外の接続からの update は、`y-partyserver` の `isReadOnly` で捨てる。選択 (awareness) は viewer と guest も送れる (7.5) |
-| 権限の変更の反映 | 役割の変更・メンバーを外す・リンクの無効化・ゴミ箱では、Worker がルームの `kick` で接続を閉じる。kick は記録して、60 秒使えるチケットでのつなぎ直しも防ぐ (7.5) |
+| 権限の変更の反映 | **役割が実際に変わったとき**・メンバーを外す・リンクの無効化・ゴミ箱では、Worker がルームの `kick` で接続を閉じる (同じ役割への PUT・招待し直しでは閉じない)。ログアウトも同じ仕組みで、そのセッション (`sid`) またはそのユーザーの接続を閉じる (7.2)。kick は記録して、60 秒使えるチケットでのつなぎ直しも防ぐ (7.5) |
+| 保存できないとき | `onSave` が検証に通らない・書き込みに失敗したら、ルームが `save_failed` を全員に流し (あとから入った人にも)、画面は帯「サーバーに保存できていません。JSON に書き出して保存してください」を出す。保存できたら `save_ok` で消す (7.5、8.3) |
+| 過去の状態 | 1 時間ごとのスナップショット (3.4) を、owner が共有ダイアログの「過去の状態」から JSON に書き出せる (`GET /files/:id/snapshots` と `…/snapshots/:key`。7.4) |
+| 公開のホスト | `APP_ORIGIN` を設定したとき、それ以外のホスト (workers.dev など) への GET は `APP_ORIGIN` の同じパスへ 302 する (`/parties`・`/api/links/*`・`/auth/desktop/exchange` とデスクトップアプリからの呼び出しを除く)。Cookie とログインを 1 つのホストに揃える (7.1、9 章) |
 | プレゼンス | awareness (選択・開いているボード・名前・色)。自己申告は偽れるので、画面はサーバーの `presence()` と照らして表示する。権限には使わない (8.3) |
 | 保存していない変更 | クラウドファイルは、つながっている間は「未保存」が無い。つながっていない間に溜めた変更だけを、閉じる前の確認の対象にする (5 章、8.3) |
-| 自動で消すもの | 期限切れのセッション、交換されないままのデスクトップのセッション、ゴミ箱に入って 30 日を過ぎたファイルだけ。毎日 03:00 (UTC) の cron (3.4、7.2) |
+| 自動で消すもの | 期限切れのセッション、交換されないままのデスクトップのセッション、期限が切れて 30 日たった未承諾の招待と受けて 30 日たった招待の行、ゴミ箱に入って 30 日を過ぎたファイルだけ。毎日 03:00 (UTC) の cron (3.4、7.2) |
 
 ### 1.1 方式の比較 (同期)
 
@@ -174,6 +179,7 @@ apps/server ─┬─> core
 | リンク閲覧を有効・無効にする、リンクを作り直す | ○ | × | × | × |
 | 所有者を譲る | ○ | × | × | × |
 | ゴミ箱に入れる・戻す・完全に消す | ○ | × | × | × |
+| 過去の状態 (1 時間ごとのスナップショット) の一覧と書き出し | ○ | × | × | × |
 | 自分をメンバーから外す (共有をやめる) | × (譲ってから) | ○ | ○ | × (メンバーではない) |
 
 役割の型は `Role = "owner" | "editor" | "viewer" | "guest"` で、リンク閲覧は `guest` として扱う (viewer との違いは複製とメンバー一覧の表示だけ)。規則は `packages/api/src/permissions.ts` の純粋関数 `can(role, action)` に 1 か所で書く。サーバーは API ごとにこれで判定し、画面はこれでボタンの表示と無効化を決める。画面側は見せ方だけで、サーバーの判定が正本。
@@ -240,11 +246,13 @@ create index sessions_expires on sessions(expires_at);           -- 期限切れ
 create index files_deleted on files(deleted_at);                 -- ゴミ箱の掃除
 create index invitations_file on invitations(file_id, accepted_at);   -- (0002) ファイルごとの未承諾の招待
 create index sessions_unactivated on sessions(created_at) where kind = 'desktop' and activated_at is null;   -- (0003)
+create index invitations_expired on invitations(expires_at) where accepted_at is null;                    -- (0004) 古い招待の掃除
+create index invitations_accepted on invitations(accepted_at) where accepted_at is not null;              -- (0004)
 ```
 
 - 所有者は `files.owner_id` と `file_members` の `role = 'owner'` の両方に書く。前者で「自分のファイル」を速く引き、後者で権限判定を 1 本にする。譲るときは 1 トランザクションで両方を書き換える。
 - 「共有されたファイル」は `file_members` を `user_id` で引いて `role != 'owner'` のもの。
-- マイグレーションは `apps/server/migrations/` に番号順に置き (`0001_init.sql`: 表と基本の index、`0002_invitations_index.sql`: 招待の index、`0003_desktop_sessions.sql`: `sessions.activated_at` と部分 index)、`wrangler d1 migrations apply` で当てる (開発は `pnpm dev` が毎回ローカルの D1 に、本番は `pnpm --filter @untie/server d1:migrate`)。スキーマを変えるときは `0004_<内容>.sql` のように次の番号のファイルを足す。当てたものは書き換えない。
+- マイグレーションは `apps/server/migrations/` に番号順に置き (`0001_init.sql`: 表と基本の index、`0002_invitations_index.sql`: 招待の index、`0003_desktop_sessions.sql`: `sessions.activated_at` と部分 index、`0004_invitations_cleanup.sql`: 古い招待の掃除に使う部分 index)、`wrangler d1 migrations apply` で当てる (開発は `pnpm dev` が毎回ローカルの D1 に、本番は `pnpm --filter @untie/server d1:migrate`)。スキーマを変えるときは `0005_<内容>.sql` のように次の番号のファイルを足す。当てたものは書き換えない。
 
 ### 3.4 ファイルの中身の置き場所 (Durable Object)
 
@@ -252,11 +260,13 @@ create index sessions_unactivated on sessions(created_at) where kind = 'desktop'
 | --- | --- | --- |
 | `ydoc` | Yjs の状態 (`Y.encodeStateAsUpdate`) | 次に誰かが入ったときに `onLoad` で戻す |
 | `snapshot` | JSON 形式のモデル (`rebuildModel` の結果) | 書き出し、複製、壊れたときの戻し先 |
-| `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件)。その時間の**最初の保存の直前の状態** (上書きする前の `snapshot`) を入れ、同じ時間の 2 回目以降は上書きしない | 誤って消したときに、消す直前の状態の JSON を取り出す (クラウドファイルには Undo が無い) |
+| `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件。キーの日時は `2026-10-31T10:00:00.000Z` の形)。その時間の**最初の保存の直前の状態** (上書きする前の `snapshot`) を入れ、同じ時間の 2 回目以降は上書きしない | 誤って消したときに、消す直前の状態の JSON を取り出す (クラウドファイルには Undo が無い)。owner が `GET /files/:id/snapshots` (キーの一覧) と `GET /files/:id/snapshots/:key` (JSON。`export` と同じ形) で取り出し、共有ダイアログの「過去の状態」から書き出せる (7.4、8.1) |
+| `revoked:*` | kick の記録 (`revoked:user:<userId>`・`revoked:sid:<sid>`・`revoked:link`・`revoked:all`)。5 分で消す | kick のあとのつなぎ直しを防ぐ (7.5) |
+| `ticket:<jti>` | 使用済みのチケットの記録 (値はチケットの期限)。期限を過ぎたら次の接続で消す | チケットを 1 回しか使えなくする (7.5) |
 
-- 1 クラウドファイル = 1 Durable Object なので、ファイルの中身はその中で閉じる。モデルは数百 KB までなので、そのまま入る。R2 は使わない。
-- Worker からルームへは `getServerByName(env.UntieRoom, fileId, { locationHint: "apac" })` で RPC を呼ぶ: `importModel(json)` (作成・複製)、`exportModel()` (書き出し。接続せずに読む)、`rename(name)`、`destroy()` (完全に消す)。
-- ゴミ箱に入れても Durable Object は残す (戻せるように)。30 日経ったら Worker の cron (`scheduled`、毎日 03:00 UTC。`jobs/purgeTrash.ts`) が D1 から探して `destroy()` し、行を消す (1 回に 50 件まで。失敗したファイルは行を残して次の日にやり直す)。同じ cron が期限切れのセッションと、交換されないままのデスクトップのセッションも消す (7.2)。
+- 1 クラウドファイル = 1 Durable Object なので、ファイルの中身はその中で閉じる。**モデルは 1 MB まで**: 取り込みの本文を 1 MB で断り (`limitBody`。413 `too_large`)、Durable Object の 1 つの値の上限に備える。それでも `onSave` の `put` が失敗したら `console.error` に残し、`save_failed` で知らせる (7.5)。R2 は使わない。
+- Worker からルームへは `getServerByName(env.UntieRoom, fileId, { locationHint: "apac" })` で RPC を呼ぶ: `importModel(json)` (作成・複製)、`exportModel()` (書き出し。接続せずに読む)、`rename(name)`、`destroy()` (完全に消す)、`listSnapshots()` / `getSnapshot(key)` (過去の状態。7.4)。
+- ゴミ箱に入れても Durable Object は残す (戻せるように)。30 日経ったら Worker の cron (`scheduled`、毎日 03:00 UTC。`jobs/purgeTrash.ts`) が D1 から探して `destroy()` し、行を消す (1 回に 50 件まで。失敗したファイルは行を残して次の日にやり直す)。同じ cron が期限切れのセッションと、交換されないままのデスクトップのセッション (7.2)、期限が切れて 30 日たった未承諾の招待 (`accepted_at is null and expires_at < now - 30 日`) と受けて 30 日たった招待 (`accepted_at < now - 30 日`) の行も消す。
 
 ### 3.5 名前と更新日時
 
@@ -309,11 +319,12 @@ doc
 | 関数 | 内容 |
 | --- | --- |
 | `loadModel(doc, model, origin?)` | JSON から読んだモデルを空の Y.Doc に 1 トランザクションで入れる (順序キーを振る)。`origin` は省略可 (サーバーの `importModel` 用)。`$schema` は入れない |
-| `readModel(doc)` | Y.Doc の中身をそのままモデルにする。壊れた参照は外さず、ボードが 0 枚でも補わない。ただし形の壊れた要素・ノード・関係・線は外す。サーバーが「直す前」の状態を読むのに使う |
-| `rebuildModel(doc, prev?)` | `readModel` に `repairModel` を当てた、表示用のモデル。`prev` を渡すと、内容が同じ要素・関係・ボード・ノード・線は `prev` の参照を使い回す (React のメモ化と `===` 比較を生かす)。全部同じなら `prev` 自体を返す |
+| `readModel(doc)` | Y.Doc の中身をモデルにする。壊れた参照は外さず、ボードが 0 枚でも補わない。ただし形の壊れた要素・ノード・関係・線は外す。**文字列がスキーマの上限を超えているだけの要素は外さず、上限に切り詰める** (形の検査 `isValidElementShape` の前に切り詰める) |
+| `readRawModel(doc)` | `readModel` と同じだが、長すぎる文字列も切り詰めずにそのまま返す。サーバーが「直す前」の状態を読むのに使う (切り詰めた結果との差分を Y.Doc に書くため) |
+| `rebuildModel(doc, prev?)` | `readRawModel` に `repairModel` (壊れた参照の修復と文字列の切り詰め) を当てた、表示用のモデル。`prev` を渡すと、内容が同じ要素・関係・ボード・ノード・線は `prev` の参照を使い回す (React のメモ化と `===` 比較を生かす)。全部同じなら `prev` 自体を返す |
 | `applyModelDiff(doc, before, after, origin)` | 2 つのモデルを id 単位で比べ、違う項目だけを 1 つのトランザクションで Y.Doc に書く |
 | `repairModel(model)` | 壊れた参照を見つけ、直したモデルと変更の一覧を返す (6 章。core にあり、Y.Doc を知らない) |
-| `repairDoc(doc, origin)` | サーバーだけが呼ぶ。`readModel` の結果に `repairModel` を当て、差分を `applyModelDiff` で `origin` 付きに書き、変更の一覧を返す。壊れていなければ何も書かない |
+| `repairDoc(doc, origin)` | サーバーだけが呼ぶ。`readRawModel` の結果に `repairModel` を当て、差分を `applyModelDiff` で `origin` 付きに書き (長すぎる文字列は切り詰めて書き戻す)、変更の一覧を返す。壊れていなければ何も書かない |
 | `observeModelChanges(doc, callback)` | 変わった id (`elements` / `relations` / `boards` / `meta`) を、**トランザクションごとに 1 回**、`origin` 付きで知らせる (`observeDeep` を包む)。戻り値は解除 |
 
 読み込んだあとのストアは、入れたモデルではなく **`rebuildModel` の結果**を使う。Y.Doc を通すと `$schema`、空の `edges: []`、空の `analysis: {}` は落ちる (コマンドはどれも作らないので、通常の編集では起きない)。
@@ -331,7 +342,7 @@ dispatch(cmd)
                                observeModelChanges → rebuildModel(doc, model) ─> applyRemoteModel(model)
 ```
 
-- **dispatch**: コマンドを手元のモデルに当て、成功したら差分を `origin = local` のトランザクションで Y.Doc に書き、**そのあと `rebuildModel(doc, after)` を表示のモデルにする** (Doc が正本。コマンドの結果をそのまま出すのではない)。同時に届いていた他の人の変更も、消した側が勝つ規則も、ここで Doc の側で揃う。失敗 (`ok: false`) はいままでどおり何もしない。`viewer` のときは `dispatch` が何もせず `{ ok: false, reason: "閲覧専用です" }` を返す。
+- **dispatch**: コマンドを手元のモデルに当て、成功したら差分を `origin = local` のトランザクションで Y.Doc に書き、**そのあと `rebuildModel(doc, after)` を表示のモデルにする** (Doc が正本。コマンドの結果をそのまま出すのではない)。同時に届いていた他の人の変更も、消した側が勝つ規則も、ここで Doc の側で揃う。失敗 (`ok: false`) はいままでどおり何もしない（文字数の上限を超える入力も、「名前は 200 文字までです」のような理由で失敗にする。1 章。画面はトーストに出し、AI エージェントの道具は理由をそのまま AI に返す）。`viewer` のときは `dispatch` が何もせず `{ ok: false, reason: "閲覧専用です" }` を返す。
 - **他の人の変更**: `observeModelChanges` が `origin` が自分以外のトランザクションを知らせるたびに、**変わった id だけではなく毎回 `rebuildModel(doc, prev)` で全体を組み立て直す** (届く id と組み立て直して変わる範囲が一致しないため。6 章)。`prev` を渡すので、内容が同じ要素・関係・ボード・ノード・線は参照が使い回され (構造共有)、React の再描画は変わった分に絞られる。`reconcileUi` で選択やボードの参照先が消えていたら外す (既存の処理)。
 - **ドラッグ中** (`previewNode` / `previewCommand`): Y.Doc には書かず表示だけ動かす。ドラッグ中に届いたリモートの変更は後回しにし (`pendingRemote`)、`commitDrag` / `cancelDrag` のあとで Doc から組み立て直す。`commitDrag` が書くのは `dragBase` と確定後の差だけなので、他の人の変更は消さない (同じノードを他の人が動かしていたら、確定時に自分の座標で上書きする。後勝ち)。`dispatch` と `agentApply` は、ドラッグ中なら先に `commitDrag` する (`before` が Doc とずれないように)。
 - **AI エージェント** (`beginAgentEdit` 〜 `endAgentEdit`): 途中の `agentApply` は Y.Doc に書く (他の人にも見える)。クラウドでは `beginAgentEdit` の間だけ書ける (開く前から走っていたローカルのエージェントを通さないため)。`viewer` は使えない。
@@ -347,10 +358,12 @@ Yjs は「要素 A を消す」と「A への関係を足す」を両方受け�
 
 - `repairModel` (core、純粋関数) が、`validateModel` の参照整合性検査と同じ規則で壊れた箇所を見つけ、直し方を返す。
   - **持っている規則**: 消えた要素を指す関係・ノード・`targetIds` は消す。消えた BUC を指す `bucId` と消えたコンテキストを指す `contextId` は `null` にする (「無い」ものと「種類が違う」ものを分けて報告する)。業務が消えた BUC は消す。業務の既定の活動はちょうど 1 個にする (無ければ作る。id は `buc_<業務の id>` で、どの端末で直しても同じ。複数なら最初を残し、他の既定の活動の作業は残した方へ付け替えて消す) 。既定の活動の名前を業務名に揃える。自己参照の関係と、両端の種類から決まる kind と合わない関係は消す。置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・BUC) のノードに `width` / `height` が無ければ既定の大きさを補う。関係が消えたボードの線の設定は消す。ボードが 0 枚なら「ボード 1」を作る。
+  - **長すぎる文字列は切り詰める**: スキーマの上限 (`limits.ts`。1 章の表) を超えた名前・説明・状態グループ・値・分析の項目・リンクの表示名と URL・ボード名・ファイル名は、要素ごと外さず上限の文字数 (コードポイント) に切り詰める (`truncate.ts`)。外すと、その要素が全員の画面から消え、関係もサーバーに消されるため。コマンドが上限を超える入力を断る (1 章) ので、通常の編集では起きない。古い版のクライアントや壊れた update が書いたときの備え。
   - **同じ関係の重複**は `sameRelation` で畳み、**`(order, id)` で先頭のものを残す**。畳んだ関係の線の設定も消す。
-  - **持っていない規則 (対象外)**: 要素・関係・ボードをまたいだ id の重複、`hours` の小数点の桁、課題の対象の混在。`validateModel` は検査するが、同時編集では起きにくいので直さない (起きたら `onSave` の検証で見つけて記録する)。
+  - **changes の文言**は id・種類・項目名・件数だけで、業務名などの中身を含まない (`作業 act_x の説明が長すぎたので切り詰めた`、`ボード board_x のノード … を消した`)。ルームの `console.log` がそのまま出すため。
+  - **持っていない規則 (対象外)**: 要素・関係・ボードをまたいだ id の重複、`hours` の小数点の桁、課題の対象の混在。`validateModel` は検査するが、同時編集では起きにくいので直さない (起きたら `onSave` の検証で見つけて記録し、`save_failed` で知らせる。7.5)。
 - **直すのはサーバーだけ** (`UntieRoom` が update を受けるたびに、debounce して `repairDoc(doc, "repair")` を呼ぶ)。全員が直すと同じ修正が何度も流れる。
-- クライアントの `rebuildModel` は、直されるまでの間 UI が壊れないよう、壊れた参照を表示から外す (Y.Doc は変えない)。**外すもの**は `repairModel` の規則に加えて、形の壊れた要素・ノード・関係・線 (項目が欠けた課題など。1 つで全員の組み立てが落ちるのを防ぐ。core の生成済みの要素単位の検証を使う) と、種類の分からない要素。
+- クライアントの `rebuildModel` は、直されるまでの間 UI が壊れないよう、壊れた参照を表示から外す (Y.Doc は変えない)。**外すもの**は `repairModel` の規則に加えて、形の壊れた要素・ノード・関係・線 (項目が欠けた課題など。1 つで全員の組み立てが落ちるのを防ぐ。core の生成済みの要素単位の検証を使う) と、種類の分からない要素。文字列の長すぎるものは外さず切り詰める (上記)。
 - **ボードが 0 枚**のとき、表示用に `board_main` の「ボード 1」を補う (Y.Doc は変えない)。補ったボードへの編集が消えないよう、Y.Doc のボードが 0 枚のときに限り、`applyModelDiff` が `board_main` を Y.Doc に作る。サーバーの修復と同じ固定 id なので、両方が作っても 1 つのボードに合流する (同時に作った内容は後勝ちで、片方は残らない)。
 - `addRelation` の重複検査など、コマンド側の検査はいままでどおり自分の手元のモデルに対して行う。同じ関係を 2 人が同時に足すと id が違う重複が残る。表示は 1 本に畳まれるが、見えている方を消すと隠れていた方が現れてしまう。そのため `applyModelDiff` は関係を消すとき、Y.Doc に残っている `sameRelation` の重複と、その線の設定も同じトランザクションで消す。
 - **衝突の非対称**: 要素と、ボード・関係のように Y.Map のキーで持つものは「消した側が勝つ」(消された要素への更新は、書き込む先が無いので捨てる)。一方、値ごと置く項目 (ノード・線・関係) は、同時の更新が消去に勝って復活しうる。ストアは `dispatch` の前に、リモートの変更の組み立て直しを済ませておく (ドラッグ中は `commitDrag` が先に組み立て直す。8.2。手元の `before` が Y.Doc とずれると、消えたものを復活させる)。`applyModelDiff` は、変えた項目が Y.Doc に無いときは書かない。
@@ -365,7 +378,9 @@ Yjs は「要素 A を消す」と「A への関係を足す」を両方受け�
 // apps/server/src/index.ts (要点)
 export { UntieRoom } from "@untie/collab/room";
 const app = new Hono<AppEnv>();
+app.use("*", redirectToAppOrigin);     // APP_ORIGIN 以外のホストへの GET は APP_ORIGIN の同じパスへ 302 (下の表の vars)
 app.use(path, desktopCors);            // /api/*・/auth/providers・/auth/desktop/exchange・/auth/logout・/auth/logout-all。7.2
+app.use(path, requireConfig);          // /api/*・/auth/*・/parties/*。SESSION_SECRET・TICKET_SECRET が 32 文字未満なら 503 misconfigured
 app.route("/auth", authRoutes);        // 7.3
 app.route("/api", apiRoutes);          // 7.4。/api/links/* 以外は requireSession を通す
 app.all("/parties/*", ...);            // 7.5。チケットを検めて routePartykitRequest に渡す
@@ -378,8 +393,8 @@ export default { fetch: app.fetch, scheduled: purgeTrash };   // cron: ゴミ箱
 | `ASSETS` | `apps/web/dist` の静的配信 (`not_found_handling: "single-page-application"`) |
 | `DB` (D1) | 3.3 のテーブル |
 | `UntieRoom` (Durable Object、`new_sqlite_classes`) | ファイルの中身 |
-| vars (`wrangler.jsonc`) | `ALLOWED_EMAIL_DOMAINS` (空なら制限なし)、`DEV_LOGIN` (本番は `"false"`)、`APP_ORIGIN` (公開の URL。本番で書き換える。空ならリクエストのオリジン) |
-| secrets (`wrangler secret put`。開発は `.dev.vars`) | `SESSION_SECRET` (`untie_auth` Cookie = ログイン途中の state などの署名。セッションの Cookie は乱数のトークンで、署名ではない。32 文字以上を勧める)、`TICKET_SECRET` (7.5 のチケットの署名と、引換コードの暗号鍵の元。**32 文字以上が必須**)、`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
+| vars (`wrangler.jsonc`) | `ALLOWED_EMAIL_DOMAINS` (空なら制限なし)、`DEV_LOGIN` (本番は `"false"`)、`APP_ORIGIN` (公開の URL。本番で書き換える。空ならリクエストのオリジン)。`APP_ORIGIN` があるとき、それ以外のホスト (workers.dev など) への **GET / HEAD は `APP_ORIGIN` の同じパス・クエリへ 302** する (`apps/server/src/redirect.ts`)。移さないもの: `/parties`・`/api/links/*`・`/auth/desktop/exchange`、デスクトップアプリからの呼び出し (Origin が WebView のもの、または `Authorization: Bearer` 付き。アプリは設定した URL へ直接つなぐため)、GET / HEAD 以外 (302 だと本文が落ちる)、ループバックのホスト (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るので、`APP_ORIGIN` が 5173 だと無限に移ってしまう)。ページ (`/`・`/index.html`) も Worker が受けるよう、`assets.run_worker_first` に含めてある (9 章) |
+| secrets (`wrangler secret put`。開発は `.dev.vars`) | `SESSION_SECRET` (`untie_auth` Cookie = ログイン途中の state などの署名。セッションの Cookie は乱数のトークンで、署名ではない。**32 文字以上が必須**)、`TICKET_SECRET` (7.5 のチケットの署名と、引換コードの暗号鍵の元。**32 文字以上が必須**)、`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`。どちらかが足りない（空・短い）と、Worker は最初のリクエストで原因（秘密の名前だけ。値は出さない）を `console.error` に 1 回残し、`/api/*`・`/auth/*`・`/parties/*` に **503 `misconfigured`** を返す（500 にしない。静的ファイルは配る）。`secretIsStrong` を TICKET_SECRET と共用 (`apps/server/src/config.ts`) |
 | `triggers.crons` | `0 3 * * *` (毎日 03:00 UTC。ゴミ箱の掃除) |
 
 ### 7.2 セッション
@@ -387,9 +402,11 @@ export default { fetch: app.fetch, scheduled: purgeTrash };   // cron: ゴミ箱
 - ログインが済むと `sessions` に行を作り、トークン (32 バイトの乱数、base64url) を返す。D1 にはその SHA-256 だけを置く。
 - **Web**: `Set-Cookie: untie_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/`。`Secure` は**リクエストが https のとき**に付ける (`APP_ORIGIN` の設定には頼らない。http://localhost の開発では付かない)。Cookie は `kind = web` のセッションだけ、Bearer は `kind = desktop` のセッションだけを受ける。ログインし直したときは、持っていた Cookie のセッションの行を消す。開発用ログイン (`DEV_LOGIN=true`) は、リクエストのホストが localhost / 127.0.0.1 のときだけ効く (本番で誤って true にしても効かない)。API は Cookie で認証する。CSRF は SameSite=Lax に加え、状態を変える API は `X-Requested-With: untie` ヘッダーを要求する (フォームからは付けられない)。
 - **デスクトップ**: トークンを `Authorization: Bearer <token>` で送る。キーチェーンに `session` として置く (`keyring` のコマンド `get_secret` / `set_secret` / `delete_secret`。名前は `claude`・`codex`・`gemini`・`session` だけ受ける)。作った直後の desktop のセッションは `activated_at` が null で、**引換コードを交換する (7.3) まで認証に通らない**。交換されないまま 1 時間以上たった行は毎日の cron が消す(`delete … where expires_at < ?` と `delete … where kind = 'desktop' and activated_at is null and created_at < ?` の 2 本。前者は `sessions_expires`、後者は 0003 の部分 index `sessions_unactivated` を使う)。
+- **期限切れ・未交換のセッションの掃除は接続を閉じない**: cron は行を消すだけで、開いている接続は切れるまで残る (つなぎ直すと、チケットの取得が 401 になる)。
 - **CORS** (デスクトップの WebView は別のオリジンから呼ぶ): `/api/*`・`/auth/providers`・`/auth/desktop/exchange`・`/auth/logout`・`/auth/logout-all` に、`Origin` が `tauri://localhost` (macOS / Linux)・`http://tauri.localhost` (Windows) のとき、および `http://localhost:1420` (`tauri dev`。**`DEV_LOGIN=true` のときだけ**。本番では許さない) のときだけ `Access-Control-Allow-Origin` にその値を返す (一覧に無い送り元には何も付けない。`Vary: Origin`)。プリフライトは許す送り元に 204 (`Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`、`Allow-Headers: Authorization, Content-Type, X-Untie-Token, X-Requested-With`、`Max-Age: 600`)、許さない送り元に 403。`Expose-Headers: Content-Disposition` (書き出しのファイル名を読むため)。**credentials は許さない** (`Access-Control-Allow-Credentials` は付けない)。**Cookie 認証は CORS 経由では使われない**: Cookie は SameSite=Lax なので別サイトからの fetch には付かず、さらにサーバーも、デスクトップの送り元から届いたリクエストの Cookie は読まない (Bearer だけを見る)。`/parties/*` の WebSocket は Origin を見ない (partyserver のまま。認証はチケット)。
 - `requireSession` ミドルウェアが Cookie か Authorization を読み、`sessions` を引いて `c.var.user` を入れる。期限切れは 401。使うたびに `last_seen_at` と `expires_at` を延ばす (1 日に 1 回だけ書く)。
 - ログアウトは行を消す。「すべての端末からログアウト」は `user_id` の行を全部消す。
+- **ログアウトで開いているルームの接続も閉じる**: セッションを消しても、開いている WebSocket は切れない。そこでチケットの claims に `sid` (セッションの id = トークンの SHA-256 の先頭 16 文字。リンクで開いたゲストは null) を入れ、ルームが接続の state に写す (7.5)。`POST /auth/logout` は、そのセッションの `sid` で、`POST /auth/logout-all` は、そのユーザーの `userId` で、**そのユーザーがメンバーのすべてのファイル** (`file_members` から引く。ゴミ箱の中も含む) のルームに `kickRoomQuietly` を送る (`kick({ sid })` / `kick({ userId, reason: "loggedOut" })`。どちらも `4000「ログアウトしました」`)。ファイルが多いとき (6 件以上) は応答を待たせず `executionCtx.waitUntil` で続ける。失敗しても例外にしない。同じユーザーの別のセッションの接続は `logout` では残る。セッションが無い・期限切れの `logout` は何も閉じない。
 
 ### 7.3 ログイン (OIDC)
 
@@ -427,21 +444,23 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `GET /files` | 自分のファイルと共有されたファイル (`{ mine, shared }`)。名前・更新日時・役割・メンバー数 | ログイン |
 | `POST /files` | 作る。`{ name }` で空のモデル、`{ model }` で JSON を取り込む (ローカルファイルをクラウドへ)。作った人が owner | ログイン |
 | `GET /files/:id` | 1 件の情報 (名前・所有者・自分の役割)。**owner にだけ** `members` (`userId`・`email`・`name`・`role`・`addedAt`)、`invitations` (まだ受けられていない招待。`id`・`email`・`role`・`createdAt`・`expiresAt`。期限切れも含む)、`link` (`{ enabled }` だけ。トークンは持たないので URL は返さない) を付ける。editor / viewer には付けない | member |
-| `PATCH /files/:id` | 名前を変える | editor |
+| `PATCH /files/:id` | 名前を変える。ゴミ箱の中のファイルは owner でも 409 `in_trash` (戻してから変える) | editor |
 | `POST /files/:id/duplicate` | 複製して自分の owner のファイルにする | member |
 | `GET /files/:id/export` | JSON (`serializeModel` と同じ整形)。`Content-Disposition` 付き | member |
+| `GET /files/:id/snapshots` | 過去の状態 (1 時間ごとのスナップショット。3.4) のキーの一覧 `{ keys: string[] }` (`snapshot:<日時>`、新しい順) | owner |
+| `GET /files/:id/snapshots/:key` | その時点の JSON (`export` と同じ形・`Content-Disposition` 付き)。キーが `snapshot:<1 時間単位の日時>` の形でない・無いときは 404 `snapshot_not_found`。キーの `:` は URL エンコードして渡す | owner |
 | `DELETE /files/:id` | ゴミ箱へ | owner |
 | `POST /files/:id/restore` | ゴミ箱から戻す | owner |
 | `DELETE /files/:id/purge` | 完全に消す (Durable Object の `destroy`) | owner |
 | `GET /files/trash` | ゴミ箱の一覧 | ログイン |
 | `POST /files/:id/ticket` | ルームに接続するチケット (7.5) | member |
 | `GET /files/:id/presence` | いまルームにつながっている人 `{ presence: { userId, name, role }[] }` (ルームの `presence()`。接続のチケットから決めた値で、ゲストは `userId: null`・名前は「ゲスト N」。同じ人が複数のタブなら複数並ぶ)。画面が awareness の自己申告を照らすのに使う。ゴミ箱の中のファイルは owner 以外は 404、owner には 409 | member |
-| `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role: "editor" \| "viewer" }`)。応答は `Member`。相手がユーザーでなければ 404 `user_not_found` → 招待を使う。owner の役割は変えられない (409 `owner_role_fixed`)。**役割が変わったとき**はその人の接続を `kick({ userId, reason: "roleChanged" })` で切る (新しく足しただけ・同じ役割への変更では切らない) | owner |
+| `PUT /files/:id/members/:userId` | 役割を足す・変える (`{ role: "editor" \| "viewer" }`)。応答は `Member`。相手がユーザーでなければ 404 `user_not_found` → 招待を使う。owner の役割は変えられない (409 `owner_role_fixed`)。**役割が実際に変わったとき**だけ、その人の接続を `kick({ userId, reason: "roleChanged" })` で切る (新しく足しただけ・同じ役割への PUT では切らない) | owner |
 | `DELETE /files/:id/members/:userId` | 外す (204)。owner は owner 以外の誰でも外せる。editor / viewer は自分だけ (`can(role, "leave")`、他人は 403)。owner 自身は外せない (409 `transfer_first`)。相手がメンバーでなければ 404 `member_not_found`。外したら `kick({ userId, reason: "removed" })` | owner (自分なら member) |
 | `POST /files/:id/transfer` | 所有者を譲る (`{ userId }`。相手はメンバー。メンバーでなければ 404 `member_not_found`、自分なら 409 `already_owner`)。1 つの `batch` で `files.owner_id` と両者の `file_members.role` を書き換え、元の所有者は editor になる。両者を `kick({ userId, reason: "roleChanged" })`。応答は譲った人から見た `FileSummary` | owner |
 | `PUT /files/:id/link` | リンク閲覧を有効にする (`{ regenerate?: true }` で作り直す。本文は省略できる)。トークンが無いか `regenerate` なら新しいトークンを作り、`{ enabled: true, url }` (`url` = `${APP_ORIGIN}/#/link/<トークン>`) を返す。作り直したときは `kick({ via: "link" })`。すでに有効で `regenerate` でなければ何も変えず `{ enabled: true }` だけ (トークンは平文で持たないので URL は出せない) | owner |
 | `DELETE /files/:id/link` | リンク閲覧を無効にする (204)。`link_token` を null にし、`kick({ via: "link" })` | owner |
-| `POST /files/:id/invitations` | メールで招待する (`{ email, role: "editor" \| "viewer" }`。メールは小文字に正規化)。既にユーザーならその場で `file_members` に足し (すでにメンバーなら役割を更新し、変わったら `kick({ userId, reason: "roleChanged" })`)、`200 { kind: "member", userId }`。まだユーザーでなければ `invitations` に行を作り (同じメールの未承諾の招待は置き換える)、`201 { kind: "invitation", invitationId, url }` (`url` = `${APP_ORIGIN}/#/invite/<トークン>`。メール送信は PoC では画面から写して送る)。自分 (owner) のメールは 409 `already_owner`。有効期間は 14 日 | owner |
+| `POST /files/:id/invitations` | メールで招待する (`{ email, role: "editor" \| "viewer" }`。メールは小文字に正規化)。既にユーザーならその場で `file_members` に足し (すでにメンバーなら役割を更新し、**役割が変わったときだけ** `kick({ userId, reason: "roleChanged" })`。同じ役割での招待し直しでは切らない)、`200 { kind: "member", userId }`。まだユーザーでなければ `invitations` に行を作り (同じメールの未承諾の招待は置き換える)、`201 { kind: "invitation", invitationId, url }` (`url` = `${APP_ORIGIN}/#/invite/<トークン>`。メール送信は PoC では画面から写して送る)。自分 (owner) のメールは 409 `already_owner`。有効期間は 14 日 | owner |
 | `DELETE /files/:id/invitations/:invitationId` | 招待を取り消す (204)。無ければ 404 `invitation_not_found` | owner |
 | `GET /invitations/info` | 招待の中身 `{ fileName, role, email, inviterName, expired }`。トークンの SHA-256 で引く (無ければ・ゴミ箱の中のファイルなら 404 `invitation_not_found`)。ログイン中のメールと招待のメールが違えば 403 `email_mismatch` | ログイン |
 | `POST /invitations/accept` | 招待を受ける。メールが一致するときだけ。`file_members` に足し (すでにメンバーなら役割は変えない)、`accepted_at` を書き、`{ fileId }`。受け終わった招待をもう一度受けても同じ結果 (冪等)。期限切れは 410 `invitation_expired`。受けたあとに外された人が古い招待で戻ろうとすると 410 `invitation_used`。**ログインしただけでは受理しない** (受ける画面で明示的に受ける) | ログイン |
@@ -451,9 +470,9 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `GET /links/export` | JSON に書き出す (`GET /files/:id/export` と同じ形)。セッション不要 | リンク |
 | `POST /links/duplicate` | リンクのファイルを複製して、自分の owner のファイルにする (`201 FileSummary`。名前は「<元の名前> のコピー」)。**セッション必須** (未ログインは 401。ゲストは「複製するにはログイン」)。メンバーでなくてもよい。トークンが無効・ゴミ箱の中は 404 | ログイン + リンク |
 
-**ゴミ箱の中のファイル**では、状態を変える共有の API (`PUT/DELETE /files/:id/members/:userId`、`POST /files/:id/transfer`、`POST/DELETE …/invitations`、`PUT/DELETE …/link`) は owner でも **409 `in_trash`** (戻してから変える。メンバーには他の API と同じく 404)。
+**ゴミ箱の中のファイル**では、状態を変える共有の API (`PUT/DELETE /files/:id/members/:userId`、`POST /files/:id/transfer`、`POST/DELETE …/invitations`、`PUT/DELETE …/link`) と名前の変更 (`PATCH /files/:id`) は owner でも **409 `in_trash`** (戻してから変える。メンバーには他の API と同じく 404)。
 
-**共有の kick**: D1 を書き換えたあとに呼び、失敗しても例外にせずログに出すだけで 2xx を返す (500 にすると再試行されず、接続が残るため)。再試行の経路でも切る: すでにメンバーの行があるときの `PUT` は役割が同じでも `kick`、外し済みの人への `DELETE` も `kick` してから 404。`putMemberRole`・`removeMember` は、そのメール宛の未承諾の招待も同じ `batch` で消す (外した人が残っていた招待で戻れないように)。`transferOwner` は「いま from が owner で to がメンバー」を update の条件に持ち、並行して抜けた・別の譲渡が通ったときは何も書かず 409 `conflict`。リンクの有効化は `update … where link_token is null` で書き、先を越されたら URL を返さない。
+**共有の kick**: D1 を書き換えたあとに呼び、失敗しても例外にせずログに出すだけで 2xx を返す (500 にすると再試行されず、接続が残るため)。再試行の経路で切るのは、外し済みの人への `DELETE` だけ (`kick` してから 404。前の呼び出しで `kick` に失敗していても、接続が残らない)。`PUT` と招待し直しは、**役割が実際に変わったとき**だけ `kick` する (上の表のとおり。同じ役割への呼び出しで切ると、開いている人の画面を無駄につなぎ直させる)。`putMemberRole`・`removeMember` は、そのメール宛の未承諾の招待も同じ `batch` で消す (外した人が残っていた招待で戻れないように)。`transferOwner` は「いま from が owner で to がメンバー」を update の条件に持ち、並行して抜けた・別の譲渡が通ったときは何も書かず 409 `conflict`。リンクの有効化は `update … where link_token is null` で書き、先を越されたら URL を返さない。
 
 **既存ユーザーの招待**: すでにユーザーのメールを招待すると、その場でメンバーになり、応答の `kind` から「そのメールは登録済み」と分かる。相手の共有一覧にも承諾なしで入る (PoC として許容する)。招待は `ALLOWED_EMAIL_DOMAINS` を通り、許されないドメインは 400 `email_not_allowed`。
 
@@ -461,7 +480,7 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 
 ### 7.5 ルームへの接続
 
-- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
+- ブラウザの WebSocket にはヘッダーを付けられないので、接続には **チケット** を使う: `POST /api/files/:id/ticket` (または `POST /api/links/ticket`) が `{ fileId, userId, name, role, via: "member" | "link", sid, jti, iat, exp: 60 秒 }` を `TICKET_SECRET` で署名した短い JWT を返し、クライアントは `wss://<host>/parties/untie-room/<fileId>?ticket=...` でつなぐ。Web もデスクトップも同じ。
 - Worker 側は `routePartykitRequest(request, env, { locationHint: "apac", onBeforeConnect, onBeforeRequest })`。
   - `onBeforeConnect` は `?ticket=` を検める (署名・期限・形。`apps/server/src/auth/ticket.ts` の `verifyTicket`)。無効・無し・期限切れは **401** (`{ error: { code: "invalid_ticket", message } }`)。チケットの `fileId` と URL のルーム名が違えば **403**。通れば、受けた `x-untie-*` を**すべて上書きして** (クライアントが付けた値は信用しない。ゲストの `x-untie-user` は消す)、次のヘッダーを付けた Request をルームへ渡す。クエリの `ticket` はそのまま残す。**接続 id の `?_pk=` はクライアントに選ばせず、`crypto.randomUUID()` に必ず上書きする** (同じ id で 2 本つなぐと 1 本目が `getConnections()` から外れたまま書き込め、kick から逃れられるため)。
   - `onBeforeRequest` (WebSocket でない HTTP) は **401** (`code: "unauthenticated"`)。ルームへの HTTP は使わない。
@@ -474,16 +493,20 @@ Web:        画面 ─GET /auth/login?provider=google────> Worker ─302
 | `x-untie-role` | `owner` / `editor` / `viewer` / `guest` |
 | `x-untie-via` | `member` / `link` |
 | `x-untie-iat` | チケットの発行時刻 (エポックミリ秒)。取り消しの判定に使う |
+| `x-untie-sid` | チケットを取ったセッションの id の先頭 16 文字。ログアウトの判定に使う。ゲストには付けない |
+| `x-untie-jti` | チケットの識別子 (乱数)。1 回限りの判定に使う |
+| `x-untie-exp` | チケットの期限 (エポックミリ秒)。使用済みの記録を残す期間 |
 
-- ルームは `onConnect(connection, ctx)` で `ctx.request` のヘッダーを `connection.setState({ userId, name, role, via })` (型は `ConnectionState`、`packages/collab/src/room/connectionState.ts`) に写し、最後に `super.onConnect` を呼ぶ。**ヘッダーが無い・役割が知らない値・メンバー (`via: member`) なのに userId が無い**接続 (Worker を通らずに来た) は `close(4000, "認証されていません")` で閉じる。
-- チケットの本文は `iat` (ミリ秒。秒に丸めると kick との前後が曖昧になる) と `exp` (JWT の決まりどおり秒) を持つ。検証は署名・期限に加えて、本文の形 (`role` が既知、`via: member` なら `userId` あり、`guest` なら `via: link`) を見る。`TICKET_SECRET` は 32 文字以上で、短ければ発行は例外、検証は null。
-- **取り消し (kick) の記録**: チケットは 60 秒使い回せるので、kick で閉じたあとに同じチケットで古い役割のままつなぎ直されうる。ルームは kick のたびに `revoked:user:<userId>` / `revoked:link` / `revoked:all` に `{ at: Date.now(), code, reason }` を DO storage に記録し (5 分より古い記録は次の kick で消す)、`onConnect` で `iat <= at` のチケットの接続を、記録した code で閉じる (`super.onConnect` を呼ぶ前)。kick のあとにチケットを取り直した接続は通る。
+- ルームは `onConnect(connection, ctx)` で `ctx.request` のヘッダーを `connection.setState({ userId, name, role, via, sid })` (型は `ConnectionState`、`packages/collab/src/room/connectionState.ts`) に写し、最後に `super.onConnect` を呼ぶ。**ヘッダーが無い (`jti`・`exp`・`iat` を含む)・役割が知らない値・メンバー (`via: member`) なのに userId が無い**接続 (Worker を通らずに来た) は `close(4000, "認証されていません")` で閉じる。
+- チケットの本文は `iat` (ミリ秒。秒に丸めると kick との前後が曖昧になる)・`exp` (JWT の決まりどおり秒)・`jti` (16 バイトの乱数)・`sid` (セッションの印。無ければ null) を持つ。検証は署名・期限に加えて、本文の形 (`role` が既知、`via: member` なら `userId` あり、`guest` なら `via: link`、`jti` あり) を見る。`TICKET_SECRET` は 32 文字以上で、短ければ発行は例外、検証は null。
+- **チケットは 1 回しか使えない**: 盗み見られた (ログ・履歴・画面共有に残った) チケットでも、先に使われていれば通らない。ルームは `onConnect` で DO storage の `ticket:<jti>` を見て、**あれば `close(4000, "このチケットは使用済みです")`**、無ければ期限 (`exp`) までの記録として書く (期限を過ぎた記録は、記録のたびに消す。kick の記録と同じ)。確かめて書くまでに `await` を挟まないので、同じチケットで同時に 2 本つないでも通るのは 1 本だけ。kick の記録で閉じる接続は、使用済みにしない (取り消しの判定が先)。**provider は再接続のたびに `params` でチケットを取り直す**ので影響しない (最初の接続だけが取ってあったチケットを使う。8.3)。取り直しに失敗して provider が古い params のまま再接続し、使用済みで閉じられても、画面はそれを閉じた扱いにせず (理由が「使用済み」の 4000)、次の再接続で新しいチケットを取る。
+- **取り消し (kick) の記録**: チケットは 60 秒使い回せるので、kick で閉じたあとに同じチケットで古い役割のままつなぎ直されうる。ルームは kick のたびに `revoked:user:<userId>` / `revoked:sid:<sid>` / `revoked:link` / `revoked:all` に `{ at: Date.now(), code, reason }` を DO storage に記録し (5 分より古い記録は次の kick で消す)、`onConnect` で `iat <= at` のチケットの接続を、記録した code で閉じる (`super.onConnect` を呼ぶ前)。kick のあとにチケットを取り直した接続は通る。
 - ゲスト (`role: "guest"`) の `name` は、チケットの値ではなくルームが「ゲスト 1」「ゲスト 2」のように振る。**いまつながっているゲストの番号と重ならない最小の番号**で、抜けた人の番号は次の人が使う (接続順の厳密な通し番号ではない)。
 - 閉じるコード (`packages/api/src/protocol.ts` の定数。server と ui が共有する):
 
 | コード | 定数 | 意味 | つなぎ直したとき |
 | --- | --- | --- | --- |
-| 4000 | `CLOSE_UNAUTHENTICATED` | 認証されていない (ヘッダーが無い) | チケットを取り直す (画面は理由を出してホームへ戻す) |
+| 4000 | `CLOSE_UNAUTHENTICATED` | 認証されていない (ヘッダーが無い)、ログアウトした (`kick({ sid })` / `kick({ userId, reason: "loggedOut" })`。理由「ログアウトしました」)、チケットが使用済み (理由「このチケットは使用済みです」) | 画面は理由を出してホームへ戻し、ログインの状態を取り直す (ログイン欄が出る)。ただし「使用済み」は閉じた扱いにせず、provider がチケットを取り直して再接続する |
 | 4001 | `CLOSE_ROLE_CHANGED` | 役割が変わった (`kick({ userId })`) | チケットの取得で新しい役割になる |
 | 4003 | `CLOSE_REMOVED` | メンバーから外された (`kick({ userId, reason: "removed" })`)、またはファイルがゴミ箱に入った (`kick({ all: true })`) | チケットの取得で 404 (外された) / 409 `in_trash` (ゴミ箱) |
 | 4004 | `CLOSE_LINK_DISABLED` | リンクが無効になった (`kick({ via: "link" })`) | チケットの取得で 404 |
@@ -498,14 +521,20 @@ export class UntieRoom extends YServer<Env> {
     this.document.on("update", (_u, origin) => { if (origin !== "repair") this.scheduleRepair(); });
   }
   async onSave() {
-    await this.ctx.storage.put("ydoc", Y.encodeStateAsUpdate(this.document));
+    repairDoc(this.document, "repair");                       // 壊れた参照の修復と文字列の切り詰め。changes は id・件数だけを console.log に出す
     const model = rebuildModel(this.document);
-    await this.ctx.storage.put("snapshot", model);
-    await this.rotateSnapshots();
+    if (!validateModel(model).ok) { this.broadcastCustomMessage(SAVE_FAILED_MESSAGE); return; }   // 直前の正常な ydoc / snapshot を残す
+    try {
+      await this.keepHourlySnapshot(previous);
+      await this.ctx.storage.put("ydoc", Y.encodeStateAsUpdate(this.document));
+      await this.ctx.storage.put("snapshot", model);
+    } catch (e) { console.error(…); this.broadcastCustomMessage(SAVE_FAILED_MESSAGE); return; }   // DO の 1 つの値の上限など
     await this.env.DB.prepare("update files set name = ?, updated_at = ? where id = ?").bind(model.meta.name, Date.now(), this.name).run();
+    if (this.saveFailed) this.broadcastCustomMessage(SAVE_OK_MESSAGE);    // 直って保存できた
   }
   onConnect(connection, ctx) {
-    // ヘッダー → connection.setState。無ければ close(4000)。guest は「ゲスト N」を振る。最後に super.onConnect
+    // ヘッダー → connection.setState。無ければ close(4000)。kick の記録・使用済みチケットなら close。guest は「ゲスト N」を振る。最後に super.onConnect
+    // 保存が失敗したままなら sendCustomMessage(connection, SAVE_FAILED_MESSAGE) で、あとから入った人にも知らせる
   }
   isReadOnly(connection) { return !(role === "owner" || role === "editor"); }  // y-partyserver が step2 / update を捨てる
   // RPC (Worker から getServerByName で呼ぶ)
@@ -514,23 +543,23 @@ export class UntieRoom extends YServer<Env> {
   async rename(name: string) { this.document.getMap("meta").set("name", name); }
   async destroy() { await this.ctx.storage.deleteAll(); }
   async currentModel(): Promise<UntieModel> { return rebuildModel(this.document); }  // 保存を待たずにメモリ上の中身を読む
-  async kick(target: { userId: string; reason?: "roleChanged" | "removed" } | { via: "link" } | { all: true }): Promise<number> { ... }   // 閉じた接続の数
+  async kick(target: { userId: string; reason?: "roleChanged" | "removed" | "loggedOut" } | { sid: string } | { via: "link" } | { all: true }): Promise<number> { ... }   // 閉じた接続の数
   async presence(): Promise<{ userId: string | null; name: string; role: Role }[]> { ... }
 }
 ```
 
 - `isReadOnly` は `y-partyserver` (2.2.0) に組み込みの仕組みで、`true` の接続からの sync step2 と update を捨てる (step1 への返事と awareness は通る)。`onMessage` の上書きや `isDocWrite` は要らない。UntieRoom は接続の `state.role` が **owner / editor 以外ならすべて読み取り専用**にする (viewer・guest のほか、役割が無い・知らない役割の接続も)。awareness は viewer も送れる (選択が他の人に見える)。
 - `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば Durable Object は自然に落ち、次の接続で `onLoad` する。
-- 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して記録する。
-- `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければならない (null でゲストを巻き込まない)。**不正な対象は Worker 側の `kickRoom` (`apps/server/src/rooms.ts`) で弾いて例外にする。ルームは警告を出して 0 を返す** (RPC の中で投げるとテスト基盤が未処理の拒否として数えるため)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
-- **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割の変更 (`PUT /members/:userId`、`POST /invitations` が既存メンバーの役割を変えたとき)・譲渡 (両者)・メンバーを外す・リンクの無効化と作り直しからも呼ぶ (7.4)。DB を書き換えたあとに `kickRoom` を呼ぶので、つなぎ直しは新しい状態で判定される。
+- 不正な update はサーバーで個別に検査できない。守りは認証・役割・`repairModel` (文字列の長すぎるものは切り詰めて直るので、これが原因で保存できなくなることはない)。それでも `onSave` で `validateModel` に通らなければ、直前の正常な `ydoc` を残して `console.error` に記録し (検証エラーの文言に含まれる名前は「…」に伏せる)、**`broadcastCustomMessage(JSON.stringify({ type: "save_failed" }))` でつながっている全員に知らせる**。`onSave` の `put` が失敗した (DO の 1 つの値の上限など) ときも同じ。保存できなくなっている間に入った人にも、`onConnect` が `save_failed` を送る。通るようになって保存できたら `{ type: "save_ok" }` を流す。画面は 8.3。
+- `kick` の対象と閉じるコード: `{ userId }` (役割が変わった。`4001 "役割が変わりました"`)、`{ userId, reason: "removed" }` (メンバーから外した。`4003 "共有から外されました"`)、`{ userId, reason: "loggedOut" }` (すべての端末からログアウトした。`4000 "ログアウトしました"`)、`{ sid }` (そのセッションがログアウトした。そのセッションで取ったチケットの接続だけを `4000 "ログアウトしました"` で閉じる)、`{ via: "link" }` (リンク閲覧を無効にした・作り直した。ゲストと、リンクから開いたメンバーを `4004 "リンクが無効になりました"` で閉じる)、`{ all: true }` (ファイルをゴミ箱に入れた。全員を `4003 "ファイルがゴミ箱に入りました"` で閉じる)。`userId` は空でない文字列でなければならない (null でゲストを巻き込まない)。**不正な対象は Worker 側の `kickRoom` (`apps/server/src/rooms.ts`) で弾いて例外にする。ルームは警告を出して 0 を返す** (RPC の中で投げるとテスト基盤が未処理の拒否として数えるため)。どれも閉じた数を返し、取り消しの記録を残す (上記)。つなぎ直すとチケットの取得で新しい役割になる (外された・リンクなら 404、ゴミ箱なら 409)。
+- **呼ぶ側**: `DELETE /api/files/:id` (ゴミ箱に入れる) は `kick({ all: true })` を呼ぶ。役割が**実際に変わった**とき (`PUT /members/:userId`、`POST /invitations` が既存メンバーの役割を変えたとき)・譲渡 (両者)・メンバーを外す・リンクの無効化と作り直し・ログアウト (7.2) からも呼ぶ (7.4)。DB を書き換えたあとに `kickRoom` を呼ぶので、つなぎ直しは新しい状態で判定される。
 - `presence()` はいまつながっている接続の `{ userId, name, role }` の一覧 (同じ人が複数のタブなら、その数だけ出る)。`currentModel()` は保存を待たず、メモリ上の Y.Doc からモデルを作る (テストと確認用)。プレゼンスの表示そのもの (カーソル・選択) は awareness で運ぶ。
 
 ### 7.6 エラーの形と細部
 
-- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code` (共有まわりの追加分も含む): `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` / `email_mismatch` (403。招待のメールが自分のと違う)、`file_not_found` / `not_found` / `user_not_found` (メンバーにする相手がユーザーでない) / `member_not_found` (外す・譲る相手がメンバーでない) / `invitation_not_found` / `link_not_found` (404)、`invalid_request` / `invalid_model` / `email_not_allowed` (400。招待のメールのドメインが `ALLOWED_EMAIL_DOMAINS` にない)、`not_in_trash` / `in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき) / `transfer_first` (owner を外そうとした) / `owner_role_fixed` (owner の役割を変えようとした) / `in_trash` (ゴミ箱の中のファイルの共有を変えようとした) / `conflict` (譲渡が並行した操作と重なった) / `already_owner` (自分を招待・自分に譲ろうとした。owner のメールを招待したとき)、`invitation_expired` / `invitation_used` (410。招待の期限切れ・受けたあとに外された人が古い招待を使った)、`too_large` (413。`POST /files` と `PATCH /files/:id` の本文は 2 MB まで)。
+- **エラー**: `/api` の失敗はすべて `{ "error": { "code": "...", "message": "..." } }` (message は画面にそのまま出せる日本語)。`packages/api` の `ApiError` がこれを `status`・`code`・`message` で投げる。想定外の例外は `500`・`code: "internal"` で、内容はログにだけ出す。主な `code` (共有まわりの追加分も含む): `unauthenticated` / `session_expired` (401)、`csrf` / `forbidden` / `email_mismatch` (403。招待のメールが自分のと違う)、`file_not_found` / `not_found` / `user_not_found` (メンバーにする相手がユーザーでない) / `member_not_found` (外す・譲る相手がメンバーでない) / `invitation_not_found` / `link_not_found` (404)、`invalid_request` / `invalid_model` / `email_not_allowed` (400。招待のメールのドメインが `ALLOWED_EMAIL_DOMAINS` にない)、`not_in_trash` / `in_trash` / `broken_model` (409。複製元の中身が検証に通らないとき) / `transfer_first` (owner を外そうとした) / `owner_role_fixed` (owner の役割を変えようとした) / `in_trash` (ゴミ箱の中のファイルの共有を変えようとした) / `conflict` (譲渡が並行した操作と重なった) / `already_owner` (自分を招待・自分に譲ろうとした。owner のメールを招待したとき)、`invitation_expired` / `invitation_used` (410。招待の期限切れ・受けたあとに外された人が古い招待を使った)、`too_large` (413。`limitBody` を通る API の本文は **1 MB まで**。モデルの大きさの上限。3.4)、`snapshot_not_found` (404。過去の状態のキーが無い)、`misconfigured` (503。秘密の値が足りない。7.1)。
 - **ブラウザが直接開く `/auth/login`・`/auth/callback`・`/auth/dev` の失敗**は JSON ではなく、戻るリンク付きの小さな HTML で返す。
-- **ログアウトは `/auth` の下**: `POST /auth/logout`、`POST /auth/logout-all`。`logout` はセッションが無くても成功し (204)、Cookie を消す。Cookie 認証なら `X-Requested-With` が要る。
+- **ログアウトは `/auth` の下**: `POST /auth/logout`、`POST /auth/logout-all`。`logout` はセッションが無くても成功し (204)、Cookie を消す。Cookie 認証なら `X-Requested-With` が要る。どちらも、そのセッション (またはユーザー) で開いているルームの接続を閉じる (7.2)。
 - **レスポンス**: `POST /files` と `POST /files/:id/duplicate` は `201` と `FileSummary`。`PATCH /files/:id` と `POST /files/:id/restore` は `200` と `FileSummary`。`DELETE /files/:id` と `DELETE /files/:id/purge` は `204`。`GET /files/trash` は `{ files: FileSummary[] }`。`GET /files/:id` は `FileDetail` で、`members`・`invitations`・`link` は owner だけが受け取る。`PUT /files/:id/members/:userId` は `200` と `Member`、`POST /files/:id/transfer` は `200` と `FileSummary`、`DELETE …/members/:userId`・`DELETE …/invitations/:invitationId`・`DELETE …/link` は `204`。
 - **完全削除はゴミ箱の中のファイルだけ**: ゴミ箱に入っていないファイルへの `purge` は `409 not_in_trash`。
 - **開発用ログイン**: `DEV_LOGIN=true` で、かつリクエストのホストが localhost / 127.0.0.1 のときだけ `GET/POST /auth/dev` (メールと名前のフォーム) と `providers` の `dev` が有効。`false` なら `/auth/dev` は 404。ドメイン制限 (`ALLOWED_EMAIL_DOMAINS`) は Google と共通の `isEmailAllowed` を通る。
@@ -569,7 +598,7 @@ export class UntieRoom extends YServer<Env> {
 | --- | --- |
 | ホーム | 「自分のファイル」「共有されたファイル」「ゴミ箱」のタブ。名前・更新日時・役割・メンバー。行の操作: 開く、名前を変える、複製、書き出す、共有 (owner だけ)、共有をやめる (共有されたファイルの行。editor / viewer。確認のあと自分をメンバーから外す)、ゴミ箱へ。「最近開いたローカルファイル」もここに並べる |
 | ログイン | 「Google でログイン」のボタン。デスクトップは「ブラウザでログインしています…」の待ち画面と、deep link が使えないときの引換コードの入力欄 |
-| 共有ダイアログ | `ShareDialog` (`role="dialog"`、`aria-labelledby`、Escape で閉じる、Tab はダイアログの中を回る)。owner だけ開ける: ホームの行の「共有」とエディタ (クラウド) のツールバーの「共有」から開き、所有者でなくなったら (譲った) 閉じる。`files.get(id)` の `FileDetail` を出し、変更のたびに取り直してホームの一覧も更新する。操作中は他の操作を受けない (二重押しを防ぐ)。失敗は `ApiError.message` をトーストに出す。**メンバー**: 名前・メール・役割の選択 (編集者 / 閲覧者。所有者は固定表示)・「外す」(確認なし)、所有者を譲る相手を選んで「所有者を譲る…」→ 確認 → `transfer` (譲ったらダイアログを閉じる。元の所有者は editor になり、開いていれば 4001 でつなぎ直す)。**招待**: メールと役割 → `invitations.create`。`kind: "member"` なら「〜さんをメンバーに加えました」(その場の文言)、`kind: "invitation"` なら招待リンクの入力欄と「リンクを写す」、その下に未承諾の招待 (メール・役割・期限。期限切れは「期限切れ」と出す) と「取り消す」。**リンクで閲覧**: 「リンクを知っている人が閲覧できる」のスイッチ (`role="switch"`)。有効にすると URL と「リンクを写す」を出す。すでに有効で URL が無い (開き直したあと。サーバーはトークンを持たない) ときは「リンクを作り直す」(確認: 古いリンクは使えなくなる) で新しい URL を出す。無効にするときも確認する |
+| 共有ダイアログ | `ShareDialog` (`role="dialog"`、`aria-labelledby`、Escape で閉じる、Tab はダイアログの中を回る)。owner だけ開ける: ホームの行の「共有」とエディタ (クラウド) のツールバーの「共有」から開き、所有者でなくなったら (譲った) 閉じる。`files.get(id)` の `FileDetail` を出し、変更のたびに取り直してホームの一覧も更新する。操作中は他の操作を受けない (二重押しを防ぐ)。失敗は `ApiError.message` をトーストに出す。**メンバー**: 名前・メール・役割の選択 (編集者 / 閲覧者。所有者は固定表示)・「外す」(確認なし)、所有者を譲る相手を選んで「所有者を譲る…」→ 確認 → `transfer` (譲ったらダイアログを閉じる。元の所有者は editor になり、開いていれば 4001 でつなぎ直す)。**招待**: メールと役割 → `invitations.create`。`kind: "member"` なら「〜さんをメンバーに加えました」(その場の文言)、`kind: "invitation"` なら招待リンクの入力欄と「リンクを写す」、その下に未承諾の招待 (メール・役割・期限。期限切れは「期限切れ」と出す) と「取り消す」。**リンクで閲覧**: 「リンクを知っている人が閲覧できる」のスイッチ (`role="switch"`)。有効にすると URL と「リンクを写す」を出す。すでに有効で URL が無い (開き直したあと。サーバーはトークンを持たない) ときは「リンクを作り直す」(確認: 古いリンクは使えなくなる) で新しい URL を出す。無効にするときも確認する。**過去の状態**: 1 時間ごとのスナップショット (3.4) を新しい順に「2026-10-31 19:00 の状態」と並べ、行ごとの「書き出す」で `GET /files/:id/snapshots/:key` の JSON を `platform.saveTextFile` で保存する (JSON の書き出しと同じ流れ。中身はサーバーが返したまま。ファイル名は「<名前> <日時>.json」)。一覧が読めなくても共有の設定は使える (その節にだけ理由を出す) |
 | 招待を受ける画面 | `#/invite/<token>` (`InvitePage`)。ログインの状態が分かるまで「確認中」、未ログインなら「招待を受けるにはログインしてください」とログイン欄 (ログイン後はこの画面に戻る)、ログイン済みなら `invitations.get` で「〜さんから「ファイル名」に役割として招待されています」と「受ける」「やめる」。受けたら `#/f/<fileId>` へ移る。「期限切れ」(`expired` が true か 410 `invitation_expired`)・「すでに使われています」(410 `invitation_used`)・「別のメールアドレス宛です (いまのログイン: …)」(403 `email_mismatch`)・「見つかりません」(404) は文言を出して「ホームへ」だけ置く |
 | リンクで開く画面 | `#/link/<token>`。ログインの状態が分かったら、`links.get` でファイルを引いて `openCloudFile(fileId, { link })` でそのままエディタ (閲覧専用) を開く。ログインしていなくてもホームへは戻さない。上の帯に「リンクで閲覧中。ログインすると複製できます」とログインの導線 (ログイン後はこのリンクへ戻る)。ログイン済みでメンバーでなければ「複製して自分のファイルにする」(`links.duplicate` → 複製したファイルへ)。ログイン済みでメンバー (所有者を含む) なら、`links.get` の役割が `guest` でないので `#/f/<fileId>` に `location.replace` で置き換え、`files.ticket` で開く (`via: "link"` にしない。リンクの無効化で切られず、アドレスバーからトークンも消える)。無効なリンク (`links.get` かチケットが 404) は「このリンクは無効です」を出してホームへ |
 | エディタ (クラウド) | ツールバーのタイトルの横に接続状態 (接続中 / 切断。再接続します)、役割、参加者の色玉 (title に名前。同じ人の複数のタブは 1 つ。ゲストは接続 id から決めた色)。viewer と guest は上に「閲覧専用です (役割: …)」の帯 (`role="status"`)。Undo / Redo は無効 (title「共有中は取り消せません」)。Cmd/Ctrl+S は書き出し。ファイルメニューは「ホーム」「JSON に書き出す」「クラウドへ保存 (複製)」だけ |
@@ -583,8 +612,8 @@ export class UntieRoom extends YServer<Env> {
 - **401 の扱い**: 使っている途中の 401 (セッション切れ・別の端末でのログアウト) は `cloud/api.ts` の `onUnauthorized` 1 か所で受ける。`session` が anonymous に戻して「ログインの有効期限が切れました」を出し、`files` が一覧を空にする (両者は互いを import せず、この購読口だけでつながる)。`logout` / `logoutAll` は 401 を成功とみなして手元の状態を消す。
 - `files` ストア (`cloud/files.ts`): `mine` / `shared` / `trash` / `loading` / `loaded` / `error` と、`refresh`・`create`・`rename`・`duplicate`・`exportToFile`・`trashFile`・`restore`・`purge`・`leave` (共有をやめる)・`duplicateFromLink` (リンクのファイルを複製)。操作の失敗は `ApiError.message` をそのままトーストに出す。書き出しは `files.export` で JSON を取って `parseModel` で検めてから `Platform.saveTextFile` へ渡す (ダウンロード URL は使わない。デスクトップでも動く)。モデルの名前が空なら「名前なし」にして送る。
 - ローカルの編集 (ホーム画面まわり): ツールバーの「ホーム」は、未保存の変更があれば `confirmDiscard` で確かめ、破棄すると決めたら編集中のモデルを起動時のサンプル (未変更) に戻し、走っている AI エージェントを止めてから `#/` へ移る。`openDocument` / `openRecentDocument` は開けたら `true` を返す (ホームが `#/local` へ移るかの判定に使う)。閉じる前の確認 (`useCloseGuard`) は `Root` に置き、ホームでも効く。
-- **`cloud: CloudInfo | null`** (`{ fileId, role, doc: Y.Doc, status: "loading" | "connecting" | "connected" | "offline", closed?: { code, reason }, link?: string }`)。ローカルなら null。当初の案の `document: { kind: "local" | "cloud" }` で `file` を包む形にはせず、従来の `file` / `savedModel` / `history` はそのまま、`cloud` を足すだけにした (ローカルのコードに触れない)。`status` は最初の同期が済むまで `loading`。他に `peers: Peer[]` (`{ clientId, userId, name, color, boardId, selection }`、自分を除く) と `pendingRemote` (ドラッグ中に届いた変更を後回しにしているか)。
-- 関数: `loadCloudDocument(model, cloud)` (履歴・選択・ドラッグを捨てて開いた状態にする)、`setCloudStatus` / `setCloudRole` / `setCloudClosed` / `setPeers`、`applyRemoteModel(model)`、`closeCloud()` (起動時のサンプル・未変更に戻す。クラウドを開いていなければ何もしない。ローカルの編集中のモデルを壊さないため)。`newDocument` / `loadDocument` も `cloud` を外す。
+- **`cloud: CloudInfo | null`** (`{ fileId, role, doc: Y.Doc, status: "loading" | "connecting" | "connected" | "offline", closed?: { code, reason }, link?: string, dirtySinceOffline: boolean, saveFailed: boolean }`)。ローカルなら null。当初の案の `document: { kind: "local" | "cloud" }` で `file` を包む形にはせず、従来の `file` / `savedModel` / `history` はそのまま、`cloud` を足すだけにした (ローカルのコードに触れない)。`status` は最初の同期が済むまで `loading`。他に `peers: Peer[]` (`{ clientId, userId, name, color, boardId, selection }`、自分を除く) と `pendingRemote` (ドラッグ中に届いた変更を後回しにしているか)。
+- 関数: `loadCloudDocument(model, cloud, { keepUi? })` (履歴・選択・ドラッグを捨てて開いた状態にする。`keepUi` = `{ currentBoardId, selection }` があれば、役割が変わったつなぎ直しでそれを引き継ぐ。8.3)、`setCloudStatus` / `setCloudRole` / `setCloudClosed` / `setCloudSaveFailed` / `setPeers`、`applyRemoteModel(model)`、`closeCloud()` (起動時のサンプル・未変更に戻す。クラウドを開いていなければ何もしない。ローカルの編集中のモデルを壊さないため)。`newDocument` / `loadDocument` も `cloud` を外す。
 - **書き込みの経路**: `dispatch` / `commitDrag` / `agentApply` は、`cloud` があれば結果を `applyModelDiff(doc, before, after, LOCAL_ORIGIN)` で Doc に書き、そのあと **`model = rebuildModel(doc, after)`** にする (Doc が正本。他の人の変更との合流、消した側が勝つ規則はここで揃う)。`history` には積まず、`endAgentEdit` も履歴を積まない。`previewNode` / `previewCommand` は Doc に書かない (表示だけ)。`commitDrag` が書くのは `dragBase` と確定後の差だけなので、ドラッグ中に届いた他の人の変更は消さない。
 - **リモートの変更**: `attachCloudDoc` が `observeModelChanges` で `LOCAL_ORIGIN` 以外の変更を受け、`rebuildModel(doc, store.model)` を `applyRemoteModel` に渡す。ドラッグ中 (`dragBase` が非 null) は `pendingRemote` を立てて後回しにし (組み立て直しもしない)、`commitDrag` / `cancelDrag` が Doc から組み立て直す。`dispatch` はドラッグ中なら先に `commitDrag` するので、`before` が Doc とずれない (消えたものの復活を防ぐ。6 章)。AI エージェントの編集中 (`agentBase`) は後回しにせず、そのまま反映する。部分的な組み立て直し (`changed` の id だけ) はしない: 届く id と変わる範囲が一致しないため (6 章)。構造共有で変わった分だけが新しい参照になる。
 - **閲覧専用**: セレクタ `selectReadOnly` (`cloud && !can(cloud.role, "edit")`)。`dispatch` / `agentApply` は `{ ok: false, reason: "閲覧専用です" }` を返し、`previewNode` / `previewCommand` / `commitDrag` / `beginAgentEdit` は何もしない。画面は `useUntieStore(selectReadOnly)` で出し分ける (入力欄の `readOnly`、追加・削除・移動・関係のボタンを出さない、キャンバスの `nodesDraggable` を切る、AI のボタンとペインを出さない)。選ぶことはできる。
@@ -593,7 +622,7 @@ export class UntieRoom extends YServer<Env> {
 - **役割が変わったとき** (`setCloudRole`): 閲覧専用になったら、途中のドラッグ (`cancelDrag`) と AI の編集を捨てる。閲覧専用のときの `commitDrag` も、`dragBase` を残さずドラッグを捨てる。
 - 画面の `can(role, action)` は `cloud.role` から引く。ローカルは常に owner 相当。リンクで開いたときは `cloud.link: token` を持ち、チケットを `links.ticket` で取る (再接続のたびも同じ)。書き出しは手元のモデルから行うので `links.export` は使わない。
 - `session.status === "anonymous"` でもリンクのファイルは開ける。ホームは未ログインならログインとローカルファイルだけ出す。`#/f/<id>` は、未ログインならホームへ戻して「クラウドのファイルを開くにはログインしてください」を出す。
-- クラウドファイルを開くと、ローカルの編集中のモデルはストアから置き換わる (戻るとサンプル)。そのため `CloudEditor` が、開く前に保存していない変更があれば `confirmDiscardIfDirty` で確かめ、断られたら `#/local` へ戻す (ホームの「開く」だけでなく、戻る/進む・URL の直打ちで来たときも守る)。
+- クラウドファイルを開くと、ローカルの編集中のモデルはストアから置き換わる (戻るとサンプル)。そのため `CloudEditor` が、開く前に保存していない変更があれば `confirmDiscardIfDirty` で確かめ、断られたら `#/local` へ戻す (ホームの「開く」だけでなく、戻る/進む・URL の直打ちで来たときも守る)。開発モード (StrictMode) は effect を 2 回走らせるので、確認中の答え (Promise) を `useRef` に持ち、2 回目は新しく聞かずにその答えを待つ (確認ダイアログが 2 回出ない)。
 
 ### 8.3 接続
 
@@ -601,9 +630,11 @@ export class UntieRoom extends YServer<Env> {
 
 - `openCloudFile(fileId, { link? })` は先に `files.ticket(id)` (`link` があれば `links.ticket(link)`) を取り (401/403/404/409 ならその `ApiError` を投げる。何も付けない)、`new YProvider(host, fileId, doc, { party: "untie-room", protocol, disableBc: true, connect: false, params })` をつなぐ。`host` / `protocol` は `Platform.serverOrigin()` から決める。`params` は最初の 1 回は取ったチケットを使い、**再接続のたびに取り直す** (チケットは 60 秒で切れる)。取り直したチケットの `role` が変わっていたら、ストアの役割を更新する (切れている間に viewer から editor になった、など)。開く途中で `closeCloudFile()` や別の `openCloudFile()` が呼ばれたら、世代の番号で古い方が何も付けずに戻る (React の StrictMode でも二重につながない)。
 - **接続の状態** (`cloud.status`): 最初の同期 (`sync` が true) までは `loading` (画面は「読み込み中…」。Doc が空のまま編集させない。15 秒たっても終わらなければ「サーバーにつながっていません」を添える)。以後は `status` イベントを写す: `disconnected` → `offline`、`connecting` → `connecting`、`connected` → 同期が済むまでは `connecting`、`sync` → `connected`。
-- **閉じられたとき**: `connection-close` イベントの `code` が 4000〜4004 なら、再接続せず (`provider.disconnect()`)、`cloud.closed = { code, reason }` にする (`reason` はサーバーが付けた理由。空なら画面側の `CLOSE_REASONS`: 4000「認証されていません。ログインし直してください」、4001「役割が変わりました。開き直してください」、4003「共有から外されたか、ファイルがゴミ箱に入りました」、4004「リンクが無効になりました」)。`CloudEditor` が `closed` を見て、理由をトーストに出してホームへ戻す (4001 は下)。再接続のチケットの取得が 401/403/404/409 だった場合 (切れている間に外された・ゴミ箱に入った、など) も、同じく `closed` にして再接続しない。**4001 (役割が変わった) だけは、ホームへ戻さずその場でつなぎ直す**: `CloudEditor` が `openCloudFile` をもう一度呼んで (リンクで開いていれば `link` も付けて) 新しい役割で開き直し、トースト「役割が〜に変わりました」を出す。つなぎ直しに失敗した (外された・リンクが無効になった、など) ときは、開くときと同じ扱いでホームへ戻す。開き直す間は「読み込み中…」になり、選択などの画面の状態は初期に戻る。**つなぎ直しは古い Y.Doc を捨てて新しい Doc で始めるので、古い Doc にあって送りきれていなかった更新 (つながっていない間の自分の変更など) は失われる**。役割が変わる (editor から viewer など) 場面なので、閉じられた時点でサーバーに届いていない編集は戻さない。
+- **閉じられたとき**: `connection-close` イベントの `code` が 4000〜4004 なら、再接続せず (`provider.disconnect()`)、`cloud.closed = { code, reason }` にする (`reason` はサーバーが付けた理由。空なら画面側の `CLOSE_REASONS`: 4000「認証されていません。ログインし直してください」、4001「役割が変わりました。開き直してください」、4003「共有から外されたか、ファイルがゴミ箱に入りました」、4004「リンクが無効になりました」)。`CloudEditor` が `closed` を見て、理由をトーストに出してホームへ戻す (4001 は下)。再接続のチケットの取得が 401/403/404/409 だった場合 (切れている間に外された・ゴミ箱に入った、など) も、同じく `closed` にして再接続しない。**4001 (役割が変わった) だけは、ホームへ戻さずその場でつなぎ直す**: `CloudEditor` が `openCloudFile` をもう一度呼んで (リンクで開いていれば `link` も付けて) 新しい役割で開き直す。トースト「役割が〜に変わりました」は、**役割が実際に変わったときだけ**出す。つなぎ直しに失敗した (外された・リンクが無効になった、など) ときは、開くときと同じ扱いでホームへ戻す。開き直す間は「読み込み中…」になるが、**開いているボード (`currentBoardId`) と選択 (`selection`) は引き継ぐ**: つなぎ直す前にストアから控え、`openCloudFile(id, { keepUi })` → `loadCloudDocument(model, cloud, { keepUi })` が新しい状態に入れる。つなぎ直した直後の Doc はまだ空なので、参照先 (自由ボード・要素) が無くても外さない。最初の同期で中身が届いたとき、`reconcileUi` が無いボード・要素だけを直す (ほかの画面の状態は初期に戻る)。**つなぎ直しは古い Y.Doc を捨てて新しい Doc で始めるので、古い Doc にあって送りきれていなかった更新 (つながっていない間の自分の変更など) は失われる**。そのため `dirtySinceOffline` が立っていれば、つなぎ直す前に確認を出す: 「送れていない変更があります。JSON に書き出しますか」(「書き出す」= `exportModelToFile` で書き出してからつなぎ直す。取り消した・失敗したときは聞き直す / 「捨てて続ける」= そのままつなぎ直す)。**4000 (ログアウト・認証切れ) は、理由を出してホームへ戻し、ログインの状態を取り直す** (ログイン欄が出る)。ただし理由が「このチケットは使用済みです」の 4000 は、provider が再接続のたびに取り直すチケットが重なったときに起きうるだけなので、閉じた扱いにせず provider の再接続に任せる (7.5)。
+- **保存できていないとき**: provider の `custom-message` イベント (`y-partyserver` の `broadcastCustomMessage` の受け口。本文は `__YPS:` を除いた文字列) で `{ type: "save_failed" }` を受けたら `cloud.saveFailed = true` にし、`App` が帯「サーバーに保存できていません。JSON に書き出して保存してください」(`role="alert"`。閲覧者にも出す) を出す。`{ type: "save_ok" }` で消す。つながっていない間 (`disconnected`) も消す (つなぎ直したとき、まだ保存できなければサーバーがもう一度知らせる)。知らない・壊れた知らせは無視する。
 - **接続の状態は切れたら戻らない**: 一度 `offline` になったら、`connected` かつ同期済みになるまで、再接続を試している `connecting` も `offline` として扱う (再接続に失敗し続けても「接続しています」と出さない)。
 - **ログイン中に開く前から走っていた AI** を止める: `openCloudFile` の先頭で `useAgentStore.getState().cancel()` を呼ぶ。止め損ねても、クラウドの `agentApply` は `beginAgentEdit` の間にしか書けず、開くと `agentBase` は捨てられる。
+- **チケットは再接続のたびに取り直す**: `params` は最初の 1 回だけ取ってあったチケットを返し、2 回目からは API で取り直す。チケットは 1 回しか使えないので (7.5)、同じチケットでは二度つながない。
 - **途中で失敗したとき**: `openCloudFile` が attach のあとで例外になったら、provider を `destroy` し、`detach()` と `doc.destroy()` をしてから投げる (ストアに `cloud` を残さない)。
 - **取れなかったとき**: チケットが 401 ならホーム (ログイン欄)、403/404 ならホームへ戻して「このファイルは開けません」、409 なら「ゴミ箱の中のファイルです」。
 - つながっていない間の編集は手元の Y.Doc に溜まり、つながると合流する。ただし**タブを閉じると失われる**ので、`hasUnsavedChanges` (8.2) が true の間は、閉じる前の確認 (`useCloseGuard`) と、ツールバーの「ホーム」の確認 (「つながっていない間の変更はまだ送れていません」) を出す。「つながっていません。変更は接続後に反映されます」の長期の帯 (10 分など) は**入れていない** (ツールバーの「切断。再接続します」だけ。12.2)。
@@ -621,7 +652,7 @@ export class UntieRoom extends YServer<Env> {
 
 ## 9. 配信とビルド
 
-- **サーバー**: ルートの `pnpm run deploy` (= `pnpm --filter @untie/server run deploy` = `pnpm --filter @untie/web build && node scripts/copy-headers.mjs && wrangler deploy`)。`wrangler.jsonc` に `assets` (`../web/dist`、SPA、`run_worker_first` は `/auth/*`・`/api/*`・`/parties/*`)、D1、Durable Object (`new_sqlite_classes`)、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars` を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。本番で置き換える値 (`d1_databases[0].database_id`、`vars.APP_ORIGIN`) は `wrangler.jsonc` のコメントに明記してある。初回の手順は README の「配信 (Cloudflare)」。
+- **サーバー**: ルートの `pnpm run deploy` (= `pnpm --filter @untie/server run deploy` = `pnpm --filter @untie/web build && node scripts/copy-headers.mjs && wrangler deploy`)。`wrangler.jsonc` に `assets` (`../web/dist`、SPA、`run_worker_first` は `/auth/*`・`/api/*`・`/parties/*` と、`APP_ORIGIN` 以外のホストで開かれたときに Worker が 302 で移せるよう `/`・`/index.html`)、D1、Durable Object (`new_sqlite_classes`)、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars` を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。本番で置き換える値 (`d1_databases[0].database_id`、`vars.APP_ORIGIN`) は `wrangler.jsonc` のコメントに明記してある。**公開のホスト**: 既定は workers.dev。独自ドメインで配るときは `"workers_dev": false` と `"routes": [{ "pattern": "<ホスト>", "custom_domain": true }]` を有効にする（設定例は `wrangler.jsonc` のコメント）。workers.dev も残すときは `APP_ORIGIN` を独自ドメインにしておけば、workers.dev で開かれた画面・ログインは `APP_ORIGIN` の同じパスへ 302 で移り、ログインは 1 つのホストで済む (7.1)。Google の redirect URI は `APP_ORIGIN` のものを登録する。初回の手順は README の「配信 (Cloudflare)」。
 - **確認**: `pnpm --filter @untie/server check` は `node scripts/copy-headers.mjs && wrangler deploy --dry-run`。バンドルと設定が通るかだけを確かめ、Cloudflare にはログインも通信もしない (`CLOUDFLARE_API_TOKEN` なしで動く)。ルートの `pnpm build` に含まれる。
 - **Web**: `apps/web` は Vite の成果物を作るだけ。`_headers` は `apps/server/public/` にあり、`copy-headers.mjs` が `apps/web/dist/` に写して静的ファイルと一緒に配る。CSP の `connect-src` は `'self'` (同じオリジンの fetch と WebSocket を含む) と各 AI プロバイダーの API だけ。`wss:` は足さない (任意のホストへの WebSocket も許してしまうため)。`frame-ancestors 'none'`、`Referrer-Policy: no-referrer` は従来のまま。
 - **デスクトップ**: `apps/desktop` に `vite.config.ts` と `src-tauri/`。Release は `apps/desktop` で `tauri-action` を動かす。サーバーの URL はアプリの設定 (8.4) で、ビルドには入れない。
@@ -631,7 +662,7 @@ export class UntieRoom extends YServer<Env> {
 
 ## 10. セキュリティの要点
 
-- セッションと招待のトークンは D1 にハッシュだけ置く。チケットは短命の署名付き JWT、引換コードは短命の AES-GCM 暗号文で、どちらも保存しない。引換コードにトークンは入れず(交換のときにサーバーが新しいトークンを作って行の id を入れ替える)、1 回限りは `sessions.activated_at` で、コードを盗み見た者への備えは PKCE (`code_verifier`) で守る。
+- セッションと招待のトークンは D1 にハッシュだけ置く。チケットは短命の署名付き JWT、引換コードは短命の AES-GCM 暗号文で、どちらも保存しない（チケットの使用済みの記録 `ticket:<jti>` は jti と期限だけ）。引換コードにトークンは入れず(交換のときにサーバーが新しいトークンを作って行の id を入れ替える)、1 回限りは `sessions.activated_at` で、コードを盗み見た者への備えは PKCE (`code_verifier`) で守る。
 - 権限の判定はサーバーの `requireRole` が正本。画面の `can` は見せ方だけ。
 - OIDC は `state`・`nonce`・PKCE を必ず使い、`email_verified` を見る。
 - リンク・招待のトークンは URL のパスに置かず `X-Untie-Token` ヘッダーで送る (パスは Workers のログに残る。画面の `/#/…` はハッシュなのでサーバーに届かない)。
@@ -639,7 +670,9 @@ export class UntieRoom extends YServer<Env> {
 - Web の API は SameSite=Lax の Cookie と `X-Requested-With` で CSRF を防ぐ。デスクトップは Bearer だけ (Cookie は使わない)。
 - ゴミ箱の 30 日と完全削除は `destroy()` で Durable Object のストレージを消す。D1 の `files`・`file_members`・`invitations` も消す。
 - AI の API キーはいままでどおり各自の端末にだけ置き、サーバーには送らない。
-- ログ (Workers のログ) にトークン・チケット・メールの本文を出さない。
+- チケットは 60 秒・1 回限りなので、ログに残っても使えない。ログ (Workers のログ) にトークン・メールの本文は出さない。修復のログ (`changes`) も id・種類・項目名・件数だけで、業務名などの中身は含まない。検証エラーを記録するときも、要素の名前は「…」に伏せる。
+- ログアウトしたセッション (`sid`)・ユーザーの接続は、ルームが閉じる (7.2)。セッションが消えたのに接続だけが残ることはない。
+- 秘密の値 (`SESSION_SECRET`・`TICKET_SECRET`) は 32 文字以上でなければ動かさない (503 `misconfigured`。7.1)。
 - Cloudflare Access を Worker の前にさらに置けるようにしておく (社内限定にしたいとき。Access の JWT があれば、それをログインの代わりにする拡張も可能)。
 
 ## 11. テスト
@@ -650,12 +683,12 @@ export class UntieRoom extends YServer<Env> {
 | --- | --- | --- |
 | 権限の規則 (`can`) | `packages/api` | 3.2 の表をそのままテストにする |
 | API の契約 | `packages/api` | zod スキーマ (リクエストの検証)、fetch クライアント (`UntieApi`。`ApiError`・ヘッダー・URL)、閉じるコードの定数 (7.5) |
-| モデル | `packages/core` | 従来のコマンド・検証・固定ボード・分析・トレースに加え、`repairModel` (消えた要素を指す関係・ノード・対象・`bucId`・`contextId`、重複した関係、業務の無い BUC、ボード 0 枚)、8 文字の id |
+| モデル | `packages/core` | 従来のコマンド・検証・固定ボード・分析・トレースに加え、`repairModel` (消えた要素を指す関係・ノード・対象・`bucId`・`contextId`、重複した関係、業務の無い BUC、ボード 0 枚、長すぎる文字列の切り詰め)、8 文字の id。文字数の上限: `limits.ts` の定数がスキーマの `maxLength` と一致すること（スキーマを読んで比べる。上限を持つ項目が増えたら落ちる）、すべてのコマンドが上限を超える入力を断ること、changes に名前などの中身が出ないこと |
 | doc の往復 | `packages/collab` | `rebuildModel(applyModelDiff(a, b)) ≡ b` をサンプルと、コマンドをランダムに 1〜50 回当てたモデルで確かめる。順序キーの保持、`order` が JSON に漏れないこと、`observeModelChanges` が 1 トランザクションに 1 回呼ぶこと |
-| 合流 | `packages/collab` | Y.Doc を 2 つ作って別々のコマンドを当て、update を交換して同じモデルになること。同じ項目の後勝ち、別の項目はどちらも残ること。`repairDoc` が壊れた参照を直すこと |
-| サーバー | `apps/server` | `@cloudflare/vitest-plugin` で workerd の中に本物の D1 と Durable Object を立てて走らせる。ログイン (Google はモック、開発用ログイン)、セッションの期限・種類・CSRF・CORS、デスクトップの引換コード (PKCE・1 回限り・期限・未交換の行)、API の権限 (役割ごとに 7.4 の表を当てる)、招待の受理 (メール不一致は拒む)、所有者の譲渡、リンク閲覧 (有効・無効・作り直し、ゲストのチケットが guest になること、メンバーがリンクから開くと自分の役割になること、ゴミ箱の中は 404)、共有まわりの競合と kick、ゴミ箱と cron の掃除、チケットの検証、ルームへの接続 (viewer と guest の update が捨てられること、kick と取り消しの記録、`locationHint` が付くこと、`onSave` が D1 の名前と更新日時を書くこと) |
-| ストア | `packages/ui` | 従来の `store.test.ts` はそのまま通る (ローカルは変えない)。クラウドの `dispatch`・`commitDrag`・`agentApply` が Y.Doc に書き、他の Y.Doc の変更がストアに届く。viewer の `dispatch` が何もしない。Undo / Redo が何もしない。`cloud/collab.ts` (接続・プレゼンス・閉じられたとき) は中核に 2 つの Y.Doc をつなぎ、外側は偽の provider で確かめる |
-| UI | `packages/ui` | 従来の Testing Library のテスト (Platform はテスト用の実装を渡す) に加え、ホーム・ログイン・クラウドファイルの一覧、共有ダイアログ (リンクのスイッチを含む)、招待を受ける画面、閲覧専用の帯、リンクで開く画面、`CloudEditor`、ルーティング |
+| 合流 | `packages/collab` | Y.Doc を 2 つ作って別々のコマンドを当て、update を交換して同じモデルになること。同じ項目の後勝ち、別の項目はどちらも残ること。`repairDoc` が壊れた参照を直すこと。説明が 4001 文字の要素が（`readModel`・`rebuildModel` でも `repairDoc` でも）残り、関係も残ること |
+| サーバー | `apps/server` | `@cloudflare/vitest-plugin` で workerd の中に本物の D1 と Durable Object を立てて走らせる。ログイン (Google はモック、開発用ログイン)、セッションの期限・種類・CSRF・CORS、デスクトップの引換コード (PKCE・1 回限り・期限・未交換の行)、API の権限 (役割ごとに 7.4 の表を当てる)、招待の受理 (メール不一致は拒む)、所有者の譲渡、リンク閲覧 (有効・無効・作り直し、ゲストのチケットが guest になること、メンバーがリンクから開くと自分の役割になること、ゴミ箱の中は 404)、共有まわりの競合と kick、ゴミ箱と cron の掃除（セッション・古い招待）、チケットの検証、ルームへの接続 (viewer と guest の update が捨てられること、kick と取り消しの記録、`locationHint` が付くこと、`onSave` が D1 の名前と更新日時を書くこと)、ログアウトで接続が 4000 で閉じること (`logout`・`logout-all`。別のセッションの接続は残る)、チケットが 1 回限りであること、`save_failed` / `save_ok`、長すぎる文字列が切り詰められること、過去の状態の API、`APP_ORIGIN` への 302、秘密の値が短いときの 503 |
+| ストア | `packages/ui` | 従来の `store.test.ts` はそのまま通る (ローカルは変えない)。クラウドの `dispatch`・`commitDrag`・`agentApply` が Y.Doc に書き、他の Y.Doc の変更がストアに届く。viewer の `dispatch` が何もしない。Undo / Redo が何もしない。`cloud/collab.ts` (接続・プレゼンス・閉じられたとき・`save_failed`・チケットの取り直し) は中核に 2 つの Y.Doc をつなぎ、外側は偽の provider で確かめる |
+| UI | `packages/ui` | 従来の Testing Library のテスト (Platform はテスト用の実装を渡す) に加え、ホーム・ログイン・クラウドファイルの一覧、共有ダイアログ (リンクのスイッチを含む)、招待を受ける画面、閲覧専用の帯、保存できていない帯、リンクで開く画面、`CloudEditor` (つなぎ直しでボードと選択を引き継ぐこと、送れていない変更の確認、StrictMode で確認が 1 回だけ出ること)、共有ダイアログの「過去の状態」、入力欄の `maxLength`、ルーティング |
 | プラットフォーム | `apps/desktop`・`apps/web` | デスクトップ: ログインの記録・deep link・引換コード・サーバーの URL・キーチェーンの呼び出し・最近開いたファイル。Web: 最近開いたファイル・API キーの置き場 |
 | 生成物 | CI | `pnpm check:types` が、スキーマから生成した型と検証関数が最新かを確かめる |
 

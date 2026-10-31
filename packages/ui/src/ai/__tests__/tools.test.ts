@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { okModel, sample } from "@untie/core/testing";
 import type { CommandResult } from "@untie/core/model/commands";
 import type { UntieModel } from "@untie/core/model/types";
+import { validateModel } from "@untie/core/model/validate";
 import { executeTool, MODEL_TOOLS, modelForAi, type ModelEditor } from "../tools";
 
 function editorOf(initial: UntieModel): ModelEditor & { model: UntieModel } {
@@ -41,6 +42,26 @@ describe("AI の道具", () => {
     expect(e.model.elements.find((x) => x.id === id)).toMatchObject({ bucId: "buc_default_checkin", hours: 0.2 });
     expect(executeTool(e, "add_relation", { source_id: "ext_guest", target_id: id }).ok).toBe(true);
     expect(executeTool(e, "remove_relation", { source_id: id, target_id: "ext_guest" }).ok).toBe(true);
+  });
+
+  it("長すぎる名前・説明はコマンドの失敗がそのまま返り、要素もモデルも変わらない (スキーマに合わない要素を作らない)", () => {
+    const e = editorOf(sample());
+    const before = e.model;
+    const tooLongName = executeTool(e, "add_element", { kind: "actor", name: "あ".repeat(201) });
+    expect(tooLongName).toMatchObject({ ok: false, changed: false });
+    expect(parse(tooLongName.content).error).toBe("名前は 200 文字までです");
+    const tooLongDescription = executeTool(e, "add_element", { kind: "actor", name: "担当", description: "あ".repeat(4001) });
+    expect(parse(tooLongDescription.content).error).toBe("説明は 4000 文字までです");
+    const updateName = executeTool(e, "update_element", { id: "actor_front", name: "あ".repeat(201) });
+    expect(parse(updateName.content).error).toBe("名前は 200 文字までです");
+    const updateDescription = executeTool(e, "update_element", { id: "actor_front", description: "あ".repeat(4001) });
+    expect(parse(updateDescription.content).error).toBe("説明は 4000 文字までです");
+    const updateValues = executeTool(e, "update_element", { id: "var_room_type", values: ["あ".repeat(201)] });
+    expect(updateValues.ok).toBe(false);
+    expect(e.model).toBe(before);
+    // 上限ちょうどなら通り、できたモデルはスキーマの検証に通る
+    expect(executeTool(e, "update_element", { id: "actor_front", description: "あ".repeat(4000) }).ok).toBe(true);
+    expect(validateModel(JSON.parse(JSON.stringify(e.model))).ok).toBe(true);
   });
 
   it("失敗はコマンドの理由を返し、モデルを変えない", () => {

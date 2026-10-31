@@ -78,6 +78,8 @@ export interface CloudInfo {
   link?: string;
   /** 最後に同期が済んだあと、つながっていない間に自分が書いた変更があるか (閉じると失われるので、閉じる前の確認に使う) */
   dirtySinceOffline: boolean;
+  /** サーバーが「保存できていない」と知らせている (検証に通らない・書き込みの失敗)。帯を出し、JSON に書き出すよう促す。保存できたら外れる */
+  saveFailed: boolean;
 }
 
 /** 自分の編集を Y.Doc に書くときの origin。観測側は、これ以外の変更だけを組み立て直す */
@@ -142,10 +144,18 @@ export interface UntieState {
   markSaved: (file: DocumentFile, model: UntieModel) => void;
   /**
    * クラウドファイルを開いた状態にする。model は Y.Doc から組み立てたもの。
-   * 履歴・選択・ドラッグは捨てる (ローカルの編集中のモデルはここで置き換わる)
+   * 履歴・選択・ドラッグは捨てる (ローカルの編集中のモデルはここで置き換わる)。
+   * keepUi があれば、開いているボードと選択はそれを引き継ぐ (役割が変わったときのつなぎ直し)。
+   * つなぎ直した直後の Doc はまだ空なので、参照先がまだ無くても外さない: 最初の同期で届いた中身に合わせて reconcileUi が直す (applyRemoteModel)
    */
-  loadCloudDocument: (model: UntieModel, cloud: Omit<CloudInfo, "status" | "closed" | "dirtySinceOffline"> & { status?: CloudStatus }) => void;
+  loadCloudDocument: (
+    model: UntieModel,
+    cloud: Omit<CloudInfo, "status" | "closed" | "dirtySinceOffline" | "saveFailed"> & { status?: CloudStatus },
+    options?: { keepUi?: Pick<UiState, "currentBoardId" | "selection"> },
+  ) => void;
   setCloudStatus: (status: CloudStatus) => void;
+  /** サーバーの「保存できていない」の知らせを記録する (save_failed で true、save_ok で false) */
+  setCloudSaveFailed: (failed: boolean) => void;
   setCloudRole: (role: Role) => void;
   /** サーバーに閉じられたことを記録する */
   setCloudClosed: (closed: { code: number; reason: string }) => void;
@@ -433,7 +443,7 @@ export function createUntieStore(
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
-    loadCloudDocument: (model, cloud) =>
+    loadCloudDocument: (model, cloud, options) =>
       set((s) => ({
         model,
         file: null,
@@ -441,10 +451,17 @@ export function createUntieStore(
         history: { past: [], future: [] },
         dragBase: null,
         agentBase: null,
-        cloud: { ...cloud, status: cloud.status ?? "loading", dirtySinceOffline: false },
+        cloud: { ...cloud, status: cloud.status ?? "loading", dirtySinceOffline: false, saveFailed: false },
         peers: [],
         pendingRemote: false,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: {
+          ...s.ui,
+          ...START_UI,
+          selection: options?.keepUi?.selection ?? null,
+          ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
+          issueDraft: undefined,
+          globalFilter: {},
+        },
       })),
     // connected は同期が済んだときだけ。溜まっていた変更はこのとき送られるので、「つながっていない間の変更」は解く
     setCloudStatus: (status) =>
@@ -453,6 +470,8 @@ export function createUntieStore(
         const dirtySinceOffline = status === "connected" ? false : s.cloud.dirtySinceOffline;
         return s.cloud.status === status && s.cloud.dirtySinceOffline === dirtySinceOffline ? s : { cloud: { ...s.cloud, status, dirtySinceOffline } };
       }),
+    setCloudSaveFailed: (failed) =>
+      set((s) => (!s.cloud || s.cloud.saveFailed === failed ? s : { cloud: { ...s.cloud, saveFailed: failed } })),
     setCloudRole: (role) => {
       const { cloud } = get();
       if (!cloud || cloud.role === role) return;

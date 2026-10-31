@@ -4,11 +4,14 @@ import type { ZodType } from "zod";
 import type { AppEnv } from "../env";
 import { badRequest, errorBody } from "../errors";
 
-/** リクエスト本文の上限 (モデルは数百 KB まで。取り込みの JSON が大きすぎるものを入口で断る) */
-export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+/**
+ * リクエスト本文の上限。モデルは 1 MB まで (設計書 3.4)。Durable Object の 1 つの値には上限があり、
+ * 取り込んだ JSON が大きいと保存できないため、入口で断る
+ */
+export const MAX_BODY_BYTES = 1024 * 1024;
 export const limitBody = bodyLimit({
   maxSize: MAX_BODY_BYTES,
-  onError: (c) => c.json(errorBody("too_large", "リクエストが大きすぎます (2 MB まで)"), 413),
+  onError: (c) => c.json(errorBody("too_large", "リクエストが大きすぎます (1 MB まで)"), 413),
 });
 
 /** JSON の本文を zod で検める。JSON でない・形が違うときは 400 */

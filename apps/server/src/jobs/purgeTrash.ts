@@ -1,4 +1,5 @@
 import { listExpiredTrash, deleteFileRows } from "../db/files";
+import { deleteStaleInvitations } from "../db/invitations";
 import { deleteExpiredSessions } from "../db/sessions";
 import type { Env } from "../env";
 import { destroyRoom } from "../rooms";
@@ -9,7 +10,7 @@ export const TRASH_RETENTION_DAYS = 30;
 export const PURGE_BATCH_SIZE = 50;
 
 /**
- * cron (毎日): ゴミ箱に入れてから 30 日を過ぎたファイルのルームを destroy して行を消す (1 回に 50 件まで)。ついでに期限切れのセッションも消す。
+ * cron (毎日): ゴミ箱に入れてから 30 日を過ぎたファイルのルームを destroy して行を消す (1 回に 50 件まで)。ついでに期限切れのセッションと、古い招待の行も消す。
  * 1 件が失敗しても残りは続け、失敗したファイルは行を残して次の日にやり直す。消したファイルの数を返す
  */
 export async function purgeTrash(env: Env, now = Date.now()): Promise<number> {
@@ -25,5 +26,6 @@ export async function purgeTrash(env: Env, now = Date.now()): Promise<number> {
     }
   }
   await deleteExpiredSessions(env.DB, now);
+  await deleteStaleInvitations(env.DB, now);
   return purged;
 }

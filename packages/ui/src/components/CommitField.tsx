@@ -8,6 +8,8 @@ interface Props {
   label: string;
   multiline?: boolean;
   placeholder?: string;
+  /** 入力できる文字数の上限 (@untie/core の limits.ts。超えるとコマンドが失敗する) */
+  maxLength?: number;
   inputRef?: Ref<HTMLInputElement>;
   /** 読み取り専用 (閲覧専用のファイル。選んで写すことはできる) */
   readOnly?: boolean;
@@ -19,7 +21,7 @@ interface Props {
  * 入力中はローカル state に持ち、フォーカスが外れたとき・入力が止まって delay ミリ秒たったとき・
  * アンマウント時に 1 回だけ onCommit する (履歴を 1 件にするため)。
  */
-export function CommitField({ value, onCommit, label, multiline, placeholder, inputRef, readOnly, delay = COMMIT_DELAY_MS }: Props) {
+export function CommitField({ value, onCommit, label, multiline, placeholder, maxLength, inputRef, readOnly, delay = COMMIT_DELAY_MS }: Props) {
   const [local, setLocal] = useState(value);
   const localRef = useRef(value);
   const dirty = useRef(false);
@@ -102,6 +104,7 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           aria-label={label}
           value={local}
           placeholder={placeholder}
+          maxLength={maxLength}
           rows={4}
           readOnly={readOnly}
           onChange={(e) => change(e.target.value)}
@@ -113,6 +116,7 @@ export function CommitField({ value, onCommit, label, multiline, placeholder, in
           ref={inputRef}
           value={local}
           placeholder={placeholder}
+          maxLength={maxLength}
           readOnly={readOnly}
           onChange={(e) => change(e.target.value)}
           {...handlers}

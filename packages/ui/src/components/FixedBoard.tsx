@@ -16,6 +16,7 @@ import {
 import { issueSummaries } from "@untie/core/model/selectors";
 import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { addElement, updateElement } from "@untie/core/model/commands";
+import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { selectReadOnly, useUntieStore } from "../store";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
@@ -529,6 +530,7 @@ function NameForm({ element, onDone }: { element: Element; onDone: () => void })
       <input
         ref={inputRef}
         aria-label={`${ELEMENT_KIND_LABELS[element.kind]}の名前`}
+        maxLength={NAME_MAX_LENGTH}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {

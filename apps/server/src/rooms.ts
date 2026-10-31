@@ -2,7 +2,9 @@ import { getServerByName } from "partyserver";
 import type { PresenceEntry } from "@untie/api";
 import type { UntieModel } from "@untie/core";
 import type { KickTarget } from "@untie/collab/room";
-import type { Env } from "./env";
+import type { Context } from "hono";
+import type { AppEnv, Env } from "./env";
+import { listFileIdsOfMember } from "./db/members";
 
 /** Durable Object は最初に作られた場所に留まるので、作成の経路すべてで locationHint を付ける (設計書 3.7) */
 export const LOCATION_HINT = "apac" as const;
@@ -36,6 +38,16 @@ export async function presenceRoom(env: RoomEnv, fileId: string): Promise<Presen
   return (await getRoom(env, fileId)).presence();
 }
 
+/** 1 時間ごとのスナップショットのキー (新しい順。`snapshot:<日時>`)。3.4 */
+export async function listRoomSnapshots(env: RoomEnv, fileId: string): Promise<string[]> {
+  return (await getRoom(env, fileId)).listSnapshots();
+}
+
+/** スナップショット 1 件。キーが正しくない・無いときは null */
+export async function getRoomSnapshot(env: RoomEnv, fileId: string, key: string): Promise<UntieModel | null> {
+  return (await (await getRoom(env, fileId)).getSnapshot(key)) as unknown as UntieModel | null;
+}
+
 export async function destroyRoom(env: RoomEnv, fileId: string): Promise<void> {
   await (await getRoom(env, fileId)).destroy();
 }
@@ -46,7 +58,12 @@ function isKickTarget(target: unknown): target is KickTarget {
   const t = target as Record<string, unknown>;
   if (t.all === true) return true;
   if (t.via === "link") return true;
-  return typeof t.userId === "string" && t.userId !== "" && (t.reason === undefined || t.reason === "roleChanged" || t.reason === "removed");
+  if (typeof t.sid === "string") return t.sid !== "";
+  return (
+    typeof t.userId === "string" &&
+    t.userId !== "" &&
+    (t.reason === undefined || t.reason === "roleChanged" || t.reason === "removed" || t.reason === "loggedOut")
+  );
 }
 
 /**
@@ -70,4 +87,28 @@ export async function kickRoomQuietly(env: RoomEnv, fileId: string, target: Kick
     // トークンやメールを出さないよう、メッセージだけを残す
     console.error(`ルームの接続を切れませんでした (${fileId})`, e instanceof Error ? e.message : e);
   }
+}
+
+/** ログアウトの kick を、その場で待つ部屋の数の上限。これを超えたら応答を待たせず waitUntil で続ける */
+export const INLINE_KICK_LIMIT = 5;
+
+/**
+ * そのユーザーがメンバーのすべてのファイル (ゴミ箱の中も含む) のルームに kick を送る。ログアウトのとき、開いたままの接続を閉じる。
+ * 失敗しても例外にしない (kickRoomQuietly)。ファイルが多いときは応答を待たせず、executionCtx.waitUntil で続ける
+ */
+export async function kickRoomsOfUser(c: Context<AppEnv>, userId: string, target: KickTarget): Promise<void> {
+  const ids = await listFileIdsOfMember(c.env.DB, userId);
+  if (ids.length === 0) return;
+  const run = async () => {
+    await Promise.all(ids.map((id) => kickRoomQuietly(c.env, id, target)));
+  };
+  if (ids.length <= INLINE_KICK_LIMIT) return run();
+  let ctx: Context<AppEnv>["executionCtx"] | null = null;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    // executionCtx が無い環境 (Hono の直接呼び出し) では、その場で待つ
+  }
+  if (ctx) ctx.waitUntil(run());
+  else await run();
 }

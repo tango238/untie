@@ -33,6 +33,27 @@ describe("PropertyPanel", () => {
     expect(screen.getByText(/選ぶと/)).toBeDefined();
   });
 
+  it("入力欄にスキーマの上限を maxLength で付ける (名前 200・説明 4000・リンク 200 / 2000)", () => {
+    selectEl("act_hand_key");
+    render(<PropertyPanel />);
+    expect(screen.getByLabelText("名前").getAttribute("maxlength")).toBe("200");
+    expect(screen.getByLabelText("説明").getAttribute("maxlength")).toBe("4000");
+    expect(screen.getByLabelText("リンクの表示名").getAttribute("maxlength")).toBe("200");
+    expect(screen.getByLabelText("リンクの URL").getAttribute("maxlength")).toBe("2000");
+  });
+
+  it("上限を超える名前をコマンドが断ったときは、理由をトーストに出し、要素は変わらない", () => {
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    const before = el("actor_front").name;
+    const input = screen.getByLabelText("名前") as HTMLInputElement;
+    // maxLength を越えて入ってきた値 (貼り付けの経路や、上限を持たない古い画面を想定)
+    fireEvent.change(input, { target: { value: "あ".repeat(201) } });
+    fireEvent.blur(input);
+    expect(el("actor_front").name).toBe(before);
+    expect(st().toasts.map((t) => t.message)).toContain("名前は 200 文字までです");
+  });
+
   it("名前は入力中は履歴に積まず、フォーカスアウトで 1 件として確定する", () => {
     selectEl("actor_front");
     render(<PropertyPanel />);

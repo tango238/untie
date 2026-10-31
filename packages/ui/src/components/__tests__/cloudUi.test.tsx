@@ -260,6 +260,29 @@ describe("閲覧専用の帯", () => {
   });
 });
 
+describe("保存できていないときの帯", () => {
+  it("cloud.saveFailed のあいだ「サーバーに保存できていません。JSON に書き出して保存してください」を出し、保存できたら消える", () => {
+    openCloud("editor");
+    render(<App />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    act(() => st().setCloudSaveFailed(true));
+    expect(screen.getByRole("alert").textContent).toBe("サーバーに保存できていません。JSON に書き出して保存してください");
+    act(() => st().setCloudSaveFailed(false));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("閲覧者にも出す (保存できていないのは全員に関わる)。ローカルのファイルには出さない", () => {
+    openCloud("viewer");
+    act(() => st().setCloudSaveFailed(true));
+    const { unmount } = render(<App />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    unmount();
+    act(() => st().closeCloud());
+    render(<App />);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
 describe("リンクで閲覧中の帯 (ゲスト)", () => {
   /** リンクで開いた状態 (token を持つ) */
   function openViaLink(role: Role) {

@@ -12,6 +12,7 @@ import {
   MemberSchema,
   PresenceResponseSchema,
   ProvidersResponseSchema,
+  SnapshotsResponseSchema,
   TicketResponseSchema,
   TrashResponseSchema,
   UserSchema,
@@ -98,6 +99,10 @@ export interface UntieApi {
     ticket(id: string): Promise<TicketResponse>;
     /** いまルームにつながっている人 (サーバーが接続のチケットから決めた userId・名前・役割。awareness の照合に使う) */
     presence(id: string): Promise<PresenceEntry[]>;
+    /** 過去の状態 (1 時間ごとのスナップショット) のキー。新しい順。owner だけ */
+    snapshots(id: string): Promise<string[]>;
+    /** 過去の状態の JSON (`export` と同じ形)。key は `snapshots` が返したもの。owner だけ */
+    snapshot(id: string, key: string): Promise<ExportedFile>;
     /** メンバーの管理 (owner)。外すのは自分なら editor / viewer もできる */
     members: {
       /** 役割を足す・変える。相手がユーザーでなければ 404 (`user_not_found`)。役割が変わるとその人の接続は切れる */
@@ -220,6 +225,11 @@ export function createApi(options: ApiOptions): UntieApi {
       trashList: async () => (await json(TrashResponseSchema, "GET", "/api/files/trash")).files,
       ticket: (id) => json(TicketResponseSchema, "POST", `${file(id)}/ticket`),
       presence: async (id) => (await json(PresenceResponseSchema, "GET", `${file(id)}/presence`)).presence,
+      snapshots: async (id) => (await json(SnapshotsResponseSchema, "GET", `${file(id)}/snapshots`)).keys,
+      snapshot: async (id, key) => {
+        const response = await send("GET", `${file(id)}/snapshots/${encodeURIComponent(key)}`);
+        return { filename: parseFilename(response.headers.get("Content-Disposition")) ?? `${id}.json`, text: await response.text() };
+      },
       members: {
         put: (id, userId, role) => json(MemberSchema, "PUT", `${file(id)}/members/${encodeURIComponent(userId)}`, { role }),
         remove: (id, userId) => empty("DELETE", `${file(id)}/members/${encodeURIComponent(userId)}`),

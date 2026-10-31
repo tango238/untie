@@ -6,7 +6,7 @@ import { hotelSample } from "@untie/core/sample";
 import { getRoots } from "@untie/collab";
 import { SNAPSHOT_KEEP } from "@untie/collab/room";
 import { getRoom } from "../rooms";
-import { env, inRoom, resetDb } from "./helpers";
+import { breakUnrepairably, env, inRoom, resetDb } from "./helpers";
 import { evictDurableObject } from "cloudflare:test";
 
 let counter = 0;
@@ -144,8 +144,8 @@ describe("onSave", () => {
     try {
       await inRoom(room, async (instance, state) => {
         const ydocBefore = await state.storage.get<Uint8Array>("ydoc");
-        // スキーマの上限を超える名前にする (repair では直らず、検証に通らない)
-        getRoots(instance.document).meta.set("name", "x".repeat(5000));
+        // 要素とボードが同じ id になる (repair では直らず、検証に通らない)
+        breakUnrepairably(instance);
         await instance.onSave();
         expect(await state.storage.get<Uint8Array>("ydoc")).toEqual(ydocBefore);
         expect((await state.storage.get<UntieModel>("snapshot"))!.meta.name).toBe("正常");

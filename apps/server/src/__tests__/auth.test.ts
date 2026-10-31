@@ -286,7 +286,7 @@ describe("Google (OIDC)", () => {
     expect(header).toContain("HttpOnly");
     expect(header).toContain("Max-Age=600");
     // Cookie の中身は署名で守られ、state・nonce・戻り先を持つ
-    const payload = await verifyPayload<Json>("test-session-secret", authCookie.split("=")[1]);
+    const payload = await verifyPayload<Json>(env.SESSION_SECRET, authCookie.split("=")[1]);
     expect(payload).toMatchObject({ state: location.searchParams.get("state"), nonce: location.searchParams.get("nonce"), returnTo: "#/files/abc" });
     expect(await verifyPayload("another-secret", authCookie.split("=")[1])).toBeNull();
   });
@@ -394,7 +394,7 @@ describe("Google (OIDC)", () => {
   it("return は # で始まる相対のものだけ受ける (外のサイトへ飛ばさない)", async () => {
     for (const bad of ["https://evil.example/", "//evil.example", "/path", "javascript:alert(1)"]) {
       const { authCookie } = await startLogin(bad);
-      const payload = await verifyPayload<Json>("test-session-secret", authCookie.split("=")[1]);
+      const payload = await verifyPayload<Json>(env.SESSION_SECRET, authCookie.split("=")[1]);
       expect(payload!.returnTo).toBe("");
     }
   });

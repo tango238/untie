@@ -101,6 +101,17 @@ describe("Toolbar", () => {
     expect(st().model.boards[0]!.name).toBe("俯瞰");
   });
 
+  it("ボード名の入力欄には上限 (200) を付け、超えた名前はコマンドが断ってトーストに出す", () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "名前変更" }));
+    const input = screen.getByLabelText("ボード名");
+    expect(input.getAttribute("maxlength")).toBe("200");
+    fireEvent.change(input, { target: { value: "あ".repeat(201) } });
+    fireEvent.click(screen.getByRole("button", { name: "決定" }));
+    expect(st().model.boards[0]!.name).toBe("全体");
+    expect(st().toasts.map((t) => t.message)).toContain("ボード名は 200 文字までです");
+  });
+
   it("ボード削除は確認ダイアログを経る。最後の 1 枚は削除できない", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ボード削除" }));

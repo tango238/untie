@@ -62,3 +62,27 @@ describe("buildModelFromSpec", () => {
     expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
   });
 });
+
+describe("buildModelFromSpec: AI の出力が長くても要素が消えない", () => {
+  it("名前・説明・グループ・値・課題・概要は上限に切り詰めて、スキーマに合うモデルにする", () => {
+    const long = "あ".repeat(5000);
+    const longSpec: ModelSpec = {
+      system_name: long,
+      overview: long,
+      actors: [{ name: long, description: long }],
+      variations: [{ name: "区分", values: [long] }],
+      state_groups: [{ name: long, states: [{ name: "状態" }] }],
+      businesses: [{ name: "業務", activities: [{ name: "作業", performers: [long] }] }],
+      issues: [{ name: long, description: long, targets: [long] }],
+    };
+    const { model, warnings } = buildModelFromSpec(longSpec);
+    expect(warnings.filter((w) => /作れません/.test(w))).toEqual([]);
+    expect(model.meta.name).toHaveLength(200);
+    expect(model.meta.description).toHaveLength(4000);
+    expect(model.elements.find((e) => e.kind === "actor")!.name).toHaveLength(200);
+    expect(model.elements.filter((e) => e.kind === "issue")).toHaveLength(1);
+    // 担当は切り詰めた名前でも引ける (関係が結ばれる)
+    expect(model.relations.some((r) => r.kind === "actorActivity")).toBe(true);
+    expect(validateModel(JSON.parse(JSON.stringify(model))).ok).toBe(true);
+  });
+});

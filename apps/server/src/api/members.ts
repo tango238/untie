@@ -21,8 +21,8 @@ memberRoutes.put("/:id/members/:userId", limitBody, async (c) => {
   if (!(await getUserById(c.env.DB, userId))) throw notFound("そのユーザーはまだ Untie に登録されていません。招待してください", "user_not_found");
   if (userId === file.owner_id) throw conflict("所有者の役割は変えられません。所有者を譲ってください", "owner_role_fixed");
   const { previous } = await putMemberRole(c.env.DB, { fileId: file.id, userId, role, addedBy: c.var.user.id, now: Date.now() });
-  // すでに行があったときは、役割が同じでも切る (前の呼び出しで kick に失敗していても、再試行で切れる)。新しく足しただけなら接続は無い
-  if (previous !== null) await kickRoomQuietly(c.env, file.id, { userId, reason: "roleChanged" });
+  // 役割が実際に変わったときだけ切る (新しく足しただけなら接続は無く、同じ役割への PUT で切ると、開いている人の画面を無駄につなぎ直させる)
+  if (previous !== null && previous !== role) await kickRoomQuietly(c.env, file.id, { userId, reason: "roleChanged" });
   return c.json(toMember((await getMember(c.env.DB, file.id, userId))!));
 });
 

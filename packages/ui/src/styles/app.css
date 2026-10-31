@@ -545,6 +545,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 
 /* クラウドファイル (同時編集): 閲覧専用の帯・接続の状態・参加者・他の人の選択 */
 .readonly-banner { background: #e8eefb; color: #274a8a; padding: 6px 12px; border-bottom: 1px solid #c3d1f0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.save-failed-banner { background: #fbeee9; color: #8a2c1c; padding: 6px 12px; border-bottom: 1px solid #ecc0b6; font-size: 13px; font-weight: 600; }
 .link-guest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 400; }
 .link-guest button { padding: 2px 8px; font-size: 12px; }
 .cloud-badges { gap: 8px; }

@@ -44,7 +44,7 @@ describe("PUT /api/files/:id/members/:userId", () => {
     expect((await hanako.json(`/api/files/${id}/ticket`, { method: "POST" })).body.role).toBe("viewer");
   });
 
-  it("行があれば同じ役割の PUT でも切る (前の kick が失敗していても、再試行で切れる)。新しく足しただけなら切るものが無い", async () => {
+  it("同じ役割への PUT では切らない (役割が実際に変わったときだけ切る)", async () => {
     const taro = await loginAs("taro@example.com");
     const hanako = await loginAs("hanako@example.com");
     const id = await createFile(taro);
@@ -52,6 +52,11 @@ describe("PUT /api/files/:id/members/:userId", () => {
     const editor = await join(hanako, id);
     await tick();
     expect((await taro.json(`/api/files/${id}/members/${hanakoId}`, { method: "PUT", json: { role: "editor" } })).status).toBe(200);
+    await tick();
+    await editor.sync();
+    expect(editor.closed).toBeNull();
+    // 変えれば切れる
+    expect((await taro.json(`/api/files/${id}/members/${hanakoId}`, { method: "PUT", json: { role: "viewer" } })).status).toBe(200);
     expect(await closedCode(editor)).toBe(CLOSE_ROLE_CHANGED);
   });
 

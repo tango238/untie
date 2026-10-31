@@ -175,6 +175,10 @@ export type PresenceEntry = z.infer<typeof PresenceEntrySchema>;
 export const PresenceResponseSchema = z.object({ presence: z.array(PresenceEntrySchema) });
 export type PresenceResponse = z.infer<typeof PresenceResponseSchema>;
 
+/** `GET /files/:id/snapshots`。1 時間ごとのスナップショットのキー (`snapshot:<日時>`。新しい順)。キーは `GET /files/:id/snapshots/:key` に渡す */
+export const SnapshotsResponseSchema = z.object({ keys: z.array(z.string()) });
+export type SnapshotsResponse = z.infer<typeof SnapshotsResponseSchema>;
+
 export const ErrorBodySchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });

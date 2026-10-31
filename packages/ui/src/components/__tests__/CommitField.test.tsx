@@ -24,6 +24,17 @@ const input = () => screen.getByLabelText("名前") as HTMLInputElement;
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
+describe("CommitField: maxLength", () => {
+  it("maxLength を入力欄 (1 行・複数行) に渡す", () => {
+    const { rerender } = render(<CommitField label="名前" value="" maxLength={200} onCommit={() => {}} />);
+    expect(input().getAttribute("maxlength")).toBe("200");
+    rerender(<CommitField label="名前" value="" multiline maxLength={4000} onCommit={() => {}} />);
+    expect(input().getAttribute("maxlength")).toBe("4000");
+    rerender(<CommitField label="名前" value="" onCommit={() => {}} />);
+    expect(input().hasAttribute("maxlength")).toBe(false);
+  });
+});
+
 describe("CommitField", () => {
   it("入力が止まって delay たつと確定する", () => {
     const committed: string[] = [];

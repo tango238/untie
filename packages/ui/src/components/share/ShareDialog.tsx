@@ -3,6 +3,8 @@ import { can, ROLE_LABELS, type FileDetail, type InviteRole, type Member } from 
 import { getApi } from "../../cloud/api";
 import { useFilesStore } from "../../cloud/files";
 import { copyText } from "../../io/clipboard";
+import { safeFileName } from "../../io/document";
+import { getPlatform } from "../../platform";
 import { useUntieStore } from "../../store";
 import { ConfirmDialog } from "../ConfirmDialog";
 
@@ -14,6 +16,15 @@ type Pending =
   | { kind: "regenerate" }
   | { kind: "disableLink" }
   | null;
+
+/** スナップショットのキー (`snapshot:2026-10-31T10:00:00.000Z`) の時刻を、画面に出す形 (端末の時刻) とファイル名に付ける形にする */
+function snapshotTime(key: string): { label: string; stamp: string } {
+  const at = new Date(key.slice("snapshot:".length));
+  if (Number.isNaN(at.getTime())) return { label: key, stamp: "past" };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return { label: `${date} ${pad(at.getHours())}:00 の状態`, stamp: `${date}_${pad(at.getHours())}00` };
+}
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const label = (m: { name: string; email: string }) => m.name || m.email;
@@ -40,6 +51,11 @@ export function ShareDialog({ fileId, onClose }: { fileId: string; onClose: () =
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [transferTo, setTransferTo] = useState("");
   const [pending, setPending] = useState<Pending>(null);
+  /** 過去の状態 (1 時間ごとのスナップショット) のキー。null は読み込み前 */
+  const [snapshots, setSnapshots] = useState<string[] | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  /** 書き出している最中のキー */
+  const [exporting, setExporting] = useState<string | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -151,6 +167,41 @@ export function ShareDialog({ fileId, onClose }: { fileId: string; onClose: () =
   };
 
   const isOwner = detail !== null && can(detail.role, "manageMembers");
+
+  // 過去の状態の一覧 (owner だけ)。読めなくても、共有の設定は使えるようにする
+  useEffect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    getApi()
+      .files.snapshots(fileId)
+      .then(
+        (keys) => {
+          if (!cancelled) setSnapshots(keys);
+        },
+        (e: unknown) => {
+          if (!cancelled) setSnapshotError(messageOf(e));
+        },
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, isOwner]);
+
+  /** その時点の JSON を、JSON の書き出しと同じ保存の流れ (platform.saveTextFile) で保存する */
+  const exportSnapshot = async (key: string) => {
+    if (exporting) return;
+    setExporting(key);
+    try {
+      const exported = await getApi().files.snapshot(fileId, key);
+      const base = safeFileName(detail?.name ?? exported.filename.replace(/\.json$/i, ""));
+      const saved = await getPlatform().saveTextFile(exported.text, null, `${base} ${snapshotTime(key).stamp}.json`);
+      if (saved) pushToast(`「${saved.name}」に書き出しました`);
+    } catch (e) {
+      pushToast(`書き出せませんでした: ${messageOf(e)}`, "error");
+    } finally {
+      if (alive.current) setExporting(null);
+    }
+  };
   const members = detail?.members ?? [];
   const invitations = detail?.invitations ?? [];
   const linkEnabled = detail?.link?.enabled ?? false;
@@ -405,6 +456,31 @@ export function ShareDialog({ fileId, onClose }: { fileId: string; onClose: () =
                   </div>
                 )}
                 <p className="hint">リンクを開いた人は、ログインしなくても閲覧だけできます (編集はできません)。</p>
+              </section>
+
+              <section className="share-section" aria-label="過去の状態">
+                <h3>過去の状態</h3>
+                <p className="hint">誤って消したときのために、1 時間ごとに、その時間の最初の編集の直前の状態を 24 件まで残しています。JSON に書き出して、「開く」で開き直せます。</p>
+                {snapshotError && <p className="field-error">過去の状態を読めませんでした: {snapshotError}</p>}
+                {snapshots === null && !snapshotError && <p className="home-note">読み込み中…</p>}
+                {snapshots?.length === 0 && <p className="home-note">まだありません。</p>}
+                {snapshots && snapshots.length > 0 && (
+                  <ul className="share-list">
+                    {snapshots.map((key) => {
+                      const { label: when } = snapshotTime(key);
+                      return (
+                        <li key={key} className="share-row">
+                          <span className="share-who">
+                            <span className="share-name">{when}</span>
+                          </span>
+                          <button type="button" aria-label={`${when}を書き出す`} disabled={exporting !== null} onClick={() => void exportSnapshot(key)}>
+                            書き出す
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </section>
             </>
           )}

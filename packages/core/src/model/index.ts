@@ -9,3 +9,5 @@ export * from "./trace";
 export * from "./contexts";
 export * from "./analysis";
 export * from "./repair";
+export * from "./limits";
+export * from "./truncate";
