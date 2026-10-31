@@ -7,11 +7,12 @@
 | 項目 | 決定 |
 | --- | --- |
 | 同期の方式 | Yjs (CRDT) を使い、サーバーは `y-partyserver` の `YServer` (Durable Object) で動かす |
-| 正本 | 共有中はサーバーの Y.Doc。ローカル編集中もアプリ内の Y.Doc を正本にし、`UntieModel` はそこから組み立てる読み取り用の形にする (ローカルと共有で同じコード経路) |
+| 正本 | ローカル編集ではいまのストアの `UntieModel` (変えない)。共有中はサーバーの Y.Doc で、ストアの `model` はそこから組み立てる |
+| データの置き場所 | 共有中はルームの Durable Object の SQLite ストレージ。手元の JSON ファイルは、共有を始めるときの元と書き出し先にだけ使う (6.1) |
 | 編集 API | いまの `commands.ts` (純粋関数) をそのまま使う。コマンドの結果と直前のモデルの差分を Y.Doc に書く |
 | 保存形式 | JSON ファイルの形式 (`schema/untie.schema.json`、`version: 1`) は変えない。Y.Doc は通信と合流のための表現で、ファイルには出さない |
 | 衝突 | 項目ごとに後勝ち (Yjs の Y.Map)。名前と説明は文字単位では合流しない (入力確定が 500 ms / blur 単位なので衝突は稀) |
-| Undo / Redo | `Y.UndoManager` で自分の変更だけを戻す (他の人の変更は戻さない) |
+| Undo / Redo | 共有中は使えなくする。ローカル編集ではいまのスナップショットの履歴をそのまま使う |
 | 参照整合性 | Yjs の合流は構造を知らないので、合流後に壊れた参照 (消えた要素を指す関係など) をサーバーが直す (`repairModel`) |
 | 配信 | Web 版を Cloudflare Pages から Workers (static assets) に移し、同じ Worker に Durable Object を同居させる。デスクトップ版も同じ Worker につなぐ |
 | 認証 (PoC) | 推測できないルーム id + ルームごとの招待トークン。Cloudflare Access をかけられる構成にしておく |
@@ -23,11 +24,10 @@
 | 合流 | 項目ごとに自動 | サーバーで直列化。楽観的に当てたコマンドの巻き戻し・再適用を自分で作る |
 | 再接続・オフライン | ライブラリが持つ | 自分で作る |
 | プレゼンス (誰がどこを見ているか) | awareness が持つ | 自分で作る |
-| Undo | `Y.UndoManager` | コマンドごとの逆操作を自分で作る (約 20 本) |
 | 参照整合性 | 合流後に直す処理が要る | サーバーで常に保てる |
 | 既存コードへの影響 | ストアの中身を Y.Doc 裏打ちに替える | コマンドを関数から「名前 + payload」のデータに変える |
 
-コマンド中継は整合性で勝るが、PoC で自作する部分 (楽観適用の巻き戻し、逆操作、再接続) が多い。Yjs は整合性を直す処理だけ足せばよく、PartyServer が公式に用意している道でもある。
+コマンド中継は整合性で勝るが、PoC で自作する部分 (楽観適用の巻き戻し、再接続) が多い。Yjs は整合性を直す処理だけ足せばよく、PartyServer が公式に用意している道でもある。
 
 ## 2. ディレクトリ構成 (pnpm ワークスペース)
 
@@ -141,10 +141,12 @@ dispatch(cmd)
 - **dispatch**: コマンドをいまのモデルに当て、成功したら結果を表示に出し、差分を `origin = local` のトランザクションで Y.Doc に書く。失敗 (`ok: false`) はいままでどおり何もしない。
 - **他の人の変更**: `observeDeep` のイベントから変わった id を集め、その分だけ組み立て直す。`reconcileUi` で選択やボードの参照先が消えていたら外す (既存の処理)。
 - **ドラッグ中** (`previewNode` / `previewCommand`): Y.Doc には書かず表示だけ動かし、`commitDrag` で 1 トランザクションとして書く。ドラッグ中に同じノードを他の人が動かしたら、確定時に自分の座標で上書きする (後勝ち)。
-- **AI エージェント** (`beginAgentEdit` 〜 `endAgentEdit`): 途中の `agentApply` は Y.Doc に書き (他の人にも見える)、Undo の単位は `UndoManager.stopCapturing()` で区切って 1 件にまとめる。
-- **Undo / Redo**: `Y.UndoManager(doc, { trackedOrigins: new Set([local]) })`。自分の変更だけを戻す。ドラッグ中は無視する (既存)。履歴上限 100 件は UndoManager の `captureTimeout` ではなくスタック長で切る。
-- **保存していない変更の判定**: いまは `model === savedModel` の参照比較だが、Y.Doc 経由では Undo で戻っても参照が変わる。ローカル編集では保存時のモデルと内容比較 (`JSON.stringify` の比較で足りる大きさ) にする。共有中はサーバーが正本なので「未保存」の概念は無く、Cmd+S は「手元に書き出す」になる。
-- **ローカル編集もこの経路**にする。ファイルを開く = 新しい Y.Doc に `loadModel`。新規作成 = 空の Y.Doc。接続は無い。これで「共有を始める」が、いま開いているモデルの Y.Doc に接続を付けるだけで済む。
+- **AI エージェント** (`beginAgentEdit` 〜 `endAgentEdit`): 途中の `agentApply` は Y.Doc に書く (他の人にも見える)。共有中は `endAgentEdit` で履歴を積まない。
+- **Undo / Redo**: 共有中は使えない。共有を始める・参加するときに履歴を捨て、ツールバーのボタンを無効にし、Cmd/Ctrl+Z・Shift+Cmd/Ctrl+Z・Ctrl+Y を無視する。共有をやめると、その時点のモデルから履歴を新しく始める。
+  - 理由: 共有中の Undo は「自分の変更だけを戻す」ことになるが、他の人の変更と絡むと結果が読めない (自分が足した作業を戻したら、他の人がそこに付けた課題の対象や関係が消える、など)。PoC では入れない。
+  - 誤って消したときの戻し先は、書き出した JSON と、サーバーのスナップショット (6.1) にする。
+- **ローカル編集はいまのまま**: Y.Doc を持たない。`dispatch`・履歴・保存していない変更の判定 (`model === savedModel` の参照比較) は、いまのコードを変えない。ストアに `UntieDoc` が付いているときだけ、上の「Y.Doc に書く・Y.Doc から組み立てる」経路を通る。
+- **保存していない変更**: 共有中はサーバーが正本なので「未保存」の概念が無い。Cmd/Ctrl+S は「手元に書き出す」になり、閉じる前の確認もしない。
 
 ## 5. 参照整合性
 
@@ -181,7 +183,7 @@ export class UntieRoom extends YServer {
 | 作成 | `POST /api/rooms` に JSON のモデルを送ると、ルームを作って `loadModel` し、`{ roomId, token }` を返す。Worker の `fetch` で受け、`getServerByName` で DO を呼ぶ |
 | 参加 | `routePartykitRequest` の `onBeforeConnect` で `?token=` をルームの DO storage にある招待トークンと照合する。合わなければ 401 |
 | 書き出し | `GET /parties/untie-room/<roomId>/export` で JSON (`serializeModel` と同じ整形)。トークン必須 |
-| 永続化 | Durable Object の SQLite ストレージ (`ctx.storage`)。モデルは小さい (数百 KB まで) のでそのまま入れる。R2 は使わない |
+| 永続化 | Durable Object の SQLite ストレージ (`ctx.storage`)。詳しくは 6.1 |
 | 休止 | `hibernate` は付けない (awareness の状態をメモリに持つため)。誰もいなくなれば DO は自然に落ち、次の接続で `onLoad` する |
 | 不正な update | Yjs の update はサーバーで個別に検査できない。守りは認証 (招待された人だけ) と `repairModel`。`onSave` で `validateModel` に通らなければ、直前の正常な update を残して記録する |
 
@@ -197,6 +199,28 @@ export default {
 };
 ```
 
+### 6.1 データの置き場所
+
+| 状態 | 正本 | 手元の JSON ファイル |
+| --- | --- | --- |
+| ローカル編集 | 手元の JSON ファイル (いまのまま) | 開く・保存する |
+| 共有中 | ルームの Durable Object のストレージ | 書き出すだけ。共有を始めた元のファイルには自動で書き戻さない |
+| 共有をやめたあと | 手元のメモリ (保存していない状態) | 保存先を選んで保存する |
+
+ルームの Durable Object のストレージに置くもの:
+
+| キー | 中身 | 用途 |
+| --- | --- | --- |
+| `ydoc` | Yjs の状態 (`Y.encodeStateAsUpdate`) | 次に誰かが入ったときに `onLoad` で戻す |
+| `snapshot` | JSON 形式のモデル (`rebuildModel` の結果) | 書き出し (`/export`)、壊れたときの戻し先、管理用の一覧 |
+| `snapshot:<日時>` | 1 時間ごとの `snapshot` の写し (直近 24 件) | 誤って消したときに、その時点の JSON を取り出す |
+| `token`、`createdAt`、`name` | 招待トークンとルームの情報 | 参加の照合、一覧の表示 |
+
+- 1 ルーム = 1 Durable Object なので、ルームのデータはその Durable Object の中で閉じる。モデルは数百 KB までなので、そのまま入る。
+- R2 や D1 は使わない。別のバインディングが要らず、読み書きが Durable Object の中で一貫するため。複数ルームの横断検索やバックアップを外に出したくなったら、`onSave` から R2 に写す。
+- ルームを消すときは `DELETE /api/rooms/<roomId>` (トークン必須) で `ctx.storage.deleteAll()` する。誰も使わなくなったルームを自動で消すかは決めていない (12 章)。
+- 手元の JSON を開き直しても共有には戻らない。手元のモデルとして開く。
+
 `wrangler.jsonc` は `assets` (Vite の dist、`not_found_handling: "single-page-application"`)、`durable_objects.bindings` に `UntieRoom`、`migrations` に `new_sqlite_classes: ["UntieRoom"]`。
 
 ## 7. クライアント (packages/collab/src/client)
@@ -207,14 +231,15 @@ export default {
 - **ルームの参加の仕方**: Web は `https://<host>/#/r/<roomId>?t=<token>` を開く。デスクトップは「ファイル > 共有に参加」でリンクを貼る (deep link `untie://r/...` は後回し)。
 - **共有を始める**: 「ファイル > 共有を始める」が `POST /api/rooms` に今のモデルを送り、返ってきたルームに今の Y.Doc をつなぐ。リンク (トークン付き) をクリップボードに写す。
 - **最近開いたファイル**にルームも並べる (`{ kind: "room", roomId, token, name }`)。トークンはデスクトップではキーチェーン、Web では IndexedDB に置く。
-- **手元に書き出す**: 共有中の Cmd+S は JSON を手元に保存する (正本はサーバー)。「共有をやめる」で接続を切り、手元のモデルとして続ける。
+- **手元に書き出す**: 共有中の Cmd/Ctrl+S は、サーバーではなく手元の Y.Doc から組み立てたモデルを JSON に書き出す (正本はサーバー)。「共有をやめる」で接続を切り、手元のモデルとして続ける。
 
 ## 8. UI の変更点 (packages/ui)
 
 | 場所 | 変更 |
 | --- | --- |
-| ストア | `model` の裏に `UntieDoc` を持つ。`dispatch` / `undo` / `redo` / `commitDrag` / `agentApply` が Y.Doc を通る。`history` は UndoManager のスタック長 (`canUndo` / `canRedo`) に置き換える。`collab: { status, roomId, peers }` を足す |
-| ツールバー | ファイルメニューに「共有を始める」「共有に参加」「共有をやめる」「リンクを写す」。右に接続状態と参加者の色玉 |
+| ストア | `model` の裏に `UntieDoc` を持つ。`dispatch` / `undo` / `redo` / `commitDrag` / `agentApply` が Y.Doc を通る。共有中は `history` を空にし、積まない。`collab: { status, roomId, peers }` を足す |
+| ツールバー | ファイルメニューに「共有を始める」「共有に参加」「共有をやめる」「リンクを写す」。右に接続状態と参加者の色玉。共有中は Undo / Redo のボタンを無効にし、title に「共有中は取り消せません」と出す |
+| キーボード | 共有中は Undo / Redo のショートカットを無視する。保存のショートカットは書き出しになる |
 | カード・固定ボード | 他の人の選択を色付きの縁で出す |
 | プロパティ欄 | 他の人が同じ要素を編集中なら名前の横に表示する (ロックはしない) |
 | 閉じる前の確認 | 共有中は未保存の概念が無いので確かめない (ローカル編集はいままでどおり) |
@@ -234,15 +259,15 @@ export default {
 | doc の往復 | `rebuildModel(applyModelDiff(a, b)) ≡ b` をサンプルと、コマンドをランダムに 1〜50 回当てたモデルで確かめる。順序キーの保持、`order` が JSON に漏れないこと |
 | 合流 | Y.Doc を 2 つ作って別々のコマンドを当て、update を交換して同じモデルになること。同じ項目の後勝ち、別の項目はどちらも残ること |
 | repairModel | 消えた要素を指す関係・ノード・対象・`bucId`・`contextId`、重複した関係、業務の無い BUC、ボード 0 枚 |
-| Undo | 自分の変更だけ戻る。他の人の変更が間に入っても壊れない。ドラッグ・AI の編集が 1 件になる |
-| ストア | いまの `store.test.ts` が Y.Doc 裏打ちでも通る (履歴上限の扱いだけ書き換える) |
-| サーバー | `@cloudflare/vitest-pool-workers` で `UntieRoom` の作成・参加 (トークンの可否)・書き出し・再読み込み |
+| Undo | 共有中は Undo / Redo のボタンが無効で、ショートカットを押しても何も変わらない。共有をやめると履歴が空から始まる |
+| ストア | いまの `store.test.ts` はそのまま通る (ローカル編集は変えない)。共有中の `dispatch`・`commitDrag`・`agentApply` が Y.Doc に書き、他の Y.Doc の変更がストアに届く |
+| サーバー | `@cloudflare/vitest-pool-workers` で `UntieRoom` の作成・参加 (トークンの可否)・書き出し・再読み込み・スナップショットの世代管理・削除 |
 | UI | 既存の Testing Library のテストはそのまま (Platform はテスト用の実装を渡す) |
 
 ## 11. 進め方
 
 1. **モノレポ化** (振る舞いは変えない): `packages/core`・`packages/ui`・`apps/web`・`apps/desktop` に移し、`Platform` に `isTauri()` の分岐を集める。CI と Release の経路を直す。
-2. **Y.Doc 裏打ち** (まだつながない): `packages/collab/src/doc` を作り、ストアを Y.Doc 経由に替える。Undo を UndoManager に替える。往復と合流のテストを通す。ここまでは利用者から見て何も変わらない。
+2. **Y.Doc の往復** (まだつながない): `packages/collab/src/doc` を作り、往復と合流のテストを通す。ストアに共有中の経路 (Y.Doc に書く・Y.Doc から組み立てる・Undo を止める) を足す。ローカル編集の経路は変えないので、利用者から見て何も変わらない。
 3. **サーバーと接続**: `UntieRoom`、Worker のエントリ、`POST /api/rooms`、`YProvider`、「共有を始める / 参加 / やめる」。Web を Workers に移す。
 4. **使い勝手**: プレゼンス (選択の表示・参加者)、最近開いたルーム、デスクトップの設定画面 (サーバー URL)、書き出し、サーバー側の `repairModel`。
 5. **あとで**: 名前・説明の文字単位の合流 (Y.Text)、deep link、オフライン時の手元キャッシュ (`y-indexeddb` / ファイル)、Cloudflare Access での利用者制限、自社サーバーでの稼働 (DO クラスは `collab/server` にあるので、別の Worker に載せるだけ)。
@@ -252,4 +277,5 @@ export default {
 - **誰が入れるか**: リンク (トークン付き) を知っている人なら誰でも、で始めてよいか。社内限定なら Cloudflare Access を Worker の前に置く。
 - **Pages から Workers への移行**: Durable Object は Workers にしか置けないので移す前提で書いた。Pages を残すなら同時編集用の Worker を別に立てる (`apps/collab-server` に `wrangler.jsonc` を置くだけで、コードは変わらない)。
 - **デスクトップ版の既定サーバー**: 本番の Worker に固定するか、初回に入力させるか。
+- **使われなくなったルームを消すか**: 最後の接続から一定期間 (例: 90 日) で Durable Object のアラームで消すか、手で消すまで残すか。
 - **AI エージェントの編集を共有中にどう見せるか**: そのまま流す (本設計) か、確定するまで手元に留めるか。
