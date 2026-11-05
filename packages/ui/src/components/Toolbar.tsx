@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
-import { traceToActors } from "@untie/core/model/trace";
+import { traceToActors, traceWarnings } from "@untie/core/model/trace";
 import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
@@ -35,6 +35,7 @@ export function Toolbar() {
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const model = useUntieStore((s) => s.model);
   const traceCount = useMemo(() => traceToActors(model).problems.length, [model]);
+  const warningCount = useMemo(() => traceWarnings(model).length, [model]);
   const file = useUntieStore((s) => s.file);
   const agentOpen = useAgentStore((s) => s.open);
   const setAgentOpen = useAgentStore((s) => s.setOpen);
@@ -239,7 +240,13 @@ export function Toolbar() {
             title="すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる"
             onClick={() => setRightPanel(rightPanel === "trace" ? "properties" : "trace")}
           >
-            検証{traceCount > 0 && <span className="toolbar-count">{traceCount}</span>}
+            検証
+            {traceCount > 0 && <span className="toolbar-count">{traceCount}</span>}
+            {warningCount > 0 && (
+              <span className="toolbar-count is-warning" title="警告 (エラーではありません)">
+                {warningCount}
+              </span>
+            )}
           </button>
           <button
             type="button"

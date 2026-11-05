@@ -226,16 +226,12 @@ const issues: Element[] = [
 const pairs: [source: string, target: string][] = [
   // actorBusiness
   ["actor_manager", "biz_purchase"],
-  ["actor_backyard", "biz_purchase"],
   ["actor_floor", "biz_display"],
   ["actor_cashier", "biz_register"],
   ["actor_cashier", "biz_closing"],
-  ["actor_manager", "biz_closing"],
   ["actor_floor", "biz_stocktake"],
-  ["actor_backyard", "biz_stocktake"],
   ["actor_manager", "biz_monthly"],
   ["actor_hq_accounting", "biz_receivable"],
-  ["actor_hq_accounting", "biz_monthly"],
   // actorActivity
   ["actor_manager", "act_decide_qty"],
   ["actor_hq_purchase", "act_decide_qty"],

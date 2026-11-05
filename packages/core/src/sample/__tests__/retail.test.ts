@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRetailSample, retailSample, SAMPLES } from "..";
-import { traceToActors } from "../../model/trace";
+import { traceToActors, traceWarnings } from "../../model/trace";
 import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, RELATION_KINDS, validateModel } from "../../model";
 import type { BoardNode } from "../../model";
 
@@ -11,8 +11,10 @@ describe("店舗サンプル", () => {
     expect(checkIntegrity(retailSample)).toEqual([]);
   });
 
-  it("すべての要素が担い手まで辿れる (画面の「検証」が空)", () => {
+  it("すべての要素が担い手まで辿れて、警告も出ない (画面の「検証」が空)", () => {
     expect(traceToActors(retailSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
+    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
+    expect(traceWarnings(retailSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
   });
 
   it("業務・登場人物・課題などの件数", () => {

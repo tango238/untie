@@ -2,6 +2,7 @@
 // つながりは必須にしない (上から順に書き出していく途中の状態を許す) ので、
 // 辿り着けない要素と、どこで途切れているかを一覧にして知らせる。
 // 作業は担当 (担い手) を必ず持つ。業務を通って辿れても、担当が無ければ途切れとする。
+// 辿れるかのエラーとは別に、1 つの業務に複数のアクターが付いているものを警告として知らせる (traceWarnings)。
 import { ELEMENT_KIND_LABELS, isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /** 検証の対象にしない要素 (課題は対象要素に付くもの、既定 BUC は業務と一体) */
@@ -202,4 +203,46 @@ export function traceToActors(model: UntieModel): TraceResult {
   problems.sort((a, b) => Number(b.isBreak) - Number(a.isBreak));
 
   return { total: targets.length, reached, problems };
+}
+
+/** 警告 (エラーではない)。辿れるかには数えず、直さなくても保存や編集はできる */
+export interface TraceWarning {
+  /** 警告の対象の要素 (業務) */
+  elementId: string;
+  /** その業務に付いているアクターの id (関係を結んだ順) */
+  actorIds: string[];
+  reason: string;
+  fix: string;
+}
+
+/**
+ * 1 つの業務に複数のアクターが付いている (主担当が 1 人に決まっていない) ものを、要素の並び順で返す。
+ * 業務に付けるのは主担当のアクターで、ほかの人は作業の担当として作業に結ぶ。
+ * 辿り着けない (エラー) ではないので、traceToActors の結果には入れない
+ */
+export function traceWarnings(model: UntieModel): TraceWarning[] {
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const actorsOf = new Map<string, string[]>();
+  for (const r of model.relations) {
+    if (r.kind !== "actorBusiness") continue;
+    const actor = byId.get(r.sourceId);
+    const business = byId.get(r.targetId);
+    if (actor?.kind !== "actor" || business?.kind !== "business") continue;
+    const list = actorsOf.get(business.id) ?? [];
+    if (!list.includes(actor.id)) list.push(actor.id);
+    actorsOf.set(business.id, list);
+  }
+  const warnings: TraceWarning[] = [];
+  for (const e of model.elements) {
+    const actorIds = actorsOf.get(e.id);
+    if (e.kind !== "business" || !actorIds || actorIds.length < 2) continue;
+    const names = actorIds.map((id) => `「${byId.get(id)?.name || "(名前なし)"}」`).join("、");
+    warnings.push({
+      elementId: e.id,
+      actorIds,
+      reason: `主担当のアクターが ${actorIds.length} 人います: ${names}`,
+      fix: "業務に結ぶ主担当は 1 人にしてください。ほかの人は、作業の担当として作業に結びます。",
+    });
+  }
+  return warnings;
 }

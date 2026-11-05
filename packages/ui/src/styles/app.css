@@ -352,6 +352,7 @@ textarea { resize: vertical; width: 100%; }
 .fixed-guide.no-current .guide-questions { color: var(--text); }
 
 /* 検証パネル */
+.toolbar-count.is-warning { background: #c9922b; }
 .trace-summary { margin: 0 12px 8px; padding: 6px 8px; border-radius: 5px; background: #fbeee9; color: #8a3a2c; line-height: 1.5; }
 .trace-summary.is-ok { background: #e8f2e6; color: #3c6b34; }
 .trace-rows { list-style: none; margin: 0; padding: 0; }
@@ -367,6 +368,11 @@ textarea { resize: vertical; width: 100%; }
 .trace-rule ul { margin: 6px 0; padding-left: 18px; line-height: 1.6; }
 .toolbar-count { display: inline-block; margin-left: 5px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
 .trace-info-title { margin: 12px 12px 4px; font-size: 12px; color: var(--accent); }
+.trace-warning-title { margin: 12px 12px 4px; font-size: 12px; color: #8a6414; }
+.trace-warnings .hint { margin: 0 12px 6px; }
+.trace-row.is-warning { border-left: 3px solid #c9922b; background: #fcf6e8; }
+.trace-reason.is-warning { color: #8a6414; }
+.trace-actors { display: flex; flex-wrap: wrap; gap: 4px; }
 .trace-notice { font-size: 12px; line-height: 1.5; }
 .context-suggest { margin: 4px 0 0; }
 .context-apply { color: var(--accent); margin-left: 4px; text-decoration: underline; }

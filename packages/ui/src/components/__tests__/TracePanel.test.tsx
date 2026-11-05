@@ -36,6 +36,33 @@ describe("TracePanel", () => {
   });
 });
 
+describe("TracePanel の警告", () => {
+  it("サンプルは警告を出さない", () => {
+    render(<TracePanel />);
+    expect(screen.queryByRole("region", { name: "警告" })).toBeNull();
+  });
+
+  it("1 つの業務に複数のアクターが付くと [警告] に出す。エラーではないので辿れるかの件数には数えず、クリックで固定ボードへ移る", () => {
+    act(() => {
+      st().dispatch((m) => addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
+    });
+    render(<TracePanel />);
+    // 辿れるかは変わらない
+    expect(screen.getByText(/が担い手 \(アクター／外部アクター／システム\) に辿り着けます/)).toBeDefined();
+    const region = screen.getByRole("region", { name: "警告" });
+    expect(within(region).getByText("警告: 1 つの業務に複数のアクターが付いています (1)")).toBeDefined();
+    expect(within(region).getByText("辿れるかのエラーではありません。直さなくても編集・保存できます。")).toBeDefined();
+    const row = screen.getByTestId("warning-biz_reservation");
+    expect(within(row).getByText("主担当のアクターが 2 人います: 「予約担当」、「支配人」")).toBeDefined();
+    expect(within(row).getByText(/業務に結ぶ主担当は 1 人にしてください/)).toBeDefined();
+    // 業務と付いているアクターを、それぞれ直せる固定ボードへのリンクにする
+    expect(within(row).getByRole("button", { name: "予約受付" })).toBeDefined();
+    fireEvent.click(within(row).getByRole("button", { name: "支配人" }));
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    expect(st().ui.selection).toEqual({ type: "element", id: "actor_manager" });
+  });
+});
+
 describe("TracePanel の情報", () => {
   it("コンテキストの所属の見直し候補を [情報] に出し、候補へ移せる。辿れるかの件数には数えない", () => {
     act(() => {

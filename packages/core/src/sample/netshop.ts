@@ -231,10 +231,8 @@ const pairs: [source: string, target: string][] = [
   ["actor_order", "biz_order"],
   ["actor_warehouse", "biz_shipping"],
   ["actor_support", "biz_return"],
-  ["actor_warehouse", "biz_return"],
   ["actor_support", "biz_support"],
   ["actor_accounting", "biz_receivable"],
-  ["actor_manager", "biz_monthly"],
   ["actor_accounting", "biz_monthly"],
   // actorActivity
   ["actor_warehouse", "act_receive"],

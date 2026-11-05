@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { moveToContext } from "@untie/core/model/commands";
 import { contextNotices, type ContextNotice } from "@untie/core/model/contexts";
 import { issuesByScope } from "@untie/core/model/selectors";
-import { traceToActors, type TraceProblem } from "@untie/core/model/trace";
+import { traceToActors, traceWarnings, type TraceProblem, type TraceWarning } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../store";
 import { revealOnFixedBoard } from "./actions";
@@ -14,6 +14,7 @@ import { revealOnFixedBoard } from "./actions";
 export function TracePanel() {
   const model = useUntieStore((s) => s.model);
   const result = useMemo(() => traceToActors(model), [model]);
+  const warnings = useMemo(() => traceWarnings(model), [model]);
   const notices = useMemo(() => contextNotices(model), [model]);
   const unsorted = useMemo(() => issuesByScope(model).unsorted, [model]);
   const byId = useMemo(() => new Map(model.elements.map((e) => [e.id, e])), [model]);
@@ -36,6 +37,17 @@ export function TracePanel() {
           <BreakRow key={p.elementId} problem={p} element={byId.get(p.elementId)!} downstream={downstreamOf(p.elementId)} />
         ))}
       </ul>
+      {warnings.length > 0 && (
+        <section className="trace-warnings" aria-label="警告">
+          <h3 className="trace-warning-title">警告: 1 つの業務に複数のアクターが付いています ({warnings.length})</h3>
+          <p className="hint">辿れるかのエラーではありません。直さなくても編集・保存できます。</p>
+          <ul className="trace-rows">
+            {warnings.map((w) => (
+              <WarningRow key={w.elementId} warning={w} element={byId.get(w.elementId)!} actors={w.actorIds.map((id) => byId.get(id)!)} />
+            ))}
+          </ul>
+        </section>
+      )}
       {notices.length > 0 && (
         <section className="trace-info" aria-label="情報">
           <h3 className="trace-info-title">情報: コンテキストの所属 ({notices.length})</h3>
@@ -77,9 +89,28 @@ export function TracePanel() {
           <li>バリエーション ← 種別にしている情報・条件</li>
           <li>状態 ← 結んだ操作・条件</li>
         </ul>
+        <p className="hint">警告: 1 つの業務に結ぶアクターは主担当の 1 人です。複数いると警告を出します (辿れるかには数えません)。</p>
         <p className="hint">課題は対象の要素に付くものなので、検証の対象にしません。</p>
       </details>
     </aside>
+  );
+}
+
+function WarningRow({ warning, element, actors }: { warning: TraceWarning; element: Element; actors: Element[] }) {
+  return (
+    <li className="trace-row is-warning" data-testid={`warning-${element.id}`}>
+      <div className="trace-head">
+        <span className="relation-kind">{ELEMENT_KIND_LABELS[element.kind]}</span>
+        <ElementLink element={element} />
+      </div>
+      <div className="trace-reason is-warning">{warning.reason}</div>
+      <div className="trace-actors">
+        {actors.map((a) => (
+          <ElementLink key={a.id} element={a} />
+        ))}
+      </div>
+      <div className="trace-fix">{warning.fix}</div>
+    </li>
   );
 }
 

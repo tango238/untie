@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addElement, removeBoard } from "@untie/core/model/commands";
+import { addElement, addRelation, removeBoard } from "@untie/core/model/commands";
 import type { Platform } from "../../platform";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
@@ -318,6 +318,24 @@ describe("キーボードショートカット", () => {
     fireEvent.click(btn);
     expect(st().ui.rightPanel).toBe("properties");
   });
+  it("「検証」のボタンに、警告 (1 つの業務に複数のアクター) の数をエラーとは別の印で出す", () => {
+    act(() => {
+      st().dispatch((m) => addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
+    });
+    render(<Toolbar />);
+    const btn = screen.getByRole("button", { name: /^検証/ });
+    // エラーは無いので、警告の 1 だけ
+    expect(btn.textContent).toBe("検証1");
+    const badge = within(btn).getByTitle("警告 (エラーではありません)");
+    expect(badge.className).toContain("is-warning");
+    // エラーも出ると、エラーの印と警告の印が並ぶ
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "空のコンテキスト" }));
+    });
+    expect(screen.getByRole("button", { name: /^検証/ }).textContent).toBe("検証11");
+    expect(within(btn).getAllByText("1")).toHaveLength(2);
+  });
+
   it("「ファイル」メニューに新規作成・開く・保存・別名で保存・プロンプトから作成・AI の設定があり、プロンプトから作成でダイアログを開く", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));

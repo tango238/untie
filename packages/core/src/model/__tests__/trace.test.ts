@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addElement, addRelation, moveActivity, removeRelation } from "../commands";
-import { traceToActors } from "../trace";
+import { traceToActors, traceWarnings } from "../trace";
 import { okModel, sample } from "./helpers";
 
 describe("traceToActors", () => {
@@ -102,5 +102,46 @@ describe("traceToActors", () => {
     const r = traceToActors(m);
     // 清掃状況を更新するは、清掃を指示する・部屋を点検するからも使われているので途切れない
     expect(r.problems.some((p) => p.elementId === rel.targetId)).toBe(false);
+  });
+});
+
+describe("traceWarnings", () => {
+  it("サンプルは警告が出ない", () => {
+    expect(traceWarnings(sample())).toEqual([]);
+  });
+
+  it("1 つの業務に複数のアクターが付くと、その業務の警告を出す。辿れるかのエラーには数えない", () => {
+    let m = sample();
+    // 「予約受付」には予約担当が付いている。支配人も付ける
+    m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
+    const w = traceWarnings(m);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.elementId).toBe("biz_reservation");
+    expect(w[0]!.actorIds).toEqual(["actor_reservation", "actor_manager"]);
+    expect(w[0]!.reason).toBe("主担当のアクターが 2 人います: 「予約担当」、「支配人」");
+    expect(w[0]!.fix).toMatch(/主担当は 1 人/);
+    // エラーではない: 辿り着ける要素の検証には影響しない
+    expect(traceToActors(m).problems).toEqual([]);
+  });
+
+  it("業務ごとに数える。3 人でも 1 件で、1 人に戻すと消える", () => {
+    let m = sample();
+    m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
+    m = okModel(addRelation(m, { sourceId: "actor_housekeeping", targetId: "biz_reservation" }));
+    m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_checkin" }));
+    const w = traceWarnings(m);
+    expect(w.map((x) => [x.elementId, x.actorIds.length])).toEqual([
+      ["biz_reservation", 3],
+      ["biz_checkin", 2],
+    ]);
+    const extra = m.relations.find((r) => r.sourceId === "actor_manager" && r.targetId === "biz_checkin")!;
+    m = okModel(removeRelation(m, { id: extra.id }));
+    expect(traceWarnings(m).map((x) => x.elementId)).toEqual(["biz_reservation"]);
+  });
+
+  it("外部アクターやシステムが作業の担当になっても、業務の警告にはならない", () => {
+    let m = sample();
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "act_accept_reservation" }));
+    expect(traceWarnings(m)).toEqual([]);
   });
 });
