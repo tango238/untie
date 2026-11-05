@@ -5,19 +5,13 @@ import { readFileSync } from "node:fs";
 // アプリのバージョンはルートの package.json のものを「Untie について」に出す (tauri.conf.json・Cargo.toml と揃えておく)
 const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
 
+// Web 版 (ローカル専用)。サーバーを持たない静的なサイトで、Cloudflare Pages が dist/ を配る
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   define: { __APP_VERSION__: JSON.stringify(version) },
-  server: {
-    port: 5173,
-    // API・ログイン・ルーム (WebSocket) は apps/server の wrangler dev (8787) へ渡す
-    proxy: {
-      "/api": "http://localhost:8787",
-      "/auth": "http://localhost:8787",
-      "/parties": { target: "http://localhost:8787", ws: true },
-    },
-  },
+  // クラウド版 (apps/cloud、5173) と同時に動かせるよう、別のポートにする
+  server: { port: 5174, strictPort: true },
   test: {
     name: "web",
     environment: "jsdom",

@@ -59,7 +59,7 @@ describe("ルーティング", () => {
 
   it("それ以外は ASSETS (SPA) に任せる", async () => {
     const response = await callWorker("/some/spa/route");
-    // apps/web/dist が空のテストでは 404。ASSETS に渡ったことを、JSON のエラーではないことで確かめる
+    // apps/cloud/dist が空のテストでは 404。ASSETS に渡ったことを、JSON のエラーではないことで確かめる
     expect(response.headers.get("Content-Type") ?? "").not.toContain("application/json");
   });
 });

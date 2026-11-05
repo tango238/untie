@@ -3,7 +3,7 @@ import type { SessionRow, UserRow } from "./db/types";
 
 /** wrangler.jsonc のバインディングと、vars・secrets */
 export interface Env extends RoomEnv {
-  /** apps/web/dist の静的配信 */
+  /** apps/cloud/dist (クラウド版の画面) の静的配信 */
   ASSETS: Fetcher;
   UntieRoom: DurableObjectNamespace<UntieRoom>;
 

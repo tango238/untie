@@ -1,0 +1,11 @@
+# Web 版を Cloudflare Pages が配信するときに付けるヘッダー (デスクトップアプリ・クラウド版では使わない。クラウド版は apps/server/public/_headers)
+# API キーをブラウザに置くので、読み込めるスクリプトと通信先を絞る。Web 版はサーバーを持たないので、通信先は AI の API だけ
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# ファイル名にハッシュが付くので、長く置いてよい
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

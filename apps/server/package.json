@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/ensure-dev-vars.mjs && node -e \"require('node:fs').mkdirSync('../web/dist',{recursive:true})\" && wrangler d1 migrations apply untie --local && wrangler dev --port 8787",
-    "deploy": "pnpm --filter @untie/web build && node scripts/copy-headers.mjs && wrangler deploy",
+    "dev": "node scripts/ensure-dev-vars.mjs && node -e \"require('node:fs').mkdirSync('../cloud/dist',{recursive:true})\" && wrangler d1 migrations apply untie --local && wrangler dev --port 8787",
+    "deploy": "pnpm --filter @untie/cloud build && node scripts/copy-headers.mjs && wrangler deploy",
     "d1:migrate": "wrangler d1 migrations apply untie --remote",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

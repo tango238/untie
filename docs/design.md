@@ -10,10 +10,10 @@ Untie は、現場担当者が自分の業務を言語化するための業務�
 
 | 項目 | 内容 |
 | --- | --- |
-| 配布形態 | Tauri 2 デスクトップアプリ (Mac (Apple Silicon) と Windows (x64)。署名なし) と、Cloudflare Worker が配信する Web 版。どちらも同じ画面 (`packages/ui`) で、サーバーにつなぐとクラウドファイルが使える |
+| 配布形態 | Tauri 2 デスクトップアプリ (Mac (Apple Silicon) と Windows (x64)。署名なし) と、ブラウザの 2 つの版: ローカル専用の Web 版 (`apps/web`、Cloudflare Pages) と、ログイン・共有・同時編集ができるクラウド版 (`apps/cloud` + `apps/server`、Cloudflare Worker)。どれも同じ画面 (`packages/ui`) で、デスクトップはサーバーにつなぐとクラウドファイルが使える |
 | 技術 | TypeScript / React 18 / Vite / Vitest / pnpm (モノレポ)、zustand + immer、ajv、@xyflow/react (React Flow)、Tauri 2。クラウド版: Cloudflare Workers (Hono)・D1・Durable Objects、Yjs + y-partyserver、zod、arctic (Google の OIDC) |
 | アプリ名 | Untie、識別子 `net.tech-square.untie`、バージョン 0.1.0 |
-| 永続化 | **ローカルファイル**: JSON ファイルに保存・読み込みする (6.1)。ログイン不要。**クラウドファイル**: サーバーに置く。一覧と権限は D1、中身は Durable Object の Y.Doc で、常に同時編集になる (collab-design 1・3・4 章)。起動するとホームが開く (5.0)。サンプルはホームの「サンプルを開く」 |
+| 永続化 | **ローカルファイル**: JSON ファイルに保存・読み込みする (6.1)。ログイン不要。**クラウドファイル**: サーバーに置く。一覧と権限は D1、中身は Durable Object の Y.Doc で、常に同時編集になる (collab-design 1・3・4 章)。起動するとホームが開く (5.0)。サンプルはホームのサンプルの一覧 (「宿泊施設の業務」) |
 | ユーザーと権限 | Google でログインする。ファイルごとに `owner` / `editor` / `viewer`、メール招待、リンクを知っている人の閲覧 (collab-design 3 章) |
 | 言語 | UI・ドキュメント・コメントはすべて日本語 |
 | 対象外 | 文章からの要素抽出、矛盾検出、rdra.yml 出力、コード署名、Intel Mac。クラウド版の「あとで」(Microsoft ログイン、magic link、フォルダ、文字単位の合流、オフラインの手元キャッシュ、監査ログなど) は collab-design 12.2 |
@@ -209,9 +209,11 @@ UntieModel
 
 起動するとホーム (`#/`) が開く。画面はハッシュで分ける (`#/` ホーム、`#/local` ローカルのエディタ、`#/f/<id>` クラウドファイル、`#/invite/<token>` 招待、`#/link/<token>` リンク閲覧。collab-design 8.1)。
 
-- **ローカル**: 「ローカルファイルを開く」「新規作成 (ローカル)」「サンプルを開く」と、最近開いたローカルファイル。ログインは要らず、編集は 5.1 以降のとおり。
+- **ローカル**: 「ローカルファイルを開く」「新規作成 (ローカル)」と、最近開いたローカルファイル。ログインは要らず、編集は 5.1 以降のとおり。
+- **サンプル**: サンプルの一覧 (いまは「宿泊施設の業務」の 1 件。将来のサンプルギャラリー)。題名と一行の紹介をカードで並べ、押すとそのサンプルを新しいモデルとして開く (元のサンプルは変わらない)。一覧は `@untie/core/sample` の `SAMPLES` (`id`・`title`・`description`・`create`) で、サンプルを足すときはここに 1 件足す。
 - **クラウド**: 未ログインならログイン欄 (Web は「Google でログイン」、デスクトップは「ブラウザが開きます」と引換コードの入力欄)。ログイン済みなら「自分のファイル」「共有されたファイル」「ゴミ箱」のタブで、名前・更新日時・役割・メンバー数を並べ、開く・名前を変える・複製・書き出す・共有 (所有者)・共有をやめる・ゴミ箱へ (30 日)・戻す・完全に消す を行の操作に置く。右上のアカウントメニューでログアウトする。
 - デスクトップだけ、サーバーの URL を入れる「サーバーの設定」を出す (collab-design 8.4)。
+- Web 版 (ローカル専用、`Platform.cloud` が `false`) は「クラウド」の欄と右上のログインを出さない。先頭の欄は「ローカル」の見出しと案内の代わりに Untie の紹介 (「Untie について」と同じ一文) を出し、ボタンは「ローカルファイルを開く」「新規作成」。`#/f`・`#/invite`・`#/link` を開いてもホームになる (collab-design 2.3)。
 
 編集画面は次の 3 カラムのまま。
 
@@ -373,7 +375,7 @@ UntieModel
 - 「新規作成」は空のモデル (空の自由ボード「ボード 1」だけ) を、まだ保存していないモデルとして開く。履歴を捨て、作業の固定ボードを開く。手を付けるまでは保存していない変更なしとして扱う。保存していない変更があれば、先に確認ダイアログで「保存して新規作成」「保存せずに新規作成」「キャンセル」を選ばせる。保存を選んで保存先の選択を取り消したり保存に失敗したりしたら、今のモデルを残す。
 - デスクトップアプリでは、ファイル選択と保存先の選択に dialog プラグインを使い、読み書きは Rust のコマンド (`read_model_file` / `write_model_file`) で行う。パスはダイアログで選ばれたもの (と、それを覚えた最近開いたファイル) だけを渡す。ブラウザ (Web 版・開発用) では、File System Access API があれば (Chrome・Edge) `showOpenFilePicker` / `showSaveFilePicker` のハンドルを覚えて同じファイルに上書きする (ストアの `file.path` にはハンドルの代わりに `browser:<番号>` を入れる。ハンドルは最近開いたファイルとして IndexedDB にも残す)。無ければファイル選択とダウンロードで代わりにする。
 - **クラウドファイル**はファイルではなくサーバーが正本で、保存の操作は無い (つながっている間は常に反映される)。「JSON に書き出す」で同じ形式 (上のローカルファイルと同じ JSON) の中身を取り出し、「クラウドへ保存」でローカルのモデルをクラウドファイルとして複製する。クラウドファイルにはローカルの履歴 (Undo / Redo)・保存先・最近開いたファイル・「保存していない変更」の判定は無い。つながっていない間に溜めた変更だけが、閉じる前の確認の対象になる。読み込み・書き出しとも `validateModel()` を通す。詳細は collab-design 5 章・8.2。
-- Web 版は Cloudflare Worker (`apps/server`) が `apps/web/dist/` を静的ファイルとして配信する (`pnpm run deploy`。手順は README)。`apps/server/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジン (WebSocket を含む) と各 AI プロバイダーの API だけに絞る。
+- Web 版 (ローカル専用) は Cloudflare Pages が `apps/web/dist/` を静的なサイトとして配る (`pnpm web:deploy`。手順は README の「Web 版の配信 (Cloudflare Pages)」)。`apps/web/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジンと各 AI プロバイダーの API だけに絞る。クラウド版は Cloudflare Worker (`apps/server`) が `apps/cloud/dist/` を配り (`pnpm cloud:deploy`)、`apps/server/public/_headers` で同じように絞る (通信先は自分のオリジンの WebSocket を含む)。
 - アプリの CSP は eval を許さないので、ajv で実行時にスキーマをコンパイルできない。検証関数は `packages/core/scripts/gen-validator.mjs` で事前に生成し (`packages/core/src/model/schemaValidator.gen.js`)、`pnpm gen:types` で型と一緒に作り直す。CI の `check:types` で生成物がスキーマと一致しているかを検査する。
 
 ### 6.2 AI エージェント
@@ -477,7 +479,8 @@ untie/
 │        ├ test/               … テスト用の setup と、メモリ上で動く Platform・偽のサーバー
 │        └ version.ts
 ├ apps/
-│  ├ web/                      … @untie/web: Vite のエントリ、Platform の Web 実装
+│  ├ web/                      … @untie/web: Web 版 (ローカル専用) の Vite のエントリ、Platform のブラウザ実装 (cloud と共用)
+│  ├ cloud/                    … @untie/cloud: クラウド版の画面の Vite のエントリ (web の Platform を cloud: true で使う)
 │  ├ desktop/                  … @untie/desktop: Vite のエントリ、Platform の Tauri 実装 (キーチェーン・deep link)
 │  │  └ src-tauri/             … Tauri 2 (Rust: ファイルの読み書き、キーチェーン、deep-link / single-instance / opener / dialog プラグイン)
 │  └ server/                   … @untie/server: Cloudflare Worker (Hono)。auth/ api/ db/ jobs/、migrations/、public/_headers、wrangler.jsonc
@@ -506,10 +509,11 @@ Vitest で以下を検証する。E2E は省く。
 
 ## 10. ビルドと配布
 
-- `pnpm dev` で Web (Vite、5173) とサーバー (`wrangler dev`、8787) を同時に動かす。`pnpm tauri dev` でデスクトップアプリ、`pnpm app:build` (手元の証明書で署名) か `pnpm tauri build` で Mac 用 .app / .dmg。
-- **Web 版とサーバー**: 1 つの Cloudflare Worker (`apps/server`) が Web の静的ファイル・API・ログイン・Durable Object を持つ。`pnpm run deploy` が Web を build して `wrangler deploy` する。初回の手順 (D1 の作成、OAuth クライアント、秘密の値、`APP_ORIGIN`) は README の「配信 (Cloudflare)」、設計は collab-design 9 章。Pages は使わない。
+- `pnpm dev` で Web 版 (Vite、5174) を、`pnpm dev:cloud` でクラウド版の画面 (Vite、5173) とサーバー (`wrangler dev`、8787) を同時に動かす。`pnpm tauri dev` でデスクトップアプリ、`pnpm app:build` (手元の証明書で署名) か `pnpm tauri build` で Mac 用 .app / .dmg。
+- **Web 版**: Cloudflare Pages (プロジェクト `untie`)。`pnpm web:deploy` か、Pages の Git 連携 (Build command `pnpm --filter @untie/web build`、出力 `apps/web/dist`)。手順は README の「Web 版の配信 (Cloudflare Pages)」。
+- **クラウド版とサーバー**: 1 つの Cloudflare Worker (`apps/server`、名前は `untie-cloud`) がクラウド版の画面 (`apps/cloud`) の静的ファイル・API・ログイン・Durable Object を持つ。`pnpm cloud:deploy` が画面を build して `wrangler deploy` する。初回の手順 (D1 の作成、OAuth クライアント、秘密の値、`APP_ORIGIN`) は README の「クラウド版の配信 (Cloudflare Workers)」、設計は collab-design 2.3・9 章。
 - GitHub Actions:
-  - `ci.yml`: PR と main push で `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web・デスクトップのフロントの build と `wrangler deploy --dry-run`)。別のジョブで Linux の `cargo check` (Rust 側がコンパイルできるか)。
+  - `ci.yml`: PR と main push で `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web 版・クラウド版・デスクトップのフロントの build と `wrangler deploy --dry-run`)。別のジョブで Linux の `cargo check` (Rust 側がコンパイルできるか)。
   - `release.yml`: `v*` タグ push で `tauri-apps/tauri-action` を使い、`macos-latest` (aarch64-apple-darwin) で .dmg、`windows-latest` で .msi と .exe (NSIS) を作り、GitHub Releases に添付する。
 - Windows 版は CI でしか作れないため、動作確認は CI の成果物で行う。
 - 署名なしなので、README に開き方 (Mac は右クリック → 開く、Windows は SmartScreen の「詳細情報」→「実行」) を書く。

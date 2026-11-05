@@ -46,6 +46,7 @@ export function memoryPlatform(): MemoryPlatform {
   const remembered = new Set<string>();
   const p: MemoryPlatform = {
     kind: "web",
+    cloud: true,
     opened: null,
     saved: [],
     discard: true,

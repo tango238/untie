@@ -153,7 +153,14 @@ describe("最近開いたファイル (Web)", () => {
 });
 
 describe("サーバーとの接続 (Platform)", () => {
-  it("serverOrigin は自分のオリジン、authorize はリクエストをそのまま返す (Cookie で認証)", async () => {
+  it("Web 版 (既定) はクラウドの機能を持たず、サーバーも無い", () => {
+    expect(platform.cloud).toBe(false);
+    expect(platform.serverOrigin()).toBe("");
+  });
+
+  it("クラウド版 (cloud: true) の serverOrigin は自分のオリジン、authorize はリクエストをそのまま返す (Cookie で認証)", async () => {
+    platform = webPlatform({ cloud: true });
+    expect(platform.cloud).toBe(true);
     expect(platform.serverOrigin()).toBe(location.origin);
     const init = { method: "GET", headers: { Accept: "application/json" } };
     expect(await platform.authorize(init)).toBe(init);

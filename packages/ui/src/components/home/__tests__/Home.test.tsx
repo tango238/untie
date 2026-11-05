@@ -9,7 +9,7 @@ import { useUntieStore } from "../../../store";
 import { memory } from "../../../test/platform";
 import { apiError, fakeServer, summary, user, type FakeServer } from "../../../test/server";
 import { resetStore } from "../../../test/utils";
-import Home from "../Home";
+import Home, { UNTIE_INTRO } from "../Home";
 import { formatRelativeTime } from "../relativeTime";
 
 let server: FakeServer;
@@ -473,7 +473,7 @@ describe("Home: ローカル", () => {
     expect(useUntieStore.getState().file?.name).toBe("a.json");
   });
 
-  it("「新規作成 (ローカル)」と「サンプルを開く」は #/local へ移る", async () => {
+  it("「新規作成 (ローカル)」とサンプルの一覧の「宿泊施設の業務」は #/local へ移る", async () => {
     anonymous([]);
     render(<Home />);
     fireEvent.click(screen.getByRole("button", { name: "新規作成 (ローカル)" }));
@@ -481,9 +481,39 @@ describe("Home: ローカル", () => {
     expect(useUntieStore.getState().model.elements).toHaveLength(0);
 
     window.location.hash = "";
-    fireEvent.click(screen.getByRole("button", { name: "サンプルを開く" }));
+    const gallery = screen.getByRole("region", { name: "サンプル" });
+    fireEvent.click(within(gallery).getByRole("button", { name: /宿泊施設の業務/ }));
     await waitFor(() => expect(window.location.hash).toBe("#/local"));
     expect(useUntieStore.getState().model.elements.length).toBeGreaterThan(0);
+    expect(useUntieStore.getState().toasts.slice(-1)[0]?.message).toBe("サンプル「宿泊施設の業務」を開きました");
+  });
+
+  it("サンプルは一覧で、題名と紹介を並べる", () => {
+    anonymous([]);
+    render(<Home />);
+    const items = within(screen.getByRole("region", { name: "サンプル" })).getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0]!.textContent).toContain("宿泊施設の業務");
+    expect(items[0]!.textContent).toContain("予約からチェックイン");
+    expect(screen.queryByRole("button", { name: "サンプルを開く" })).toBeNull();
+  });
+
+  it("クラウド版・デスクトップは「ローカル」の見出しを出し、Web 版は見出しの代わりに Untie の紹介を出す", () => {
+    anonymous([]);
+    const { unmount } = render(<Home />);
+    expect(screen.getByRole("heading", { level: 2, name: "ローカル" })).toBeTruthy();
+    expect(screen.queryByText(UNTIE_INTRO)).toBeNull();
+    unmount();
+
+    memory().cloud = false;
+    render(<Home />);
+    expect(screen.queryByRole("heading", { level: 2, name: "ローカル" })).toBeNull();
+    expect(screen.queryByText("このパソコンのファイルを開いて編集します。ログインは要りません。")).toBeNull();
+    expect(screen.getByText(UNTIE_INTRO)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ローカルファイルを開く" })).toBeTruthy();
+    // ローカルしか無いので「(ローカル)」は付けない
+    expect(screen.getByRole("button", { name: "新規作成" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "サンプル" })).toBeTruthy();
   });
 
   it("未保存の変更があって破棄を断ったら移らない", async () => {

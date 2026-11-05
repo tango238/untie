@@ -1,6 +1,6 @@
 // Web・デスクトップ (Tauri) で実装が変わる処理の受け口。
 // 画面とストアは、ここに書いた Platform だけを通してファイル・ダイアログ・キー置き場に触れる。
-// 実装は apps/web と apps/desktop にあり、起動時に createApp(platform) が setPlatform で差し込む。
+// 実装は apps/web (Web 版とクラウド版で共用) と apps/desktop にあり、起動時に createApp(platform) が setPlatform で差し込む。
 // packages/ui からは @tauri-apps/* を import しない。
 import type { ProviderId } from "@untie/api";
 
@@ -55,6 +55,12 @@ export type LoginResult = { ok: true } | { ok: false; message: string };
 
 export interface Platform {
   kind: "web" | "desktop";
+  /**
+   * クラウドの機能 (ログイン・クラウドファイル・共有・同時編集) を画面に出すか。
+   * Web 版 (apps/web。ローカル専用) は false、クラウド版 (apps/cloud) とデスクトップは true。
+   * false なら、ホームにクラウドの欄を出さず、#/f・#/invite・#/link はホームに戻す
+   */
+  cloud: boolean;
   /** ファイルを選んで中身を読む。取り消したら null */
   openTextFile(): Promise<OpenedFile | null>;
   /**
@@ -76,7 +82,7 @@ export interface Platform {
   /** API キーなどの秘密の置き場 (デスクトップは OS のキーチェーン) */
   secrets: SecretStore;
   recentFiles: RecentFileStore;
-  /** サーバーの URL (Web は自分のオリジン、デスクトップは設定したもの)。空文字ならサーバー未設定で、クラウドの機能は使えない */
+  /** サーバーの URL (クラウド版は自分のオリジン、デスクトップは設定したもの、Web 版は空文字)。空文字ならサーバー未設定で、クラウドの機能は使えない */
   serverOrigin(): string;
   /**
    * ログインを始める。Web は同じタブで /auth/login へ移る (戻ってくるときは returnTo の画面)。

@@ -28,7 +28,7 @@ jobs:
       - run: pnpm test
       - name: 生成型がスキーマと一致しているか
         run: pnpm check:types
-      # Web・デスクトップのフロントを build し、apps/server の `wrangler deploy --dry-run` でバンドルと設定が通るかを確かめる
+      # Web 版・クラウド版・デスクトップのフロントを build し、apps/server の `wrangler deploy --dry-run` でバンドルと設定が通るかを確かめる
       # (dry-run は Cloudflare にログインも CLOUDFLARE_API_TOKEN も要らない)
       - run: pnpm build
 

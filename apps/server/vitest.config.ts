@@ -6,8 +6,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig(async () => {
   const root = import.meta.dirname;
   const migrations = await readD1Migrations(path.join(root, "migrations"));
-  // wrangler.jsonc の assets.directory (../web/dist) は存在しないと起動できない。web のビルド前 (CI の test など) でも動かすため空で作る
-  mkdirSync(path.join(root, "../web/dist"), { recursive: true });
+  // wrangler.jsonc の assets.directory (../cloud/dist) は存在しないと起動できない。クラウド版の画面のビルド前 (CI の test など) でも動かすため空で作る
+  mkdirSync(path.join(root, "../cloud/dist"), { recursive: true });
 
   return {
     plugins: [

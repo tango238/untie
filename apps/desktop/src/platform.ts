@@ -294,6 +294,8 @@ export function desktopPlatform(): Platform {
 
   return {
     kind: "desktop",
+    // サーバーの URL を設定すれば、クラウド版のサーバーにつないでクラウドファイルを使える
+    cloud: true,
 
     async openTextFile(): Promise<OpenedFile | null> {
       const { open } = await import("@tauri-apps/plugin-dialog");

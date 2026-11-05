@@ -1,20 +1,20 @@
 {
-  // 1 つの Worker が Web の静的ファイル・API・Durable Object (UntieRoom) を持つ (docs/collab-design.md 7 章・9 章)
+  // クラウド版: 1 つの Worker がクラウド版の画面 (apps/cloud) の静的ファイル・API・Durable Object (UntieRoom) を持つ (docs/collab-design.md 7 章・9 章)
   //
-  // 【本番に上げる前に置き換える値】(手順は README の「配信 (Cloudflare)」)
+  // 【本番に上げる前に置き換える値】(手順は README の「クラウド版の配信 (Cloudflare Workers)」)
   //   1. d1_databases[0].database_id  … `wrangler d1 create untie --location apac` で出た id
   //   2. vars.APP_ORIGIN              … 公開の URL (例: https://untie.example.com)
   // それ以外の秘密の値 (SESSION_SECRET・TICKET_SECRET・GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET) は、ここには書かず `wrangler secret put` で入れる。
   // `<本番で置き換える>` のままでも `wrangler deploy --dry-run` (pnpm build / CI) は通るが、`wrangler deploy` は D1 を見つけられず失敗する
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "untie",
+  "name": "untie-cloud",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-20",
   "compatibility_flags": ["nodejs_compat"],
 
-  // apps/web のビルド結果 (SPA)。存在しないパスは index.html を返す
+  // apps/cloud のビルド結果 (SPA)。存在しないパスは index.html を返す
   "assets": {
-    "directory": "../web/dist",
+    "directory": "../cloud/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // ブラウザの画面遷移 (Sec-Fetch-Mode: navigate) は、SPA の設定だと存在しないパスが index.html になってしまう。
@@ -23,7 +23,7 @@
     "run_worker_first": ["/auth/*", "/api/*", "/parties/*", "/", "/index.html"]
   },
 
-  // 【公開のホスト】既定は workers.dev (`untie.<アカウント>.workers.dev`)。独自ドメインで配るときは、次の 2 行を有効にする
+  // 【公開のホスト】既定は workers.dev (`untie-cloud.<アカウント>.workers.dev`)。独自ドメインで配るときは、次の 2 行を有効にする
   // (ゾーンが同じ Cloudflare アカウントにあること。`custom_domain: true` で deploy 時に DNS レコードと証明書が自動で作られる):
   //   "workers_dev": false,
   //   "routes": [{ "pattern": "untie.example.com", "custom_domain": true }],

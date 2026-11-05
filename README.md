@@ -23,7 +23,7 @@ Untie が補助するのは前半の 1〜3 です。整理した結果は RDRA �
 
 大事なのは「感じている困りごとの所在を具体化する」ことです。業務を整理すること自体が目的ではなく、最初からシステム化を前提にするものでもありません。業務の整理は、困りごとの所在を突き止めるための手段です。
 
-このリポジトリは PoC (概念実証) です。モデルは JSON ファイルに保存・読み込みできます (「開く」「保存」、Cmd/Ctrl+O・Cmd/Ctrl+S)。クラウドにファイルを置いて、共有し、同時に編集することもできます (「クラウドファイル」)。起動するとホームが開きます。「サンプルを開く」で、架空の宿泊施設のサンプルが、分析ボード「課題の分布」と右の課題一覧を開いた状態で表示されます。
+このリポジトリは PoC (概念実証) です。モデルは JSON ファイルに保存・読み込みできます (「開く」「保存」、Cmd/Ctrl+O・Cmd/Ctrl+S)。クラウドにファイルを置いて、共有し、同時に編集することもできます (「クラウドファイル」)。起動するとホームが開きます。ホームのサンプルの一覧から「宿泊施設の業務」を選ぶと、架空の宿泊施設のサンプルが、分析ボード「課題の分布」と右の課題一覧を開いた状態で表示されます。
 
 ## できること
 
@@ -63,7 +63,7 @@ Untie が補助するのは前半の 1〜3 です。整理した結果は RDRA �
 
 ### クラウドファイル (ログイン・共有・同時編集)
 
-サーバーにつなぐと、ファイルをクラウドに置いて、他の人と共有し、同時に編集できます。ローカルのファイルはこれまでどおり、ログインなしで開いて保存できます。
+クラウド版 (ブラウザ) と、サーバーにつないだデスクトップ版で、ファイルをクラウドに置いて、他の人と共有し、同時に編集できます (Web 版はローカルのファイルだけです)。ローカルのファイルはこれまでどおり、ログインなしで開いて保存できます。
 
 - **ログイン**: Google のアカウントでログインします (パスワードは持ちません)。ホームの「クラウド」から入ります。デスクトップ版はブラウザでログインして、アプリに戻ります
 - **ホーム**: 「自分のファイル」「共有されたファイル」「ゴミ箱」を並べます。ファイルを作る・名前を変える・複製する・JSON に書き出す・ゴミ箱に入れる、ができます。ゴミ箱に入れたファイルは 30 日たつと完全に消え、それまでは所有者が戻せます。いま開いているローカルのモデルは、ファイルメニューの「クラウドへ保存」でクラウドに複製できます
@@ -110,17 +110,25 @@ Intel Mac は対象外です。
 2. SmartScreen の「Windows によって PC が保護されました」が出たら、**「詳細情報」→「実行」** を押します。
 
 
-### ブラウザ (Web 版)
+### ブラウザ (Web 版とクラウド版)
 
-Cloudflare の Worker から配信します (サーバーを立てる手順は「配信 (Cloudflare)」)。利用者はインストールが要りません。配信元の URL を開くとホームが出て、ローカルファイルの編集も、ログインしてのクラウドファイルも使えます。アプリとの違いは次のとおりです。
+ブラウザで使う版は 2 つあり、配信先も別です。利用者はどちらもインストールが要りません。
 
-- **保存 (ローカルファイル)**: Chrome・Edge では、開いた (または一度保存した) ファイルにそのまま上書きします。それ以外のブラウザでは、保存のたびにダウンロードになります。クラウドファイルに保存の操作は要りません (つながっている間は常に反映されます)。
+| | Web 版 | クラウド版 |
+| --- | --- | --- |
+| できること | このパソコンのファイル (JSON) を開いて編集する。ログインは無い | Web 版に加えて、ログインしてファイルをクラウドに置き、共有・同時編集する |
+| 入り口 | `apps/web` | `apps/cloud` (画面) + `apps/server` (API・ログイン・ルーム) |
+| 配信 | Cloudflare Pages (静的なサイト。サーバーを持たない)。手順は「Web 版の配信 (Cloudflare Pages)」 | Cloudflare Workers + D1 + Durable Objects。手順は「クラウド版の配信 (Cloudflare Workers)」 |
+
+画面は同じ `packages/ui` です。Web 版はホームにクラウドの欄を出さず、配信元のサーバーには何も送りません。アプリとの違いは次のとおりです (両方に共通)。
+
+- **保存 (ローカルファイル)**: Chrome・Edge では、開いた (または一度保存した) ファイルにそのまま上書きします。それ以外のブラウザでは、保存のたびにダウンロードになります。クラウド版のクラウドファイルに保存の操作は要りません (つながっている間は常に反映されます)。
 - **API キー**: ふだんはタブを閉じるまでだけ覚えます。「AI の設定」で「このブラウザに保存する」を選ぶと、次に開いたときも使えます (ブラウザの localStorage に置くので、共用のパソコンでは選ばないでください)。キーはブラウザから各社の API に直接送り、配信元のサーバーには送りません。
 - **閉じる前の確認**: 保存していない変更があると、タブを閉じる前にブラウザが確かめます。クラウドファイルでは、つながっていない間の変更がまだ送れていないときだけ確かめます。
 
 ### デスクトップ版でクラウドを使う
 
-ローカルのファイルを編集するだけなら設定は要りません。クラウドのファイル (保存・共有・同時編集) を使うときは、次の順に進めます。
+ローカルのファイルを編集するだけなら設定は要りません。クラウドのファイル (保存・共有・同時編集) を使うときは、クラウド版のサーバー (`apps/server`) につなぎます。次の順に進めます。
 
 1. **初回にサーバーの URL を設定します**。ホームの「サーバーの設定」に、使うサーバーの URL (例: `https://untie.example.com`) を入れて「保存」します。サーバーを変えるとログアウトします (別のサーバーにログインのトークンを送らないため)。サーバーの URL は `https://` のものか、開発用の `http://localhost`・`http://127.0.0.1` で、パスやクエリは付けられません。リリース版は `https://` のサーバーだけにつながります。
 2. **ログインはブラウザでします**。「Google でログイン (ブラウザが開きます)」を押すと既定のブラウザが開き、ログインが済むと `untie://` でアプリに戻ります。ブラウザが「Untie を開きますか」と聞くので、許可してください。ログインのトークンは OS のキーチェーンに保存します。
@@ -137,7 +145,7 @@ Cloudflare の Worker から配信します (サーバーを立てる手順は�
 
 ## 開発
 
-必要なもの: Node.js 22、pnpm 10。デスクトップアプリ (`pnpm tauri ...`) を作るときは Rust (rustup の stable) も要ります。Tauri 2 の前提条件は [Tauri の公式ドキュメント](https://tauri.app/start/prerequisites/) を参照してください。Web とサーバーだけなら Rust は要りません。
+必要なもの: Node.js 22、pnpm 10。デスクトップアプリ (`pnpm tauri ...`) を作るときは Rust (rustup の stable) も要ります。Tauri 2 の前提条件は [Tauri の公式ドキュメント](https://tauri.app/start/prerequisites/) を参照してください。Web 版・クラウド版だけなら Rust は要りません。
 
 ### 構成
 
@@ -148,28 +156,31 @@ pnpm ワークスペース (モノレポ) です。ビルドはせず、Vite・V
 | `packages/core` | `@untie/core` | モデル (型・スキーマ・id・関係ルール・コマンド・検証・固定ボード・分析・トレース)、サンプル。React にも DOM にも依存しない |
 | `packages/api` | `@untie/api` | サーバーと画面で共有する契約 (DTO と zod スキーマ、役割と権限、fetch クライアント) |
 | `packages/collab` | `@untie/collab` | 同時編集 (Y.Doc とモデルの往復、壊れた参照の修復、ルームの Durable Object) |
-| `packages/ui` | `@untie/ui` | React の画面とストア。Web とデスクトップで共通 |
-| `apps/web` | `@untie/web` | Web の入り口 (Vite) |
+| `packages/ui` | `@untie/ui` | React の画面とストア。Web 版・クラウド版・デスクトップで共通 |
+| `apps/web` | `@untie/web` | Web 版 (ローカル専用) の入り口 (Vite)。ブラウザの `Platform` の実装 (`src/platform.ts`) もここで、クラウド版も使う。Cloudflare Pages で配る |
+| `apps/cloud` | `@untie/cloud` | クラウド版の画面の入り口 (Vite)。`apps/web` の `Platform` を `cloud: true` で使う。`apps/server` の Worker が配る |
 | `apps/desktop` | `@untie/desktop` | デスクトップの入り口 (Vite + Tauri 2。`src-tauri/` が Rust) |
-| `apps/server` | `@untie/server` | Cloudflare Worker (API・ログイン・静的ファイルの配信・ルーム)。D1 のマイグレーションと `wrangler.jsonc` もここ |
+| `apps/server` | `@untie/server` | クラウド版のサーバー。Cloudflare Worker (API・ログイン・`apps/cloud/dist` の配信・ルーム)。D1 のマイグレーションと `wrangler.jsonc` もここ |
 
-ファイルやキーの置き場所、ログインなど Web とデスクトップで違う処理は、`packages/ui/src/platform.ts` の `Platform` を通し、実装を各 app の `src/platform.ts` に置いています。設計は [docs/collab-design.md](docs/collab-design.md) の 2 章を参照してください。
+ファイルやキーの置き場所、ログインなどブラウザとデスクトップで違う処理は、`packages/ui/src/platform.ts` の `Platform` を通し、実装を `apps/web/src/platform.ts` と `apps/desktop/src/platform.ts` に置いています。クラウドの機能 (ホームのクラウドの欄・ログイン・`#/f`・`#/invite`・`#/link`) を出すかは `Platform.cloud` で決まり、Web 版だけが `false` です。設計は [docs/collab-design.md](docs/collab-design.md) の 2 章を参照してください。
 
 ### コマンド
 
 ```sh
 pnpm install
-pnpm dev            # Web とサーバーを同時に動かす (Web: http://localhost:5173、サーバー: 8787。API は 8787 に proxy)
+pnpm dev            # Web 版 (ローカル専用) を動かす (http://localhost:5174)
+pnpm dev:cloud      # クラウド版の画面とサーバーを同時に動かす (画面: http://localhost:5173、サーバー: 8787。API は 8787 に proxy)
 pnpm test           # テスト (Vitest。全パッケージ。サーバーのテストは workerd の中で動く)
 pnpm typecheck      # 型検査 (tsc -b。全パッケージ)
 pnpm check:types    # スキーマから生成した型・検証関数が最新か確認する
-pnpm build          # Web 版を apps/web/dist/ に、デスクトップ用のフロントを apps/desktop/dist/ に作り、サーバーの wrangler deploy --dry-run も通す
+pnpm build          # Web 版を apps/web/dist/ に、クラウド版の画面を apps/cloud/dist/ に、デスクトップ用のフロントを apps/desktop/dist/ に作り、サーバーの wrangler deploy --dry-run も通す
 pnpm tauri dev      # デスクトップアプリを起動して開発する
 pnpm tauri build    # Mac 用の .app / .dmg を作る
 pnpm app:build      # 同上。手元の証明書「Untie Local Code Signing」で署名する
 pnpm icon           # assets/icon.png から各サイズのアイコンを作り直す
 pnpm gen:types      # スキーマ (schema/untie.schema.json) を変えたあとに、型と検証関数を再生成する
-pnpm run deploy     # Web 版を作って Cloudflare Worker (untie) に上げる (`pnpm deploy` は pnpm の別のコマンドなので `run` を付ける)
+pnpm web:deploy     # Web 版を作って Cloudflare Pages (プロジェクト untie) に上げる
+pnpm cloud:deploy   # クラウド版の画面を作って Cloudflare Worker (untie-cloud) に上げる
 ```
 
 手元でアプリを作り直して使うときは `pnpm app:build` を使ってください。`pnpm tauri build` は簡易署名 (ad-hoc) になり、作り直すたびにアプリの識別が変わるので、キーチェーンに保存した AI の API キーが読み出せなくなります。`pnpm app:build` はログインキーチェーンにあるコード署名用の自己署名証明書 `Untie Local Code Signing` で署名するので、作り直してもキーを読めます。証明書が無い Mac では、キーチェーンアクセスの「証明書アシスタント」で同じ名前のコード署名用の自己署名証明書を作ってください。
@@ -178,22 +189,58 @@ pnpm run deploy     # Web 版を作って Cloudflare Worker (untie) に上げる
 
 アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm icon` で各サイズを再生成します。
 
-### サーバーを手元で動かす
+### クラウド版を手元で動かす
 
 ```sh
 pnpm install
-pnpm dev     # http://localhost:5173 を開く
+pnpm dev:cloud     # http://localhost:5173 を開く
 ```
 
-`pnpm dev` は Vite (5173) と `wrangler dev` (8787) を同時に起動します。Vite が `/api`・`/auth`・`/parties` を 8787 に proxy するので、ブラウザは 5173 だけ見れば足ります。D1 と Durable Object はローカルのファイル (`apps/server/.wrangler/`) に作られ、`pnpm dev` のたびにマイグレーションが当たります。wrangler のテレメトリを送りたくないときは `WRANGLER_SEND_METRICS=false` を付けてください。
+`pnpm dev:cloud` はクラウド版の画面の Vite (5173) と `wrangler dev` (8787) を同時に起動します。Web 版 (`pnpm dev`、5174) と同時に動かせます。Vite が `/api`・`/auth`・`/parties` を 8787 に proxy するので、ブラウザは 5173 だけ見れば足ります。D1 と Durable Object はローカルのファイル (`apps/server/.wrangler/`) に作られ、`pnpm dev:cloud` のたびにマイグレーションが当たります。wrangler のテレメトリを送りたくないときは `WRANGLER_SEND_METRICS=false` を付けてください。
 
 ログインは、開発中は `dev` プロバイダーを使います。`/auth/dev` の画面でメールアドレスを打つだけでログインできます (`apps/server/.dev.vars` の `DEV_LOGIN=true` のときだけ。本番の `wrangler.jsonc` は `"false"`)。複数の人の同時編集を試すには、別のブラウザ (またはシークレットウィンドウ) で別のメールアドレスでログインします。Google でログインするには、`.dev.vars` に `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` を書き (空だと Google は出ません)、Google Cloud の OAuth クライアントのリダイレクト URI に `http://localhost:5173/auth/callback` を登録します (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るため、`.dev.vars` の `APP_ORIGIN=http://localhost:5173` で Vite 側に固定しています。5173 のリクエストは Vite が 8787 に proxy します)。
 
-`.dev.vars` はコミットしません (`.gitignore` 済み)。`pnpm dev` が、無ければ見本の `apps/server/.dev.vars.example` から写します。開発専用の値だけを書き、本番の秘密の値は書かないでください。開発用ログインは `DEV_LOGIN=true` でも、リクエストのホストが `localhost` / `127.0.0.1` のときだけ効きます。`pnpm test` は `.dev.vars` を使わず、テスト用の値を `apps/server/vitest.config.ts` に持っています。
+`.dev.vars` はコミットしません (`.gitignore` 済み)。`pnpm dev:cloud` が、無ければ見本の `apps/server/.dev.vars.example` から写します。開発専用の値だけを書き、本番の秘密の値は書かないでください。開発用ログインは `DEV_LOGIN=true` でも、リクエストのホストが `localhost` / `127.0.0.1` のときだけ効きます。`pnpm test` は `.dev.vars` を使わず、テスト用の値を `apps/server/vitest.config.ts` に持っています。
 
-## 配信 (Cloudflare)
+## Web 版の配信 (Cloudflare Pages)
 
-1 つの Cloudflare Worker (`untie`) が、Web の静的ファイル (`apps/web/dist`)・API (`/api`)・ログイン (`/auth`)・ファイルの中身を持つ Durable Object (`UntieRoom`、`/parties`) を受け持ち、一覧と権限は D1 (SQLite) に置きます。Cloudflare Pages は使いません。デスクトップ版も同じ Worker につなぎます。
+Web 版 (`apps/web`) はサーバーを持たない静的なサイトなので、Cloudflare Pages で配ります。`pnpm --filter @untie/web build` で `apps/web/dist/` に静的なファイルができます。`apps/web/public/_headers` が `dist/_headers` に入り、Pages が配るときに CSP などのヘッダーを付けます (読み込むスクリプトは自分のサイトだけ、通信先は自分のサイトと Anthropic・OpenAI・Google の API だけ)。AI のプロバイダーを足したときは `connect-src` も足してください。
+
+### GitHub と連携して push のたびに配る
+
+Cloudflare のダッシュボードで **Workers & Pages → Create → Pages → Connect to Git** からこのリポジトリを選び、次のように設定します。
+
+| 項目 | 値 |
+| --- | --- |
+| Project name | `untie` (`*.pages.dev` のホスト名になる) |
+| Production branch | `main` |
+| Framework preset | None |
+| Root directory | (空のまま。リポジトリのルート) |
+| Build command | `pnpm --filter @untie/web build` |
+| Build output directory | `apps/web/dist` |
+| 環境変数 | `NODE_VERSION` = `22`、`PNPM_VERSION` = `10` (CI と揃える。`pnpm-workspace.yaml` の `allowBuilds` に pnpm 10 が要る) |
+
+ルートの `pnpm build` はクラウド版やデスクトップも作るので、Pages では `--filter @untie/web` で Web 版だけを作ります。Pages のビルドは `pnpm-lock.yaml` を見て pnpm で依存を入れます。main 以外のブランチは、push するたびにプレビューの URL (`<ブランチ>.untie.pages.dev`) に配られます。
+
+### 手元から上げる
+
+初回に Cloudflare にログインしてから、ルートで実行します (プロジェクト `untie` が無ければ作るか聞かれます)。
+
+```sh
+pnpm dlx wrangler@4 login
+pnpm web:deploy
+```
+
+`pnpm web:deploy` は `apps/web` を build して `wrangler pages deploy dist --project-name untie --branch main` を実行します。
+
+### 独自ドメイン・利用者の制限
+
+- **独自ドメイン**: Pages のプロジェクトの **Custom domains → Set up a custom domain** でホスト (例: `untie.example.com`) を足します。ゾーンが同じ Cloudflare アカウントにあれば DNS レコードは自動で作られます。
+- **利用者を絞る**: Cloudflare Zero Trust の Access でアプリケーションを作り、Pages のドメインにメールアドレスなどの条件を付けます。
+
+## クラウド版の配信 (Cloudflare Workers)
+
+1 つの Cloudflare Worker (`untie-cloud`) が、クラウド版の画面の静的ファイル (`apps/cloud/dist`)・API (`/api`)・ログイン (`/auth`)・ファイルの中身を持つ Durable Object (`UntieRoom`、`/parties`) を受け持ち、一覧と権限は D1 (SQLite) に置きます。デスクトップ版もこの Worker につなぎます。Web 版 (Pages) とは別のホストになります。
 
 ### 初回の手順
 
@@ -218,7 +265,7 @@ pnpm dev     # http://localhost:5173 を開く
    pnpm --filter @untie/server d1:migrate
    ```
 
-4. **Google の OAuth クライアントを作る**: Google Cloud Console の「API とサービス」→「認証情報」→「OAuth クライアント ID」(種類: ウェブアプリケーション) を作り、承認済みのリダイレクト URI に `https://<ホスト>/auth/callback` を登録します (`<ホスト>` は Worker の公開ホスト。`*.workers.dev` か自分のドメイン)。スコープは `openid`・`profile`・`email` です。
+4. **Google の OAuth クライアントを作る**: Google Cloud Console の「API とサービス」→「認証情報」→「OAuth クライアント ID」(種類: ウェブアプリケーション) を作り、承認済みのリダイレクト URI に `https://<ホスト>/auth/callback` を登録します (`<ホスト>` は Worker の公開ホスト。`untie-cloud.<アカウント>.workers.dev` か自分のドメイン)。スコープは `openid`・`profile`・`email` です。
 
 5. **秘密の値を入れる**: `wrangler secret put` で 4 つ入れます (`apps/server` で実行)。
 
@@ -229,15 +276,15 @@ pnpm dev     # http://localhost:5173 を開く
    pnpm wrangler secret put GOOGLE_CLIENT_SECRET
    ```
 
-6. **`APP_ORIGIN` を書く**: `apps/server/wrangler.jsonc` の `vars.APP_ORIGIN` に本番の公開 URL (例: `https://untie.example.com`) を書きます。Google の redirect URI の組み立てと、招待・リンクの URL に使われます (空ならリクエストのオリジン)。Cookie の `Secure` は `APP_ORIGIN` ではなく、リクエストが https かどうかで付きます。`DEV_LOGIN` は `"false"` のままにします。
+6. **`APP_ORIGIN` を書く**: `apps/server/wrangler.jsonc` の `vars.APP_ORIGIN` に本番の公開 URL (例: `https://untie-cloud.example.com`) を書きます。Google の redirect URI の組み立てと、招待・リンクの URL に使われます (空ならリクエストのオリジン)。Cookie の `Secure` は `APP_ORIGIN` ではなく、リクエストが https かどうかで付きます。`DEV_LOGIN` は `"false"` のままにします。
 
 7. **上げる**: ルートで実行します。
 
    ```sh
-   pnpm run deploy
+   pnpm cloud:deploy
    ```
 
-`pnpm run deploy` は `apps/web` を build し、`apps/server/public/_headers` (CSP などのヘッダー) を `apps/web/dist/_headers` に写してから `wrangler deploy` します。読み込めるスクリプトは自分のサイトだけ、通信先は自分のサイト (WebSocket を含む) と Anthropic・OpenAI・Google の API だけです。AI のプロバイダーを足したときは `_headers` の `connect-src` も足してください。
+`pnpm cloud:deploy` は `apps/cloud` を build し、`apps/server/public/_headers` (CSP などのヘッダー) を `apps/cloud/dist/_headers` に写してから `wrangler deploy` します。読み込めるスクリプトは自分のサイトだけ、通信先は自分のサイト (WebSocket を含む) と Anthropic・OpenAI・Google の API だけです。AI のプロバイダーを足したときは `_headers` の `connect-src` も足してください。
 
 `workers.dev` のホストは初回の deploy で決まります。カスタムドメインを使わないときは、先に deploy してホストを確かめ、Google の redirect URI と `APP_ORIGIN` を直して、もう一度 deploy してください。
 
@@ -246,7 +293,7 @@ pnpm dev     # http://localhost:5173 を開く
 1. ドメインのゾーンを、Worker と同じ Cloudflare アカウントに置きます。
 2. `apps/server/wrangler.jsonc` の、コメントになっている `"workers_dev": false` と `"routes": [{ "pattern": "untie.example.com", "custom_domain": true }]` を有効にして、`pattern` を自分のホストに直します。`custom_domain: true` なので、deploy のときに DNS レコードと証明書が自動で作られます。
 3. `vars.APP_ORIGIN` を `https://<そのホスト>` にし、Google の OAuth クライアントの承認済みリダイレクト URI を `https://<そのホスト>/auth/callback` にします。
-4. `pnpm run deploy` します。
+4. `pnpm cloud:deploy` します。
 
 `APP_ORIGIN` を設定すると、他のホスト (workers.dev やプレビュー URL) で開いても `APP_ORIGIN` へ移ります。**プレビューを画面で確かめるときは、一時的に `APP_ORIGIN` を空にしてください** (空なら移しません)。
 
@@ -259,7 +306,7 @@ workers.dev も残す (`"workers_dev": true` のままにする) ときは、`AP
 - **過去の状態を取り出す**: ファイルごとに、1 時間ごとの、その時間の最初の編集の直前の状態を 24 件まで Durable Object に残しています。誤って消したときは、所有者が共有ダイアログの「過去の状態」から JSON に書き出して、「開く」(またはクラウドへ保存) で戻せます。API は所有者だけが使えます: `GET /api/files/:id/snapshots` (`{ keys }`)、`GET /api/files/:id/snapshots/:key` (JSON。キーの `:` は URL エンコード)。
 - **保存できないとき**: サーバーのログ (`wrangler tail`) に「検証に通らないので保存しませんでした」「保存に失敗しました」が出て、つながっている人の画面に「サーバーに保存できていません。JSON に書き出して保存してください」が出ます。直前に保存した内容は残っています。モデルは 1 MB までです (取り込みの本文を 1 MB で断ります)。
 - **設定が足りないとき**: `SESSION_SECRET`・`TICKET_SECRET` が 32 文字未満だと、Worker は最初のリクエストでログ (どの秘密の名前かだけ。値は出しません) を残し、`/api`・`/auth`・`/parties` に 503 `misconfigured` を返します (静的ファイルは配ります)。
-- **スキーマを変えたとき (マイグレーション)**: D1 のテーブルを変えるときは、`apps/server/migrations/` に次の番号のファイル (例: `0005_<内容>.sql`。`pnpm wrangler d1 migrations create untie <内容>` でも作れます) を足します。すでに当てたファイルは書き換えません。`pnpm dev` が手元の D1 に、`pnpm --filter @untie/server d1:migrate` が本番に当てます。コードより先にマイグレーションを当ててから deploy してください (古いコードが動いている間に壊れない変更にします)。テストは `migrations/` を自動で読みます。
+- **スキーマを変えたとき (マイグレーション)**: D1 のテーブルを変えるときは、`apps/server/migrations/` に次の番号のファイル (例: `0005_<内容>.sql`。`pnpm wrangler d1 migrations create untie <内容>` でも作れます) を足します。すでに当てたファイルは書き換えません。`pnpm dev:cloud` が手元の D1 に、`pnpm --filter @untie/server d1:migrate` が本番に当てます。コードより先にマイグレーションを当ててから deploy してください (古いコードが動いている間に壊れない変更にします)。テストは `migrations/` を自動で読みます。
 - **確認だけしたいとき**: `pnpm --filter @untie/server check` は `wrangler deploy --dry-run` で、バンドルと設定が通るかだけを確かめます (Cloudflare へのログインは要りません。`pnpm build` と CI が実行します)。
 - **データの置き場所**: D1 は `--location apac`、Durable Object は `locationHint: "apac"` で日本に寄せますが、Cloudflare の仕組み上、場所の保証ではなく希望です。
 

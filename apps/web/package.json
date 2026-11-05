@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    "./platform": "./src/platform.ts"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy": "pnpm build && pnpm dlx wrangler@4 pages deploy dist --project-name untie --branch main"
   },
   "dependencies": {
     "@untie/ui": "workspace:*",

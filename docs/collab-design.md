@@ -1,6 +1,6 @@
 # Untie クラウド版 (ユーザー・ファイル・権限・同時編集) 設計書
 
-ログインしたユーザーがクラウドにファイルを置き、他のユーザーと共有し、同時に編集できるようにする。あわせて、デスクトップ (Tauri)・Web・共通部分・サーバーをディレクトリで分けて管理する。本文書は [docs/design.md](design.md) の続きで、そこに書いてあることは繰り返さない。12 章の 6 段階はすべて実装済みで、本文はその実装に合わせてある (コードと食い違う記述があればコードが正本)。
+ログインしたユーザーがクラウドにファイルを置き、他のユーザーと共有し、同時に編集できるようにする。あわせて、デスクトップ (Tauri)・Web・共通部分・サーバーをディレクトリで分けて管理する。本文書は [docs/design.md](design.md) の続きで、そこに書いてあることは繰り返さない。12 章の 7 段階はすべて実装済みで、本文はその実装に合わせてある (コードと食い違う記述があればコードが正本)。
 
 ## 1. 決めたこと
 
@@ -23,7 +23,7 @@
 | 参照整合性 | 合流後に壊れた参照 (消えた要素を指す関係など) をサーバーが直す (`repairModel`)。スキーマの文字数の上限を超えた文字列は、要素を外さず切り詰める (6 章) |
 | 文字数の上限 | スキーマの `maxLength` (名前 200・説明 4000・状態グループ 200・バリエーションの値 200・分析の各項目 4000・リンクの表示名 200 / URL 2000) を、`packages/core/src/model/limits.ts` に定数で写す。すべてのコマンドが超える入力を `{ ok: false, reason: "名前は 200 文字までです" }` のように断り、入力欄には `maxLength` を付ける。超えたものが Y.Doc に入っても、`readModel` / `repairModel` が切り詰める (6 章) |
 | モデルの大きさ | **モデルは 1 MB まで**。取り込み (`POST /files` の `{ model }`) の本文を 1 MB で断る (413 `too_large`)。Durable Object の 1 つの値の上限に備えるため。保存の書き込みが失敗したら `save_failed` で知らせる (7.5) |
-| 配信 | 1 つの Cloudflare Worker が Web の静的ファイル・API・Durable Object を持つ。デスクトップ版も同じ Worker につなぐ。Pages は使わない |
+| 配信 | クラウド版は、1 つの Cloudflare Worker (`untie-cloud`) がクラウド版の画面 (`apps/cloud`) の静的ファイル・API・Durable Object を持つ。デスクトップ版も同じ Worker につなぐ。ローカル専用の Web 版 (`apps/web`) は別に Cloudflare Pages で配り、サーバーにはつながない (2.3) |
 | 登録 | Google のアカウントがあれば誰でもログインできる。ドメインでは絞らない (共有されなければ何も見えない)。絞りたくなったときのために `ALLOWED_EMAIL_DOMAINS` の判定だけ入れてある (空なら制限なし) |
 | デスクトップのログイン | 既定のブラウザで Google にログインし、`untie://` の deep link でアプリに戻る。セッションの受け渡しは**引換コード** (5 分・1 回限り。トークンは入れず、AES-GCM で暗号化) と **PKCE** (`code_verifier`) で守る。deep link が開けない環境では、ブラウザの画面に出たコードをアプリに貼る (7.3) |
 | トークンの渡し方 | セッションは Cookie か `Authorization` ヘッダー。リンク閲覧・招待のトークンはパスではなく**ヘッダー `X-Untie-Token`** で送る (パスは Workers のログに残るため。7.4)。ルームへの接続は 60 秒だけ有効で**1 回しか使えない**署名付きの**チケット** (7.5) |
@@ -76,8 +76,9 @@ untie/
 │                                   プラットフォーム依存の処理は `Platform` インターフェースで受け取る (2.1)
 ├ apps/
 │  ├ server/                      … Cloudflare Worker。Hono のルート (`auth/`、`api/` の files・members・invitations・links)、D1 (`db/`、`migrations/`)、
-│  │                                 cron (`jobs/purgeTrash.ts`)、UntieRoom のマウント、`apps/web/dist` の静的配信。wrangler.jsonc はここ
-│  ├ web/                         … Vite のエントリ。Platform の Web 実装。ビルド結果を server が配信する
+│  │                                 cron (`jobs/purgeTrash.ts`)、UntieRoom のマウント、`apps/cloud/dist` の静的配信。wrangler.jsonc はここ
+│  ├ cloud/                       … クラウド版の画面の Vite のエントリ。web の Platform を `cloud: true` で使う。ビルド結果を server が配信する
+│  ├ web/                         … Web 版 (ローカル専用) の Vite のエントリと、Platform のブラウザ実装 (cloud と共用)。Cloudflare Pages で配る
 │  └ desktop/                     … Vite のエントリ + src-tauri (Rust)。Platform の Tauri 実装 (キーチェーン・deep link)
 ├ schema/untie.schema.json        … 変えない (core が参照)
 ├ docs/                           … design.md (元の設計)、collab-design.md (本文書)
@@ -95,7 +96,7 @@ untie/
 | `src/io/file.ts`・`recent.ts`・`useCloseGuard.ts`・`ai/keys.ts` の `isTauri()` 分岐 | `apps/web/src/platform.ts` と `apps/desktop/src/platform.ts` に分割 |
 | `src/main.tsx`、`index.html`、`vite.config.ts` | `apps/web/` と `apps/desktop/` にそれぞれ |
 | `src-tauri/` | `apps/desktop/src-tauri/` |
-| `public/_headers` | `apps/server/public/_headers` (`copy-headers.mjs` が配信前に `apps/web/dist/` へ写す) |
+| `public/_headers` | Web 版は `apps/web/public/_headers` (Pages が付ける)、クラウド版は `apps/server/public/_headers` (`copy-headers.mjs` が配信前に `apps/cloud/dist/` へ写す) |
 | `scripts/gen-validator.mjs`、`gen:types` | `packages/core/` の scripts |
 
 ### 2.1 Platform インターフェース (ui が受け取る)
@@ -137,18 +138,34 @@ export interface Platform {
 }
 ```
 
-`ui` のエントリは `createApp(platform)` で、`apps/web/src/main.tsx` と `apps/desktop/src/main.tsx` がそれぞれの実装を渡す。かつての `isTauri()` 分岐はすべてこの実装側にある。
+`ui` のエントリは `createApp(platform)` で、`apps/web/src/main.tsx` (`webPlatform()`)・`apps/cloud/src/main.tsx` (`webPlatform({ cloud: true })`)・`apps/desktop/src/main.tsx` がそれぞれの実装を渡す。かつての `isTauri()` 分岐はすべてこの実装側にある。
 
 ### 2.2 パッケージ間の依存
 
 ```
 apps/web ──────> ui ─┬─> core
-apps/desktop ──> ui  ├─> api
-                     └─> collab (doc) ─> core, api
+apps/cloud ─┬──> ui  ├─> api
+            └──> web (Platform のブラウザ実装だけ。`@untie/web/platform`)
+apps/desktop ──> ui  └─> collab (doc) ─> core, api
 apps/server ─┬─> core
              ├─> api
              └─> collab (room)
 ```
+
+### 2.3 Web 版とクラウド版
+
+ブラウザで使う版は 2 つに分け、配信先も分ける。画面は同じ `ui` で、`Platform.cloud` で出し分ける。
+
+| | Web 版 (`apps/web`) | クラウド版 (`apps/cloud` + `apps/server`) |
+| --- | --- | --- |
+| `Platform.cloud` | `false` | `true` (デスクトップも `true`) |
+| `serverOrigin()` | `""` (サーバーを持たない) | 自分のオリジン |
+| ホーム | 「ローカル」だけ。「クラウド」の欄・ログインのボタンを出さない | 「ローカル」と「クラウド」 |
+| `#/f`・`#/invite`・`#/link` | ホームを出す (`Root`) | それぞれの画面 |
+| 配信 | Cloudflare Pages (プロジェクト `untie`、`apps/web/dist`) | Cloudflare Worker (`untie-cloud`、`apps/cloud/dist` を assets で配る) |
+| 開発 | `pnpm dev` (5174) | `pnpm dev:cloud` (5173 + wrangler dev 8787) |
+
+Web 版は `serverOrigin()` が空なので、起動時のセッションの確認 (`session.load`) もサーバーに問い合わせない。ローカルの編集・AI・書き出しは両方で同じに動く。
 
 `collab` は `exports` で `.` (doc) と `./room` を分け、`./room` だけが `partyserver` / `y-partyserver` / `cloudflare:workers` に依存する。`ui` から `./room` は取り込まない。ルームへの接続 (`YProvider`)・プレゼンスは DOM とストアに触れるので `collab` ではなく `ui` の `cloud/collab.ts` に置く (8.3)。`api` は DOM にも Worker にも依存しない (fetch だけ)。
 
@@ -252,7 +269,7 @@ create index invitations_accepted on invitations(accepted_at) where accepted_at 
 
 - 所有者は `files.owner_id` と `file_members` の `role = 'owner'` の両方に書く。前者で「自分のファイル」を速く引き、後者で権限判定を 1 本にする。譲るときは 1 トランザクションで両方を書き換える。
 - 「共有されたファイル」は `file_members` を `user_id` で引いて `role != 'owner'` のもの。
-- マイグレーションは `apps/server/migrations/` に番号順に置き (`0001_init.sql`: 表と基本の index、`0002_invitations_index.sql`: 招待の index、`0003_desktop_sessions.sql`: `sessions.activated_at` と部分 index、`0004_invitations_cleanup.sql`: 古い招待の掃除に使う部分 index)、`wrangler d1 migrations apply` で当てる (開発は `pnpm dev` が毎回ローカルの D1 に、本番は `pnpm --filter @untie/server d1:migrate`)。スキーマを変えるときは `0005_<内容>.sql` のように次の番号のファイルを足す。当てたものは書き換えない。
+- マイグレーションは `apps/server/migrations/` に番号順に置き (`0001_init.sql`: 表と基本の index、`0002_invitations_index.sql`: 招待の index、`0003_desktop_sessions.sql`: `sessions.activated_at` と部分 index、`0004_invitations_cleanup.sql`: 古い招待の掃除に使う部分 index)、`wrangler d1 migrations apply` で当てる (開発は `pnpm dev:cloud` が毎回ローカルの D1 に、本番は `pnpm --filter @untie/server d1:migrate`)。スキーマを変えるときは `0005_<内容>.sql` のように次の番号のファイルを足す。当てたものは書き換えない。
 
 ### 3.4 ファイルの中身の置き場所 (Durable Object)
 
@@ -384,13 +401,13 @@ app.use(path, requireConfig);          // /api/*・/auth/*・/parties/*。SESSIO
 app.route("/auth", authRoutes);        // 7.3
 app.route("/api", apiRoutes);          // 7.4。/api/links/* 以外は requireSession を通す
 app.all("/parties/*", ...);            // 7.5。チケットを検めて routePartykitRequest に渡す
-app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));  // apps/web/dist (SPA)。/api と /auth の存在しないパスは JSON の 404
+app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));  // apps/cloud/dist (SPA)。/api と /auth の存在しないパスは JSON の 404
 export default { fetch: app.fetch, scheduled: purgeTrash };   // cron: ゴミ箱と期限切れのセッションの掃除 (3.4)
 ```
 
 | バインディング | 用途 |
 | --- | --- |
-| `ASSETS` | `apps/web/dist` の静的配信 (`not_found_handling: "single-page-application"`) |
+| `ASSETS` | `apps/cloud/dist` の静的配信 (`not_found_handling: "single-page-application"`) |
 | `DB` (D1) | 3.3 のテーブル |
 | `UntieRoom` (Durable Object、`new_sqlite_classes`) | ファイルの中身 |
 | vars (`wrangler.jsonc`) | `ALLOWED_EMAIL_DOMAINS` (空なら制限なし)、`DEV_LOGIN` (本番は `"false"`)、`APP_ORIGIN` (公開の URL。本番で書き換える。空ならリクエストのオリジン)。`APP_ORIGIN` があるとき、それ以外のホスト (workers.dev など) への **GET / HEAD は `APP_ORIGIN` の同じパス・クエリへ 302** する (`apps/server/src/redirect.ts`)。移さないもの: `/parties`・`/api/links/*`・`/auth/desktop/exchange`、デスクトップアプリからの呼び出し (Origin が WebView のもの、または `Authorization: Bearer` 付き。アプリは設定した URL へ直接つなぐため)、GET / HEAD 以外 (302 だと本文が落ちる)、ループバックのホスト (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るので、`APP_ORIGIN` が 5173 だと無限に移ってしまう)。ページ (`/`・`/index.html`) も Worker が受けるよう、`assets.run_worker_first` に含めてある (9 章) |
@@ -654,13 +671,14 @@ export class UntieRoom extends YServer<Env> {
 
 ## 9. 配信とビルド
 
-- **サーバー**: ルートの `pnpm run deploy` (= `pnpm --filter @untie/server run deploy` = `pnpm --filter @untie/web build && node scripts/copy-headers.mjs && wrangler deploy`)。`wrangler.jsonc` に `assets` (`../web/dist`、SPA、`run_worker_first` は `/auth/*`・`/api/*`・`/parties/*` と、`APP_ORIGIN` 以外のホストで開かれたときに Worker が 302 で移せるよう `/`・`/index.html`)、D1、Durable Object (`new_sqlite_classes`)、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars` を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。本番で置き換える値 (`d1_databases[0].database_id`、`vars.APP_ORIGIN`) は `wrangler.jsonc` のコメントに明記してある。**公開のホスト**: 既定は workers.dev。独自ドメインで配るときは `"workers_dev": false` と `"routes": [{ "pattern": "<ホスト>", "custom_domain": true }]` を有効にする（設定例は `wrangler.jsonc` のコメント）。workers.dev も残すときは `APP_ORIGIN` を独自ドメインにしておけば、workers.dev で開かれた画面・ログインは `APP_ORIGIN` の同じパスへ 302 で移り、ログインは 1 つのホストで済む (7.1)。Google の redirect URI は `APP_ORIGIN` のものを登録する。初回の手順は README の「配信 (Cloudflare)」。
+- **Web 版**: ルートの `pnpm web:deploy` (= `pnpm --filter @untie/web run deploy` = `pnpm build && wrangler pages deploy dist --project-name untie --branch main`)。Cloudflare Pages の Git 連携では Build command を `pnpm --filter @untie/web build`、出力を `apps/web/dist` にする。`_headers` は `apps/web/public/` にあり、Vite が `dist/` に写す。`connect-src` は `'self'` と各 AI プロバイダーの API だけ。手順は README の「Web 版の配信 (Cloudflare Pages)」。
+- **クラウド版のサーバー**: ルートの `pnpm cloud:deploy` (= `pnpm --filter @untie/server run deploy` = `pnpm --filter @untie/cloud build && node scripts/copy-headers.mjs && wrangler deploy`)。Worker の名前は `untie-cloud`。`wrangler.jsonc` に `assets` (`../cloud/dist`、SPA、`run_worker_first` は `/auth/*`・`/api/*`・`/parties/*` と、`APP_ORIGIN` 以外のホストで開かれたときに Worker が 302 で移せるよう `/`・`/index.html`)、D1、Durable Object (`new_sqlite_classes`)、`triggers.crons` (ゴミ箱の掃除、毎日)、`vars` を書く。D1 は `--location apac` で作ったものをバインドする。secrets は `wrangler secret put`。本番で置き換える値 (`d1_databases[0].database_id`、`vars.APP_ORIGIN`) は `wrangler.jsonc` のコメントに明記してある。**公開のホスト**: 既定は workers.dev。独自ドメインで配るときは `"workers_dev": false` と `"routes": [{ "pattern": "<ホスト>", "custom_domain": true }]` を有効にする（設定例は `wrangler.jsonc` のコメント）。workers.dev も残すときは `APP_ORIGIN` を独自ドメインにしておけば、workers.dev で開かれた画面・ログインは `APP_ORIGIN` の同じパスへ 302 で移り、ログインは 1 つのホストで済む (7.1)。Google の redirect URI は `APP_ORIGIN` のものを登録する。初回の手順は README の「クラウド版の配信 (Cloudflare Workers)」。
 - **確認**: `pnpm --filter @untie/server check` は `node scripts/copy-headers.mjs && wrangler deploy --dry-run`。バンドルと設定が通るかだけを確かめ、Cloudflare にはログインも通信もしない (`CLOUDFLARE_API_TOKEN` なしで動く)。ルートの `pnpm build` に含まれる。
-- **Web**: `apps/web` は Vite の成果物を作るだけ。`_headers` は `apps/server/public/` にあり、`copy-headers.mjs` が `apps/web/dist/` に写して静的ファイルと一緒に配る。CSP の `connect-src` は `'self'` (同じオリジンの fetch と WebSocket を含む) と各 AI プロバイダーの API だけ。`wss:` は足さない (任意のホストへの WebSocket も許してしまうため)。`frame-ancestors 'none'`、`Referrer-Policy: no-referrer` は従来のまま。
+- **クラウド版の画面**: `apps/cloud` は Vite の成果物を作るだけ。`_headers` は `apps/server/public/` にあり、`copy-headers.mjs` が `apps/cloud/dist/` に写して静的ファイルと一緒に配る。CSP の `connect-src` は `'self'` (同じオリジンの fetch と WebSocket を含む) と各 AI プロバイダーの API だけ。`wss:` は足さない (任意のホストへの WebSocket も許してしまうため)。`frame-ancestors 'none'`、`Referrer-Policy: no-referrer` は従来のまま。
 - **デスクトップ**: `apps/desktop` に `vite.config.ts` と `src-tauri/`。Release は `apps/desktop` で `tauri-action` を動かす。サーバーの URL はアプリの設定 (8.4) で、ビルドには入れない。
 - **core / api / collab / ui**: ビルドせず、`apps/*` の Vite と Worker が TypeScript を直接取り込む (`exports` は `src/*.ts` を指す)。型検査はルートの `pnpm typecheck` (= `tsc -b`) 1 本で、ルートの `tsconfig.json` が全パッケージの `tsconfig.json` を `references` に並べる (`packages/collab/src/room` と、各 app の `tsconfig.node.json` も含む。新しいパッケージを足したらここにも足す)。各 `tsconfig.json` は `tsconfig.base.json` を継承して `src` を見る。パッケージ同士は `exports` 経由でソースを直接読むので、パッケージ側に `composite` は使わない (`tsconfig.node.json` だけ使う)。core と server の `lib` は DOM 抜き (ES2022) にして、DOM に依存しないことを型検査で守る。
-- **開発**: `pnpm dev` でルートから `wrangler dev` (server、8787。D1 と DO はローカルで、毎回マイグレーションを当てる) と `vite` (web、5173。`/api`・`/auth`・`/parties` を 8787 に proxy) を同時に動かす。ブラウザは 5173 だけを見る。Google の OIDC を試すときは、redirect URI に `http://localhost:5173/auth/callback` を登録する (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るので、`.dev.vars` の `APP_ORIGIN=http://localhost:5173` で固定する)。`.dev.vars` は無ければ `.dev.vars.example` から写し、コミットしない。
-- **CI** (`.github/workflows/ci.yml`): ルートから `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web・デスクトップのフロント・`wrangler deploy --dry-run`) を順に走らせる。`WRANGLER_SEND_METRICS=false`。別のジョブで Rust の `cargo check` (Linux。`libwebkit2gtk-4.1-dev` などを apt で入れる)。
+- **開発**: `pnpm dev:cloud` でルートから `wrangler dev` (server、8787。D1 と DO はローカルで、毎回マイグレーションを当てる) と `vite` (cloud、5173。`/api`・`/auth`・`/parties` を 8787 に proxy) を同時に動かす。ブラウザは 5173 だけを見る。Google の OIDC を試すときは、redirect URI に `http://localhost:5173/auth/callback` を登録する (`wrangler dev` はリクエストのオリジンを常に `http://localhost:8787` と見るので、`.dev.vars` の `APP_ORIGIN=http://localhost:5173` で固定する)。`.dev.vars` は無ければ `.dev.vars.example` から写し、コミットしない。Web 版だけなら `pnpm dev` (vite、5174。サーバーは要らない)。
+- **CI** (`.github/workflows/ci.yml`): ルートから `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web 版・クラウド版・デスクトップのフロント・`wrangler deploy --dry-run`) を順に走らせる。`WRANGLER_SEND_METRICS=false`。別のジョブで Rust の `cargo check` (Linux。`libwebkit2gtk-4.1-dev` などを apt で入れる)。
 
 ## 10. セキュリティの要点
 
@@ -691,14 +709,14 @@ export class UntieRoom extends YServer<Env> {
 | サーバー | `apps/server` | `@cloudflare/vitest-plugin` で workerd の中に本物の D1 と Durable Object を立てて走らせる。ログイン (Google はモック、開発用ログイン)、セッションの期限・種類・CSRF・CORS、デスクトップの引換コード (PKCE・1 回限り・期限・未交換の行)、API の権限 (役割ごとに 7.4 の表を当てる)、招待の受理 (メール不一致は拒む)、所有者の譲渡、リンク閲覧 (有効・無効・作り直し、ゲストのチケットが guest になること、メンバーがリンクから開くと自分の役割になること、ゴミ箱の中は 404)、共有まわりの競合と kick、ゴミ箱と cron の掃除（セッション・古い招待）、チケットの検証、ルームへの接続 (viewer と guest の update が捨てられること、kick と取り消しの記録、`locationHint` が付くこと、`onSave` が D1 の名前と更新日時を書くこと)、ログアウトで接続が 4000 で閉じること (`logout`・`logout-all`。別のセッションの接続は残る)、チケットが 1 回限りであること、`save_failed` / `save_ok`、長すぎる文字列が切り詰められること、過去の状態の API、`APP_ORIGIN` への 302、秘密の値が短いときの 503 |
 | ストア | `packages/ui` | 従来の `store.test.ts` はそのまま通る (ローカルは変えない)。クラウドの `dispatch`・`commitDrag`・`agentApply` が Y.Doc に書き、他の Y.Doc の変更がストアに届く。viewer の `dispatch` が何もしない。Undo / Redo が何もしない。`cloud/collab.ts` (接続・プレゼンス・閉じられたとき・`save_failed`・チケットの取り直し) は中核に 2 つの Y.Doc をつなぎ、外側は偽の provider で確かめる |
 | UI | `packages/ui` | 従来の Testing Library のテスト (Platform はテスト用の実装を渡す) に加え、ホーム・ログイン・クラウドファイルの一覧、共有ダイアログ (リンクのスイッチを含む)、招待を受ける画面、閲覧専用の帯、保存できていない帯、リンクで開く画面、`CloudEditor` (つなぎ直しでボードと選択を引き継ぐこと、送れていない変更の確認、StrictMode で確認が 1 回だけ出ること)、共有ダイアログの「過去の状態」、入力欄の `maxLength`、ルーティング |
-| プラットフォーム | `apps/desktop`・`apps/web` | デスクトップ: ログインの記録・deep link・引換コード・サーバーの URL・キーチェーンの呼び出し・最近開いたファイル。Web: 最近開いたファイル・API キーの置き場 |
+| プラットフォーム | `apps/desktop`・`apps/web` | デスクトップ: ログインの記録・deep link・引換コード・サーバーの URL・キーチェーンの呼び出し・最近開いたファイル。Web: 最近開いたファイル・API キーの置き場・`cloud` の有無 (Web 版はサーバーを持たない)。画面: Web 版ではクラウドの欄を出さず、`#/f`・`#/invite`・`#/link` もホームにする (`Root.test.tsx`) |
 | 生成物 | CI | `pnpm check:types` が、スキーマから生成した型と検証関数が最新かを確かめる |
 
 サーバーのテストは `apps/server/.dev.vars` を読まず、`vitest.config.ts` が `miniflare.bindings` に秘密の値を明示する (CI には `.dev.vars` が無いため)。
 
 ## 12. 進め方
 
-次の 6 段階で進め、すべて実装済み。各段階で `pnpm typecheck`・`pnpm test` を通してから次へ進んだ。
+次の 7 段階で進め、すべて実装済み。各段階で `pnpm typecheck`・`pnpm test` を通してから次へ進んだ。
 
 ### 12.1 実装済み
 
@@ -708,6 +726,7 @@ export class UntieRoom extends YServer<Env> {
 4. **同時編集**: `UntieRoom` へのチケットでの接続、ストアのクラウド経路、プレゼンス、サーバー側の `repairModel`、viewer の閲覧専用。
 5. **共有**: メンバー・招待・譲渡・リンク閲覧の API と共有ダイアログ、役割が変わったときとリンクを無効にしたときの切断、招待を受ける画面とリンクで開く画面。
 6. **デスクトップ**: 既定のブラウザと deep link でのログイン (引換コード・PKCE)、キーチェーンへのセッションの保存、サーバー URL の設定、`tauri-plugin-single-instance`。
+7. **Web 版とクラウド版の分離**: ローカル専用の Web 版 (`apps/web`、Cloudflare Pages) と、クラウド版 (`apps/cloud` の画面 + `apps/server` の Worker `untie-cloud`) を別のアプリ・別の配信先にした。`Platform.cloud` で画面を出し分ける (2.3)。
 
 ### 12.2 あとで (いまは作らない)
 

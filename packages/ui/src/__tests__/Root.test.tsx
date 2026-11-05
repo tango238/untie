@@ -61,9 +61,9 @@ describe("Root", () => {
     expect(sessionStorage.getItem("untie.pendingInvite")).toBeNull();
   });
 
-  it("ホームで「サンプルを開く」を押すとエディタに移り、ツールバーの「ホーム」で戻れる", async () => {
+  it("ホームでサンプルの「宿泊施設の業務」を押すとエディタに移り、ツールバーの「ホーム」で戻れる", async () => {
     render(<Root />);
-    screen.getByRole("button", { name: "サンプルを開く" }).click();
+    screen.getByRole("button", { name: /宿泊施設の業務/ }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "ホーム" })).toBeTruthy());
     expect(window.location.hash).toBe("#/local");
     screen.getByRole("button", { name: "ホーム" }).click();
@@ -88,5 +88,29 @@ describe("Root", () => {
     memory().origin = "";
     render(<Root />);
     await screen.findByText("サーバーが設定されていないため、クラウドの機能は使えません");
+  });
+
+  it("Web 版 (クラウドの機能なし) は、クラウドの欄・ログインを出さず、#/f・#/invite・#/link もホームにする", async () => {
+    memory().cloud = false;
+    memory().origin = "";
+    render(<Root />);
+    expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "クラウド" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "ログイン" })).toBeNull();
+    await waitFor(() => expect(useSessionStore.getState().status).toBe("anonymous"));
+    // サーバーには何も問い合わせない
+    expect(server.calls).toEqual([]);
+
+    for (const route of [
+      { name: "file", fileId: "abc" },
+      { name: "invite", token: "t" },
+      { name: "link", token: "t" },
+    ] as const) {
+      act(() => navigate(route));
+      expect(screen.getByRole("region", { name: "ローカル" })).toBeTruthy();
+      expect(screen.queryByText("読み込み中…")).toBeNull();
+    }
+    act(() => navigate({ name: "local" }));
+    expect(screen.getByRole("button", { name: "ホーム" })).toBeTruthy();
   });
 });

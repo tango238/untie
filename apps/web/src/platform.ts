@@ -200,12 +200,21 @@ function webSecrets(): SecretStore {
 
 // ---- Platform ----
 
-export function webPlatform(): Platform {
+export interface WebPlatformOptions {
+  /**
+   * クラウド版 (apps/cloud) として動かすか。true なら自分のオリジンをサーバーとしてクラウドの機能を出す。
+   * false (既定) は Web 版 (apps/web): ローカルのファイルだけで、サーバーには何も送らない
+   */
+  cloud?: boolean;
+}
+
+export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platform {
   const handles = new HandleTable();
   const canReopenFiles = () => !!pickerWindow().showOpenFilePicker;
 
   return {
     kind: "web",
+    cloud,
 
     async openTextFile(): Promise<OpenedFile | null> {
       // window から外して呼ぶと Illegal invocation になるので、window.showOpenFilePicker として呼ぶ
@@ -287,8 +296,8 @@ export function webPlatform(): Platform {
     secrets: webSecrets(),
     recentFiles: recentFileStore(handles, canReopenFiles),
 
-    // サーバーは自分のオリジン (Vite の開発サーバーは /api・/auth を wrangler dev へ渡す)
-    serverOrigin: () => location.origin,
+    // クラウド版のサーバーは自分のオリジン (Vite の開発サーバーは /api・/auth を wrangler dev へ渡す)。Web 版はサーバーを持たない
+    serverOrigin: () => (cloud ? location.origin : ""),
     // 同じタブでログインへ移る。戻り先はハッシュ (#/...)
     async login(provider, returnTo) {
       location.assign(`/auth/login?provider=${encodeURIComponent(provider)}&return=${encodeURIComponent(returnTo)}`);

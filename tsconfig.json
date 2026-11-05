@@ -10,6 +10,8 @@
     { "path": "./apps/server/tsconfig.node.json" },
     { "path": "./apps/web" },
     { "path": "./apps/web/tsconfig.node.json" },
+    { "path": "./apps/cloud" },
+    { "path": "./apps/cloud/tsconfig.node.json" },
     { "path": "./apps/desktop" },
     { "path": "./apps/desktop/tsconfig.node.json" }
   ]

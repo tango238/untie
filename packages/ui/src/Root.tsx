@@ -5,6 +5,7 @@ import { CloudEditor } from "./components/CloudEditor";
 import Home from "./components/home/Home";
 import { InvitePage } from "./components/InvitePage";
 import { useCloseGuard } from "./io/useCloseGuard";
+import { getPlatform } from "./platform";
 import { resumePendingRoute, useRoute } from "./router";
 
 /** 画面の切り替え。ハッシュ (router.ts) で、ホーム・ローカル編集・クラウドファイル・招待・リンクで開くを出し分ける */
@@ -26,6 +27,9 @@ export default function Root() {
 
   // デスクトップ: ブラウザでのログインが deep link で戻ってきたら読み直す
   useEffect(() => listenForPlatformLogin(), []);
+
+  // Web 版 (ローカル専用) には、クラウドファイル・招待・リンクの画面が無い。ホームを出す
+  if (!getPlatform().cloud && route.name !== "local") return <Home />;
 
   switch (route.name) {
     case "local":

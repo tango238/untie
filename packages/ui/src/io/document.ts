@@ -1,7 +1,7 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { validateModel } from "@untie/core/model/validate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
-import { createHotelSample } from "@untie/core/sample";
+import { SAMPLES, type SampleEntry } from "@untie/core/sample";
 import { hasUnsavedChanges, useUntieStore } from "../store";
 import { getPlatform, type OpenedFile, type RecentFile } from "../platform";
 
@@ -36,12 +36,12 @@ export async function confirmDiscardIfDirty(message = DISCARD_MESSAGE, okLabel?:
   return !hasUnsavedChanges(useUntieStore.getState()) || (await getPlatform().confirmDiscard(message, okLabel));
 }
 
-/** 起動時のサンプルを開き直す (ホームの「サンプルを開く」)。未保存の変更があれば先に確かめる。開けたら true */
-export async function openSampleDocument(): Promise<boolean> {
+/** サンプルを開く (ホームのサンプルの一覧。省略すると先頭の「宿泊施設の業務」)。未保存の変更があれば先に確かめる。開けたら true */
+export async function openSampleDocument(sample: SampleEntry = SAMPLES[0]!): Promise<boolean> {
   if (!(await confirmDiscardIfDirty())) return false;
   const st = useUntieStore.getState();
-  st.newDocument(createHotelSample(), { pristine: true });
-  st.pushToast("サンプルを開きました", "info");
+  st.newDocument(sample.create(), { pristine: true });
+  st.pushToast(`サンプル「${sample.title}」を開きました`, "info");
   return true;
 }
 
