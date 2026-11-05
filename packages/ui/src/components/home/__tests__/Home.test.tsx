@@ -488,13 +488,36 @@ describe("Home: ローカル", () => {
     expect(useUntieStore.getState().toasts.slice(-1)[0]?.message).toBe("サンプル「宿泊施設の業務」を開きました");
   });
 
+  it("サンプルの「ネットショップの業務」を押すと、そのモデルが #/local で開く", async () => {
+    anonymous([]);
+    render(<Home />);
+    const gallery = screen.getByRole("region", { name: "サンプル" });
+    fireEvent.click(within(gallery).getByRole("button", { name: /ネットショップの業務/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/local"));
+    expect(useUntieStore.getState().model.meta.name).toBe("ネットショップの業務 (サンプル)");
+    expect(useUntieStore.getState().toasts.slice(-1)[0]?.message).toBe("サンプル「ネットショップの業務」を開きました");
+  });
+
+  it("サンプルの「店舗の業務」を押すと、そのモデルが #/local で開く", async () => {
+    anonymous([]);
+    render(<Home />);
+    const gallery = screen.getByRole("region", { name: "サンプル" });
+    fireEvent.click(within(gallery).getByRole("button", { name: /店舗の業務/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/local"));
+    expect(useUntieStore.getState().model.meta.name).toBe("店舗の業務 (サンプル)");
+  });
+
   it("サンプルは一覧で、題名と紹介を並べる", () => {
     anonymous([]);
     render(<Home />);
     const items = within(screen.getByRole("region", { name: "サンプル" })).getAllByRole("listitem");
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(3);
     expect(items[0]!.textContent).toContain("宿泊施設の業務");
     expect(items[0]!.textContent).toContain("予約からチェックイン");
+    expect(items[1]!.textContent).toContain("ネットショップの業務");
+    expect(items[1]!.textContent).toContain("入荷・受注・出荷・返品");
+    expect(items[2]!.textContent).toContain("店舗の業務");
+    expect(items[2]!.textContent).toContain("発注・陳列・レジ");
     expect(screen.queryByRole("button", { name: "サンプルを開く" })).toBeNull();
   });
 

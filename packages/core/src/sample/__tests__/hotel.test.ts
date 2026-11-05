@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHotelSample, hotelSample } from "..";
+import { traceToActors } from "../../model/trace";
 import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, RELATION_KINDS, validateModel } from "../../model";
 import type { BoardNode } from "../../model";
 
@@ -8,6 +9,10 @@ describe("宿泊施設サンプル", () => {
     const r = validateModel(JSON.parse(JSON.stringify(hotelSample)));
     expect(r.ok ? [] : r.errors).toEqual([]);
     expect(checkIntegrity(hotelSample)).toEqual([]);
+  });
+
+  it("すべての要素が担い手まで辿れる (画面の「検証」が空)", () => {
+    expect(traceToActors(hotelSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
   });
 
   it("設計書 7 章の件数どおり", () => {

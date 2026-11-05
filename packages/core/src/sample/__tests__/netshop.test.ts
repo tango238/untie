@@ -1,0 +1,147 @@
+import { describe, expect, it } from "vitest";
+import { createNetshopSample, netshopSample, SAMPLES } from "..";
+import { traceToActors } from "../../model/trace";
+import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, RELATION_KINDS, validateModel } from "../../model";
+import type { BoardNode } from "../../model";
+
+describe("ネットショップサンプル", () => {
+  it("スキーマ検証と参照整合性検査を通る", () => {
+    const r = validateModel(JSON.parse(JSON.stringify(netshopSample)));
+    expect(r.ok ? [] : r.errors).toEqual([]);
+    expect(checkIntegrity(netshopSample)).toEqual([]);
+  });
+
+  it("すべての要素が担い手まで辿れる (画面の「検証」が空)", () => {
+    expect(traceToActors(netshopSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
+  });
+
+  it("業務・登場人物・課題などの件数", () => {
+    const count = (kind: string) => netshopSample.elements.filter((e) => e.kind === kind).length;
+    expect(count("business")).toBe(7);
+    expect(count("actor")).toBe(5);
+    expect(count("externalActor")).toBe(3);
+    expect(count("system")).toBe(5);
+    expect(count("ledger")).toBe(2);
+    expect(count("buc")).toBe(7 + 3);
+    expect(count("activity")).toBeGreaterThanOrEqual(15);
+    expect(count("usecase")).toBeGreaterThanOrEqual(10);
+    expect(count("information")).toBe(11);
+    expect(count("state")).toBe(11);
+    expect(count("variation")).toBe(3);
+    expect(count("condition")).toBe(3);
+    expect(count("issue")).toBe(5);
+    expect(netshopSample.boards.map((b) => b.name)).toEqual(["全体", "入荷から返品・問い合わせまで", "情報と状態"]);
+  });
+
+  it("全ての関係の種類が使われている", () => {
+    const kinds = new Set(netshopSample.relations.map((r) => r.kind));
+    expect(kinds.size).toBe(RELATION_KINDS.length);
+  });
+
+  it("「受注処理」にだけ既定でない活動があり、その業務の作業はすべて活動に入っている", () => {
+    const nonDefault = netshopSample.elements.filter((e) => e.kind === "buc" && !e.isDefault);
+    expect(nonDefault.every((b) => b.kind === "buc" && b.businessId === "biz_order")).toBe(true);
+    expect(nonDefault).toHaveLength(3);
+    expect(netshopSample.elements.some((e) => e.kind === "activity" && e.bucId === "buc_default_order")).toBe(false);
+  });
+
+  it("課題は業務・作業・操作のどれかを指し、いちばん重い課題には 4 つの分析が入っている", () => {
+    const ids = new Set(netshopSample.elements.map((e) => e.id));
+    for (const e of netshopSample.elements) {
+      if (e.kind !== "issue") continue;
+      expect(e.targetIds.length).toBeGreaterThan(0);
+      for (const t of e.targetIds) expect(ids.has(t), `${e.id} の対象 ${t}`).toBe(true);
+    }
+    const top = netshopSample.elements.find((e) => e.kind === "issue" && e.severity === 5);
+    expect(top?.kind === "issue" && top.analysis ? Object.keys(top.analysis).sort() : []).toEqual(["cause", "impact", "location", "phenomenon"]);
+  });
+
+  it("createNetshopSample は独立したコピーを返す", () => {
+    const a = createNetshopSample();
+    a.elements.pop();
+    expect(createNetshopSample().elements.length).toBe(netshopSample.elements.length);
+  });
+
+  it("「全体」ボードで子のカードと小枠が親の枠に収まる", () => {
+    const board = netshopSample.boards.find((b) => b.id === "board_overview")!;
+    const node = (id: string) => board.nodes.find((n) => n.elementId === id);
+    const rect = (n: BoardNode) => {
+      const el = netshopSample.elements.find((e) => e.id === n.elementId)!;
+      const size = el.kind === "business" || el.kind === "buc" ? DEFAULT_FRAME_SIZE[el.kind] : DEFAULT_CARD_SIZE;
+      return { x: n.x, y: n.y, w: n.width ?? size.width, h: n.height ?? size.height };
+    };
+    let checked = 0;
+    for (const n of board.nodes) {
+      const el = netshopSample.elements.find((e) => e.id === n.elementId)!;
+      let parentId: string | null = null;
+      if (el.kind === "buc" && !el.isDefault) parentId = el.businessId;
+      if (el.kind === "activity" && el.bucId) {
+        const buc = netshopSample.elements.find((e) => e.id === el.bucId);
+        if (buc?.kind === "buc") parentId = !buc.isDefault && node(buc.id) ? buc.id : buc.businessId;
+      }
+      const parent = parentId ? node(parentId) : undefined;
+      if (!parent) continue;
+      const c = rect(n);
+      const p = rect(parent);
+      expect(c.x, `${el.id} の左`).toBeGreaterThanOrEqual(p.x);
+      expect(c.y, `${el.id} の上`).toBeGreaterThanOrEqual(p.y);
+      expect(c.x + c.w, `${el.id} の右`).toBeLessThanOrEqual(p.x + p.w);
+      expect(c.y + c.h, `${el.id} の下`).toBeLessThanOrEqual(p.y + p.h);
+      checked++;
+    }
+    expect(checked).toBeGreaterThanOrEqual(15);
+  });
+
+  it("全体ボードの小枠どうしが重ならない", () => {
+    const board = netshopSample.boards.find((b) => b.id === "board_overview")!;
+    const frames = board.nodes
+      .filter((n) => netshopSample.elements.find((e) => e.id === n.elementId)?.kind === "buc")
+      .map((n) => ({ id: n.elementId, x: n.x, y: n.y, w: n.width!, h: n.height! }));
+    for (const a of frames) {
+      for (const b of frames) {
+        if (a.id >= b.id) continue;
+        const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(overlap, `${a.id} と ${b.id}`).toBe(false);
+      }
+    }
+  });
+
+  it("注文は受付から出荷済みまで、返品は受付から返金まで状態が進む", () => {
+    const rels = netshopSample.relations;
+    const goes = (usecase: string, state: string) => rels.some((r) => r.kind === "usecaseState" && r.sourceId === usecase && r.targetId === state);
+    expect(goes("uc_register_order", "st_ord_received")).toBe(true);
+    expect(goes("uc_confirm_order", "st_ord_confirmed")).toBe(true);
+    expect(goes("uc_record_payment", "st_ord_paid")).toBe(true);
+    expect(goes("uc_record_shipment", "st_ord_shipped")).toBe(true);
+    expect(goes("uc_register_return", "st_ret_accepted")).toBe(true);
+    expect(goes("uc_record_refund", "st_ret_refunded")).toBe(true);
+  });
+
+  it("会計システムが、売掛金の計上・入金の管理・消し込みを担当し、売掛金と入金を保存する", () => {
+    const rels = netshopSample.relations;
+    for (const act of ["act_book_receivable", "act_manage_payment", "act_clear_receivable"]) {
+      expect(rels.some((r) => r.kind === "actorActivity" && r.sourceId === "sys_accounting" && r.targetId === act), act).toBe(true);
+    }
+    for (const info of ["info_receivable", "info_payout"]) {
+      expect(rels.some((r) => r.kind === "informationSystem" && r.sourceId === info && r.targetId === "sys_accounting"), info).toBe(true);
+    }
+    expect(rels.some((r) => r.kind === "usecaseState" && r.sourceId === "uc_clear_receivable" && r.targetId === "st_rec_cleared")).toBe(true);
+  });
+
+  it("会計システムで損益計算書 (PL) と貸借対照表 (BS) を見られ、売掛金は BS に、売上は PL につながる", () => {
+    const rels = netshopSample.relations;
+    for (const info of ["info_pl", "info_bs"]) {
+      expect(rels.some((r) => r.kind === "systemInformation" && r.sourceId === "sys_accounting" && r.targetId === info), info).toBe(true);
+    }
+    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_pl" && r.targetId === "info_pl")).toBe(true);
+    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_bs" && r.targetId === "info_bs")).toBe(true);
+    expect(rels.some((r) => r.kind === "informationRelated" && [r.sourceId, r.targetId].sort().join() === ["info_bs", "info_receivable"].join())).toBe(true);
+  });
+
+  it("ホームのサンプルの一覧に「ネットショップの業務」があり、開くたびに新しいモデルを作る", () => {
+    const entry = SAMPLES.find((s) => s.id === "netshop");
+    expect(entry?.title).toBe("ネットショップの業務");
+    expect(entry!.create()).toEqual(netshopSample);
+    expect(entry!.create()).not.toBe(entry!.create());
+  });
+});
