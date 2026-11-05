@@ -51,7 +51,7 @@ describe("TracePanel の警告", () => {
     expect(screen.getByText(/が担い手 \(アクター／外部アクター／システム\) に辿り着けます/)).toBeDefined();
     const region = screen.getByRole("region", { name: "警告" });
     expect(within(region).getByText("警告: 1 つの業務に複数のアクターが付いています (1)")).toBeDefined();
-    expect(within(region).getByText("辿れるかのエラーではありません。直さなくても編集・保存できます。")).toBeDefined();
+    expect(within(region).getByText("業務をアクターごとに分解できるか検討してください。")).toBeDefined();
     const row = screen.getByTestId("warning-biz_reservation");
     expect(within(row).getByText("主担当のアクターが 2 人います: 「予約担当」、「支配人」")).toBeDefined();
     expect(within(row).getByText(/業務に結ぶ主担当は 1 人にしてください/)).toBeDefined();

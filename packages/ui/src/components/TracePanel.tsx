@@ -40,7 +40,7 @@ export function TracePanel() {
       {warnings.length > 0 && (
         <section className="trace-warnings" aria-label="警告">
           <h3 className="trace-warning-title">警告: 1 つの業務に複数のアクターが付いています ({warnings.length})</h3>
-          <p className="hint">辿れるかのエラーではありません。直さなくても編集・保存できます。</p>
+          <p className="hint">業務をアクターごとに分解できるか検討してください。</p>
           <ul className="trace-rows">
             {warnings.map((w) => (
               <WarningRow key={w.elementId} warning={w} element={byId.get(w.elementId)!} actors={w.actorIds.map((id) => byId.get(id)!)} />
