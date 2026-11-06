@@ -1,5 +1,6 @@
 import type * as Y from "yjs";
-import { repairModel } from "@untie/core";
+import { migrateDerivedPlacement, repairModel } from "@untie/core";
+import type { UntieModel } from "@untie/core";
 import { applyModelDiff } from "./diff";
 import { readRawModel } from "./rebuild";
 
@@ -16,4 +17,20 @@ export function repairDoc(doc: Y.Doc, origin: unknown): string[] {
   if (changes.length === 0) return [];
   applyModelDiff(doc, before, model, origin);
   return changes;
+}
+
+/**
+ * 0.3.0 までに保存した Y.Doc に残っている旧関係 (systemInformation・informationSystem・screenInformation) を、
+ * 取得・保存の区別 (usecaseInformation の access) に移してから外す (サーバーが復元した直後に 1 回呼ぶ)。
+ * JSON ファイルを開くときの変換 (migrateDerivedPlacement) と同じ規則。readRawModel は常に現行の版を付けるので、
+ * これを呼ばずに repairDoc を当てると、旧関係は「結べない関係」として消えるだけで、access に移せない。
+ * 旧関係が無ければ何も書かず、空の配列を返す。変換で知らせることがあれば (導けず消える置き場所の件数など) notes を返す。
+ */
+export function migrateDocPlacement(doc: Y.Doc, origin: unknown): string[] {
+  const before = readRawModel(doc);
+  const notes: string[] = [];
+  const after = migrateDerivedPlacement(before as unknown as Record<string, unknown>, notes) as unknown as UntieModel;
+  if (after === before) return [];
+  applyModelDiff(doc, before, after, origin);
+  return notes;
 }

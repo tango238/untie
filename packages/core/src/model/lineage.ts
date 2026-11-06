@@ -52,10 +52,17 @@ function upEdges(model: UntieModel): Map<string, string[]> {
       case "eventUsecase":
       case "usecaseEvent":
       case "systemEvent":
-      case "usecaseScreen":
       case "actorNfr":
         add(r.targetId, r.sourceId);
         break;
+      case "usecaseScreen": {
+        add(r.targetId, r.sourceId);
+        // 画面を使う操作は、その画面のシステムを対象とみなす (usecaseSystem と同じ向き)。
+        // これで、システムから下へ辿ると画面を使う操作とその情報にも届く
+        const screen = byId.get(r.targetId);
+        if (screen?.kind === "screen") add(r.sourceId, screen.systemId);
+        break;
+      }
       case "stateUsecase":
       case "usecaseSystem":
         // 始点が下位 (状態 → 操作、操作 → 対象) なので向きを逆にする

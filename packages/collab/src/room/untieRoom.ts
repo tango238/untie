@@ -5,7 +5,7 @@ import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, CLOSE_UNAUTHENT
 import type { Role, TicketVia } from "@untie/api";
 import { migrateModel, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
-import { getRoots, loadModel, rebuildModel, repairDoc } from "../doc";
+import { getRoots, loadModel, migrateDocPlacement, rebuildModel, repairDoc } from "../doc";
 import { CLOSE_REASONS } from "./connectionState";
 import type { ConnectionState, KickTarget, PresenceEntry } from "./connectionState";
 import type { Env } from "./env";
@@ -84,7 +84,12 @@ export class UntieRoom extends YServer<Env> {
 
   async onLoad(): Promise<void> {
     const saved = await this.ctx.storage.get<Uint8Array>("ydoc");
-    if (saved) Y.applyUpdate(this.document, saved);
+    if (saved) {
+      Y.applyUpdate(this.document, saved);
+      // 0.3.0 までに保存した旧関係 (取得元・保存先・画面の情報) を、削除される前に access へ移す (モデルの形式 0.4.0)
+      const notes = migrateDocPlacement(this.document, "migrate");
+      if (notes.length > 0) console.log(`ルーム ${this.name}: 旧い置き場所の関係を access に移しました`, notes);
+    }
   }
 
   async onSave(): Promise<void> {
