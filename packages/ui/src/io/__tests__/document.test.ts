@@ -17,6 +17,21 @@ describe("保存・読み込み", () => {
     expect(parsed.ok && parsed.model).toEqual(m);
   });
 
+  it("古い形式 (version が整数の 1) のファイルは、現行の版 (0.1.0) に変換して読む", () => {
+    const old = { ...createHotelSample(), version: 1 };
+    const parsed = parseModel(JSON.stringify(old));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.model.version).toBe("0.1.0");
+    expect(parsed.ok && parsed.migrated).toBe(true);
+    // 書き出すと現行の版になる
+    expect(parsed.ok && JSON.parse(serializeModel(parsed.model)).version).toBe("0.1.0");
+  });
+
+  it("新しい版の Untie で作られたファイルは、更新を促して開かない", () => {
+    const parsed = parseModel(JSON.stringify({ ...createHotelSample(), version: "9.0.0" }));
+    expect(parsed.ok ? [] : parsed.errors).toEqual([expect.stringMatching(/Untie を更新してください/)]);
+  });
+
   it("壊れた JSON・スキーマ違反・参照切れは理由付きで拒否する", () => {
     expect(parseModel("{").ok).toBe(false);
     const r1 = parseModel(JSON.stringify({ version: 1 }));

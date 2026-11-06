@@ -1,5 +1,5 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
-import { validateModel } from "@untie/core/model/validate";
+import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
 import { SAMPLES, type SampleEntry } from "@untie/core/sample";
 import { hasUnsavedChanges, useUntieStore } from "../store";
@@ -10,15 +10,20 @@ export function serializeModel(model: UntieModel): string {
   return `${JSON.stringify(model, null, 2)}\n`;
 }
 
-/** JSON を読んで、スキーマと参照整合性を検査する */
-export function parseModel(text: string): { ok: true; model: UntieModel } | { ok: false; errors: string[] } {
+/**
+ * JSON を読んで、古い版のモデルの形式なら現行へ変換し (migrateModel)、スキーマと参照整合性を検査する。
+ * migrated は変換したか (保存すると現行の版で書き出す)
+ */
+export function parseModel(
+  text: string,
+): { ok: true; model: UntieModel; from: string | null; migrated: boolean } | { ok: false; errors: string[] } {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch (e) {
     return { ok: false, errors: [`JSON として読めません: ${(e as Error).message}`] };
   }
-  return validateModel(json);
+  return loadModelJson(json);
 }
 
 /** ファイル名に使えない文字を置き換える (改行などの制御文字は取り除く)。空になったら "untie" */
@@ -63,7 +68,12 @@ function loadOpened(opened: OpenedFile): boolean {
     return false;
   }
   st.loadDocument(parsed.model, { path: opened.path, name: opened.name });
-  st.pushToast(`「${opened.name}」を開きました`, "info");
+  st.pushToast(
+    parsed.migrated
+      ? `「${opened.name}」を開きました (古い形式 ${parsed.from} から ${parsed.model.version} に変換しました。保存すると新しい形式で書き出します)`
+      : `「${opened.name}」を開きました`,
+    "info",
+  );
   void getPlatform().recentFiles.add(opened);
   return true;
 }

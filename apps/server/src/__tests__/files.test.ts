@@ -32,7 +32,7 @@ describe("作成", () => {
 
     // 書き出すと、名前とボード 1 枚だけの空のモデル
     const exported = await taro.json(`/api/files/${body.id}/export`);
-    expect(exported.body).toMatchObject({ version: 1, meta: { name: "宿泊の業務" }, elements: [], relations: [] });
+    expect(exported.body).toMatchObject({ version: "0.1.0", meta: { name: "宿泊の業務" }, elements: [], relations: [] });
     expect(exported.body.boards).toHaveLength(1);
   });
 
@@ -45,6 +45,18 @@ describe("作成", () => {
     expect(exported.elements).toHaveLength(hotelSample.elements.length);
     expect(exported.relations).toHaveLength(hotelSample.relations.length);
     expect(exported.boards.map((b: Json) => b.id)).toEqual(hotelSample.boards.map((b) => b.id));
+  });
+
+  it("古い形式 (version が整数の 1) の model は、現行の版に変換して取り込む。新しい版は 400", async () => {
+    const taro = await loginAs("taro@example.com");
+    const created = await create(taro, { model: { ...JSON.parse(JSON.stringify(hotelSample)), version: 1 } });
+    expect(created.status).toBe(201);
+    const exported = (await taro.json(`/api/files/${created.body.id}/export`)).body;
+    expect(exported.version).toBe("0.1.0");
+
+    const newer = await create(taro, { model: { ...JSON.parse(JSON.stringify(hotelSample)), version: "9.0.0" } });
+    expect(newer.status).toBe(400);
+    expect(newer.body.error.message).toContain("新しい版の Untie で作られたファイルです");
   });
 
   it("不正な model・形の違うリクエスト・JSON でない本文は 400", async () => {

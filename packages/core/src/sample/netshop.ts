@@ -1,7 +1,7 @@
 // 架空のネットショップ (雑貨の通販) のサンプルモデル。実在の店・データは使わない。
 // 自社サイトとモールで売り、倉庫から出荷する小さな店を想定する。入荷・受注・出荷・返品・問い合わせ対応の流れと、現場の困りごとを置く。
 import { relationKindFor } from "../model/relations";
-import type { BoardNode, Element, Relation, UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -525,7 +525,7 @@ const stateNodes: BoardNode[] = [
 ];
 
 export const netshopSample: UntieModel = {
-  version: 1,
+  version: MODEL_VERSION,
   meta: {
     name: "ネットショップの業務 (サンプル)",
     description: "架空の雑貨のネットショップの業務を題材にしたサンプル。実在の店・データではありません。",

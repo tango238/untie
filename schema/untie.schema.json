@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルフォーマットのバージョン。現行は 1。",
-      "type": "integer",
-      "const": 1
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.1.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "type": "string",
+      "const": "0.1.0"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {

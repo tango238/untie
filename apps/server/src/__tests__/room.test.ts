@@ -51,6 +51,17 @@ describe("UntieRoom の RPC", () => {
     expect((await exportModel()).meta.name).toBe("最初");
   });
 
+  it("古い形式 (version が整数の 1) で保存された snapshot は、exportModel で現行の版に変換して返す", async () => {
+    const { room, exportModel } = await openRoom(newId());
+    // Doc が空で、0.1.0 より前の形式の snapshot だけがあるルーム
+    await inRoom(room, async (_i, state) => {
+      await state.storage.put("snapshot", { ...JSON.parse(JSON.stringify(hotelSample)), version: 1 });
+    });
+    const exported = await exportModel();
+    expect(exported.version).toBe("0.1.0");
+    expect(validateModel(exported).ok).toBe(true);
+  });
+
   it("Doc も snapshot も無いルーム (取り込み前) の exportModel は例外", async () => {
     const { exportModel } = await openRoom(newId());
     await expect(exportModel()).rejects.toThrow("中身がありません");

@@ -2,7 +2,7 @@
 // 請求・入金・支払・経費精算・記帳・月次決算・年次決算の流れと、現場の困りごとを置く。
 // 1 つの業務の主担当は 1 人にする (業務に複数のアクターを結ぶと検証が警告を出す)。ほかの人は作業の担当にする。
 import { relationKindFor } from "../model/relations";
-import type { BoardNode, Element, Relation, UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -493,7 +493,7 @@ const stateNodes: BoardNode[] = [
 ];
 
 export const accountingSample: UntieModel = {
-  version: 1,
+  version: MODEL_VERSION,
   meta: {
     name: "経理業務 (サンプル)",
     description: "架空の中小企業の経理部門の業務を題材にしたサンプル。実在の会社・データではありません。",

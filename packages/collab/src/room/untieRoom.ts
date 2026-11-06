@@ -3,7 +3,7 @@ import { YServer } from "y-partyserver";
 import type { Connection, ConnectionContext } from "partyserver";
 import { CLOSE_LINK_DISABLED, CLOSE_REMOVED, CLOSE_ROLE_CHANGED, CLOSE_UNAUTHENTICATED, ROLES, ROOM_HEADERS, SAVE_FAILED_MESSAGE, SAVE_OK_MESSAGE, guestName } from "@untie/api";
 import type { Role, TicketVia } from "@untie/api";
-import { validateModel } from "@untie/core";
+import { migrateModel, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { getRoots, loadModel, rebuildModel, repairDoc } from "../doc";
 import { CLOSE_REASONS } from "./connectionState";
@@ -272,7 +272,9 @@ export class UntieRoom extends YServer<Env> {
     if (this.isDocEmpty()) {
       const snapshot = await this.ctx.storage.get<UntieModel>("snapshot");
       if (snapshot === undefined) throw new Error("このファイルには中身がありません");
-      return snapshot;
+      // 古い版のモデルの形式で保存された snapshot は、現行の版に変換して返す (複製・書き出しで検証に通るように)
+      const migrated = migrateModel(snapshot);
+      return (migrated.ok ? migrated.json : snapshot) as UntieModel;
     }
     return rebuildModel(this.document);
   }

@@ -1,6 +1,6 @@
 // 架空の宿泊施設のサンプルモデル (設計書 7 章)。実在の施設・データは使わない。
 import { relationKindFor } from "../model/relations";
-import type { BoardNode, Element, Relation, UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -435,7 +435,7 @@ const stateNodes: BoardNode[] = [
 ];
 
 export const hotelSample: UntieModel = {
-  version: 1,
+  version: MODEL_VERSION,
   meta: {
     name: "宿泊施設の業務 (サンプル)",
     description: "架空の宿泊施設の業務を題材にしたサンプル。実在の施設・データではありません。",

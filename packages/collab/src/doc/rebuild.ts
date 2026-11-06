@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidElementShape, repairModel, truncateElementStrings, truncateModelStrings } from "@untie/core";
+import { EDGE_SIDES, isValidElementShape, MODEL_VERSION, repairModel, truncateElementStrings, truncateModelStrings } from "@untie/core";
 import type { Board, BoardEdge, BoardNode, Element, Meta, Relation, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
@@ -157,7 +157,7 @@ function shareModel(next: UntieModel, prev: UntieModel): UntieModel {
 export function readRawModel(doc: Y.Doc): UntieModel {
   const roots = getRoots(doc);
   return {
-    version: 1,
+    version: MODEL_VERSION,
     meta: readMeta(roots.meta),
     elements: readElements(roots.elements),
     relations: readRelations(roots.relations),

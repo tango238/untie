@@ -1,7 +1,7 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
 import { relationKindFor } from "../model/relations";
-import type { BoardNode, Element, Relation, UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -523,7 +523,7 @@ const stateNodes: BoardNode[] = [
 ];
 
 export const retailSample: UntieModel = {
-  version: 1,
+  version: MODEL_VERSION,
   meta: {
     name: "店舗の業務 (サンプル)",
     description: "架空の日用品店の業務を題材にしたサンプル。実在の店・データではありません。",

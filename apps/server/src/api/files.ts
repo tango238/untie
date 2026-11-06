@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { emptyModel, validateModel } from "@untie/core";
+import { emptyModel, loadModelJson } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { CreateFileRequestSchema, RenameFileRequestSchema } from "@untie/api";
 import type { FileDetail, FilesResponse, PresenceResponse, SnapshotsResponse, TicketResponse, TrashResponse } from "@untie/api";
@@ -37,7 +37,8 @@ fileRoutes.post("/", limitBody, async (c) => {
   if ("name" in body) {
     model = emptyModel(body.name);
   } else {
-    const result = validateModel(body.model);
+    // 古い版のモデルの形式なら、現行へ変換してから検査する (古いデスクトップアプリからの取り込みなど)
+    const result = loadModelJson(body.model);
     if (!result.ok) {
       const shown = result.errors.slice(0, 3).join(" / ");
       throw badRequest(`モデルの形が正しくありません: ${shown}${result.errors.length > 3 ? ` ほか ${result.errors.length - 3} 件` : ""}`, "invalid_model");
