@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Untie JSON Schema ビジュアライズ</title>
+<style>
+:root{--bg:#f7f8fa;--fg:#1d2330;--mute:#667085;--card:#fff;--line:#d9dde5;--accent:#3b6fd4;--req:#c2410c;
+--people:#e8f0fe;--biz:#e6f6ec;--info:#fff4e0;--other:#f3e8fd;--people-b:#7aa2f0;--biz-b:#59b27a;--info-b:#e0a23c;--other-b:#a77ad6}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--fg:#e6e9ef;--mute:#9aa3b2;--card:#1b2029;--line:#2f3644;--accent:#7ea3f2;--req:#fb923c;
+--people:#1d2a44;--biz:#173324;--info:#3a2d14;--other:#2c1f40}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif}
+header,main{max-width:1100px;margin:0 auto;padding:0 16px}
+header{padding-top:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:36px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+p.lead,.note{color:var(--mute);margin:4px 0}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.tree{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.tree ul{list-style:none;margin:0;padding-left:20px;border-left:1px dashed var(--line)}.tree>ul{border:0;padding:0}
+.tree li{margin:2px 0}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0;font-size:12.5px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px;border:1px solid}
+.group{margin:16px 0 4px;font-weight:600;color:var(--mute);font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-left-width:5px;border-radius:8px;padding:10px 12px;scroll-margin-top:12px}
+.card.hl{outline:2px solid var(--accent)}
+.card h3{margin:0;font-size:15px}.card h3 small{color:var(--mute);font-weight:400;margin-left:6px;font-family:ui-monospace,monospace;font-size:12px}
+.card .desc{color:var(--mute);font-size:12.5px;margin:4px 0 8px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+td{padding:2px 4px;border-top:1px solid var(--line);vertical-align:top}
+td:first-child{font-family:ui-monospace,monospace;white-space:nowrap}
+td.t{color:var(--accent);font-family:ui-monospace,monospace}
+.r{color:var(--req);font-weight:700}
+.fd{display:block;color:var(--mute);font-family:system-ui,sans-serif;white-space:normal}
+a.ref{color:var(--accent);text-decoration:none;cursor:pointer}a.ref:hover{text-decoration:underline}
+.graphwrap{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:auto}
+svg text{font-family:system-ui,"Hiragino Sans","Noto Sans JP",sans-serif}
+.gn rect{stroke-width:1.5}.gn text{font-size:12px;fill:var(--fg);pointer-events:none}.gn{cursor:pointer}
+.ge path{fill:none;stroke:var(--mute);stroke-width:1.3;opacity:.7}.ge text{font-size:10.5px;fill:var(--mute);paint-order:stroke;stroke:var(--card);stroke-width:3px}
+.ge.ref path{stroke-dasharray:4 3;opacity:.55}
+.dim{opacity:.1!important}.ge.on path{stroke:var(--accent);stroke-width:2.2;opacity:1}.ge.on text{fill:var(--accent);font-weight:700}
+.ctl{margin:6px 0;font-size:13px}
+.rtable{width:100%;background:var(--card);border:1px solid var(--line);border-radius:8px}
+.rtable td,.rtable th{padding:4px 8px;border-top:1px solid var(--line);text-align:left}
+.rtable th{color:var(--mute);font-weight:600;border:0}
+.rtable td:first-child{font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<header>
+<h1 id="title"></h1>
+<p class="lead" id="lead"></p>
+<p class="note">このページは <code>schema/untie.schema.json</code> と <code>packages/core/src/model/relations.ts</code> から生成しています (<code>pnpm gen:schema-viewer</code>)。スキーマを変えたら作り直してください。</p>
+</header>
+<main>
+<h2>1. 全体の構造</h2>
+<div class="tree" id="tree"></div>
+
+<h2>2. 要素 (elements) の種類と項目</h2>
+<p class="note">要素は <code>kind</code> で判別する 17 種です。<span class="r">*</span> は必須。青字の型名はクリックで定義へ飛びます。</p>
+<div class="legend" id="legend"></div>
+<div id="kinds"></div>
+
+<h2>3. 関係 (relations) の図</h2>
+<p class="note">要素の種類を箱、関係の種類 (<code>relation.kind</code>) を矢印で描いています。箱にマウスを載せる (タップする) と、その種類につながる関係だけが浮き出ます。</p>
+<div class="ctl"><label><input type="checkbox" id="refs"> 項目での参照 (businessId / bucId / systemId / contextId) も点線で出す</label></div>
+<div class="graphwrap"><svg id="graph" width="1000" height="590" viewBox="0 0 1000 590"></svg></div>
+<h3 style="font-size:14px;margin:16px 0 4px">関係の一覧</h3>
+<table class="rtable" id="rtable"></table>
+
+<h2>4. ボード (boards)</h2>
+<p class="note">ボードは「どこに置くか」だけを持ち、業務データは持ちません。</p>
+<div class="cards" id="boards"></div>
+
+<h2>5. 共通の部品 ($defs)</h2>
+<div class="cards" id="common"></div>
+</main>
+
+<script>
+const SCHEMA = /*SCHEMA*/null;
+const RULES = /*RULES*/null;
+const D = SCHEMA.$defs;
+const el = (t, a = {}, ...c) => { const e = document.createElement(t); for (const [k, v] of Object.entries(a)) k === "class" ? e.className = v : e.setAttribute(k, v); for (const x of c.flat()) e.append(x); return e; };
+
+// ---- 型の表示 ----
+function typeOf(s) {
+  if (!s) return ["?"];
+  if (s.$ref) { const n = s.$ref.split("/").pop(); return [ref(n)]; }
+  if (s.const !== undefined) return [`= "${s.const}"`];
+  if (s.oneOf) return s.oneOf.flatMap((x, i) => i ? [" | ", ...typeOf(x)] : typeOf(x));
+  if (s.enum) return [s.enum.join(" | ")];
+  if (s.type === "array") return [...typeOf(s.items), "[]"];
+  if (s.type === "null") return ["null"];
+  return [s.type || "?"];
+}
+function ref(n) { const a = el("a", { class: "ref", href: "#d-" + n }, n); a.onclick = e => { e.preventDefault(); jump("d-" + n); }; return a; }
+function jump(id) { const t = document.getElementById(id); if (!t) return; t.scrollIntoView({ behavior: "smooth", block: "center" }); t.classList.add("hl"); setTimeout(() => t.classList.remove("hl"), 1600); }
+function constraints(s) {
+  const r = [];
+  const x = s.$ref ? D[s.$ref.split("/").pop()] : s;
+  for (const k of ["minimum", "maximum", "minLength", "maxLength", "minItems", "pattern"]) if (s[k] !== undefined) r.push(`${k}: ${s[k]}`);
+  if (s.uniqueItems) r.push("重複なし");
+  return r.join(", ");
+}
+function fieldRows(def) {
+  const req = new Set(def.required || []);
+  return Object.entries(def.properties || {}).map(([k, v]) => {
+    const target = v.$ref ? D[v.$ref.split("/").pop()] : null;
+    const desc = v.description || (target && target.description) || "";
+    const c = constraints(v);
+    return el("tr", {}, el("td", {}, k, req.has(k) ? el("span", { class: "r" }, " *") : ""), el("td", { class: "t" }, typeOf(v)),
+      el("td", {}, desc ? el("span", { class: "fd" }, desc) : "", c ? el("span", { class: "fd" }, c) : ""));
+  });
+}
+function card(id, title, sub, desc, def, color) {
+  const c = el("div", { class: "card", id }, el("h3", {}, title, el("small", {}, sub || "")));
+  if (color) c.style.borderLeftColor = color;
+  if (desc) c.append(el("div", { class: "desc" }, desc));
+  if (def) c.append(el("table", {}, ...fieldRows(def)));
+  return c;
+}
+
+// ---- 1. 木 ----
+document.getElementById("title").textContent = SCHEMA.title + " の JSON Schema";
+document.getElementById("lead").textContent = SCHEMA.description;
+const tree = el("ul");
+const li = (...c) => el("li", {}, ...c);
+for (const [k, v] of Object.entries(SCHEMA.properties)) {
+  if (k === "$schema") continue;
+  const req = SCHEMA.required.includes(k);
+  const node = li(el("code", {}, k), req ? el("span", { class: "r" }, " *") : "", " ", el("span", { class: "t", style: "color:var(--accent)" }, typeOf(v)), el("span", { class: "fd", style: "color:var(--mute);font-size:12.5px" }, v.description || (v.$ref && D[v.$ref.split("/").pop()].description) || ""));
+  tree.append(node);
+}
+document.getElementById("tree").append(el("div", {}, el("b", {}, "UntieModel")), tree);
+
+// ---- 2. 要素 ----
+const GROUPS = [
+  ["登場人物 (人・もの)", "var(--people)", "var(--people-b)", ["actor", "externalActor", "system", "ledger"]],
+  ["業務の構造", "var(--biz)", "var(--biz-b)", ["business", "buc", "activity", "usecase"]],
+  ["情報・ルール", "var(--info)", "var(--info-b)", ["context", "information", "state", "variation", "condition", "event"]],
+  ["その他", "var(--other)", "var(--other-b)", ["screen", "nfr", "issue"]],
+];
+const KIND_COLOR = {};
+const lg = document.getElementById("legend");
+for (const [name, bg, b, kinds] of GROUPS) {
+  lg.append(el("span", {}, el("i", { class: "sw", style: `background:${bg};border-color:${b}` }), name));
+  kinds.forEach(k => KIND_COLOR[k] = [bg, b]);
+}
+const kindsEl = document.getElementById("kinds");
+for (const [name, , b, kinds] of GROUPS) {
+  kindsEl.append(el("div", { class: "group" }, name));
+  const g = el("div", { class: "cards" });
+  for (const k of kinds) g.append(card("d-" + k, k, "kind", D[k].description, D[k], b));
+  kindsEl.append(g);
+}
+const baseNote = D.elementBase;
+kindsEl.append(el("div", { class: "group" }, "全要素に共通"), el("div", { class: "cards" }, card("d-elementBase", "elementBase", "", baseNote.description, baseNote, "var(--line)")));
+
+// ---- 3. 関係の図 ----
+const POS = { actor: [30, 70], externalActor: [30, 330], nfr: [30, 200], business: [230, 20], buc: [440, 20], activity: [230, 130], usecase: [440, 130],
+  event: [680, 20], system: [680, 200], ledger: [860, 300], condition: [230, 270], state: [230, 380], screen: [440, 270], information: [440, 400], variation: [440, 520], context: [680, 440], issue: [860, 500] };
+const W = 124, H = 36;
+const svg = document.getElementById("graph");
+const NS = "http://www.w3.org/2000/svg";
+const s = (t, a = {}) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+svg.append((() => { const d = s("defs"); d.innerHTML = '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color:var(--mute)"/></marker>'; return d; })());
+const center = k => [POS[k][0] + W / 2, POS[k][1] + H / 2];
+function edgePt(from, to) { // 箱の縁と中心線の交点
+  const [cx, cy] = center(from), [tx, ty] = center(to);
+  const dx = tx - cx, dy = ty - cy;
+  const sc = Math.min(dx ? (W / 2) / Math.abs(dx) : Infinity, dy ? (H / 2) / Math.abs(dy) : Infinity);
+  return [cx + dx * sc, cy + dy * sc];
+}
+const edges = [];
+for (const r of RULES) for (const a of r.sources) for (const b of r.targets) edges.push({ a, b, label: r.label, kind: r.kind, undirected: r.undirected, ref: false });
+const REFS = [["buc", "business", "businessId"], ["activity", "buc", "bucId"], ["screen", "system", "systemId"], ["nfr", "system", "systemId"],
+  ...["information", "state", "variation", "condition", "event"].map(k => [k, "context", "contextId"])];
+for (const [a, b, label] of REFS) edges.push({ a, b, label, kind: "ref:" + label, ref: true });
+
+const gE = s("g"), gN = s("g");
+svg.append(gE, gN);
+const pairCount = {};
+const edgeEls = [];
+for (const e of edges) {
+  const key = [e.a, e.b].sort().join("|");
+  e.idx = pairCount[key] = (pairCount[key] || 0) + 1;
+}
+for (const e of edges) {
+  const g = s("g", { class: "ge" + (e.ref ? " ref" : "") });
+  let d, lx, ly;
+  if (e.a === e.b) { // 自己ループ
+    const [x, y] = POS[e.a];
+    d = `M${x + 24} ${y} C${x + 24} ${y - 44} ${x - 30} ${y - 44} ${x - 30} ${y + 10} L${x} ${y + 14}`;
+    lx = x - 30; ly = y - 28;
+  } else {
+    const [p1x, p1y] = edgePt(e.a, e.b), [p2x, p2y] = edgePt(e.b, e.a);
+    const dx = p2x - p1x, dy = p2y - p1y, len = Math.hypot(dx, dy) || 1;
+    const sign = e.a < e.b ? 1 : -1;
+    const base = (e.idx - 1) * 26 * sign + (e.idx > 1 || edges.some(o => o !== e && o.a === e.b && o.b === e.a) ? 14 * sign : 0);
+    const ctl = o => [(p1x + p2x) / 2 - dy / len * o, (p1y + p2y) / 2 + dx / len * o];
+    // 他の箱に重ならない曲げ方を探す
+    const clear = o => { const [cx, cy] = ctl(o); for (let i = 1; i < 20; i++) { const t = i / 20, u = 1 - t;
+      const x = u * u * p1x + 2 * u * t * cx + t * t * p2x, y = u * u * p1y + 2 * u * t * cy + t * t * p2y;
+      for (const k in POS) if (k !== e.a && k !== e.b && x > POS[k][0] - 6 && x < POS[k][0] + W + 6 && y > POS[k][1] - 6 && y < POS[k][1] + H + 6) return false; } return true; };
+    let off = base;
+    for (const extra of [0, 50, -50, 100, -100, 150, -150, 200, -200, 260, -260]) { if (clear(base + extra)) { off = base + extra; break; } }
+    const [mx, my] = ctl(off);
+    d = `M${p1x} ${p1y} Q${mx} ${my} ${p2x} ${p2y}`;
+    lx = (p1x + p2x) / 4 + mx / 2; ly = (p1y + p2y) / 4 + my / 2;
+  }
+  const p = s("path", { d, "marker-end": "url(#ar)" });
+  if (e.undirected) p.setAttribute("marker-start", "url(#ar)");
+  const t = s("text", { x: lx, y: ly, "text-anchor": "middle", "dominant-baseline": "middle" });
+  t.textContent = e.label;
+  const ti = s("title"); ti.textContent = `${e.a} → ${e.b}  (${e.kind})`; g.append(ti, p, t);
+  g.dataset.a = e.a; g.dataset.b = e.b;
+  gE.append(g); edgeEls.push(g);
+}
+for (const k of Object.keys(POS)) {
+  const [x, y] = POS[k], [bg, b] = KIND_COLOR[k] || ["var(--card)", "var(--line)"];
+  const g = s("g", { class: "gn", transform: `translate(${x},${y})` });
+  g.append(s("rect", { width: W, height: H, rx: 7, style: `fill:${bg};stroke:${b}` }));
+  const t = s("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "dominant-baseline": "middle" }); t.textContent = k; g.append(t);
+  const on = () => { edgeEls.forEach(ge => { const hit = ge.dataset.a === k || ge.dataset.b === k; ge.classList.toggle("on", hit); ge.classList.toggle("dim", !hit); }); gN.querySelectorAll(".gn").forEach(n => n.classList.toggle("dim", n !== g && !edgeEls.some(ge => ge.classList.contains("on") && (ge.dataset.a === n.dataset.k || ge.dataset.b === n.dataset.k)))); };
+  const off = () => { edgeEls.forEach(ge => ge.classList.remove("on", "dim")); gN.querySelectorAll(".gn").forEach(n => n.classList.remove("dim")); };
+  g.dataset.k = k;
+  g.onmouseenter = on; g.onmouseleave = off; g.onclick = () => jump("d-" + k);
+  gN.append(g);
+}
+const refsBox = document.getElementById("refs");
+const syncRefs = () => svg.querySelectorAll(".ge.ref").forEach(g => g.style.display = refsBox.checked ? "" : "none");
+refsBox.onchange = syncRefs; syncRefs();
+
+const rt = document.getElementById("rtable");
+rt.append(el("tr", {}, ...["kind", "始点", "終点", "ラベル", "向き"].map(h => el("th", {}, h))));
+for (const r of RULES) rt.append(el("tr", {}, el("td", {}, r.kind), el("td", {}, r.sources.join(" / ")), el("td", {}, r.targets.join(" / ")), el("td", {}, r.label), el("td", {}, r.undirected ? "無向" : "有向")));
+
+// ---- 4. ボード ----
+const bc = document.getElementById("boards");
+for (const k of ["board", "boardNode", "boardEdge"]) bc.append(card("d-" + k, k, "", D[k].description, D[k], "var(--accent)"));
+bc.append(card("d-edgeSide", "edgeSide", "", D.edgeSide.description, null, "var(--accent)"));
+bc.lastChild.append(el("div", {}, el("code", {}, D.edgeSide.enum.join(" | "))));
+
+// ---- 5. 共通部品 ----
+const cc = document.getElementById("common");
+for (const k of ["id", "name", "description", "meta", "link", "issueAnalysis", "elementKind", "relation", "relationKind"]) {
+  const d = D[k];
+  const c = card("d-" + k, k, "", d.description, d.properties ? d : null, "var(--line)");
+  if (!d.properties) c.append(el("div", {}, el("code", {}, typeOf(d).map(x => x.textContent ?? x).join("")), constraints(d) ? " " + constraints(d) : ""));
+  cc.append(c);
+}
+</script>
+</body>
+</html>
