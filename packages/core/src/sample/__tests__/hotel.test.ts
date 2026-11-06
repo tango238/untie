@@ -11,14 +11,10 @@ describe("宿泊施設サンプル", () => {
     expect(checkIntegrity(hotelSample)).toEqual([]);
   });
 
-  it("すべての要素が担い手まで辿れて、イベントの連鎖のほかに警告が出ない", () => {
+  it("すべての要素が担い手まで辿れて、警告も出ない", () => {
     expect(traceToActors(hotelSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
-    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)。イベントで終わらない連鎖の警告は、見本のネットショップ以外では残す
-    expect(
-      traceWarnings(hotelSample)
-        .filter((w) => w.type !== "chainEnd")
-        .map((w) => `${w.elementId}: ${w.reason}`),
-    ).toEqual([]);
+    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
+    expect(traceWarnings(hotelSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
   });
 
   it("設計書 7 章の件数どおり", () => {

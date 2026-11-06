@@ -6,6 +6,7 @@ import {
   issueDistribution,
   performerWorkList,
   screenInformationTables,
+  systemEventLists,
   usecasesOfActivity,
   type ActivitySection,
   type AnalysisKind,
@@ -262,6 +263,7 @@ function InformationLocationView({ model }: { model: UntieModel }) {
         </tbody>
       </table>
       <ScreenInformationView model={model} />
+      <SystemEventView model={model} />
     </div>
   );
 }
@@ -272,7 +274,7 @@ function ScreenInformationView({ model }: { model: UntieModel }) {
   if (data.tables.length === 0 && data.systemsWithoutScreens.length === 0) return null;
   return (
     <section className="an-screens" aria-label="画面と情報">
-      <h3 className="an-subtitle">画面と情報 (システムごと)</h3>
+      <h3 className="an-subtitle">画面と情報</h3>
       {data.tables.length === 0 && <p className="hint">画面がまだありません。「画面」の固定ボードで、システムごとに画面を作れます。</p>}
       {data.tables.map((t) => (
         <div key={t.system.id} className="an-screen-table" data-testid={`screen-table-${t.system.id}`}>
@@ -340,6 +342,105 @@ function ScreenInformationView({ model }: { model: UntieModel }) {
             <span key={sys.id}>
               {i > 0 && "、"}
               <El element={sys} plain />
+            </span>
+          ))}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** システムごとの、そのシステムから発生するイベントの一覧。直接か、操作からかを分けて出す */
+function SystemEventView({ model }: { model: UntieModel }) {
+  const data = useMemo(() => systemEventLists(model), [model]);
+  if (data.lists.length === 0 && data.eventsWithoutSystem.length === 0) return null;
+  return (
+    <section className="an-screens" aria-label="システムのイベント">
+      <h3 className="an-subtitle">システムのイベント</h3>
+      {data.lists.length === 0 && <p className="hint">システムから発生するイベントがまだありません。</p>}
+      {data.lists.map((l) => (
+        <div key={l.system.id} className="an-screen-table" data-testid={`event-list-${l.system.id}`}>
+          <h4 className="an-block-title">
+            <El element={l.system} />
+          </h4>
+          <table className="an-table an-event-table">
+            <thead>
+              <tr>
+                <th>イベント</th>
+                <th scope="col">発生のしかた</th>
+                <th scope="col">きっかけにする操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {l.rows.map((row) => (
+                <tr key={row.event.id}>
+                  <th scope="row">
+                    <El element={row.event} />
+                  </th>
+                  <td>
+                    <span className="an-list">
+                      {row.direct && <span className="an-role role-direct">直接</span>}
+                      {row.usecases.length > 0 && (
+                        <span className="an-via">
+                          <span className="an-role role-usecase">操作から</span>
+                          {row.usecases.map((u) => (
+                            <El key={u.id} element={u} />
+                          ))}
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td>
+                    {row.triggers.length > 0 ? (
+                      <span className="an-list">
+                        {row.triggers.map((t) => (
+                          <span key={t.usecase.id} className="an-trigger">
+                            <El element={t.usecase} />
+                            {t.activities.length > 0 ? (
+                              <span className="an-sub">
+                                (
+                                {t.activities.map((a, i) => (
+                                  <span key={a.id}>
+                                    {i > 0 && "、"}
+                                    <El element={a} plain />
+                                  </span>
+                                ))}
+                                )
+                              </span>
+                            ) : (
+                              <span className="an-sub">(作業なし)</span>
+                            )}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="an-sub">なし</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      {data.systemsWithoutEvents.length > 0 && (
+        <p className="hint an-no-screens">
+          イベントの無いシステム:{" "}
+          {data.systemsWithoutEvents.map((sys, i) => (
+            <span key={sys.id}>
+              {i > 0 && "、"}
+              <El element={sys} plain />
+            </span>
+          ))}
+        </p>
+      )}
+      {data.eventsWithoutSystem.length > 0 && (
+        <p className="hint an-no-screens" data-testid="events-without-system">
+          システムにつながらないイベント:{" "}
+          {data.eventsWithoutSystem.map((ev, i) => (
+            <span key={ev.id}>
+              {i > 0 && "、"}
+              <El element={ev} plain />
             </span>
           ))}
         </p>

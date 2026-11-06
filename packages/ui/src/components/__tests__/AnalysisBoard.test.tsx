@@ -60,14 +60,14 @@ describe("課題の分布", () => {
   });
 });
 
-describe("情報の所在: 画面と情報 (システムごと)", () => {
+describe("情報の所在: 画面と情報", () => {
   it("システムごとに画面 × 情報の表を出し、置き場所に無い情報に印、情報を扱わない画面に印を付ける。画面の無いシステムは 1 行にまとめる", () => {
     act(() => {
       useUntieStore.getState().newDocument(createNetshopSample(), { pristine: true });
     });
     render(<AnalysisBoard kind="informationLocation" />);
     const region = screen.getByRole("region", { name: "画面と情報" });
-    expect(within(region).getByText("画面と情報 (システムごと)")).toBeDefined();
+    expect(within(region).getByText("画面と情報")).toBeDefined();
     const accounting = within(region).getByTestId("screen-table-sys_accounting");
     const report = within(accounting).getByRole("row", { name: /月次レポート/ });
     expect(within(report).getAllByText("○")).toHaveLength(2);
@@ -83,5 +83,28 @@ describe("情報の所在: 画面と情報 (システムごと)", () => {
     expect(within(row).getByLabelText("扱う (このシステムに置き場所がありません)")).toBeDefined();
     const empty = within(screen.getByTestId("screen-table-sys_accounting")).getByRole("row", { name: /空の画面/ });
     expect(within(empty).getByText("扱う情報なし")).toBeDefined();
+  });
+});
+
+describe("情報の所在: システムのイベント", () => {
+  it("システムごとに、イベントと発生のしかた (直接・操作から) と、きっかけにする操作を出す。イベントの無いシステムは 1 行にまとめる", () => {
+    act(() => {
+      useUntieStore.getState().newDocument(createNetshopSample(), { pristine: true });
+    });
+    render(<AnalysisBoard kind="informationLocation" />);
+    const region = screen.getByRole("region", { name: "システムのイベント" });
+    expect(within(region).getByText("システムのイベント")).toBeDefined();
+    const accounting = within(region).getByTestId("event-list-sys_accounting");
+    const closed = within(accounting).getByRole("row", { name: /月次の締めが済んだ/ });
+    expect(within(closed).getByText("直接")).toBeDefined();
+    expect(within(closed).getByRole("button", { name: "損益計算書を見る" })).toBeDefined();
+    expect(within(closed).getByRole("button", { name: "損益を確認する" })).toBeDefined();
+    const sales = within(region).getByTestId("event-list-sys_oms");
+    const fixed = within(sales).getByRole("row", { name: /注文が確定した/ });
+    expect(within(fixed).getByText("操作から")).toBeDefined();
+    expect(within(fixed).getByRole("button", { name: "注文を確定する" })).toBeDefined();
+    expect(within(fixed).getByText("(作業なし)")).toBeDefined();
+    expect(within(region).getByText(/イベントの無いシステム:/).textContent).toContain("モールの管理画面");
+    expect(within(region).queryByTestId("events-without-system")).toBeNull();
   });
 });

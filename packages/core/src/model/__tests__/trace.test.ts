@@ -140,10 +140,8 @@ describe("traceToActors", () => {
 describe("traceWarnings", () => {
   const businessWarnings = (m: Parameters<typeof traceWarnings>[0]) => traceWarnings(m).filter((w) => w.type === "businessActors");
 
-  it("サンプル (宿泊施設) は、業務の主担当の警告が出ない (イベントの連鎖の警告は出る)", () => {
-    const w = traceWarnings(sample());
-    expect(w.filter((x) => x.type !== "chainEnd")).toEqual([]);
-    expect(w.some((x) => x.type === "chainEnd")).toBe(true);
+  it("サンプル (宿泊施設) は警告が出ない", () => {
+    expect(traceWarnings(sample())).toEqual([]);
   });
 
   it("1 つの業務に複数のアクターが付くと、その業務の警告を出す。辿れるかのエラーには数えない", () => {
@@ -199,37 +197,17 @@ describe("traceWarnings", () => {
     }
     return m;
   }
-  const chainEnds = (m: Parameters<typeof traceWarnings>[0]) => traceWarnings(m).filter((w) => w.type === "chainEnd").map((w) => [w.elementId, w.relatedIds]);
-
-  it("作業の操作を「次に」でつないだ並びの末尾の操作がイベントを発生させなければ警告する (イベントで始まらなくても)", () => {
-    // 作業A: 操作B → 操作C (C がイベントを出さない)
-    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"]], []))).toEqual([["uc_c", ["act_a"]]]);
-    // C がイベントを出せば警告しない。途中の B がイベントを出さなくてもよい
-    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"]], ["uc_c"]))).toEqual([]);
-    // 操作が 1 つだけの作業も、長さ 1 の並びとして見る
-    const single = chainModel(["uc_b"], [], []);
-    const w = traceWarnings(single).find((x) => x.type === "chainEnd")!;
-    expect(w.reason).toBe("作業「作業A」の操作の並びが、操作「uc_b」で終わっていて、イベントが発生しません");
-    // 枝分かれは末尾ごとに見る
-    expect(chainEnds(chainModel(["uc_b", "uc_c", "uc_d"], [["uc_b", "uc_c"], ["uc_b", "uc_d"]], ["uc_c"]))).toEqual([["uc_d", ["act_a"]]]);
-    // 輪の中の末尾の無い並びは警告しない
-    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"], ["uc_c", "uc_b"]], []))).toEqual([]);
-    // 操作の無い作業は警告しない
-    expect(chainEnds(chainModel([], [], []))).toEqual([]);
-    // 自分自身への「次に」は結べない
-    expect(addRelation(chainModel(["uc_b"], [], []), { sourceId: "uc_b", targetId: "uc_b" }).ok).toBe(false);
-  });
-
-  it("作業に属さない自動の処理 (きっかけのイベント → 操作 → …) も、末尾がイベントを出さなければ「作業なし」として警告する", () => {
-    const w = traceWarnings(sample()).filter((x) => x.type === "chainEnd" && x.relatedIds.includes("ev_checkout_day"));
-    // サンプルの「請求金額を計算する」は「請求金額が計算された」を出すので警告しない
-    expect(w).toEqual([]);
+  it("作業の操作の並びや、イベントをきっかけにした自動の処理がイベントで終わらなくても警告しない", () => {
+    // 作業A: 操作B → 操作C (どちらもイベントを出さない)
+    expect(traceWarnings(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"]], []))).toEqual([]);
+    // 操作が 1 つだけの作業も警告しない
+    expect(traceWarnings(chainModel(["uc_b"], [], []))).toEqual([]);
+    // 自動の処理の末尾にイベントを出さない操作を足しても警告しない
     let m = sample();
     m = okModel(addElement(m, { kind: "usecase", name: "割引を当てる", id: "uc_x" }));
     m = okModel(addRelation(m, { sourceId: "uc_calc_charge", targetId: "uc_x" }));
-    const auto = traceWarnings(m).filter((x) => x.type === "chainEnd" && x.elementId === "uc_x");
-    expect(auto.map((x) => [x.relatedIds, x.reason])).toEqual([
-      [["ev_checkout_day"], "作業なし (イベント「チェックアウトの日になった」から) の処理が、操作「割引を当てる」で終わっていて、イベントが発生しません"],
-    ]);
+    expect(traceWarnings(m)).toEqual([]);
+    // 自分自身への「次に」は結べない
+    expect(addRelation(chainModel(["uc_b"], [], []), { sourceId: "uc_b", targetId: "uc_b" }).ok).toBe(false);
   });
 });

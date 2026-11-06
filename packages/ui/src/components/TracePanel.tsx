@@ -116,7 +116,7 @@ export function TracePanel() {
 }
 
 /** 警告の種類を並べる順 */
-const WARNING_ORDER: readonly TraceWarningType[] = ["businessActors", "chainEnd"];
+const WARNING_ORDER: readonly TraceWarningType[] = ["businessActors"];
 
 function WarningRow({ warning, element, related }: { warning: TraceWarning; element: Element; related: Element[] }) {
   return (

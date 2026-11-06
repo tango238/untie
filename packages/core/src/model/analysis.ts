@@ -193,6 +193,85 @@ export function screenInformationTables(model: UntieModel): { tables: ScreenInfo
   return { tables, systemsWithoutScreens };
 }
 
+/** イベントをきっかけにする操作と、その操作が属する作業 */
+export interface EventTrigger {
+  usecase: Element;
+  /** この操作を使う作業 (要素の並び順)。作業に属さない自動の処理なら空 */
+  activities: Element[];
+}
+
+export interface SystemEventRow {
+  event: Element;
+  /** システムが直接発生させる (システム → イベント) */
+  direct: boolean;
+  /** このシステムを対象にした操作のうち、このイベントを発生させるもの (要素の並び順) */
+  usecases: Element[];
+  /** このイベントをきっかけにする操作 (要素の並び順) */
+  triggers: EventTrigger[];
+}
+
+export interface SystemEventList {
+  system: Element;
+  /** 行: このシステムから発生するイベント (要素の並び順) */
+  rows: SystemEventRow[];
+}
+
+/**
+ * システムごとに、そのシステムから発生するイベントを並べる (情報の所在の分析ボードの 3 つ目の一覧)。
+ * 発生のしかたは 2 つ: システムが直接発生させる (systemEvent) と、そのシステムを対象にした操作が発生させる (usecaseEvent)。
+ * 操作の対象のシステムは、対象がシステムならそのシステム、画面ならその画面が属するシステム (帳票はシステムではないので数えない)。
+ * イベントの無いシステムは systemsWithoutEvents に、どのシステムにもつながらないイベントは eventsWithoutSystem に並べる
+ */
+export function systemEventLists(model: UntieModel): { lists: SystemEventList[]; systemsWithoutEvents: Element[]; eventsWithoutSystem: Element[] } {
+  const order = new Map(model.elements.map((e, i) => [e.id, i]));
+  const get = lookup(model);
+  const byOrder = (ids: Iterable<string>) => [...new Set(ids)].map((id) => get(id)).filter((e): e is Element => !!e).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  /** 操作の対象のシステム (無ければ null) */
+  const systemOfUsecase = (usecaseId: string): string | null => {
+    for (const r of model.relations) {
+      if (r.sourceId !== usecaseId) continue;
+      if (r.kind === "usecaseSystem" && get(r.targetId)?.kind === "system") return r.targetId;
+      if (r.kind === "usecaseScreen") {
+        const screen = get(r.targetId);
+        if (screen && "systemId" in screen && screen.systemId) return screen.systemId;
+      }
+    }
+    return null;
+  };
+  const triggersOf = (eventId: string): EventTrigger[] =>
+    byOrder(targetsOf(model, "eventUsecase", eventId))
+      .filter((u) => u.kind === "usecase")
+      .map((usecase) => ({ usecase, activities: byOrder(sourcesOf(model, "activityUsecase", usecase.id)).filter((a) => a.kind === "activity") }));
+
+  const linked = new Set<string>();
+  const lists: SystemEventList[] = [];
+  const systemsWithoutEvents: Element[] = [];
+  for (const sys of byKind(model, "system")) {
+    const direct = new Set(targetsOf(model, "systemEvent", sys.id));
+    const viaUsecase = new Map<string, string[]>();
+    for (const r of model.relations) {
+      if (r.kind !== "usecaseEvent" || systemOfUsecase(r.sourceId) !== sys.id) continue;
+      viaUsecase.set(r.targetId, [...(viaUsecase.get(r.targetId) ?? []), r.sourceId]);
+    }
+    const events = byOrder([...direct, ...viaUsecase.keys()]).filter((e) => e.kind === "event");
+    if (events.length === 0) {
+      systemsWithoutEvents.push(sys);
+      continue;
+    }
+    for (const e of events) linked.add(e.id);
+    lists.push({
+      system: sys,
+      rows: events.map((event) => ({
+        event,
+        direct: direct.has(event.id),
+        usecases: byOrder(viaUsecase.get(event.id) ?? []),
+        triggers: triggersOf(event.id),
+      })),
+    });
+  }
+  return { lists, systemsWithoutEvents, eventsWithoutSystem: byKind(model, "event").filter((e) => !linked.has(e.id)) };
+}
+
 // ---------------------------------------------------------------- 3. 課題の分布
 
 export interface IssueSpot {

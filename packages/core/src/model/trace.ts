@@ -2,7 +2,7 @@
 // つながりは必須にしない (上から順に書き出していく途中の状態を許す) ので、
 // 辿り着けない要素と、どこで途切れているかを一覧にして知らせる。
 // 作業は担当 (担い手) を必ず持つ。業務を通って辿れても、担当が無ければ途切れとする。
-// 辿れるかのエラーとは別に、警告 (traceWarnings) を知らせる: 1 つの業務に複数のアクター、イベントで終わらない操作の連鎖。
+// 辿れるかのエラーとは別に、警告 (traceWarnings) を知らせる: 1 つの業務に複数のアクター。
 import { ELEMENT_KIND_LABELS, isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /** 検証の対象にしない要素 (課題は対象要素に付くもの、既定 BUC は業務と一体) */
@@ -224,17 +224,16 @@ export function traceToActors(model: UntieModel): TraceResult {
 }
 
 /** 警告の種類 */
-export type TraceWarningType = "businessActors" | "chainEnd";
+export type TraceWarningType = "businessActors";
 
 /** 警告 (エラーではない)。辿れるかには数えず、直さなくても保存や編集はできる */
 export interface TraceWarning {
   type: TraceWarningType;
-  /** 警告の対象の要素 (業務 / 連鎖の末尾の操作) */
+  /** 警告の対象の要素 (業務) */
   elementId: string;
   /**
    * 関わる要素の id。
-   * businessActors: その業務に付いているアクター (関係を結んだ順)。
-   * chainEnd: 連鎖の属する作業 (作業に属さない自動の処理なら、きっかけのイベント)
+   * businessActors: その業務に付いているアクター (関係を結んだ順)
    */
   relatedIds: string[];
   reason: string;
@@ -243,23 +242,21 @@ export interface TraceWarning {
 
 export const TRACE_WARNING_TITLES: Record<TraceWarningType, string> = {
   businessActors: "1 つの業務に複数のアクターが付いています",
-  chainEnd: "イベントで終わらない操作の連鎖",
 };
 
 /** 警告の種類ごとの、見出しの下に出す案内 */
 export const TRACE_WARNING_HINTS: Record<TraceWarningType, string> = {
   businessActors: "業務をアクターごとに分解できるか検討してください。",
-  chainEnd: "作業の操作を「次に」でつないだ並びの最後の操作が、どのイベントも発生させていません。結果をイベントで表せるか検討してください。",
 };
 
 const nameOf = (byId: Map<string, Element>, id: string) => `「${byId.get(id)?.name || "(名前なし)"}」`;
 
 /**
- * 警告を、種類ごと (業務の主担当 → 操作の連鎖) に、要素の並び順で返す。
+ * 警告を、種類ごとに、要素の並び順で返す。
  * 辿り着けない (エラー) ではないので、traceToActors の結果には入れない
  */
 export function traceWarnings(model: UntieModel): TraceWarning[] {
-  return [...businessActorWarnings(model), ...chainEndWarnings(model)];
+  return [...businessActorWarnings(model)];
 }
 
 /** 1 つの業務に複数のアクターが付いている (主担当が 1 人に決まっていない) */
@@ -285,93 +282,6 @@ function businessActorWarnings(model: UntieModel): TraceWarning[] {
       relatedIds: actorIds,
       reason: `主担当のアクターが ${actorIds.length} 人います: ${actorIds.map((id) => nameOf(byId, id)).join("、")}`,
       fix: "業務に結ぶ主担当は 1 人にしてください。ほかの人は、作業の担当として作業に結びます。",
-    });
-  }
-  return warnings;
-}
-
-/** 作業の中 (作業が使う操作どうし) で、「次に」で続く操作が無いもの (連鎖の末尾)。輪の中の操作は末尾にならない */
-function chainEnds(usecaseIds: readonly string[], nextOf: Map<string, string[]>): string[] {
-  const members = new Set(usecaseIds);
-  return usecaseIds.filter((id) => !(nextOf.get(id) ?? []).some((n) => members.has(n) && n !== id));
-}
-
-/**
- * 作業の中の操作の連鎖 (「次に」でつないだ並び) の末尾の操作が、どのイベントも発生させていない。
- * 操作が 1 つだけの作業も、長さ 1 の連鎖として数える。
- * 作業に属さない自動の処理 (きっかけのイベント → 操作 → …) も同じ規則で見る
- */
-function chainEndWarnings(model: UntieModel): TraceWarning[] {
-  const byId = new Map(model.elements.map((e) => [e.id, e]));
-  const nextOf = new Map<string, string[]>();
-  const emits = new Set<string>();
-  const usecasesOf = new Map<string, string[]>();
-  const inActivity = new Set<string>();
-  const triggered = new Map<string, string[]>();
-  for (const r of model.relations) {
-    if (r.kind === "usecaseNext") nextOf.set(r.sourceId, [...(nextOf.get(r.sourceId) ?? []), r.targetId]);
-    if (r.kind === "usecaseEvent") emits.add(r.sourceId);
-    if (r.kind === "activityUsecase" && byId.get(r.targetId)?.kind === "usecase") {
-      usecasesOf.set(r.sourceId, [...(usecasesOf.get(r.sourceId) ?? []), r.targetId]);
-      inActivity.add(r.targetId);
-    }
-    if (r.kind === "eventUsecase") triggered.set(r.targetId, [...(triggered.get(r.targetId) ?? []), r.sourceId]);
-  }
-  const order = new Map(model.elements.map((e, i) => [e.id, i]));
-  const byOrder = (ids: Iterable<string>) => [...new Set(ids)].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
-
-  const warnings: TraceWarning[] = [];
-  for (const act of model.elements) {
-    if (act.kind !== "activity") continue;
-    const ucs = byOrder(usecasesOf.get(act.id) ?? []);
-    for (const end of chainEnds(ucs, nextOf)) {
-      if (emits.has(end)) continue;
-      warnings.push({
-        type: "chainEnd",
-        elementId: end,
-        relatedIds: [act.id],
-        reason: `作業${nameOf(byId, act.id)}の操作の並びが、操作${nameOf(byId, end)}で終わっていて、イベントが発生しません`,
-        fix: "操作のプロパティ欄の「関係を追加」で、発生するイベントを結んでください (結果がイベントにならない操作なら、そのままでかまいません)。",
-      });
-    }
-  }
-
-  // 作業に属さない自動の処理: きっかけのあるイベントから、作業に属さない操作を「次に」でたどる
-  const auto = new Set<string>();
-  const queue = byOrder([...triggered.keys()].filter((id) => !inActivity.has(id) && byId.get(id)?.kind === "usecase"));
-  for (const id of queue) auto.add(id);
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    for (const n of nextOf.get(id) ?? []) {
-      if (auto.has(n) || inActivity.has(n) || byId.get(n)?.kind !== "usecase") continue;
-      auto.add(n);
-      queue.push(n);
-    }
-  }
-  const autoIds = byOrder(auto);
-  for (const end of chainEnds(autoIds, nextOf)) {
-    if (emits.has(end)) continue;
-    // 連鎖の始まりのイベント (end までさかのぼって、きっかけのイベントを集める)
-    const starts = new Set<string>();
-    const seen = new Set<string>([end]);
-    const back = [end];
-    while (back.length > 0) {
-      const id = back.pop()!;
-      for (const ev of triggered.get(id) ?? []) starts.add(ev);
-      for (const r of model.relations) {
-        if (r.kind === "usecaseNext" && r.targetId === id && auto.has(r.sourceId) && !seen.has(r.sourceId)) {
-          seen.add(r.sourceId);
-          back.push(r.sourceId);
-        }
-      }
-    }
-    const startIds = byOrder(starts);
-    warnings.push({
-      type: "chainEnd",
-      elementId: end,
-      relatedIds: startIds,
-      reason: `作業なし (イベント${startIds.map((id) => nameOf(byId, id)).join("、")}から) の処理が、操作${nameOf(byId, end)}で終わっていて、イベントが発生しません`,
-      fix: "操作のプロパティ欄の「関係を追加」で、発生するイベントを結んでください (結果がイベントにならない操作なら、そのままでかまいません)。",
     });
   }
   return warnings;

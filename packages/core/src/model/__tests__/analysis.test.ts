@@ -7,6 +7,7 @@ import {
   parseAnalysisBoardId,
   performerWorkList,
   screenInformationTables,
+  systemEventLists,
 } from "../analysis";
 import { addElement, addRelation, removeRelation, setIssueTargets } from "../commands";
 import { createNetshopSample } from "../../sample";
@@ -82,7 +83,7 @@ describe("課題の分布", () => {
   });
 });
 
-describe("画面と情報 (システムごと)", () => {
+describe("画面と情報", () => {
   it("システムごとに、行は画面、列はその画面が扱う情報。画面の無いシステムは表を作らず並べる", () => {
     const m = createNetshopSample();
     const { tables, systemsWithoutScreens } = screenInformationTables(m);
@@ -113,5 +114,34 @@ describe("画面と情報 (システムごと)", () => {
     expect(a.cells.get("info_cleaning_record")).toBe("noPlace");
     expect(a.noInformation).toBe(false);
     expect(pms.rows.find((r) => r.screen.id === "scr_b")!.noInformation).toBe(true);
+  });
+});
+
+describe("情報の所在: システムのイベント", () => {
+  it("システムごとに、直接発生させるイベントと、そのシステムを対象にした操作 (画面を通すものも) が発生させるイベントを並べ、きっかけにする操作と作業を添える", () => {
+    const { lists, systemsWithoutEvents, eventsWithoutSystem } = systemEventLists(createNetshopSample());
+    expect(lists.map((l) => l.system.name)).toEqual(["販売管理システム", "決済サービス", "会計システム"]);
+    expect(systemsWithoutEvents.map((s) => s.name)).toEqual(["自社サイトのカート", "モールの管理画面"]);
+    expect(eventsWithoutSystem).toEqual([]);
+    const accounting = lists.find((l) => l.system.id === "sys_accounting")!;
+    const closed = accounting.rows.find((r) => r.event.name === "月次の締めが済んだ")!;
+    // 会計システムが直接発生させる
+    expect([closed.direct, names(closed.usecases)]).toEqual([true, []]);
+    expect(closed.triggers.map((t) => [t.usecase.name, names(t.activities)])).toEqual([["損益計算書を見る", ["損益を確認する"]]]);
+    // 操作から: 対象の画面が販売管理システムに属する操作。きっかけにするのは作業に属さない自動の処理
+    const sales = lists.find((l) => l.system.id === "sys_oms")!;
+    const fixed = sales.rows.find((r) => r.event.name === "注文が確定した")!;
+    expect([fixed.direct, names(fixed.usecases)]).toEqual([false, ["注文を確定する"]]);
+    expect(fixed.triggers.map((t) => [t.usecase.name, names(t.activities)])).toEqual([["在庫を引き当てる", []]]);
+  });
+
+  it("帳票を対象にした操作のイベントや、何にもつながらないイベントは、システムにつながらないイベントに並べる", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "usecase", name: "清掃を記録する", id: "uc_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_x", targetId: "ldg_cleaning_sheet" }));
+    m = okModel(addElement(m, { kind: "event", name: "清掃が記録された", id: "ev_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_x", targetId: "ev_x" }));
+    m = okModel(addElement(m, { kind: "event", name: "ひとりのイベント", id: "ev_y" }));
+    expect(names(systemEventLists(m).eventsWithoutSystem)).toEqual(["清掃が記録された", "ひとりのイベント"]);
   });
 });

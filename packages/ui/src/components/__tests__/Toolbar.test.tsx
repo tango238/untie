@@ -326,7 +326,7 @@ describe("キーボードショートカット", () => {
     });
     render(<Toolbar />);
     const btn = screen.getByRole("button", { name: /^検証/ });
-    // エラーは無いので、エラーの印は出ず、警告 (サンプルのイベントの連鎖の警告と、足した主担当の警告) の印だけ
+    // エラーは無いので、エラーの印は出ず、警告 (足した主担当の警告) の印だけ
     expect(btn.querySelector(".toolbar-count:not(.is-warning)")).toBeNull();
     const badge = within(btn).getByTitle("警告 (エラーではありません)");
     expect(badge.className).toContain("is-warning");

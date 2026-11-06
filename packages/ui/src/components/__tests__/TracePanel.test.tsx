@@ -37,17 +37,9 @@ describe("TracePanel", () => {
 });
 
 describe("TracePanel の警告", () => {
-  it("サンプル (宿泊施設) は、主担当の警告を出さず、イベントで終わらない連鎖の警告を出す", () => {
+  it("サンプル (宿泊施設) は警告を出さない (操作の連鎖がイベントで終わらなくても警告しない)", () => {
     render(<TracePanel />);
-    const region = screen.getByRole("region", { name: "警告" });
-    expect(within(region).queryByTestId("warnings-businessActors")).toBeNull();
-    const chain = within(region).getByTestId("warnings-chainEnd");
-    expect(within(chain).getByText(/^警告: イベントで終わらない操作の連鎖 \(\d+\)$/)).toBeDefined();
-    expect(within(chain).getByText(/最後の操作が、どのイベントも発生させていません/)).toBeDefined();
-    // 行には連鎖の末尾の操作と、属する作業を出す
-    const row = within(chain).getByTestId("warning-chainEnd-uc_record_checkout");
-    expect(within(row).getByRole("button", { name: "チェックアウトを記録する" })).toBeDefined();
-    expect(within(row).getByRole("button", { name: "鍵を回収する" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "警告" })).toBeNull();
   });
 
   it("1 つの業務に複数のアクターが付くと [警告] に出す。エラーではないので辿れるかの件数には数えず、クリックで固定ボードへ移る", () => {

@@ -441,6 +441,12 @@ textarea { resize: vertical; width: 100%; }
 .an-noplace { color: #8a6414; font-weight: 600; }
 .an-list { display: inline-flex; flex-wrap: wrap; gap: 2px 6px; }
 .an-no-screens { margin-top: 4px; }
+.an-role.role-direct { background: #f6ecd9; color: #7a5a1f; }
+.an-role.role-usecase { background: #ece6f5; color: #5a4685; }
+.an-via, .an-trigger { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+.an-event-table { table-layout: fixed; width: 100%; }
+.an-event-table th:first-child { width: 28%; }
+.an-event-table thead th:nth-child(2) { width: 34%; }
 .an-bar { display: inline-block; width: 120px; height: 8px; background: #eee9e0; border-radius: 4px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
 .an-bar-fill { display: block; height: 100%; background: var(--sev-3); }
 .an-bar-fill.sev-1 { background: var(--sev-1); }
