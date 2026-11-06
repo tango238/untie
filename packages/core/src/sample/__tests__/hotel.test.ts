@@ -11,10 +11,14 @@ describe("宿泊施設サンプル", () => {
     expect(checkIntegrity(hotelSample)).toEqual([]);
   });
 
-  it("すべての要素が担い手まで辿れて、警告も出ない (画面の「検証」が空)", () => {
+  it("すべての要素が担い手まで辿れて、イベントの連鎖のほかに警告が出ない", () => {
     expect(traceToActors(hotelSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
-    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
-    expect(traceWarnings(hotelSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
+    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)。イベントで終わらない連鎖の警告は、見本のネットショップ以外では残す
+    expect(
+      traceWarnings(hotelSample)
+        .filter((w) => w.type !== "chainEnd")
+        .map((w) => `${w.elementId}: ${w.reason}`),
+    ).toEqual([]);
   });
 
   it("設計書 7 章の件数どおり", () => {
@@ -35,9 +39,13 @@ describe("宿泊施設サンプル", () => {
     expect(hotelSample.boards.map((b) => b.name)).toEqual(["全体", "予約からチェックアウトまで", "情報と状態"]);
   });
 
-  it("全ての関係の種類が使われている", () => {
+  it("0.1.0 からある関係の種類と、操作の対象 (usecaseSystem) がすべて使われている (新しい種類は見本のネットショップで使う)", () => {
     const kinds = new Set(hotelSample.relations.map((r) => r.kind));
-    expect(kinds.size).toBe(RELATION_KINDS.length);
+    const legacy = RELATION_KINDS.slice(0, RELATION_KINDS.indexOf("usecaseState") + 1);
+    for (const k of [...legacy, "usecaseSystem"] as const) expect(kinds.has(k), k).toBe(true);
+    // システムは作業の担当にならない
+    const kindOf = new Map(hotelSample.elements.map((e) => [e.id, e.kind]));
+    expect(hotelSample.relations.some((r) => r.kind === "actorActivity" && kindOf.get(r.sourceId) === "system")).toBe(false);
   });
 
   it("「滞在中の対応」にだけ既定でない活動があり、その業務の作業はすべて活動に入っている", () => {

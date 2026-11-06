@@ -31,11 +31,14 @@ import { globalFilterScope } from "@untie/core/model/lineage";
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
-  actor: "作業の担い手 (アクター・外部アクター・システム) と、情報の置き場所 (システム・帳票) を並べます。",
+  actor: "作業の担い手 (アクター・外部アクター) と、操作の対象・情報の置き場所 (システム・帳票) を並べます。",
   business: "アクターごとに、主担当の業務を並べます。業務 = 部門や担当で分かれる仕事の大きなまとまり。",
   buc: "業務ごとに活動を並べます。活動 = 1 つの目的を果たす作業のまとまり。",
-  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人 (または 1 つのシステム) が一続きでやり終える手順。",
-  usecase: "活動ごとに区切り、作業ごとに使う操作を並べます。操作 = システムや帳票に対して行う 1 回の操作。",
+  activity: "活動ごとに (活動の無い業務は業務ごとに) 作業を並べます。作業 = 1 人が一続きでやり終える手順。",
+  usecase:
+    "活動ごとに区切り、作業ごとに操作とイベントを連鎖の順 (きっかけのイベント → 操作 → 発生するイベント) に並べます。操作 = システムや帳票に対して行う 1 回の操作。イベント = 操作やシステムが発生させる出来事。",
+  screen: "システムごとに画面を並べます。画面 = システムの中で開いて使う 1 枚。操作が使い、情報を扱います。",
+  nfr: "システムごとに非機能要件を並べます。非機能要件 = 速さ・止まらなさ・守りなど、機能以外にシステムへ求める品質。",
   context: "コンテキストごとに、属する情報・条件・状態・バリエーションを並べます。枠から足したり、別のコンテキストから移したりできます。",
   information: "コンテキストごとに情報を並べます。カードには取得元・保存先のシステム・帳票を出します。情報 = 記録や書類に当たる情報のまとまり。",
   condition: "操作ごとに、判断に使う条件を並べます。条件 = はい・いいえで答えられる判断 1 つ分。",
@@ -283,6 +286,9 @@ function GroupView({
   const parentKind = parent?.kind ?? (group.link.type === "none" && group.parentId === null && group.key === group.childKind ? group.childKind : undefined);
   const contextMembers = group.link.type === "contextMembers";
   const canUnlink = !readOnly && (group.link.type === "relation" || (contextMembers && group.parentId !== null));
+  // 操作のボードの作業の枠は、操作とイベントを連鎖の順に並べ、つながっている要素の間に矢印を出す
+  const chained = new Set(group.chainedIds ?? []);
+  const fixedItems = new Set(group.fixedItemIds ?? []);
   const peers = usePeersSelecting(parent?.id);
   const candidates = linkCandidates(model, fullGroup);
   const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
@@ -327,7 +333,7 @@ function GroupView({
       {group.warning && <p className="fixed-group-warning">{group.warning}</p>}
       <ul className="fixed-cards">
         {group.items.map((e) => (
-          <li key={e.id} className="fixed-card-row">
+          <li key={e.id} className={`fixed-card-row${chained.has(e.id) ? " is-chained" : ""}`}>
             <FixedCard
               element={e}
               model={model}
@@ -339,7 +345,7 @@ function GroupView({
               readOnly={readOnly}
               onClick={() => choose(e.id)}
             />
-            {canUnlink && (
+            {canUnlink && !fixedItems.has(e.id) && (
               <button
                 type="button"
                 className="icon-button fixed-unlink"

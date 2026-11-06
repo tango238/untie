@@ -24,7 +24,7 @@ describe("ネットショップサンプル", () => {
     expect(count("externalActor")).toBe(3);
     expect(count("system")).toBe(5);
     expect(count("ledger")).toBe(2);
-    expect(count("buc")).toBe(7 + 3);
+    expect(count("buc")).toBe(7 + 2);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
     expect(count("information")).toBe(11);
@@ -32,6 +32,9 @@ describe("ネットショップサンプル", () => {
     expect(count("variation")).toBe(3);
     expect(count("condition")).toBe(3);
     expect(count("issue")).toBe(5);
+    expect(count("event")).toBe(20);
+    expect(count("screen")).toBe(10);
+    expect(count("nfr")).toBe(4);
     expect(netshopSample.boards.map((b) => b.name)).toEqual(["全体", "入荷から返品・問い合わせまで", "情報と状態"]);
   });
 
@@ -43,7 +46,7 @@ describe("ネットショップサンプル", () => {
   it("「受注処理」にだけ既定でない活動があり、その業務の作業はすべて活動に入っている", () => {
     const nonDefault = netshopSample.elements.filter((e) => e.kind === "buc" && !e.isDefault);
     expect(nonDefault.every((b) => b.kind === "buc" && b.businessId === "biz_order")).toBe(true);
-    expect(nonDefault).toHaveLength(3);
+    expect(nonDefault).toHaveLength(2);
     expect(netshopSample.elements.some((e) => e.kind === "activity" && e.bucId === "buc_default_order")).toBe(false);
   });
 
@@ -119,15 +122,29 @@ describe("ネットショップサンプル", () => {
     expect(goes("uc_record_refund", "st_ret_refunded")).toBe(true);
   });
 
-  it("会計システムが、売掛金の計上・入金の管理・消し込みを担当し、売掛金と入金を保存する", () => {
+  it("システムは作業の担当にならない。会計システムは売掛金の計上 (自動の処理)・入金の管理・消し込みの操作の対象になり、売掛金と入金を保存する", () => {
     const rels = netshopSample.relations;
-    for (const act of ["act_book_receivable", "act_manage_payment", "act_clear_receivable"]) {
-      expect(rels.some((r) => r.kind === "actorActivity" && r.sourceId === "sys_accounting" && r.targetId === act), act).toBe(true);
+    const kindOf = new Map(netshopSample.elements.map((e) => [e.id, e.kind]));
+    expect(rels.some((r) => r.kind === "actorActivity" && kindOf.get(r.sourceId) === "system")).toBe(false);
+    // 売掛金の計上は、出荷をきっかけにした自動の処理 (対象: 会計システム)
+    expect(rels.some((r) => r.kind === "eventUsecase" && r.sourceId === "ev_shipped" && r.targetId === "uc_register_receivable")).toBe(true);
+    expect(rels.some((r) => r.kind === "usecaseSystem" && r.sourceId === "uc_register_receivable" && r.targetId === "sys_accounting")).toBe(true);
+    // 入金の管理と消し込みは、会計システムの画面で行う (画面のシステムが対象)
+    for (const uc of ["uc_record_payout", "uc_clear_receivable"]) {
+      const screen = rels.find((r) => r.kind === "usecaseScreen" && r.sourceId === uc)?.targetId;
+      const sys = netshopSample.elements.find((e) => e.id === screen);
+      expect(sys?.kind === "screen" && sys.systemId, uc).toBe("sys_accounting");
     }
     for (const info of ["info_receivable", "info_payout"]) {
       expect(rels.some((r) => r.kind === "informationSystem" && r.sourceId === info && r.targetId === "sys_accounting"), info).toBe(true);
     }
-    expect(rels.some((r) => r.kind === "usecaseState" && r.sourceId === "uc_clear_receivable" && r.targetId === "st_rec_cleared")).toBe(true);
+  });
+
+  it("在庫の引き当ては、注文の確定をきっかけにした自動の処理で、在庫が引き当てられたイベントで終わる", () => {
+    const rels = netshopSample.relations;
+    expect(netshopSample.elements.some((e) => e.id === "act_allocate")).toBe(false);
+    expect(rels.some((r) => r.kind === "eventUsecase" && r.sourceId === "ev_order_confirmed" && r.targetId === "uc_allocate_stock")).toBe(true);
+    expect(rels.some((r) => r.kind === "usecaseEvent" && r.sourceId === "uc_allocate_stock" && r.targetId === "ev_stock_allocated")).toBe(true);
   });
 
   it("会計システムで損益計算書 (PL) と貸借対照表 (BS) を見られ、売掛金は BS に、売上は PL につながる", () => {

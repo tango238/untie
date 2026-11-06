@@ -110,7 +110,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "add_relation",
     description:
-      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor / system → activity は担当、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、system / ledger → information は取得元、information → system / ledger は保存先)。表に無い組み合わせは失敗する。",
+      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor → activity は担当 (システムは担当にならない)、usecase → system / ledger / screen は対象 (1 つの操作に 1 つだけ)、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、system / ledger → information は取得元、information → system / ledger は保存先)。表に無い組み合わせは失敗する。",
     parameters: {
       type: "object",
       properties: { source_id: str("始点の要素 id"), target_id: str("終点の要素 id") },

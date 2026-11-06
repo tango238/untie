@@ -18,10 +18,12 @@ export interface SpecUsecase extends SpecNamed {
   from_states?: string[];
   /** 実行後の状態 */
   to_states?: string[];
+  /** 対象のシステム・帳票 */
+  targets?: string[];
 }
 
 export interface SpecActivity extends SpecNamed {
-  /** 担当 (アクター・外部アクター・システムの名前) */
+  /** 担当 (アクター・外部アクターの名前。システムの名前が来たら、その作業の操作の対象にする) */
   performers?: string[];
   usecases?: SpecUsecase[];
 }
@@ -79,9 +81,10 @@ const usecaseSchema = named({
   conditions: names("判断に使う条件の名前 (conditions に定義したもの)"),
   from_states: names("この操作を実行できる状態の名前"),
   to_states: names("実行後に移る状態の名前"),
+  targets: names("操作の対象のシステム・帳票の名前 (systems / ledgers に定義したもの)。1 つだけ"),
 });
 const activitySchema = named({
-  performers: names("担当する担い手の名前 (actors / external_actors / systems に定義したもの)。必ず 1 つ以上"),
+  performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
   usecases: list(usecaseSchema, "この作業で使う操作 (システム・帳票に対する 1 回の操作)。同じ名前の操作は同じものとして扱う"),
 });
 
@@ -96,7 +99,7 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
       overview: { type: "string", description: "概要" },
       actors: list(named(), "社内の人の役割 (〇〇担当など)"),
       external_actors: list(named(), "社外の人・組織 (顧客・取引先など)"),
-      systems: list(named(), "情報システム (自社・社外を問わない)。作業の担当にも、情報の置き場所にもなる"),
+      systems: list(named(), "情報システム (自社・社外を問わない)。操作の対象と、情報の置き場所になる (作業の担当にはならない)"),
       ledgers: list(named(), "紙の台帳・伝票 (情報の置き場所)"),
       businesses: list(
         named({
@@ -251,10 +254,21 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   const addActivity = (a: SpecActivity, bucId: string) => {
     const id = add("activity", `activity:${bucId}`, a, { bucId });
     if (!id) return;
-    for (const n of a.performers ?? []) relate(ref(["actor"], n, "担当"), id);
+    // システムは作業の担当にならない (0.2.0)。担当に書かれたシステムは、その作業の操作の対象にする
+    const systemTargets: string[] = [];
+    for (const n of a.performers ?? []) {
+      const performer = ref(["actor"], n, "担当");
+      if (performer && model.elements.find((e) => e.id === performer)?.kind === "system") systemTargets.push(performer);
+      else relate(performer, id);
+    }
     for (const u of a.usecases ?? []) {
       const ucId = add("usecase", "usecase", u);
       relate(id, ucId);
+      // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
+      const targets = [...systemTargets.map((id) => ({ id })), ...(u.targets ?? []).map((n) => ({ name: n }))];
+      const [first, ...rest] = targets;
+      if (first) relate(ucId, "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象"));
+      if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
       for (const n of u.informations ?? []) relate(ucId, ref(["information"], n, "情報"));
       for (const n of u.conditions ?? []) relate(ucId, ref(["condition"], n, "条件"));
       for (const n of u.from_states ?? []) relate(ref(["state"], n, "状態"), ucId);

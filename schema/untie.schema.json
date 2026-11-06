@@ -12,13 +12,13 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.1.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.3.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.1.0"
+      "const": "0.3.0"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
-      "description": "全要素。kind で 11 種を判別する。id はモデル内で一意。",
+      "description": "全要素。kind で 17 種を判別する。id はモデル内で一意。",
       "type": "array",
       "items": { "$ref": "#/$defs/element" }
     },
@@ -79,7 +79,10 @@
         "state",
         "variation",
         "condition",
-        "issue"
+        "issue",
+        "event",
+        "screen",
+        "nfr"
       ]
     },
     "elementBase": {
@@ -109,7 +112,10 @@
         { "$ref": "#/$defs/state" },
         { "$ref": "#/$defs/variation" },
         { "$ref": "#/$defs/condition" },
-        { "$ref": "#/$defs/issue" }
+        { "$ref": "#/$defs/issue" },
+        { "$ref": "#/$defs/event" },
+        { "$ref": "#/$defs/screen" },
+        { "$ref": "#/$defs/nfr" }
       ]
     },
     "actor": {
@@ -137,7 +143,7 @@
       }
     },
     "system": {
-      "description": "システム。情報システム (自社・社外を問わない)。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。",
+      "description": "システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させ、情報の取得元・保存先 (置き場所) になる。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。",
       "type": "object",
       "required": ["id", "kind", "name"],
       "additionalProperties": false,
@@ -149,7 +155,7 @@
       }
     },
     "ledger": {
-      "description": "帳票。紙の台帳・伝票など。情報の取得元・保存先 (置き場所) にだけなり、作業の担当にはならない。",
+      "description": "帳票。紙の台帳・伝票など。操作の対象と、情報の取得元・保存先 (置き場所) になる。作業の担当にはならない。",
       "type": "object",
       "required": ["id", "kind", "name"],
       "additionalProperties": false,
@@ -329,7 +335,7 @@
       }
     },
     "issue": {
-      "description": "課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作が対象) に分かれる (対象が無ければ未整理)。",
+      "description": "課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。",
       "type": "object",
       "required": ["id", "kind", "name", "severity", "targetIds"],
       "additionalProperties": false,
@@ -345,12 +351,70 @@
           "maximum": 5
         },
         "targetIds": {
-          "description": "対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作だけ (混ぜない)。0 件も可 (未整理)。重複なし。",
+          "description": "対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。",
           "type": "array",
           "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         },
         "analysis": { "$ref": "#/$defs/issueAnalysis" }
+      }
+    },
+    "event": {
+      "description": "イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。",
+      "type": "object",
+      "required": ["id", "kind", "name", "contextId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "event" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "contextId": {
+          "description": "所属するコンテキストの id。未分類なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        }
+      }
+    },
+    "screen": {
+      "description": "画面。1 つのシステムに属する (systemId)。操作が使い、情報を扱う。",
+      "type": "object",
+      "required": ["id", "kind", "name", "systemId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "screen" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "systemId": {
+          "description": "属するシステムの id。必須 (帳票は画面を持たない)。",
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "nfr": {
+      "description": "非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。",
+      "type": "object",
+      "required": ["id", "kind", "name", "systemId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "nfr" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/description" },
+        "systemId": {
+          "description": "属するシステムの id。必須 (帳票は非機能要件を持たない)。",
+          "$ref": "#/$defs/id"
+        },
+        "category": {
+          "description": "分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。",
+          "type": "string",
+          "enum": ["availability", "performance", "operability", "migration", "security", "environment"]
+        },
+        "verification": {
+          "description": "検証方法。満たしていることをどう確かめるか。",
+          "type": "string",
+          "maxLength": 4000
+        }
       }
     },
     "issueAnalysis": {
@@ -390,11 +454,19 @@
         "conditionVariation",
         "conditionState",
         "stateUsecase",
-        "usecaseState"
+        "usecaseState",
+        "usecaseSystem",
+        "usecaseEvent",
+        "systemEvent",
+        "eventUsecase",
+        "usecaseNext",
+        "usecaseScreen",
+        "screenInformation",
+        "actorNfr"
       ]
     },
     "relation": {
-      "description": "型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可。",
+      "description": "型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」も不可)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。",
       "type": "object",
       "required": ["id", "kind", "sourceId", "targetId"],
       "additionalProperties": false,

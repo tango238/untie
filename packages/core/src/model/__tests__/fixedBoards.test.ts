@@ -11,7 +11,7 @@ import {
   unlinkFromGroup,
 } from "../fixedBoards";
 import { validateModel } from "../validate";
-import { moveActivity } from "../commands";
+import { addElement, addRelation, moveActivity } from "../commands";
 import { emptyModel } from "../types";
 import { okModel, sample } from "./helpers";
 
@@ -49,9 +49,9 @@ describe("fixedGroups", () => {
     const res = group(m, "context", "ctx_reservation");
     expect(res.items.map((e) => e.kind)).toEqual(["information", "condition", "state", "state", "state", "state", "state", "variation"]);
     expect(names(res.items)).toEqual(["予約", "取消料が発生する", "仮予約", "確定", "チェックイン済", "チェックアウト済", "取消", "予約経路"]);
-    // 4 種類とも枠から作れ、作るとそのコンテキストに属する
-    expect(res.addKinds).toEqual(["information", "condition", "state", "variation"]);
-    for (const kind of ["information", "condition", "state", "variation"] as const) {
+    // 5 種類 (イベントを含む) とも枠から作れ、作るとそのコンテキストに属する
+    expect(res.addKinds).toEqual(["information", "condition", "state", "variation", "event"]);
+    for (const kind of ["information", "condition", "state", "variation", "event"] as const) {
       const r = addToGroup(m, res, undefined, kind);
       if (!r.ok) throw new Error(r.reason);
       expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind, contextId: "ctx_reservation" });
@@ -151,7 +151,7 @@ describe("fixedGroups", () => {
     const sectionKeys = [...new Set(gs.map((g) => g.section?.key))];
     const bucOrder = fixedGroups(m, "activity").map((g) => g.key);
     // 段落は活動のボードと同じ並び (既定の活動 → 活動)
-    expect(sectionKeys.filter((k) => k !== "__none")).toEqual(bucOrder.filter((k) => sectionKeys.includes(k)));
+    expect(sectionKeys.filter((k) => k !== "__none" && k !== "__events")).toEqual(bucOrder.filter((k) => sectionKeys.includes(k)));
     // 同じ段落の枠は続けて並ぶ
     const runs = gs.filter((g, i) => i === 0 || g.section?.key !== gs[i - 1]!.section?.key).length;
     expect(runs).toBe(sectionKeys.length);
@@ -170,7 +170,62 @@ describe("fixedGroups", () => {
     const m = emptyModel();
     expect(fixedGroups(m, "buc")).toEqual([]);
     expect(fixedGroups(m, "activity").map((g) => g.title)).toEqual(["未所属"]);
-    expect(fixedGroups(m, "usecase").map((g) => [g.title, g.section?.key])).toEqual([["作業なし", "__none"]]);
+    expect(fixedGroups(m, "usecase").map((g) => [g.title, g.section?.key])).toEqual([
+      ["作業なし", "__none"],
+      ["すべてのイベント", "__events"],
+    ]);
+    // 画面・非機能要件はシステムの枠に並べるので、システムが無ければ枠も無い
+    expect(fixedGroups(m, "screen")).toEqual([]);
+    expect(fixedGroups(m, "nfr")).toEqual([]);
+  });
+
+  it("操作: 作業の枠に、操作とイベントを連鎖の順 (きっかけのイベント → 操作 (次に の順) → 発生するイベント) に並べる。イベントは枠から外せない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "event", name: "予約の申し込みが届いた", id: "ev_a" }));
+    m = okModel(addElement(m, { kind: "event", name: "予約が確定した", id: "ev_b" }));
+    // 作業「予約内容を確認する」: 予約を検索する → 予約を確定する
+    m = okModel(addRelation(m, { sourceId: "ev_a", targetId: "uc_search_reservation" }));
+    m = okModel(addRelation(m, { sourceId: "uc_search_reservation", targetId: "uc_confirm_reservation" }));
+    m = okModel(addRelation(m, { sourceId: "uc_confirm_reservation", targetId: "ev_b" }));
+    const g = group(m, "usecase", "act_confirm_reservation");
+    expect(names(g.items)).toEqual(["予約の申し込みが届いた", "予約を検索する", "予約を確定する", "予約が確定した"]);
+    expect(g.fixedItemIds).toEqual(["ev_a", "ev_b"]);
+    // 矢印は 1 つ前とつながっている要素の前にだけ出す (検索する ← 申し込みが届いた、確定する ← 検索する、確定した ← 確定する)
+    expect(g.chainedIds).toEqual(["uc_search_reservation", "uc_confirm_reservation", "ev_b"]);
+    // つながっていない操作の間には出さない
+    expect(group(sample(), "usecase", "act_confirm_reservation").chainedIds).toBeUndefined();
+    expect(unlinkFromGroup(m, g, "ev_b").ok).toBe(false);
+    // 操作は今までどおり枠から外せる
+    expect(unlinkFromGroup(m, g, "uc_confirm_reservation").ok).toBe(true);
+    // すべてのイベントの枠から、イベントを作れる
+    const events = fixedGroups(m, "usecase").find((x) => x.key === "__events")!;
+    expect(names(events.items)).toContain("予約が確定した");
+    const r = addToGroup(m, events);
+    expect(r.ok && r.model.elements.find((e) => e.id === r.id)?.kind).toBe("event");
+  });
+
+  it("操作: 作業に属さない自動の処理 (イベントがきっかけの操作) は「作業なし (イベントから)」の枠にまとめる", () => {
+    const m = sample();
+    const auto = fixedGroups(m, "usecase").find((g) => g.key === "__auto")!;
+    expect(auto.title).toBe("作業なし (イベントから)");
+    expect(names(auto.items)).toEqual(["チェックアウトの日になった", "請求金額を計算する", "請求金額が計算された"]);
+    // どの作業にも使われず、きっかけも無い操作の枠 (作業なし) には入らない
+    expect(fixedGroups(m, "usecase").find((g) => g.key === "__none")?.items.some((e) => e.id === "uc_calc_charge") ?? false).toBe(false);
+  });
+
+  it("画面・非機能要件: システムごとの枠に並べ、枠から作るとそのシステムに属する", () => {
+    let m = sample();
+    const pms = fixedGroups(m, "screen").find((g) => g.key === "sys_pms")!;
+    expect(pms).toMatchObject({ title: "宿泊管理システム", childKind: "screen", link: { type: "system", systemId: "sys_pms" } });
+    // 帳票は画面を持たない
+    expect(fixedGroups(m, "screen").map((g) => g.key)).not.toContain("ldg_guest_register");
+    const r = addToGroup(m, pms, "チェックイン画面");
+    if (!r.ok) throw new Error(r.reason);
+    m = r.model;
+    expect(m.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "screen", systemId: "sys_pms" });
+    expect(names(fixedGroups(m, "screen").find((g) => g.key === "sys_pms")!.items)).toEqual(["チェックイン画面"]);
+    const n = addToGroup(m, fixedGroups(m, "nfr").find((g) => g.key === "sys_pms")!, "夜間も止まらない");
+    expect(n.ok && n.model.elements.find((e) => e.id === n.id)).toMatchObject({ kind: "nfr", systemId: "sys_pms" });
   });
 });
 

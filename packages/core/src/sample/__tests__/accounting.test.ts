@@ -11,10 +11,14 @@ describe("経理業務サンプル", () => {
     expect(checkIntegrity(accountingSample)).toEqual([]);
   });
 
-  it("すべての要素が担い手まで辿れて、警告も出ない (画面の「検証」が空)", () => {
+  it("すべての要素が担い手まで辿れて、イベントの連鎖のほかに警告が出ない", () => {
     expect(traceToActors(accountingSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
-    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
-    expect(traceWarnings(accountingSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
+    // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)。イベントで終わらない連鎖の警告は、見本のネットショップ以外では残す
+    expect(
+      traceWarnings(accountingSample)
+        .filter((w) => w.type !== "chainEnd")
+        .map((w) => `${w.elementId}: ${w.reason}`),
+    ).toEqual([]);
   });
 
   it("業務・登場人物・課題などの件数", () => {
@@ -35,9 +39,13 @@ describe("経理業務サンプル", () => {
     expect(accountingSample.boards.map((b) => b.name)).toEqual(["全体", "請求・支払から決算まで", "情報と状態"]);
   });
 
-  it("全ての関係の種類が使われている", () => {
+  it("0.1.0 からある関係の種類と、操作の対象 (usecaseSystem) がすべて使われている (新しい種類は見本のネットショップで使う)", () => {
     const kinds = new Set(accountingSample.relations.map((r) => r.kind));
-    expect(kinds.size).toBe(RELATION_KINDS.length);
+    const legacy = RELATION_KINDS.slice(0, RELATION_KINDS.indexOf("usecaseState") + 1);
+    for (const k of [...legacy, "usecaseSystem"] as const) expect(kinds.has(k), k).toBe(true);
+    // システムは作業の担当にならない
+    const kindOf = new Map(accountingSample.elements.map((e) => [e.id, e.kind]));
+    expect(accountingSample.relations.some((r) => r.kind === "actorActivity" && kindOf.get(r.sourceId) === "system")).toBe(false);
   });
 
   it("「請求・売掛金管理」にだけ既定でない活動があり、その業務の作業はすべて活動に入っている", () => {
@@ -122,10 +130,11 @@ describe("経理業務サンプル", () => {
     expect(goes("uc_close_month", "st_month_closed")).toBe(true);
   });
 
-  it("会計システムが、売掛金と入金の管理・消し込みを担当し、売掛金・入金・仕訳などを保存する", () => {
+  it("会計システムが、売掛金と入金の管理・消し込みの操作の対象になり、売掛金・入金を保存する", () => {
     const rels = accountingSample.relations;
+    const usecasesOf = (act: string) => rels.filter((r) => r.kind === "activityUsecase" && r.sourceId === act).map((r) => r.targetId);
     for (const act of ["act_manage_receipt", "act_clear_receivable"]) {
-      expect(rels.some((r) => r.kind === "actorActivity" && r.sourceId === "sys_accounting" && r.targetId === act), act).toBe(true);
+      expect(usecasesOf(act).some((uc) => rels.some((r) => r.kind === "usecaseSystem" && r.sourceId === uc && r.targetId === "sys_accounting")), act).toBe(true);
     }
     for (const info of ["info_receivable", "info_receipt", "info_payable", "info_journal", "info_trial"]) {
       expect(rels.some((r) => r.kind === "informationSystem" && r.sourceId === info && r.targetId === "sys_accounting"), info).toBe(true);

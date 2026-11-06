@@ -24,8 +24,8 @@ describe("TracePanel", () => {
     render(<TracePanel />);
     expect(screen.getByText(/2 件が担い手 .*に辿り着けません。途切れている箇所は 1 件/)).toBeDefined();
     const row = screen.getByTestId("trace-act_x");
-    expect(within(row).getByText(/^担当 \(アクター・外部アクター・システム\) がいません$/)).toBeDefined();
-    expect(within(row).getByText(/担当のアクター・外部アクター・システムを結んでください/)).toBeDefined();
+    expect(within(row).getByText(/^担当 \(アクター・外部アクター\) がいません$/)).toBeDefined();
+    expect(within(row).getByText(/担当のアクター・外部アクターを結んでください/)).toBeDefined();
     // 別のレイヤーの要素はリンクにしない (そこでは直せないため)
     expect(within(row).queryByRole("button", { name: "孤立した操作" })).toBeNull();
     expect(within(row).getByText(/ほかに 1 件 \(操作 1\) も辿り着けません/)).toBeDefined();
@@ -37,9 +37,17 @@ describe("TracePanel", () => {
 });
 
 describe("TracePanel の警告", () => {
-  it("サンプルは警告を出さない", () => {
+  it("サンプル (宿泊施設) は、主担当の警告を出さず、イベントで終わらない連鎖の警告を出す", () => {
     render(<TracePanel />);
-    expect(screen.queryByRole("region", { name: "警告" })).toBeNull();
+    const region = screen.getByRole("region", { name: "警告" });
+    expect(within(region).queryByTestId("warnings-businessActors")).toBeNull();
+    const chain = within(region).getByTestId("warnings-chainEnd");
+    expect(within(chain).getByText(/^警告: イベントで終わらない操作の連鎖 \(\d+\)$/)).toBeDefined();
+    expect(within(chain).getByText(/最後の操作が、どのイベントも発生させていません/)).toBeDefined();
+    // 行には連鎖の末尾の操作と、属する作業を出す
+    const row = within(chain).getByTestId("warning-chainEnd-uc_record_checkout");
+    expect(within(row).getByRole("button", { name: "チェックアウトを記録する" })).toBeDefined();
+    expect(within(row).getByRole("button", { name: "鍵を回収する" })).toBeDefined();
   });
 
   it("1 つの業務に複数のアクターが付くと [警告] に出す。エラーではないので辿れるかの件数には数えず、クリックで固定ボードへ移る", () => {
@@ -49,10 +57,10 @@ describe("TracePanel の警告", () => {
     render(<TracePanel />);
     // 辿れるかは変わらない
     expect(screen.getByText(/が担い手 \(アクター／外部アクター／システム\) に辿り着けます/)).toBeDefined();
-    const region = screen.getByRole("region", { name: "警告" });
+    const region = within(screen.getByRole("region", { name: "警告" })).getByTestId("warnings-businessActors");
     expect(within(region).getByText("警告: 1 つの業務に複数のアクターが付いています (1)")).toBeDefined();
     expect(within(region).getByText("業務をアクターごとに分解できるか検討してください。")).toBeDefined();
-    const row = screen.getByTestId("warning-biz_reservation");
+    const row = screen.getByTestId("warning-businessActors-biz_reservation");
     expect(within(row).getByText("主担当のアクターが 2 人います: 「予約担当」、「支配人」")).toBeDefined();
     expect(within(row).getByText(/業務に結ぶ主担当は 1 人にしてください/)).toBeDefined();
     // 業務と付いているアクターを、それぞれ直せる固定ボードへのリンクにする

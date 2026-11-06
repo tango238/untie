@@ -26,9 +26,12 @@ export type {
   UntieModel,
   Usecase,
   Variation,
+  Event as EventElement,
+  Screen,
+  Nfr,
 } from "./schema";
 
-/** 要素の種類 (14 種) */
+/** 要素の種類 (17 種) */
 export type ElementKind = Element["kind"];
 
 /** 種類 K の要素の型 */
@@ -39,15 +42,15 @@ export type FrameKind = "business" | "buc";
 
 /** 全体的な課題の対象になれる種類 (登場人物) */
 export type OverallIssueTargetKind = "actor" | "externalActor" | "system" | "ledger";
-/** 具体的な課題の対象になれる種類 (業務・作業・操作) */
-export type SpecificIssueTargetKind = "business" | "activity" | "usecase";
+/** 具体的な課題の対象になれる種類 (業務・作業・操作・画面) */
+export type SpecificIssueTargetKind = "business" | "activity" | "usecase" | "screen";
 /** 課題の対象になれる種類 */
 export type IssueTargetKind = OverallIssueTargetKind | SpecificIssueTargetKind;
 
 /**
  * 課題の区分。対象の種類から決まる (モデルには保存しない)
  * - overall: 全体的な課題 (登場人物が対象)
- * - specific: 具体的な課題 (業務・作業・操作が対象)
+ * - specific: 具体的な課題 (業務・作業・操作・画面が対象)
  * - unsorted: 未整理 (対象がまだ無い)
  */
 export type IssueScope = "overall" | "specific" | "unsorted";
@@ -67,6 +70,9 @@ export const ELEMENT_KINDS: readonly ElementKind[] = [
   "variation",
   "condition",
   "issue",
+  "event",
+  "screen",
+  "nfr",
 ];
 
 export const RELATION_KINDS: readonly RelationKind[] = [
@@ -83,6 +89,14 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "conditionState",
   "stateUsecase",
   "usecaseState",
+  "usecaseSystem",
+  "usecaseEvent",
+  "systemEvent",
+  "eventUsecase",
+  "usecaseNext",
+  "usecaseScreen",
+  "screenInformation",
+  "actorNfr",
 ];
 
 export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
@@ -100,10 +114,27 @@ export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
   variation: "バリエーション",
   condition: "条件",
   issue: "課題",
+  event: "イベント",
+  screen: "画面",
+  nfr: "非機能要件",
+};
+
+/** 非機能要件の分類 (IPA 非機能要求グレードの大項目) */
+export type NfrCategory = NonNullable<import("./schema").Nfr["category"]>;
+
+export const NFR_CATEGORIES: readonly NfrCategory[] = ["availability", "performance", "operability", "migration", "security", "environment"];
+
+export const NFR_CATEGORY_LABELS: Record<NfrCategory, string> = {
+  availability: "可用性",
+  performance: "性能・拡張性",
+  operability: "運用・保守性",
+  migration: "移行性",
+  security: "セキュリティ",
+  environment: "システム環境・エコロジー",
 };
 
 export const OVERALL_ISSUE_TARGET_KINDS: readonly OverallIssueTargetKind[] = ["actor", "externalActor", "system", "ledger"];
-export const SPECIFIC_ISSUE_TARGET_KINDS: readonly SpecificIssueTargetKind[] = ["business", "activity", "usecase"];
+export const SPECIFIC_ISSUE_TARGET_KINDS: readonly SpecificIssueTargetKind[] = ["business", "activity", "usecase", "screen"];
 export const ISSUE_TARGET_KINDS: readonly IssueTargetKind[] = [...OVERALL_ISSUE_TARGET_KINDS, ...SPECIFIC_ISSUE_TARGET_KINDS];
 
 export const ISSUE_SCOPES: readonly IssueScope[] = ["unsorted", "overall", "specific"];
@@ -117,7 +148,7 @@ export const ISSUE_SCOPE_LABELS: Record<IssueScope, string> = {
 /** 区分ごとの対象の説明 */
 export const ISSUE_SCOPE_TARGETS: Record<IssueScope, string> = {
   overall: "登場人物 (アクター・外部アクター・システム・帳票) が対象",
-  specific: "業務・作業・操作が対象",
+  specific: "業務・作業・操作・画面が対象",
   unsorted: "対象をまだ決めていない",
 };
 
@@ -144,10 +175,17 @@ export function isFrameKind(kind: ElementKind): kind is FrameKind {
 }
 
 /** コンテキストに属する種類 */
-export type ContextMemberKind = "information" | "state" | "condition" | "variation";
+export type ContextMemberKind = "information" | "state" | "condition" | "variation" | "event";
 
 export function isContextMemberKind(kind: ElementKind): kind is ContextMemberKind {
-  return kind === "information" || kind === "state" || kind === "condition" || kind === "variation";
+  return kind === "information" || kind === "state" || kind === "condition" || kind === "variation" || kind === "event";
+}
+
+/** システムに属する種類 (systemId で属するシステムを指す。システムを消すと一緒に消える) */
+export type SystemMemberKind = "screen" | "nfr";
+
+export function isSystemMemberKind(kind: ElementKind): kind is SystemMemberKind {
+  return kind === "screen" || kind === "nfr";
 }
 
 export function isIssueTargetKind(kind: ElementKind): kind is IssueTargetKind {
@@ -175,7 +213,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.1.0";
+export const MODEL_VERSION = "0.3.0";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

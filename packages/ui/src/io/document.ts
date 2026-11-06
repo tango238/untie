@@ -16,7 +16,7 @@ export function serializeModel(model: UntieModel): string {
  */
 export function parseModel(
   text: string,
-): { ok: true; model: UntieModel; from: string | null; migrated: boolean } | { ok: false; errors: string[] } {
+): { ok: true; model: UntieModel; from: string | null; migrated: boolean; notes: string[] } | { ok: false; errors: string[] } {
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -70,7 +70,7 @@ function loadOpened(opened: OpenedFile): boolean {
   st.loadDocument(parsed.model, { path: opened.path, name: opened.name });
   st.pushToast(
     parsed.migrated
-      ? `「${opened.name}」を開きました (古い形式 ${parsed.from} から ${parsed.model.version} に変換しました。保存すると新しい形式で書き出します)`
+      ? `「${opened.name}」を開きました (古い形式 ${parsed.from} から ${parsed.model.version} に変換しました。${parsed.notes.map((n) => `${n}。`).join("")}保存すると新しい形式で書き出します)`
       : `「${opened.name}」を開きました`,
     "info",
   );

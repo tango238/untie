@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { removeFromBoard, moveActivity, placeOnBoard } from "@untie/core/model/commands";
-import { createHotelSample } from "@untie/core/sample";
+import { createHotelSample, createNetshopSample } from "@untie/core/sample";
 import { okModel } from "@untie/core/testing";
 import { sampleWithActorCards } from "../../../test/utils";
 import {
@@ -9,8 +9,7 @@ import {
   descendantElementIds,
   parentFrameElementId,
   toModelPosition,
-  toRelativePosition,
-} from "../toFlow";
+  toRelativePosition, systemLabels } from "../toFlow";
 
 const sample = createHotelSample;
 
@@ -222,5 +221,19 @@ describe("buildFlowEdges", () => {
     const first = buildFlowEdges(m, "board_flow")[0]!;
     const edges = buildFlowEdges(m, "board_flow", { selectedRelationId: first.id });
     expect(edges.filter((e) => e.selected).map((e) => e.id)).toEqual([first.id]);
+  });
+});
+
+describe("systemLabels (操作の対象と画面)", () => {
+  it("操作の対象を出し、画面を使うときはそのシステムの画面名を隣に添える", () => {
+    const m = createNetshopSample();
+    const labels = systemLabels(m);
+    // 注文を登録する: 受注入力画面 (販売管理システム) を使う。モールの注文を確認する: モールの注文一覧 (モールの管理画面)
+    expect(labels.get("uc_register_order")).toEqual([{ name: "販売管理システム", kind: "system", role: "target", screens: ["受注入力画面"] }]);
+    expect(labels.get("uc_check_mall_order")).toEqual([{ name: "モールの管理画面", kind: "system", role: "target", screens: ["モールの注文一覧"] }]);
+    // 画面の無い自動の処理は、直接結んだ対象だけ (画面名は無い)
+    expect(labels.get("uc_allocate_stock")).toEqual([{ name: "販売管理システム", kind: "system", role: "target" }]);
+    // 情報の取得元・保存先には画面名を付けない
+    expect(labels.get("info_order")!.every((l) => l.screens === undefined)).toBe(true);
   });
 });

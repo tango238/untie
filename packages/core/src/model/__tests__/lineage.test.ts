@@ -64,8 +64,8 @@ describe("globalFilterScope (グローバルフィルター)", async () => {
     const both = globalFilterScope(m, { actor: ["actor_front"], business: ["biz_checkout"] })!;
     expect(both.has("act_settle")).toBe(true);
     expect(both.has("act_hand_key")).toBe(false);
-    // 担当は宿泊管理システムだが、フロント担当が主担当の業務「チェックアウト」の作業なので含む
-    expect(both.has("act_calc_charge")).toBe(true);
+    // 作業に属さない自動の処理 (請求金額を計算する) は、フロント担当にも業務にもつながらないので含まない
+    expect(both.has("uc_calc_charge")).toBe(false);
   });
 
   it("コンテキストを選ぶと、属する要素につながる操作・作業・担い手も残す", () => {
@@ -98,27 +98,35 @@ describe("expectedLayers (トレースに出す上下のレイヤー)", () => {
   it("種類ごとに、上下に来うるレイヤーを FIXED_LAYERS の順で返す", () => {
     expect(expectedLayers("activity")).toEqual({
       up: ["actor", "business", "buc"],
-      down: ["usecase", "information", "condition", "state", "variation"],
+      down: ["usecase", "screen", "information", "condition", "state", "variation"],
     });
     expect(expectedLayers("variation")).toEqual({
-      up: ["actor", "business", "buc", "activity", "usecase", "context", "information", "condition"],
+      up: ["actor", "business", "buc", "activity", "usecase", "screen", "context", "information", "condition"],
       down: [],
     });
-    // コンテキストは属する要素の上を上、属する要素を下とする
+    // コンテキストは属する要素の上を上、属する要素を下とする (イベントは操作のボードで扱うので、下のレイヤーには数えない)
     expect(expectedLayers("context")).toEqual({
-      up: ["actor", "business", "buc", "activity", "usecase"],
+      up: ["actor", "business", "buc", "activity", "usecase", "screen"],
       down: ["information", "condition", "state", "variation"],
     });
+    // 画面は属するシステムと使う操作の下、非機能要件は属するシステムと求める人の下
+    expect(expectedLayers("screen")).toEqual({
+      up: ["actor", "business", "buc", "activity", "usecase"],
+      down: ["information", "variation"],
+    });
+    expect(expectedLayers("nfr")).toEqual({ up: ["actor"], down: [] });
   });
 
   it("登場人物は種類ごとに、なれる役割の先だけを下に出す", () => {
     expect(expectedLayers("actor").up).toEqual([]);
-    // アクターは業務の主担当と作業の担当
-    expect(expectedLayers("actor").down).toEqual(["business", "buc", "activity", "usecase", "information", "condition", "state", "variation"]);
-    // 外部アクターは作業の担当だけ (業務の主担当にはならない)
-    expect(expectedLayers("externalActor").down).toEqual(["activity", "usecase", "information", "condition", "state", "variation"]);
-    // 帳票は情報の置き場所だけ
-    expect(expectedLayers("ledger").down).toEqual(["information", "variation"]);
+    // アクターは業務の主担当・作業の担当と、非機能要件を求める人
+    expect(expectedLayers("actor").down).toEqual(["business", "buc", "activity", "usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
+    // 外部アクターは作業の担当と、非機能要件を求める人 (業務の主担当にはならない)
+    expect(expectedLayers("externalActor").down).toEqual(["activity", "usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
+    // システムは操作の対象・情報の置き場所と、画面・非機能要件の持ち主 (作業の担当にはならない)
+    expect(expectedLayers("system").down).toEqual(["usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
+    // 帳票は操作の対象と情報の置き場所
+    expect(expectedLayers("ledger").down).toEqual(["usecase", "screen", "information", "condition", "state", "variation"]);
   });
 
   it("includeEmpty: つながる要素が無いレイヤーも空の行で出す。見つかった行はそのまま", () => {

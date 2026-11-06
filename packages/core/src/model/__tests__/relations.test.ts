@@ -7,7 +7,6 @@ describe("関係ルール", () => {
     ["actor", "business", "actorBusiness"],
     ["actor", "activity", "actorActivity"],
     ["externalActor", "activity", "actorActivity"],
-    ["system", "activity", "actorActivity"],
     ["activity", "usecase", "activityUsecase"],
     ["usecase", "information", "usecaseInformation"],
     ["usecase", "condition", "usecaseCondition"],
@@ -21,6 +20,17 @@ describe("関係ルール", () => {
     ["condition", "state", "conditionState"],
     ["state", "usecase", "stateUsecase"],
     ["usecase", "state", "usecaseState"],
+    // 0.2.0 から
+    ["usecase", "system", "usecaseSystem"],
+    ["usecase", "ledger", "usecaseSystem"],
+    ["usecase", "event", "usecaseEvent"],
+    ["system", "event", "systemEvent"],
+    ["event", "usecase", "eventUsecase"],
+    ["usecase", "usecase", "usecaseNext"],
+    ["usecase", "screen", "usecaseScreen"],
+    ["screen", "information", "screenInformation"],
+    ["actor", "nfr", "actorNfr"],
+    ["externalActor", "nfr", "actorNfr"],
   ];
 
   it.each(table)("%s → %s は %s", (s, t, kind) => {
@@ -34,6 +44,11 @@ describe("関係ルール", () => {
         if (!allowed.has(`${s}>${t}`)) expect(relationKindFor(s, t), `${s} → ${t}`).toBeNull();
       }
     }
+  });
+
+  it("システムは作業の担当にならない (0.2.0 から。操作の対象にする)", () => {
+    expect(relationKindFor("system", "activity")).toBeNull();
+    expect(relationKindFor("ledger", "activity")).toBeNull();
   });
 
   it("外部アクターは業務に引けず、逆向きも引けない", () => {

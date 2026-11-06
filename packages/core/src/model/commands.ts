@@ -10,6 +10,8 @@ import {
   isFrameKind,
   isContextMemberKind,
   isIssueTargetKind,
+  isSystemMemberKind,
+  NFR_CATEGORIES,
   ISSUE_ANALYSIS_KEYS,
   issueScopeOfKind,
   type Buc,
@@ -18,6 +20,7 @@ import {
   type ElementKind,
   type IssueAnalysis,
   type Link,
+  type NfrCategory,
   type UntieModel,
 } from "./types";
 
@@ -62,6 +65,11 @@ export interface ElementInit {
   businessId?: string;
   /** activity */
   bucId?: string | null;
+  /** screen / nfr (必須。属するシステム) */
+  systemId?: string;
+  /** nfr */
+  category?: NfrCategory;
+  verification?: string;
 }
 
 /** updateElement で変えられる項目 */
@@ -78,6 +86,10 @@ export interface ElementPatch {
   targetIds?: string[];
   /** issue。分析 (現象・所在・理由・影響)。指定した項目だけ変わり、空文字で消す。null で分析全体を消す */
   analysis?: Partial<IssueAnalysis> | null;
+  /** nfr。分類。null で未分類にする */
+  category?: NfrCategory | null;
+  /** nfr。検証方法。空文字で消す */
+  verification?: string;
 }
 
 const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> = {
@@ -95,6 +107,9 @@ const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> =
   variation: ["values"],
   condition: [],
   issue: ["severity", "targetIds", "analysis"],
+  event: [],
+  screen: [],
+  nfr: ["category", "verification"],
 };
 
 const fail = (reason: string): Fail => ({ ok: false, reason });
@@ -125,7 +140,7 @@ function checkIssueTargets(model: UntieModel, targetIds: readonly string[]): str
   for (const id of targetIds) {
     const t = findElement(model, id);
     if (!t) return `課題の対象が存在しません: ${id}`;
-    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは登場人物 (アクター・外部アクター・システム・帳票)・業務・作業・操作だけです";
+    if (!isIssueTargetKind(t.kind)) return "課題の対象にできるのは登場人物 (アクター・外部アクター・システム・帳票)・業務・作業・操作・画面だけです";
     scopes.add(issueScopeOfKind(t.kind));
   }
   // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は分けて扱う
@@ -212,6 +227,7 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     init.description === undefined ? null : checkLength("description", init.description),
     init.group === undefined ? null : checkLength("group", init.group),
     init.values === undefined ? null : checkValues(init.values),
+    init.verification === undefined ? null : checkLength("verification", init.verification),
   );
   if (tooLong) return fail(tooLong);
 
@@ -231,6 +247,11 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
     const buc = findElement(model, init.bucId);
     if (!buc || buc.kind !== "buc") return fail(`所属先の活動が存在しません: ${init.bucId}`);
   }
+  if (isSystemMemberKind(kind)) {
+    const sys = init.systemId ? findElement(model, init.systemId) : undefined;
+    if (!sys || sys.kind !== "system") return fail(`${kind === "screen" ? "画面" : "非機能要件"}には属するシステムが必要です`);
+  }
+  if (kind === "nfr" && init.category !== undefined && !NFR_CATEGORIES.includes(init.category)) return fail(`分類が不正です: ${init.category}`);
   if (isContextMemberKind(kind) && init.contextId) {
     const ctx = findElement(model, init.contextId);
     if (!ctx || ctx.kind !== "context") return fail(`所属先のコンテキストが存在しません: ${init.contextId}`);
@@ -261,7 +282,22 @@ export function addElement(model: UntieModel, payload: AddElementPayload): Comma
       element = { id, kind, name, ...description };
       break;
     case "condition":
+    case "event":
       element = { id, kind, name, contextId: init.contextId ?? null, ...description };
+      break;
+    case "screen":
+      element = { id, kind, name, systemId: init.systemId!, ...description };
+      break;
+    case "nfr":
+      element = {
+        id,
+        kind,
+        name,
+        systemId: init.systemId!,
+        ...description,
+        ...(init.category ? { category: init.category } : {}),
+        ...(init.verification ? { verification: init.verification } : {}),
+      };
       break;
     case "buc":
       element = { id, kind, name, businessId: init.businessId!, isDefault: false, ...description };
@@ -339,6 +375,7 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     patch.description === undefined ? null : checkLength("description", patch.description),
     patch.group === undefined ? null : checkLength("group", patch.group),
     patch.values === undefined ? null : checkValues(patch.values),
+    patch.verification === undefined ? null : checkLength("verification", patch.verification),
     ...(patch.analysis ? ISSUE_ANALYSIS_KEYS.map((key) => (patch.analysis![key] === undefined ? null : checkLength("analysis", patch.analysis![key]!.trim()))) : []),
   );
   if (tooLong) return fail(tooLong);
@@ -358,6 +395,7 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     const reason = checkIssueTargets(model, patch.targetIds);
     if (reason) return fail(reason);
   }
+  if (patch.category !== undefined && patch.category !== null && !NFR_CATEGORIES.includes(patch.category)) return fail(`分類が不正です: ${patch.category}`);
 
   const next = produce(model, (draft) => {
     const el = draft.elements.find((e) => e.id === payload.id)!;
@@ -393,6 +431,14 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       if (links.length === 0) delete el.links;
       else el.links = links;
     }
+    if (el.kind === "nfr") {
+      if (patch.category === null) delete el.category;
+      else if (patch.category !== undefined) el.category = patch.category;
+      if (patch.verification !== undefined) {
+        if (patch.verification.trim() === "") delete el.verification;
+        else el.verification = patch.verification;
+      }
+    }
     if (el.kind === "issue") {
       if (patch.severity !== undefined) el.severity = patch.severity;
       if (patch.targetIds !== undefined) el.targetIds = [...new Set(patch.targetIds)];
@@ -417,7 +463,7 @@ export interface RemoveElementPayload {
   id: string;
 }
 
-/** 要素と付随するもの (関係・ボードのノード・課題の対象・業務なら BUC) を消す */
+/** 要素と付随するもの (関係・ボードのノード・課題の対象・業務なら BUC・システムなら画面と非機能要件) を消す */
 export function removeElement(model: UntieModel, payload: RemoveElementPayload): CommandResult {
   const target = findElement(model, payload.id);
   if (!target) return fail(`要素が存在しません: ${payload.id}`);
@@ -433,6 +479,9 @@ export function removeElement(model: UntieModel, payload: RemoveElementPayload):
       for (const e of draft.elements) {
         if (e.kind === "activity" && e.bucId && bucIds.has(e.bucId)) e.bucId = null;
       }
+    } else if (target.kind === "system") {
+      // システムを消すと、属する画面と非機能要件も消える
+      for (const e of draft.elements) if (isSystemMemberKind(e.kind) && "systemId" in e && e.systemId === target.id) removed.add(e.id);
     } else if (target.kind === "context") {
       // コンテキストを消すと、所属していた要素は未分類になる
       for (const e of draft.elements) {
@@ -450,6 +499,26 @@ export function removeElement(model: UntieModel, payload: RemoveElementPayload):
 
     draft.elements = draft.elements.filter((e) => !removed.has(e.id));
     sweepReferences(draft, removed);
+  });
+  return { ok: true, model: next };
+}
+
+export interface MoveToSystemPayload {
+  /** 画面か非機能要件 */
+  elementId: string;
+  systemId: string;
+}
+
+/** 画面・非機能要件の属するシステムを変える */
+export function moveToSystem(model: UntieModel, payload: MoveToSystemPayload): CommandResult {
+  const target = findElement(model, payload.elementId);
+  if (!target || !isSystemMemberKind(target.kind)) return fail(`画面・非機能要件が存在しません: ${payload.elementId}`);
+  const sys = findElement(model, payload.systemId);
+  if (!sys || sys.kind !== "system") return fail(`システムが存在しません: ${payload.systemId}`);
+  if ("systemId" in target && target.systemId === payload.systemId) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const el = draft.elements.find((e) => e.id === payload.elementId);
+    if (el && "systemId" in el) el.systemId = payload.systemId;
   });
   return { ok: true, model: next };
 }
@@ -555,12 +624,51 @@ export function addRelation(model: UntieModel, payload: AddRelationPayload): Com
 
   const candidate = { kind, sourceId, targetId };
   if (model.relations.some((r) => sameRelation(r, candidate))) return fail("同じ関係がすでにあります");
+  if (isUsecaseTargetKind(kind) && model.relations.some((r) => isUsecaseTargetKind(r.kind) && r.sourceId === sourceId)) {
+    return fail(USECASE_TARGET_LIMIT_REASON);
+  }
 
   const id = payload.id ?? newUniqueId("relation", usedIds(model));
   const next = produce(model, (draft) => {
     draft.relations.push({ id, kind, sourceId, targetId });
   });
   return { ok: true, model: next, id };
+}
+
+/** 操作の対象の関係 (システム・帳票 / 画面)。1 つの操作に合わせて 1 本まで (0.3.0) */
+export function isUsecaseTargetKind(kind: string): kind is "usecaseSystem" | "usecaseScreen" {
+  return kind === "usecaseSystem" || kind === "usecaseScreen";
+}
+
+export const USECASE_TARGET_LIMIT_REASON = "操作の対象は 1 つだけです。今の対象を外してから結んでください";
+
+export interface SetUsecaseTargetPayload {
+  usecaseId: string;
+  /** システム・帳票・画面の id。null で対象を外す */
+  targetId: string | null;
+}
+
+/** 操作の対象 (システム・帳票・画面のどれか 1 つ) を入れ替える。前の対象の関係は消す (入れ替えで 1 件の履歴) */
+export function setUsecaseTarget(model: UntieModel, payload: SetUsecaseTargetPayload): CommandResult {
+  const uc = findElement(model, payload.usecaseId);
+  if (!uc || uc.kind !== "usecase") return fail(`操作が存在しません: ${payload.usecaseId}`);
+  const current = model.relations.filter((r) => isUsecaseTargetKind(r.kind) && r.sourceId === uc.id);
+  if (payload.targetId !== null) {
+    const target = findElement(model, payload.targetId);
+    if (!target || (target.kind !== "system" && target.kind !== "ledger" && target.kind !== "screen")) {
+      return fail(`対象にできるのはシステム・帳票・画面です: ${payload.targetId}`);
+    }
+    if (current.length === 1 && current[0]!.targetId === payload.targetId) return { ok: true, model };
+  } else if (current.length === 0) return { ok: true, model };
+  let next = model;
+  for (const r of current) {
+    const removed = removeRelation(next, { id: r.id });
+    if (!removed.ok) return removed;
+    next = removed.model;
+  }
+  if (payload.targetId === null) return { ok: true, model: next };
+  const added = addRelation(next, { sourceId: uc.id, targetId: payload.targetId });
+  return added.ok ? { ok: true, model: added.model } : added;
 }
 
 export interface RemoveRelationPayload {

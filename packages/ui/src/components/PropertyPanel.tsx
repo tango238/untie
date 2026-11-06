@@ -4,17 +4,20 @@ import {
   moveActivity,
   moveBuc,
   moveToContext,
+  moveToSystem,
   removeElement,
   removeFromBoard,
   removeRelation,
   setEdgeSides,
   setIssueTargets,
+  setUsecaseTarget,
+  isUsecaseTargetKind,
   updateElement,
 } from "@untie/core/model/commands";
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "@untie/core/model/relations";
 import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
-import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
+import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { activityHours, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
@@ -24,6 +27,10 @@ import {
   ELEMENT_KIND_LABELS,
   isContextMemberKind,
   isIssueTargetKind,
+  isSystemMemberKind,
+  NFR_CATEGORIES,
+  NFR_CATEGORY_LABELS,
+  type NfrCategory,
   issueScopeOfKind,
   ISSUE_ANALYSIS_KEYS,
   ISSUE_ANALYSIS_LABELS,
@@ -270,6 +277,35 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
         {isContextMemberKind(element.kind) && <ContextField element={element} model={model} />}
+        {isSystemMemberKind(element.kind) && <SystemField element={element} model={model} />}
+        {element.kind === "usecase" && <UsecaseTargetField usecaseId={element.id} model={model} />}
+        {element.kind === "nfr" && (
+          <>
+            <label className="field">
+              <span className="field-label">分類</span>
+              <select
+                aria-label="分類"
+                value={element.category ?? ""}
+                onChange={(e) => update({ category: (e.target.value || null) as NfrCategory | null })}
+              >
+                <option value="">未分類</option>
+                {NFR_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {NFR_CATEGORY_LABELS[c]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <CommitField
+              label="検証方法"
+              multiline
+              maxLength={VERIFICATION_MAX_LENGTH}
+              value={element.verification ?? ""}
+              onCommit={(verification) => update({ verification })}
+            />
+            <p className="hint">求める人 (アクター・外部アクター) は、下の「関係を追加」の「求める」で結びます。</p>
+          </>
+        )}
         {element.kind === "state" && (
           <CommitField label="状態グループ" maxLength={GROUP_MAX_LENGTH} value={element.group ?? ""} onCommit={(group) => update({ group })} />
         )}
@@ -520,6 +556,8 @@ function RelationAdder({ element, model }: { element: Element; model: UntieModel
       [other.id, element.id, relationKindFor(other.kind, element.kind)],
     ] as const) {
       if (!kind) continue;
+      // 操作の対象 (システム・帳票・画面) は 1 つだけなので、操作のプロパティ欄の「対象」で選ぶ
+      if (isUsecaseTargetKind(kind)) break;
       if (model.relations.some((r) => sameRelation(r, { kind, sourceId, targetId }))) break;
       const dir = relationRule(kind).undirected ? "↔" : sourceId === element.id ? "→" : "←";
       options.push({
@@ -644,7 +682,75 @@ function BucFields({ buc, model }: { buc: Buc; model: UntieModel }) {
   );
 }
 
-/** 情報・状態・条件・バリエーションの所属コンテキスト。関係から見た候補も出す */
+/** 操作の対象。システム・帳票・画面のどれか 1 つ (選ぶと前の対象と入れ替わる) */
+function UsecaseTargetField({ usecaseId, model }: { usecaseId: string; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const current = model.relations.find((r) => isUsecaseTargetKind(r.kind) && r.sourceId === usecaseId)?.targetId ?? "";
+  const nameOf = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+  const groups = [
+    { label: "システム", items: model.elements.filter((e) => e.kind === "system").map((e) => ({ id: e.id, label: e.name || "(名前なし)" })) },
+    { label: "帳票", items: model.elements.filter((e) => e.kind === "ledger").map((e) => ({ id: e.id, label: e.name || "(名前なし)" })) },
+    {
+      label: "画面",
+      items: model.elements.flatMap((e) => (e.kind === "screen" ? [{ id: e.id, label: `${e.name || "(名前なし)"} (${nameOf(e.systemId)})` }] : [])),
+    },
+  ].filter((g) => g.items.length > 0);
+  return (
+    <label className="field">
+      <span className="field-label">対象</span>
+      <select
+        aria-label="対象"
+        value={current}
+        onChange={(e) => {
+          const r = dispatch((m) => setUsecaseTarget(m, { usecaseId, targetId: e.target.value || null }));
+          if (!r.ok) pushToast(r.reason, "error");
+        }}
+      >
+        <option value="">なし</option>
+        {groups.map((g) => (
+          <optgroup key={g.label} label={g.label}>
+            {g.items.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <span className="hint">システム・帳票・画面のどれか 1 つ。画面を選ぶと、その画面のシステムが対象になります。</span>
+    </label>
+  );
+}
+
+/** 画面・非機能要件の属するシステム (帳票は持てないので、システムだけを出す) */
+function SystemField({ element, model }: { element: Element; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const systems = model.elements.filter((e) => e.kind === "system");
+  const current = "systemId" in element ? element.systemId : "";
+  return (
+    <label className="field">
+      <span className="field-label">システム</span>
+      <select
+        aria-label="システム"
+        value={current}
+        onChange={(e) => {
+          const r = dispatch((m) => moveToSystem(m, { elementId: element.id, systemId: e.target.value }));
+          if (!r.ok) pushToast(r.reason, "error");
+        }}
+      >
+        {systems.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name || "(名前なし)"}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** 情報・状態・条件・バリエーション・イベントの所属コンテキスト。関係から見た候補も出す */
 function ContextField({ element, model }: { element: Element; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);

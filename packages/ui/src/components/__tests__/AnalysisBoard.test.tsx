@@ -4,7 +4,8 @@ import { ANALYSIS_KINDS, ANALYSIS_LABELS } from "@untie/core/model/analysis";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { AnalysisBoard } from "../analysis/AnalysisBoard";
-import { setIssueTargets } from "@untie/core/model/commands";
+import { addElement, addRelation, setIssueTargets } from "@untie/core/model/commands";
+import { createNetshopSample } from "@untie/core/sample";
 import { Toolbar } from "../Toolbar";
 
 const st = () => useUntieStore.getState();
@@ -56,5 +57,31 @@ describe("課題の分布", () => {
   it("未整理の課題が無いときはその旨を出す", () => {
     render(<AnalysisBoard kind="issues" />);
     expect(screen.getByText("対象のない課題はありません。")).toBeDefined();
+  });
+});
+
+describe("情報の所在: 画面と情報 (システムごと)", () => {
+  it("システムごとに画面 × 情報の表を出し、置き場所に無い情報に印、情報を扱わない画面に印を付ける。画面の無いシステムは 1 行にまとめる", () => {
+    act(() => {
+      useUntieStore.getState().newDocument(createNetshopSample(), { pristine: true });
+    });
+    render(<AnalysisBoard kind="informationLocation" />);
+    const region = screen.getByRole("region", { name: "画面と情報" });
+    expect(within(region).getByText("画面と情報 (システムごと)")).toBeDefined();
+    const accounting = within(region).getByTestId("screen-table-sys_accounting");
+    const report = within(accounting).getByRole("row", { name: /月次レポート/ });
+    expect(within(report).getAllByText("○")).toHaveLength(2);
+    expect(within(report).getByRole("button", { name: "月次の数字を報告する" })).toBeDefined();
+    expect(within(region).getByText(/画面の無いシステム:/).textContent).toContain("自社サイトのカート");
+    // 置き場所に無い情報と、情報を扱わない画面
+    act(() => {
+      const st = useUntieStore.getState();
+      st.dispatch((m) => addElement(m, { kind: "screen", name: "空の画面", id: "scr_empty", init: { systemId: "sys_accounting" } }));
+      st.dispatch((m) => addRelation(m, { sourceId: "scr_monthly_report", targetId: "info_stock" }));
+    });
+    const row = within(screen.getByTestId("screen-table-sys_accounting")).getByRole("row", { name: /月次レポート/ });
+    expect(within(row).getByLabelText("扱う (このシステムに置き場所がありません)")).toBeDefined();
+    const empty = within(screen.getByTestId("screen-table-sys_accounting")).getByRole("row", { name: /空の画面/ });
+    expect(within(empty).getByText("扱う情報なし")).toBeDefined();
   });
 });

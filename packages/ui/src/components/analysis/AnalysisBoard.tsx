@@ -5,6 +5,7 @@ import {
   informationLocations,
   issueDistribution,
   performerWorkList,
+  screenInformationTables,
   usecasesOfActivity,
   type ActivitySection,
   type AnalysisKind,
@@ -19,9 +20,9 @@ import { HoursLabel } from "../Hours";
 /** 分析ボードの見出しに出す説明 */
 const DESCRIPTIONS: Record<AnalysisKind, string> = {
   people:
-    "担い手 (アクター・外部アクター・システム) ごとに、受け持つ作業を業務・活動の順に並べます。作業や操作をクリックすると、プロパティ欄でリンク (マニュアルなど) を編集できます。",
+    "担い手 (アクター・外部アクター) ごとに、受け持つ作業を業務・活動の順に並べます。作業や操作をクリックすると、プロパティ欄でリンク (マニュアルなど) を編集できます。",
   informationLocation:
-    "情報ごとに、取得元・保存先のシステム・帳票を並べます。置き場所の無い情報、紙だけの情報、保存先が複数ある情報 (二重管理の可能性) に印を付けます。",
+    "情報ごとに、取得元・保存先のシステム・帳票を並べます。置き場所の無い情報、紙だけの情報、保存先が複数ある情報 (二重管理の可能性) に印を付けます。下の表では、システムごとに画面が扱う情報を並べます。",
   issues: "業務ごとに、業務・その作業・作業が使う操作に付いた課題 (具体的な課題) を集めます。課題の多い業務、重要度の高い業務がわかります。登場人物に付いた課題 (全体的な課題) と、対象のない課題 (未整理) は下の表に分けて出します。",
 };
 
@@ -260,7 +261,90 @@ function InformationLocationView({ model }: { model: UntieModel }) {
           ))}
         </tbody>
       </table>
+      <ScreenInformationView model={model} />
     </div>
+  );
+}
+
+/** システムごとの、画面 × 情報の表。画面が扱う情報がそのシステムの置き場所に無ければ印を付ける */
+function ScreenInformationView({ model }: { model: UntieModel }) {
+  const data = useMemo(() => screenInformationTables(model), [model]);
+  if (data.tables.length === 0 && data.systemsWithoutScreens.length === 0) return null;
+  return (
+    <section className="an-screens" aria-label="画面と情報">
+      <h3 className="an-subtitle">画面と情報 (システムごと)</h3>
+      {data.tables.length === 0 && <p className="hint">画面がまだありません。「画面」の固定ボードで、システムごとに画面を作れます。</p>}
+      {data.tables.map((t) => (
+        <div key={t.system.id} className="an-screen-table" data-testid={`screen-table-${t.system.id}`}>
+          <h4 className="an-block-title">
+            <El element={t.system} />
+          </h4>
+          <table className="an-table an-matrix">
+            <thead>
+              <tr>
+                <th>画面</th>
+                {t.informations.map((i) => (
+                  <th key={i.id} scope="col" className="kind-information">
+                    <El element={i} plain />
+                  </th>
+                ))}
+                <th scope="col">使う操作</th>
+                <th scope="col">気をつけること</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.rows.map((row) => (
+                <tr key={row.screen.id}>
+                  <th scope="row">
+                    <El element={row.screen} />
+                  </th>
+                  {t.informations.map((i) => {
+                    const cell = row.cells.get(i.id);
+                    return (
+                      <td
+                        key={i.id}
+                        className={`an-cell${cell ? " has-value" : ""}${cell === "noPlace" ? " is-noplace" : ""}`}
+                        title={cell === "noPlace" ? "このシステムに置き場所がありません" : undefined}
+                      >
+                        {cell === "ok" && "○"}
+                        {cell === "noPlace" && (
+                          <span className="an-noplace" aria-label="扱う (このシステムに置き場所がありません)">
+                            ○!
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td>
+                    {row.usecases.length > 0 ? (
+                      <span className="an-list">
+                        {row.usecases.map((u) => (
+                          <El key={u.id} element={u} />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="an-sub">なし</span>
+                    )}
+                  </td>
+                  <td>{row.noInformation && <span className="an-flag">扱う情報なし</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      {data.systemsWithoutScreens.length > 0 && (
+        <p className="hint an-no-screens">
+          画面の無いシステム:{" "}
+          {data.systemsWithoutScreens.map((sys, i) => (
+            <span key={sys.id}>
+              {i > 0 && "、"}
+              <El element={sys} plain />
+            </span>
+          ))}
+        </p>
+      )}
+    </section>
   );
 }
 

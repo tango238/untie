@@ -17,6 +17,9 @@ export const ID_PREFIXES: Record<IdKind, string> = {
   variation: "var",
   condition: "cond",
   issue: "issue",
+  event: "ev",
+  screen: "scr",
+  nfr: "nfr",
   relation: "rel",
   board: "board",
 };

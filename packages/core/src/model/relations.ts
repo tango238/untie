@@ -15,7 +15,8 @@ export interface RelationRule {
 /** 設計書 3 章の表 */
 export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "actorBusiness", sources: ["actor"], targets: ["business"], label: "主担当", undirected: false },
-  { kind: "actorActivity", sources: ["actor", "externalActor", "system"], targets: ["activity"], label: "担当", undirected: false },
+  // 作業の担当は人だけ (0.2.0 から。システムは操作の対象 usecaseSystem で結ぶ)
+  { kind: "actorActivity", sources: ["actor", "externalActor"], targets: ["activity"], label: "担当", undirected: false },
   { kind: "activityUsecase", sources: ["activity"], targets: ["usecase"], label: "使う", undirected: false },
   { kind: "usecaseInformation", sources: ["usecase"], targets: ["information"], label: "扱う", undirected: false },
   { kind: "usecaseCondition", sources: ["usecase"], targets: ["condition"], label: "判断", undirected: false },
@@ -27,6 +28,15 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "conditionState", sources: ["condition"], targets: ["state"], label: "状態参照", undirected: false },
   { kind: "stateUsecase", sources: ["state"], targets: ["usecase"], label: "実行可", undirected: false },
   { kind: "usecaseState", sources: ["usecase"], targets: ["state"], label: "次の状態", undirected: false },
+  // 0.2.0 から
+  { kind: "usecaseSystem", sources: ["usecase"], targets: ["system", "ledger"], label: "対象", undirected: false },
+  { kind: "usecaseEvent", sources: ["usecase"], targets: ["event"], label: "発生", undirected: false },
+  { kind: "systemEvent", sources: ["system"], targets: ["event"], label: "発生", undirected: false },
+  { kind: "eventUsecase", sources: ["event"], targets: ["usecase"], label: "きっかけ", undirected: false },
+  { kind: "usecaseNext", sources: ["usecase"], targets: ["usecase"], label: "次に", undirected: false },
+  { kind: "usecaseScreen", sources: ["usecase"], targets: ["screen"], label: "画面", undirected: false },
+  { kind: "screenInformation", sources: ["screen"], targets: ["information"], label: "扱う", undirected: false },
+  { kind: "actorNfr", sources: ["actor", "externalActor"], targets: ["nfr"], label: "求める", undirected: false },
 ];
 
 const RULE_BY_KIND = new Map<RelationKind, RelationRule>(RELATION_RULES.map((r) => [r.kind, r]));

@@ -19,21 +19,25 @@ export const FIXED_LAYERS = [
   "buc",
   "activity",
   "usecase",
+  "screen",
   "context",
   "information",
   "condition",
   "state",
   "variation",
+  "nfr",
 ] as const;
 export type FixedLayer = (typeof FIXED_LAYERS)[number];
 
 /**
- * ボードの選択肢に並べる順。コンテキストは情報・条件・状態・バリエーションをまとめて見る場所なので、それらの後に置く。
+ * ボードの選択肢に並べる順。コンテキストは情報・条件・状態・バリエーションをまとめて見る場所なので、それらの後に置く。非機能要件は最後。
  * レイヤーの上下 (トレース・グローバルフィルター) は FIXED_LAYERS の順のまま
  */
 export const FIXED_BOARD_MENU_ORDER: readonly FixedLayer[] = [
-  ...FIXED_LAYERS.filter((l) => l !== "context"),
+  ...FIXED_LAYERS.filter((l) => l !== "context" && l !== "nfr"),
   "context",
+  // 非機能要件は業務の流れの外 (システムに求める品質) なので最後に置く
+  "nfr",
 ];
 
 export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
@@ -42,11 +46,13 @@ export const FIXED_LAYER_LABELS: Record<FixedLayer, string> = {
   buc: "活動",
   activity: "作業",
   usecase: "操作",
+  screen: "画面",
   context: "コンテキスト",
   information: "情報",
   condition: "条件",
   state: "状態",
   variation: "バリエーション",
+  nfr: "非機能要件",
 };
 
 /** 要素の種類を作成・編集する固定ボード (課題は固定ボードに出ない) */
@@ -58,6 +64,9 @@ export function fixedLayerOf(kind: ElementKind): FixedLayer | null {
       return "actor";
     case "issue":
       return null;
+    // イベントは操作のボードで、操作と並べて扱う
+    case "event":
+      return "usecase";
     default:
       return kind;
   }
@@ -90,10 +99,12 @@ export type GroupLink =
   /** 状態の状態グループ (undefined はグループなし) */
   | { type: "stateGroup"; group: string | undefined }
   /** コンテキストに属する情報・条件・状態・バリエーション (null は未分類)。既存の要素を移したり、未分類へ外したりできる */
-  | { type: "contextMembers"; contextId: string | null };
+  | { type: "contextMembers"; contextId: string | null }
+  /** 画面・非機能要件の属するシステム */
+  | { type: "system"; systemId: string };
 
 /** コンテキストのボードで、コンテキストの枠に並べる種類 (この順に並べる) */
-export const CONTEXT_MEMBER_KINDS = ["information", "condition", "state", "variation"] as const satisfies readonly ElementKind[];
+export const CONTEXT_MEMBER_KINDS = ["information", "condition", "state", "variation", "event"] as const satisfies readonly ElementKind[];
 
 /** 枠をまとめる段落 (ユースケースのボードの BUC など)。見出しと区切りで分けて出す */
 export interface FixedSection {
@@ -121,6 +132,16 @@ export interface FixedGroup {
   addKinds?: readonly ElementKind[];
   link: GroupLink;
   items: Element[];
+  /**
+   * 並びに出すだけで、この枠から外せない要素 (操作のボードの作業の枠に並べるイベント)。
+   * 枠の上位と直接の関係が無いので、外すときは要素のプロパティ欄で関係を消す
+   */
+  fixedItemIds?: string[];
+  /**
+   * 1 つ前の要素とつながっている (前の操作の「次に」・発生・きっかけ) 要素。画面ではこの要素の前にだけ矢印を出す。
+   * 無ければ (操作だけを並べる枠など) 矢印は出さない
+   */
+  chainedIds?: string[];
   /** 属する段落。無ければ段落に分けない */
   section?: FixedSection;
   /** 直すべき状態の知らせ */
@@ -255,24 +276,14 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
       return groups;
     }
 
-    case "usecase": {
-      // アクティビティの枠を、所属する BUC の段落に分けて BUC の順に並べる。中身の無い BUC は出さない
-      const groups = relationGroups(model, "activity", "usecase", "作業なし", () => "作業");
-      const bucOf = new Map(byKind(model, "activity").map((a) => [a.id, a.bucId]));
-      const sections: FixedSection[] = [
-        ...bucSections(model),
-        { key: "__unassigned", title: "未所属", subtitle: "活動に属さない作業", parentId: null },
-        { key: "__none", title: "作業なし", subtitle: "どの作業にも使われていない操作", parentId: null },
-      ];
-      const sectionKeyOf = (g: FixedGroup) => {
-        if (g.parentId === null) return "__none";
-        const bucId = bucOf.get(g.parentId);
-        return bucId && sections.some((x) => x.key === bucId) ? bucId : "__unassigned";
-      };
-      return sections.flatMap((section) =>
-        groups.filter((g) => sectionKeyOf(g) === section.key).map((g) => ({ ...g, section })),
-      );
-    }
+    case "usecase":
+      return usecaseGroups(model);
+
+    case "screen":
+      return systemMemberGroups(model, "screen");
+
+    case "nfr":
+      return systemMemberGroups(model, "nfr");
 
     case "context": {
       // コンテキストごとに、属する情報・条件・状態・バリエーションを種類の順に並べる
@@ -349,9 +360,158 @@ export function fixedGroups(model: UntieModel, layer: FixedLayer): FixedGroup[] 
   }
 }
 
+/**
+ * 操作のボード: 活動の段落に分けて作業ごとの枠に、操作とイベントを連鎖の順 (きっかけのイベント → 操作 (「次に」の順) → 発生するイベント) に並べる。
+ * 作業に属さない自動の処理は「作業なし (イベントから)」の枠に、どの作業にも使われずきっかけも無い操作は「作業なし」の枠に入れる。
+ * 最後に、すべてのイベントを並べる「イベント」の枠を置く (イベントを作る・見つける場所)
+ */
+function usecaseGroups(model: UntieModel): FixedGroup[] {
+  const usecases = byKind(model, "usecase");
+  const events = byKind(model, "event");
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const order = new Map(model.elements.map((e, i) => [e.id, i]));
+  const nextOf = new Map<string, string[]>();
+  const triggersOf = new Map<string, string[]>();
+  const emitsOf = new Map<string, string[]>();
+  const usecasesOf = new Map<string, Set<string>>();
+  for (const r of model.relations) {
+    if (r.kind === "usecaseNext") nextOf.set(r.sourceId, [...(nextOf.get(r.sourceId) ?? []), r.targetId]);
+    if (r.kind === "eventUsecase") triggersOf.set(r.targetId, [...(triggersOf.get(r.targetId) ?? []), r.sourceId]);
+    if (r.kind === "usecaseEvent") emitsOf.set(r.sourceId, [...(emitsOf.get(r.sourceId) ?? []), r.targetId]);
+    if (r.kind === "activityUsecase") usecasesOf.set(r.sourceId, (usecasesOf.get(r.sourceId) ?? new Set()).add(r.targetId));
+  }
+
+  /** 操作を「次に」の順に並べ、それぞれの前にきっかけのイベント、後ろに発生するイベントを挟む */
+  const linked = (from: Element, to: Element): boolean => {
+    if (from.kind === "usecase" && to.kind === "usecase") return (nextOf.get(from.id) ?? []).includes(to.id);
+    if (from.kind === "usecase" && to.kind === "event") return (emitsOf.get(from.id) ?? []).includes(to.id);
+    if (from.kind === "event" && to.kind === "usecase") return (triggersOf.get(to.id) ?? []).includes(from.id);
+    return false;
+  };
+  const sequence = (ids: Set<string>): { items: Element[]; fixedItemIds: string[]; chainedIds: string[] } => {
+    const members = usecases.filter((u) => ids.has(u.id)).map((u) => u.id);
+    const internalNext = (id: string) => (nextOf.get(id) ?? []).filter((n) => ids.has(n) && n !== id).sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+    const hasPrev = new Set(members.flatMap(internalNext));
+    const ordered: string[] = [];
+    const visit = (id: string) => {
+      if (ordered.includes(id)) return;
+      ordered.push(id);
+      for (const n of internalNext(id)) visit(n);
+    };
+    for (const id of members) if (!hasPrev.has(id)) visit(id);
+    for (const id of members) visit(id); // 輪だけの並び
+    const items: Element[] = [];
+    const fixed: string[] = [];
+    const push = (id: string, isFixed: boolean) => {
+      const e = byId.get(id);
+      if (!e || items.includes(e)) return;
+      items.push(e);
+      if (isFixed) fixed.push(id);
+    };
+    for (const id of ordered) {
+      for (const ev of triggersOf.get(id) ?? []) push(ev, true);
+      push(id, false);
+      for (const ev of emitsOf.get(id) ?? []) push(ev, true);
+    }
+    // 1 つ前の要素とつながっているものだけに矢印を出す (枝分かれ・つながっていない操作の間には出さない)
+    const chainedIds = items.filter((e, i) => i > 0 && linked(items[i - 1]!, e)).map((e) => e.id);
+    return { items, fixedItemIds: fixed, chainedIds };
+  };
+
+  const inActivity = new Set([...usecasesOf.values()].flatMap((s) => [...s]));
+  const groups: FixedGroup[] = byKind(model, "activity").map((act) => {
+    const { items, fixedItemIds, chainedIds } = sequence(usecasesOf.get(act.id) ?? new Set());
+    return {
+      key: act.id,
+      title: act.name || "(名前なし)",
+      subtitle: "作業",
+      parentId: act.id,
+      childKind: "usecase" as const,
+      link: { type: "relation" as const, parentId: act.id },
+      items,
+      ...(fixedItemIds.length > 0 ? { fixedItemIds } : {}),
+      ...(chainedIds.length > 0 ? { chainedIds } : {}),
+    };
+  });
+
+  // 作業に属さない自動の処理: きっかけのある操作から、作業に属さない操作を「次に」でたどる
+  const auto = new Set<string>();
+  const queue = usecases.filter((u) => !inActivity.has(u.id) && (triggersOf.get(u.id) ?? []).length > 0).map((u) => u.id);
+  for (const id of queue) auto.add(id);
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const n of nextOf.get(id) ?? []) {
+      if (auto.has(n) || inActivity.has(n) || byId.get(n)?.kind !== "usecase") continue;
+      auto.add(n);
+      queue.push(n);
+    }
+  }
+  const noneSection: FixedSection = { key: "__none", title: "作業なし", subtitle: "どの作業にも使われていない操作", parentId: null };
+  if (auto.size > 0) {
+    const { items, fixedItemIds, chainedIds } = sequence(auto);
+    groups.push({
+      key: "__auto",
+      title: "作業なし (イベントから)",
+      subtitle: "イベントをきっかけに動く処理",
+      parentId: null,
+      childKind: "usecase",
+      link: { type: "none" },
+      items,
+      ...(fixedItemIds.length > 0 ? { fixedItemIds } : {}),
+      ...(chainedIds.length > 0 ? { chainedIds } : {}),
+      section: noneSection,
+    });
+  }
+  const orphans = usecases.filter((u) => !inActivity.has(u.id) && !auto.has(u.id));
+  if (orphans.length > 0 || groups.length === 0) {
+    groups.push({ key: "__none", title: "作業なし", parentId: null, childKind: "usecase", link: { type: "none" }, items: orphans });
+  }
+
+  // 作業の枠を、所属する BUC の段落に分けて BUC の順に並べる。中身の無い BUC は出さない
+  const bucOf = new Map(byKind(model, "activity").map((a) => [a.id, a.bucId]));
+  const sections: FixedSection[] = [
+    ...bucSections(model),
+    { key: "__unassigned", title: "未所属", subtitle: "活動に属さない作業", parentId: null },
+    noneSection,
+  ];
+  const sectionKeyOf = (g: FixedGroup) => {
+    if (g.parentId === null) return "__none";
+    const bucId = bucOf.get(g.parentId);
+    return bucId && sections.some((x) => x.key === bucId) ? bucId : "__unassigned";
+  };
+  const sectioned = sections.flatMap((section) => groups.filter((g) => sectionKeyOf(g) === section.key).map((g) => ({ ...g, section })));
+  const eventSection: FixedSection = { key: "__events", title: "イベント", subtitle: "操作やシステムが発生させる出来事 (人の動きは含めない)", parentId: null };
+  sectioned.push({
+    key: "__events",
+    title: "すべてのイベント",
+    subtitle: "イベント",
+    parentId: null,
+    childKind: "event",
+    link: { type: "none" },
+    items: events,
+    section: eventSection,
+  });
+  return sectioned;
+}
+
+/** 画面・非機能要件のボード: システムごとの枠に並べる (帳票は持たない) */
+function systemMemberGroups(model: UntieModel, kind: "screen" | "nfr"): FixedGroup[] {
+  const members = byKind(model, kind);
+  return byKind(model, "system").map((sys) => ({
+    key: sys.id,
+    title: sys.name || "(名前なし)",
+    subtitle: "システム",
+    parentId: sys.id,
+    childKind: kind,
+    link: { type: "system" as const, systemId: sys.id },
+    items: members.filter((m) => m.systemId === sys.id),
+  }));
+}
+
 /** 上位が無くて枠を作れないときの案内 (業務が無い BUC のボードなど) */
 export function emptyLayerHint(layer: FixedLayer): string | null {
   if (layer === "buc") return "業務がありません。先に「業務」の固定ボードで業務を作ってください。";
+  if (layer === "screen" || layer === "nfr") return "システムがありません。先に「登場人物」の固定ボードでシステムを作ってください。";
   if (layer === "context") return "コンテキストがありません。「＋コンテキスト」で作ってください。";
   return null;
 }
@@ -405,7 +565,9 @@ export function addToGroup(model: UntieModel, group: FixedGroup, name?: string, 
           ? { contextId: link.contextId }
           : link.type === "stateGroup" && link.group
             ? { group: link.group }
-            : undefined;
+            : link.type === "system"
+              ? { systemId: link.systemId }
+              : undefined;
   const created = addElement(model, { kind, name: label, ...(init ? { init } : {}) });
   if (created.ok && link.type === "business") return moveDirectActivitiesIntoFirstBuc(model, created, link.businessId);
   if (!created.ok || link.type !== "relation") return created;
@@ -463,6 +625,7 @@ export function unlinkFromGroup(model: UntieModel, group: FixedGroup, elementId:
     return moveToContext(model, { elementId, contextId: null });
   }
   if (group.link.type !== "relation") return { ok: false, reason: "この枠からは外せません" };
+  if (group.fixedItemIds?.includes(elementId)) return { ok: false, reason: "イベントは作業の並びに出しているだけです。外すときは操作との関係を消してください" };
   const parentId = group.link.parentId;
   const rel = model.relations.find((r) => r.sourceId === parentId && r.targetId === elementId);
   if (!rel) return { ok: false, reason: "関係が見つかりません" };

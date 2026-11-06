@@ -162,6 +162,11 @@ export function checkIntegrity(model: UntieModel): string[] {
       if (!ctx) errors.push(`${label(e)} のコンテキスト ${e.contextId} が存在しません`);
       else if (ctx.kind !== "context") errors.push(`${label(e)} の contextId ${e.contextId} はコンテキストではありません`);
     }
+    if ((e.kind === "screen" || e.kind === "nfr") && "systemId" in e) {
+      const sys = byId.get(e.systemId);
+      if (!sys) errors.push(`${label(e)} のシステム ${e.systemId} が存在しません`);
+      else if (sys.kind !== "system") errors.push(`${label(e)} の systemId ${e.systemId} はシステムではありません`);
+    }
     if (e.kind === "activity" && e.bucId !== null) {
       const buc = byId.get(e.bucId);
       if (!buc) errors.push(`${label(e)} の活動 ${e.bucId} が存在しません`);
@@ -187,10 +192,20 @@ export function checkIntegrity(model: UntieModel): string[] {
     for (const tid of e.targetIds) {
       const t = byId.get(tid);
       if (!t) errors.push(`${label(e)} の対象 ${tid} が存在しません`);
-      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は登場人物・業務・作業・操作ではありません`);
+      else if (!isIssueTargetKind(t.kind)) errors.push(`${label(e)} の対象 ${label(t)} は登場人物・業務・作業・操作・画面ではありません`);
       else scopes.add(issueScopeOfKind(t.kind));
     }
-    if (scopes.size > 1) errors.push(`${label(e)} の対象に、登場人物と業務・作業・操作が混ざっています (全体的な課題と具体的な課題は分けてください)`);
+    if (scopes.size > 1) errors.push(`${label(e)} の対象に、登場人物と業務・作業・操作・画面が混ざっています (全体的な課題と具体的な課題は分けてください)`);
+  }
+
+  // 操作の対象 (システム・帳票・画面) は 1 本まで (0.3.0)
+  const targetCount = new Map<string, number>();
+  for (const r of model.relations) {
+    if (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") targetCount.set(r.sourceId, (targetCount.get(r.sourceId) ?? 0) + 1);
+  }
+  for (const [ucId, n] of targetCount) {
+    const uc = byId.get(ucId);
+    if (uc && n > 1) errors.push(`${label(uc)} の対象 (システム・帳票・画面) が ${n} つあります (1 つだけにしてください)`);
   }
 
   // 関係

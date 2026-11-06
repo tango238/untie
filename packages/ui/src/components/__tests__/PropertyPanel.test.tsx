@@ -147,7 +147,7 @@ describe("PropertyPanel", () => {
     expect(screen.getByLabelText("状態グループ")).toBeDefined();
   });
 
-  it("帳票は情報と取得元・保存先で結べ、担当の候補には出ない。システムは作業の担当に結べる", () => {
+  it("帳票は情報と取得元・保存先で結べ、担当の候補には出ない。システムも作業の担当には結べず、操作の対象に結べる", () => {
     onFixedBoard();
     selectEl("ldg_guest_register");
     const { unmount } = render(<PropertyPanel />);
@@ -163,8 +163,61 @@ describe("PropertyPanel", () => {
     unmount();
     selectEl("sys_accounting");
     render(<PropertyPanel />);
-    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "sys_accounting>act_settle" } });
-    expect(st().model.relations.some((r) => r.kind === "actorActivity" && r.sourceId === "sys_accounting" && r.targetId === "act_settle")).toBe(true);
+    expect(options().some((l) => l.includes("担当"))).toBe(false);
+    // 操作の対象は操作のプロパティ欄の「対象」で選ぶ (1 つだけなので、関係の追加には出さない)
+    expect(options().some((l) => l.includes("対象"))).toBe(false);
+  });
+
+  it("操作の対象は、システム・帳票・画面から 1 つだけ選べ、選ぶと前の対象と入れ替わる", () => {
+    onFixedBoard();
+    let scrId = "";
+    act(() => {
+      const a = st().dispatch((m) => addElement(m, { kind: "screen", name: "精算画面", init: { systemId: "sys_pms" } }));
+      if (a.ok) scrId = a.id;
+    });
+    selectEl("uc_record_payment");
+    render(<PropertyPanel />);
+    const target = screen.getByLabelText("対象") as HTMLSelectElement;
+    expect(target.value).toBe("sys_payment");
+    expect([...target.querySelectorAll("optgroup")].map((g) => g.label)).toEqual(["システム", "帳票", "画面"]);
+    expect(within(target).getByRole("option", { name: "精算画面 (宿泊管理システム)" })).toBeDefined();
+    fireEvent.change(target, { target: { value: scrId } });
+    const targets = () => st().model.relations.filter((r) => (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") && r.sourceId === "uc_record_payment");
+    expect(targets().map((r) => [r.kind, r.targetId])).toEqual([["usecaseScreen", scrId]]);
+    fireEvent.change(screen.getByLabelText("対象"), { target: { value: "" } });
+    expect(targets()).toEqual([]);
+    // 関係の追加には、対象・画面の候補を出さない
+    const groups = [...(screen.getByLabelText("関係を追加") as HTMLSelectElement).querySelectorAll("optgroup")].map((g) => g.label);
+    expect(groups.some((l) => l.startsWith("対象") || l.startsWith("画面"))).toBe(false);
+  });
+
+  it("画面は属するシステムを選べ、非機能要件は分類・検証方法を入れられる", () => {
+    onFixedBoard();
+    let scrId = "";
+    let nfrId = "";
+    act(() => {
+      const a = st().dispatch((m) => addElement(m, { kind: "screen", name: "チェックイン画面", init: { systemId: "sys_pms" } }));
+      const b = st().dispatch((m) => addElement(m, { kind: "nfr", name: "夜間も止まらない", init: { systemId: "sys_pms" } }));
+      if (a.ok) scrId = a.id;
+      if (b.ok) nfrId = b.id;
+    });
+    selectEl(scrId);
+    const { unmount } = render(<PropertyPanel />);
+    const sys = screen.getByLabelText("システム") as HTMLSelectElement;
+    expect(sys.value).toBe("sys_pms");
+    // 帳票は選べない
+    expect([...sys.options].map((o) => o.value)).not.toContain("ldg_guest_register");
+    fireEvent.change(sys, { target: { value: "sys_booking_site" } });
+    expect(st().model.elements.find((e) => e.id === scrId)).toMatchObject({ systemId: "sys_booking_site" });
+    unmount();
+    selectEl(nfrId);
+    render(<PropertyPanel />);
+    const category = screen.getByLabelText("分類") as HTMLSelectElement;
+    expect([...category.options].map((o) => o.textContent)).toEqual(["未分類", "可用性", "性能・拡張性", "運用・保守性", "移行性", "セキュリティ", "システム環境・エコロジー"]);
+    fireEvent.change(category, { target: { value: "availability" } });
+    expect(st().model.elements.find((e) => e.id === nfrId)).toMatchObject({ category: "availability" });
+    expect(screen.getByLabelText("検証方法")).toBeDefined();
+    expect(screen.getByText(/求める人 \(アクター・外部アクター\) は/)).toBeDefined();
   });
 
   it("名前欄の下に書き方を出す (課題は除く)", () => {
@@ -570,7 +623,7 @@ describe("PropertyPanel のトレース", () => {
     render(<PropertyPanel />);
     const rows = screen.getAllByRole("row").filter((r) => r.closest(".trace-table") && r.querySelector("th[scope=row]"));
     const layers = rows.map((r) => r.querySelector("th")!.textContent);
-    expect(layers).toEqual(["↑登場人物", "↑業務", "↑活動", "↑作業", "●操作", "↓情報", "↓条件", "↓状態", "↓バリエーション"]);
+    expect(layers).toEqual(["↑登場人物", "↑業務", "↑活動", "↑作業", "●操作", "↓画面", "↓情報", "↓条件", "↓状態", "↓バリエーション"]);
     expect(screen.getByText(/上下のレイヤーにつながる要素はありません/)).toBeDefined();
     const actRow = rows.find((r) => r.querySelector("th")!.textContent === "↑作業")!;
     expect(within(actRow).getByText("(未設定)")).toBeDefined();

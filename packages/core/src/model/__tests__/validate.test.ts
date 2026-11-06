@@ -51,7 +51,7 @@ describe("validateModel: スキーマ", () => {
 
   it("不明な kind は要素の種類が不正と報告する", () => {
     const j = json();
-    j.elements[0].kind = "screen";
+    j.elements[0].kind = "window";
     expect(errorsOf(j)).toEqual(["elements[0].kind: 要素の種類が不正です"]);
   });
 
@@ -68,6 +68,28 @@ describe("validateModel: スキーマ", () => {
     const i = l.elements.findIndex((e: Json) => e.kind === "issue");
     l.elements[i].targetIds = ["biz_checkin", "biz_checkin"];
     expect(errorsOf(l)).toContain(`elements[${i}].targetIds: 重複した値があります`);
+  });
+});
+
+describe("validateModel: 参照整合性 (画面・非機能要件のシステム)", () => {
+  it("画面・非機能要件の systemId はシステムを指す (帳票・存在しない要素は不可)", () => {
+    const base = JSON.parse(JSON.stringify(emptyModel()));
+    base.elements = [
+      { id: "sys_a", kind: "system", name: "A" },
+      { id: "ldg_a", kind: "ledger", name: "台帳" },
+      { id: "scr_a", kind: "screen", name: "画面", systemId: "ldg_a" },
+      { id: "nfr_a", kind: "nfr", name: "要件", systemId: "nope", category: "security" },
+    ];
+    const r = validateModel(base);
+    const errors = r.ok ? [] : r.errors;
+    expect(errors.some((e) => e.includes("systemId ldg_a はシステムではありません"))).toBe(true);
+    expect(errors.some((e) => e.includes("システム nope が存在しません"))).toBe(true);
+    base.elements[2].systemId = "sys_a";
+    base.elements[3].systemId = "sys_a";
+    expect(validateModel(base).ok).toBe(true);
+    // 分類は IPA の 6 分類だけ
+    base.elements[3].category = "usability";
+    expect(validateModel(base).ok).toBe(false);
   });
 });
 
@@ -150,7 +172,7 @@ describe("validateModel: 参照整合性", () => {
     issue.targetIds = ["nope", "info_reservation"];
     const errors = errorsOf(j);
     expect(errors.some((e) => e.includes("対象 nope が存在しません"))).toBe(true);
-    expect(errors.some((e) => e.includes("登場人物・業務・作業・操作ではありません"))).toBe(true);
+    expect(errors.some((e) => e.includes("登場人物・業務・作業・操作・画面ではありません"))).toBe(true);
   });
 
   it("課題の対象に、登場人物と業務・作業・操作が混ざっている", () => {

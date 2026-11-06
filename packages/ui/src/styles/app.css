@@ -23,6 +23,9 @@
   --c-variation: #a05a8c;
   --c-condition: #8a7f2a;
   --c-issue: #b4443a;
+  --c-event: #8e44ad;
+  --c-screen: #3d7fb8;
+  --c-nfr: #5d6d7e;
 
   --sev-1: #8aa0b8;
   --sev-2: #6e9fb0;
@@ -53,6 +56,9 @@ body { background: var(--bg); }
 .kind-variation { --c: var(--c-variation); }
 .kind-condition { --c: var(--c-condition); }
 .kind-issue { --c: var(--c-issue); }
+.kind-event { --c: var(--c-event); }
+.kind-screen { --c: var(--c-screen); }
+.kind-nfr { --c: var(--c-nfr); }
 
 .kind-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--c, var(--muted)); margin-right: 6px; flex: none; }
 
@@ -209,6 +215,9 @@ textarea { resize: vertical; width: 100%; }
 .react-flow__minimap-node.mini-variation { fill: var(--c-variation); }
 .react-flow__minimap-node.mini-condition { fill: var(--c-condition); }
 .react-flow__minimap-node.mini-issue { fill: var(--c-issue); }
+.react-flow__minimap-node.mini-event { fill: var(--c-event); }
+.react-flow__minimap-node.mini-screen { fill: var(--c-screen); }
+.react-flow__minimap-node.mini-nfr { fill: var(--c-nfr); }
 
 /* プロパティ・課題 */
 .editor { padding: 0 12px 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -306,6 +315,10 @@ textarea { resize: vertical; width: 100%; }
 .fixed-group-count { margin-left: auto; font-size: 11px; color: var(--muted); }
 .fixed-cards { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .fixed-card-row { display: flex; align-items: center; gap: 4px; }
+/* 操作のボードの作業の枠: 操作とイベントを連鎖の順に並べ、つながっている要素の間にだけ矢印を出す。イベントは操作と色と形を分ける */
+.fixed-card-row.is-chained { position: relative; margin-top: 14px; }
+.fixed-card-row.is-chained::before { content: "↓"; position: absolute; top: -14px; left: 12px; font-size: 11px; line-height: 14px; color: var(--muted); }
+.fixed-card.kind-event { border-style: dashed; border-radius: 14px; background: color-mix(in srgb, var(--c-event) 8%, #fff); }
 .fixed-card {
   flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left;
   background: #fff; border: 1.5px solid var(--c, var(--border)); border-left-width: 5px; border-radius: 6px; padding: 4px 8px 6px;
@@ -319,6 +332,9 @@ textarea { resize: vertical; width: 100%; }
 .fixed-card-rename { display: flex; gap: 4px; }
 .fixed-card-rename input { flex: 1; min-width: 0; font-weight: 600; }
 .fixed-card .actor-chips { justify-content: flex-start; }
+/* 固定ボードのカードではチップをカードの幅に収め、入りきらない名前は折り返す (画面名まで読めるように) */
+.fixed-card .actor-chips { max-width: 100%; }
+.fixed-card .actor-chip { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .fixed-unlink { color: var(--muted); }
 .fixed-add { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; }
 .fixed-add select { flex: 1; min-width: 0; }
@@ -334,6 +350,8 @@ textarea { resize: vertical; width: 100%; }
 .fixed-card.kind-ledger { border-left-style: solid; }
 .system-chips { justify-content: flex-start; }
 .system-chip-role { font-weight: 600; margin-right: 3px; }
+/* 対象のシステムの隣に、操作が使う画面の名前を出す */
+.system-chip-screen { margin-left: 4px; padding-left: 4px; border-left: 1px solid color-mix(in srgb, var(--c-screen) 45%, transparent); color: var(--c-screen); }
 
 /* 固定ボードの書き方のヒント */
 .fixed-guide { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
@@ -416,6 +434,13 @@ textarea { resize: vertical; width: 100%; }
 .an-role.role-source { background: #e3eef8; color: #2d5d8a; }
 .an-role.role-store { background: #e8f2e6; color: #3c6b34; }
 .an-flag { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 8px; background: #fbeee9; color: #8a3a2c; margin: 1px; }
+/* 情報の所在: システムごとの画面 × 情報の表 */
+.an-screens { margin-top: 24px; }
+.an-screen-table { margin-bottom: 16px; }
+.an-matrix td.an-cell.is-noplace { background: #fcf6e8; }
+.an-noplace { color: #8a6414; font-weight: 600; }
+.an-list { display: inline-flex; flex-wrap: wrap; gap: 2px 6px; }
+.an-no-screens { margin-top: 4px; }
 .an-bar { display: inline-block; width: 120px; height: 8px; background: #eee9e0; border-radius: 4px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
 .an-bar-fill { display: block; height: 100%; background: var(--sev-3); }
 .an-bar-fill.sev-1 { background: var(--sev-1); }

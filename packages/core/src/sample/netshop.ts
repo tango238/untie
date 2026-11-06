@@ -1,5 +1,8 @@
 // 架空のネットショップ (雑貨の通販) のサンプルモデル。実在の店・データは使わない。
 // 自社サイトとモールで売り、倉庫から出荷する小さな店を想定する。入荷・受注・出荷・返品・問い合わせ対応の流れと、現場の困りごとを置く。
+// 0.2.0 の書き方の見本: 操作とイベントを「きっかけ・発生・次に」でつなぎ、システムは操作の対象 (画面から決まる) にする。
+// 人が担当しない処理 (在庫の引き当て・売掛金の計上) は作業にせず、イベントをきっかけにした自動の処理にする。
+// 画面と非機能要件もシステムに持たせる。検証のエラーも警告も出ない形にする (サンプルのテストで確かめる)
 import { relationKindFor } from "../model/relations";
 import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
 
@@ -53,7 +56,6 @@ const defaultBucs: Element[] = businessDefs.map(([id, name]) => ({
 
 const bucs: Element[] = [
   { id: "buc_order_check", kind: "buc", name: "注文の確認", businessId: "biz_order", isDefault: false },
-  { id: "buc_allocate", kind: "buc", name: "在庫の引き当て", businessId: "biz_order", isDefault: false },
   { id: "buc_payment_check", kind: "buc", name: "入金の確認", businessId: "biz_order", isDefault: false },
 ];
 
@@ -66,7 +68,6 @@ const activities: Element[] = [
   { id: "act_count", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stock") },
   { id: "act_import_order", kind: "activity", name: "注文を取り込む", bucId: "buc_order_check", hours: 0.3 },
   { id: "act_check_order", kind: "activity", name: "注文内容を確認する", bucId: "buc_order_check" },
-  { id: "act_allocate", kind: "activity", name: "在庫を引き当てる", bucId: "buc_allocate" },
   { id: "act_check_payment", kind: "activity", name: "入金を確認する", bucId: "buc_payment_check" },
   { id: "act_pick", kind: "activity", name: "ピッキングする", bucId: dflt("biz_shipping"), hours: 0.4 },
   { id: "act_pack", kind: "activity", name: "梱包する", bucId: dflt("biz_shipping") },
@@ -89,8 +90,8 @@ const activities: Element[] = [
   { id: "act_answer", kind: "activity", name: "問い合わせに答える", bucId: dflt("biz_support") },
   { id: "act_track", kind: "activity", name: "配送状況を調べる", bucId: dflt("biz_support"), hours: 0.1 },
   { id: "act_record_inquiry", kind: "activity", name: "対応を記録する", bucId: dflt("biz_support") },
-  // 会計システムが担当する。モールからの入金は、販売手数料や送料を引いた額で、あとから数日おきにまとめて届く
-  { id: "act_book_receivable", kind: "activity", name: "売掛金を計上する", bucId: dflt("biz_receivable") },
+  // 会計システムが対象。モールからの入金は、販売手数料や送料を引いた額で、あとから数日おきにまとめて届く。
+  // 売掛金の計上は人の作業ではなく、「出荷が記録された」をきっかけにした自動の処理 (操作「売掛金を登録する」)
   { id: "act_manage_payment", kind: "activity", name: "入金を管理する", bucId: dflt("biz_receivable") },
   { id: "act_clear_receivable", kind: "activity", name: "入金を消し込む", bucId: dflt("biz_receivable"), hours: 0.4 },
   // 会計システムで、損益計算書 (PL) と貸借対照表 (BS) を見る
@@ -108,6 +109,7 @@ const usecases: Element[] = [
     links: [{ title: "販売管理システム操作手順 (在庫の更新)", url: "https://example.com/manual/oms-stock" }],
   },
   { id: "uc_record_count", kind: "usecase", name: "棚卸の結果を記録する" },
+  { id: "uc_check_mall_order", kind: "usecase", name: "モールの注文を確認する" },
   { id: "uc_register_order", kind: "usecase", name: "注文を登録する", hours: 0.1 },
   { id: "uc_search_order", kind: "usecase", name: "注文を検索する", hours: 0.1 },
   { id: "uc_confirm_order", kind: "usecase", name: "注文を確定する" },
@@ -126,6 +128,7 @@ const usecases: Element[] = [
   { id: "uc_clear_receivable", kind: "usecase", name: "売掛金を消し込む" },
   { id: "uc_view_pl", kind: "usecase", name: "損益計算書を見る" },
   { id: "uc_view_bs", kind: "usecase", name: "貸借対照表を見る" },
+  { id: "uc_report_month", kind: "usecase", name: "月次の数字を報告する" },
 ];
 
 /** 役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ */
@@ -175,6 +178,81 @@ const conditions: Element[] = [
   { id: "cond_out_of_stock", kind: "condition", name: "在庫が足りない", description: "引き当てる数が、棚にある数を超えている。", contextId: "ctx_item" },
   { id: "cond_return_period", kind: "condition", name: "返品の期間内である", description: "商品が届いてから 8 日以内の申し出だけ受ける。", contextId: "ctx_order" },
   { id: "cond_gift", kind: "condition", name: "ギフト包装の指定がある", contextId: "ctx_order" },
+];
+
+/** イベント (操作やシステムが発生させる出来事。人の動きは含めない) */
+const events: Element[] = [
+  { id: "ev_received", kind: "event", name: "入荷が登録された", contextId: "ctx_item" },
+  { id: "ev_stock_changed", kind: "event", name: "在庫数が変わった", contextId: "ctx_item" },
+  { id: "ev_counted", kind: "event", name: "棚卸の数が記録された", contextId: "ctx_item" },
+  { id: "ev_order_received", kind: "event", name: "注文を受け付けた", contextId: "ctx_order" },
+  { id: "ev_order_confirmed", kind: "event", name: "注文が確定した", contextId: "ctx_order" },
+  { id: "ev_order_cancelled", kind: "event", name: "注文が取り消された", contextId: "ctx_order" },
+  { id: "ev_stock_allocated", kind: "event", name: "在庫が引き当てられた", contextId: "ctx_item" },
+  { id: "ev_payment_confirmed", kind: "event", name: "入金が確認された", contextId: "ctx_order" },
+  { id: "ev_pick_listed", kind: "event", name: "ピッキングの指示が出た", contextId: "ctx_order" },
+  { id: "ev_label_issued", kind: "event", name: "送り状が発行された", contextId: "ctx_shipping" },
+  { id: "ev_shipped", kind: "event", name: "出荷が記録された", contextId: "ctx_shipping" },
+  { id: "ev_return_accepted", kind: "event", name: "返品を受け付けた", contextId: "ctx_order" },
+  { id: "ev_return_inspected", kind: "event", name: "返品の検品が済んだ", contextId: "ctx_order" },
+  { id: "ev_refunded", kind: "event", name: "返金が記録された", contextId: "ctx_order" },
+  { id: "ev_inquiry_recorded", kind: "event", name: "問い合わせの対応が記録された", contextId: "ctx_customer" },
+  { id: "ev_receivable_booked", kind: "event", name: "売掛金が計上された", contextId: "ctx_accounting" },
+  { id: "ev_payout_recorded", kind: "event", name: "モールからの入金が登録された", contextId: "ctx_accounting" },
+  { id: "ev_receivable_cleared", kind: "event", name: "売掛金が消し込まれた", contextId: "ctx_accounting" },
+  { id: "ev_month_closed", kind: "event", name: "月次の締めが済んだ", contextId: "ctx_accounting" },
+  { id: "ev_month_reported", kind: "event", name: "月次の数字が報告された", contextId: "ctx_accounting" },
+];
+
+/** 画面 (システムに属する) */
+const screens: Element[] = [
+  { id: "scr_order_entry", kind: "screen", name: "受注入力画面", systemId: "sys_oms" },
+  { id: "scr_order_list", kind: "screen", name: "受注一覧", systemId: "sys_oms" },
+  { id: "scr_stock", kind: "screen", name: "在庫一覧", systemId: "sys_oms" },
+  { id: "scr_shipping", kind: "screen", name: "出荷指示画面", systemId: "sys_oms" },
+  { id: "scr_return", kind: "screen", name: "返品登録画面", systemId: "sys_oms" },
+  { id: "scr_inquiry", kind: "screen", name: "問い合わせ履歴", systemId: "sys_oms" },
+  { id: "scr_mall_orders", kind: "screen", name: "モールの注文一覧", systemId: "sys_mall" },
+  { id: "scr_payment_admin", kind: "screen", name: "決済の管理画面", systemId: "sys_payment" },
+  { id: "scr_receivable", kind: "screen", name: "売掛金の消込画面", systemId: "sys_accounting" },
+  { id: "scr_monthly_report", kind: "screen", name: "月次レポート", systemId: "sys_accounting" },
+];
+
+/** 非機能要件 (システムに属する) */
+const nfrs: Element[] = [
+  {
+    id: "nfr_sale_peak",
+    kind: "nfr",
+    name: "セールの日に 1 時間 1,000 件の注文を受けても止まらない",
+    systemId: "sys_oms",
+    category: "performance",
+    verification: "セール前に、1 時間 1,000 件の注文を流す負荷試験をして、受注一覧が 3 秒以内に開くことを確かめる。",
+  },
+  {
+    id: "nfr_backup",
+    kind: "nfr",
+    name: "注文と在庫のデータは毎日控えを取り、7 日前まで戻せる",
+    systemId: "sys_oms",
+    category: "availability",
+    verification: "月に 1 回、控えから前日の状態に戻す手順を試す。",
+  },
+  {
+    id: "nfr_card_data",
+    kind: "nfr",
+    name: "カード番号を自社では保存しない",
+    systemId: "sys_payment",
+    category: "security",
+    description: "カード番号は決済サービスの画面で入力してもらい、自社のシステムには受け取らない。",
+    verification: "販売管理システムとカートのデータに、カード番号の項目が無いことを確かめる。",
+  },
+  {
+    id: "nfr_accounting_access",
+    kind: "nfr",
+    name: "会計の画面は経理担当と店長だけが開ける",
+    systemId: "sys_accounting",
+    category: "security",
+    verification: "ほかの担当の ID で売掛金の消込画面と月次レポートを開けないことを確かめる。",
+  },
 ];
 
 const issues: Element[] = [
@@ -242,14 +320,9 @@ const pairs: [source: string, target: string][] = [
   ["actor_warehouse", "act_count"],
   ["actor_manager", "act_count"],
   ["actor_order", "act_import_order"],
-  ["sys_cart", "act_import_order"],
-  ["sys_mall", "act_import_order"],
   ["ext_customer", "act_import_order"],
   ["actor_order", "act_check_order"],
-  // システムが担当する作業 (自動で行う)
-  ["sys_oms", "act_allocate"],
   ["actor_order", "act_check_payment"],
-  ["sys_payment", "act_check_payment"],
   ["actor_warehouse", "act_pick"],
   ["actor_warehouse", "act_pack"],
   ["actor_warehouse", "act_issue_label"],
@@ -261,19 +334,13 @@ const pairs: [source: string, target: string][] = [
   ["actor_warehouse", "act_inspect_return"],
   ["actor_support", "act_refund"],
   ["actor_manager", "act_refund"],
-  ["sys_payment", "act_refund"],
   ["actor_warehouse", "act_restock"],
   ["actor_support", "act_answer"],
   ["ext_customer", "act_answer"],
   ["actor_support", "act_track"],
   ["ext_carrier", "act_track"],
   ["actor_support", "act_record_inquiry"],
-  ["sys_accounting", "act_book_receivable"],
-  ["sys_accounting", "act_manage_payment"],
   ["actor_accounting", "act_manage_payment"],
-  ["sys_mall", "act_manage_payment"],
-  ["sys_payment", "act_manage_payment"],
-  ["sys_accounting", "act_clear_receivable"],
   ["actor_accounting", "act_clear_receivable"],
   ["actor_manager", "act_review_pl"],
   ["actor_accounting", "act_review_pl"],
@@ -284,11 +351,11 @@ const pairs: [source: string, target: string][] = [
   ["act_shelve", "uc_update_stock"],
   ["act_update_stock", "uc_update_stock"],
   ["act_count", "uc_record_count"],
+  ["act_import_order", "uc_check_mall_order"],
   ["act_import_order", "uc_register_order"],
   ["act_check_order", "uc_search_order"],
   ["act_check_order", "uc_confirm_order"],
   ["act_check_order", "uc_cancel_order"],
-  ["act_allocate", "uc_allocate_stock"],
   ["act_check_payment", "uc_record_payment"],
   ["act_pick", "uc_issue_pick_list"],
   ["act_issue_label", "uc_issue_label"],
@@ -299,18 +366,22 @@ const pairs: [source: string, target: string][] = [
   ["act_refund", "uc_record_refund"],
   ["act_restock", "uc_update_stock"],
   ["act_answer", "uc_search_order"],
+  ["act_answer", "uc_record_inquiry"],
   ["act_track", "uc_search_order"],
+  ["act_track", "uc_record_inquiry"],
   ["act_record_inquiry", "uc_record_inquiry"],
-  ["act_book_receivable", "uc_register_receivable"],
   ["act_manage_payment", "uc_record_payout"],
   ["act_clear_receivable", "uc_clear_receivable"],
   ["act_review_pl", "uc_view_pl"],
+  ["act_review_pl", "uc_report_month"],
   ["act_review_bs", "uc_view_bs"],
+  ["act_review_bs", "uc_report_month"],
   // usecaseInformation
   ["uc_register_receiving", "info_product"],
   ["uc_register_receiving", "info_stock"],
   ["uc_update_stock", "info_stock"],
   ["uc_record_count", "info_stock"],
+  ["uc_check_mall_order", "info_order"],
   ["uc_register_order", "info_order"],
   ["uc_register_order", "info_customer"],
   ["uc_search_order", "info_order"],
@@ -338,6 +409,8 @@ const pairs: [source: string, target: string][] = [
   ["uc_clear_receivable", "info_payout"],
   ["uc_view_pl", "info_pl"],
   ["uc_view_bs", "info_bs"],
+  ["uc_report_month", "info_pl"],
+  ["uc_report_month", "info_bs"],
   // usecaseCondition
   ["uc_allocate_stock", "cond_out_of_stock"],
   ["uc_register_return", "cond_return_period"],
@@ -417,6 +490,96 @@ const pairs: [source: string, target: string][] = [
   ["uc_register_receivable", "st_rec_open"],
   ["uc_clear_receivable", "st_rec_partial"],
   ["uc_clear_receivable", "st_rec_cleared"],
+  // ---- 0.2.0 の関係 ----
+  // usecaseNext (操作 → 操作: 次に)。作業の中の操作の順番
+  // 注文を取り込む: モールの注文一覧で確かめてから、販売管理システムの受注入力画面に入れる (課題「モールの注文を手で移している」の所在)
+  ["uc_check_mall_order", "uc_register_order"],
+  ["uc_search_order", "uc_confirm_order"],
+  ["uc_search_order", "uc_cancel_order"],
+  ["uc_search_order", "uc_register_return"],
+  ["uc_search_order", "uc_record_inquiry"],
+  ["uc_view_pl", "uc_report_month"],
+  ["uc_view_bs", "uc_report_month"],
+  // usecaseEvent (操作 → イベント: 発生)。作業の中の操作の並びは、最後にイベントを発生させて終わる
+  ["uc_register_receiving", "ev_received"],
+  ["uc_update_stock", "ev_stock_changed"],
+  ["uc_record_count", "ev_counted"],
+  ["uc_register_order", "ev_order_received"],
+  ["uc_confirm_order", "ev_order_confirmed"],
+  ["uc_cancel_order", "ev_order_cancelled"],
+  ["uc_allocate_stock", "ev_stock_allocated"],
+  ["uc_record_payment", "ev_payment_confirmed"],
+  ["uc_issue_pick_list", "ev_pick_listed"],
+  ["uc_issue_label", "ev_label_issued"],
+  ["uc_record_shipment", "ev_shipped"],
+  ["uc_register_return", "ev_return_accepted"],
+  ["uc_record_inspection", "ev_return_inspected"],
+  ["uc_record_refund", "ev_refunded"],
+  ["uc_record_inquiry", "ev_inquiry_recorded"],
+  ["uc_register_receivable", "ev_receivable_booked"],
+  ["uc_record_payout", "ev_payout_recorded"],
+  ["uc_clear_receivable", "ev_receivable_cleared"],
+  ["uc_report_month", "ev_month_reported"],
+  // systemEvent (システム → イベント: 発生)
+  ["sys_accounting", "ev_month_closed"],
+  // eventUsecase (イベント → 操作: きっかけ)
+  // 作業に属さない自動の処理: 注文が確定したら在庫を引き当て、出荷が記録されたら売掛金を登録する
+  ["ev_order_confirmed", "uc_allocate_stock"],
+  ["ev_shipped", "uc_register_receivable"],
+  // 人の作業も、イベントをきっかけに始まるものがある
+  ["ev_payment_confirmed", "uc_issue_pick_list"],
+  ["ev_return_accepted", "uc_record_inspection"],
+  ["ev_return_inspected", "uc_record_refund"],
+  ["ev_payout_recorded", "uc_clear_receivable"],
+  ["ev_month_closed", "uc_view_pl"],
+  // usecaseSystem (操作 → システム: 対象)。画面の無い自動の処理だけ直接結ぶ (画面のある操作は画面のシステムが対象)。対象は操作ごとに 1 つだけ
+  ["uc_allocate_stock", "sys_oms"],
+  ["uc_register_receivable", "sys_accounting"],
+  // usecaseScreen (操作 → 画面)
+  ["uc_check_mall_order", "scr_mall_orders"],
+  ["uc_register_order", "scr_order_entry"],
+  ["uc_search_order", "scr_order_list"],
+  ["uc_confirm_order", "scr_order_list"],
+  ["uc_cancel_order", "scr_order_list"],
+  ["uc_register_receiving", "scr_stock"],
+  ["uc_update_stock", "scr_stock"],
+  ["uc_record_count", "scr_stock"],
+  ["uc_record_payment", "scr_payment_admin"],
+  ["uc_issue_pick_list", "scr_shipping"],
+  ["uc_issue_label", "scr_shipping"],
+  ["uc_record_shipment", "scr_shipping"],
+  ["uc_register_return", "scr_return"],
+  ["uc_record_inspection", "scr_return"],
+  ["uc_record_refund", "scr_payment_admin"],
+  ["uc_record_inquiry", "scr_inquiry"],
+  ["uc_record_payout", "scr_receivable"],
+  ["uc_clear_receivable", "scr_receivable"],
+  ["uc_view_pl", "scr_monthly_report"],
+  ["uc_view_bs", "scr_monthly_report"],
+  ["uc_report_month", "scr_monthly_report"],
+  // screenInformation (画面 → 情報: 扱う)
+  ["scr_order_entry", "info_order"],
+  ["scr_order_entry", "info_customer"],
+  ["scr_order_list", "info_order"],
+  ["scr_order_list", "info_shipment"],
+  ["scr_stock", "info_stock"],
+  ["scr_stock", "info_product"],
+  ["scr_shipping", "info_shipment"],
+  ["scr_shipping", "info_order"],
+  ["scr_return", "info_return"],
+  ["scr_inquiry", "info_inquiry"],
+  ["scr_mall_orders", "info_order"],
+  ["scr_payment_admin", "info_order"],
+  ["scr_receivable", "info_receivable"],
+  ["scr_receivable", "info_payout"],
+  ["scr_monthly_report", "info_pl"],
+  ["scr_monthly_report", "info_bs"],
+  // actorNfr (アクター・外部アクター → 非機能要件: 求める)
+  ["actor_order", "nfr_sale_peak"],
+  ["ext_customer", "nfr_sale_peak"],
+  ["actor_manager", "nfr_backup"],
+  ["ext_customer", "nfr_card_data"],
+  ["actor_manager", "nfr_accounting_access"],
 ];
 
 const elements: Element[] = [
@@ -433,6 +596,9 @@ const elements: Element[] = [
   ...states,
   ...variations,
   ...conditions,
+  ...events,
+  ...screens,
+  ...nfrs,
   ...issues,
 ];
 
@@ -475,14 +641,12 @@ const overviewNodes: BoardNode[] = [
   { elementId: "buc_order_check", x: 360, y: FRAME_Y + 56, width: 220, height: 260 },
   { elementId: "act_import_order", x: 380, y: FRAME_Y + 112 },
   { elementId: "act_check_order", x: 380, y: FRAME_Y + 208 },
-  { elementId: "buc_allocate", x: 600, y: FRAME_Y + 56, width: 220, height: 160 },
-  { elementId: "act_allocate", x: 620, y: FRAME_Y + 112 },
-  { elementId: "buc_payment_check", x: 600, y: FRAME_Y + 236, width: 220, height: 160 },
-  { elementId: "act_check_payment", x: 620, y: FRAME_Y + 292 },
+  { elementId: "buc_payment_check", x: 600, y: FRAME_Y + 56, width: 220, height: 160 },
+  { elementId: "act_check_payment", x: 620, y: FRAME_Y + 112 },
   ...frameWithActivities("biz_shipping", 900, ["act_pick", "act_pack", "act_issue_label", "act_notify_shipping"]),
   ...frameWithActivities("biz_return", 40, ["act_accept_return", "act_inspect_return", "act_refund", "act_restock"], FRAME_Y2),
   ...frameWithActivities("biz_support", 340, ["act_answer", "act_track", "act_record_inquiry"], FRAME_Y2),
-  ...frameWithActivities("biz_receivable", 640, ["act_book_receivable", "act_manage_payment", "act_clear_receivable"], FRAME_Y2),
+  ...frameWithActivities("biz_receivable", 640, ["act_manage_payment", "act_clear_receivable"], FRAME_Y2),
   ...frameWithActivities("biz_monthly", 940, ["act_review_pl", "act_review_bs"], FRAME_Y2),
 ];
 
@@ -496,6 +660,8 @@ const flowNodes: BoardNode[] = [
   ...column(flowUsecases, 340, 40, 90),
   ...column(flowInfos, 660, 40, 100),
   ...column(flowConditions, 960, 40, 100),
+  ...column(events.map((e) => e.id), 1260, 40, 90),
+  ...column(screens.map((e) => e.id), 1560, 40, 90),
 ];
 
 const stateUsecases = [

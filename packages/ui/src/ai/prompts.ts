@@ -15,8 +15,8 @@ function granularityGuide(): string {
 const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言語化するための業務可視化ツールで、RDRA の業務レイヤーを扱います。
 モデルの要素と、画面での呼び名は次のとおりです (kind は内部名)。
 
-- 担い手: actor (アクター: 社内の人の役割)、externalActor (外部アクター: 社外の人・組織)、system (システム: 自社・社外を問わない情報システム。作業の担当にも情報の置き場所にもなる)
-- 置き場所: system、ledger (帳票: 紙の台帳・伝票。作業の担当にはならない)
+- 担い手: actor (アクター: 社内の人の役割)、externalActor (外部アクター: 社外の人・組織)。作業の担当は人だけ
+- システムと帳票: system (システム: 自社・社外を問わない情報システム。操作の対象と情報の置き場所になる。作業の担当にはならない)、ledger (帳票: 紙の台帳・伝票。操作の対象と情報の置き場所になる)
 - 業務の階層: business (業務) ⊃ buc (活動。RDRA の BUC) ⊃ activity (作業。RDRA のアクティビティ) → usecase (操作。RDRA のユースケース)
   - 活動は任意。ただし業務ごとに「作業はすべて業務に直接」か「作業はすべてどれかの活動に入れる」のどちらかにする (混ぜない)。活動を作る業務では、作業に buc_id を指定する
 - 情報のまわり: context (コンテキスト: 情報をまとめる親カテゴリ。関係は持たず、情報・状態・条件・バリエーションが所属する)、information (情報)、state (状態。group で状態グループにまとめる)、condition (条件)、variation (バリエーション: 種別と値の一覧)
@@ -26,7 +26,8 @@ const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言�
 - 作業と操作には時間 (hours: 時間単位、小数点第一位まで) とリンク (マニュアルなど) を付けられる
 
 つながりの決まり:
-- 作業には必ず担当 (actor / externalActor / system → activity) を結ぶ
+- 作業には必ず担当 (actor / externalActor → activity) を結ぶ。システムは担当にしない
+- 操作の対象のシステム・帳票は usecase → system / ledger (対象) で結ぶ。対象は 1 つの操作に 1 つだけ
 - 業務には主担当のアクター (actor → business) を結ぶ
 - 作業は使う操作を結ぶ (activity → usecase)。操作は扱う情報 (usecase → information) と判断に使う条件 (usecase → condition) を結ぶ
 - 情報の取得元・保存先はシステム・帳票と結ぶ (system / ledger → information が取得元、information → system / ledger が保存先)

@@ -74,7 +74,6 @@ const activities: Element[] = [
   { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care" },
   { id: "act_room_service", kind: "activity", name: "ルームサービスを提供する", bucId: "buc_dining" },
   { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: "buc_extra_charge" },
-  { id: "act_calc_charge", kind: "activity", name: "宿泊料金を計算する", bucId: dflt("biz_checkout") },
   { id: "act_create_bill", kind: "activity", name: "請求を作成する", bucId: dflt("biz_checkout") },
   { id: "act_settle", kind: "activity", name: "精算する", bucId: dflt("biz_checkout") },
   { id: "act_collect_key", kind: "activity", name: "鍵を回収する", bucId: dflt("biz_checkout") },
@@ -146,6 +145,12 @@ const conditions: Element[] = [
   { id: "cond_full", kind: "condition", name: "満室である", contextId: "ctx_room" },
 ];
 
+/** イベント (操作やシステムが発生させる出来事)。宿泊料金の計算は、人の作業ではなくイベントをきっかけにした自動の処理 */
+const events: Element[] = [
+  { id: "ev_checkout_day", kind: "event", name: "チェックアウトの日になった", contextId: "ctx_charge" },
+  { id: "ev_charge_calculated", kind: "event", name: "請求金額が計算された", contextId: "ctx_charge" },
+];
+
 const issues: Element[] = [
   {
     id: "issue_manual_entry",
@@ -202,7 +207,6 @@ const pairs: [source: string, target: string][] = [
   ["actor_housekeeping", "biz_cleaning"],
   // actorActivity
   ["actor_reservation", "act_accept_reservation"],
-  ["sys_booking_site", "act_accept_reservation"],
   ["ext_travel_agency", "act_accept_reservation"],
   ["actor_reservation", "act_confirm_reservation"],
   ["actor_reservation", "act_change_cancel"],
@@ -216,10 +220,7 @@ const pairs: [source: string, target: string][] = [
   ["actor_front", "act_room_service"],
   ["actor_front", "act_record_extra"],
   ["actor_front", "act_create_bill"],
-  // システムが担当する作業 (自動で行う)
-  ["sys_pms", "act_calc_charge"],
   ["actor_front", "act_settle"],
-  ["sys_payment", "act_settle"],
   ["actor_front", "act_collect_key"],
   ["actor_manager", "act_instruct_cleaning"],
   ["actor_housekeeping", "act_clean"],
@@ -235,7 +236,6 @@ const pairs: [source: string, target: string][] = [
   ["act_assign_room", "uc_assign_room"],
   ["act_record_extra", "uc_register_extra"],
   ["act_create_bill", "uc_issue_invoice"],
-  ["act_calc_charge", "uc_calc_charge"],
   ["act_settle", "uc_record_payment"],
   ["act_collect_key", "uc_record_checkout"],
   ["act_instruct_cleaning", "uc_update_cleaning"],
@@ -319,6 +319,16 @@ const pairs: [source: string, target: string][] = [
   ["uc_record_checkout", "st_room_waiting"],
   ["uc_update_cleaning", "st_room_cleaning"],
   ["uc_update_cleaning", "st_room_ready"],
+  // 作業に属さない自動の処理: 宿泊管理システムが「チェックアウトの日になった」を発生させ、請求金額を計算する。
+  // 計算が済んだら「請求金額が計算された」を発生させ、フロント担当の請求書の発行のきっかけになる
+  ["sys_pms", "ev_checkout_day"],
+  ["ev_checkout_day", "uc_calc_charge"],
+  ["uc_calc_charge", "sys_pms"],
+  ["uc_calc_charge", "ev_charge_calculated"],
+  ["ev_charge_calculated", "uc_issue_invoice"],
+  // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
+  ["uc_register_reservation", "sys_booking_site"],
+  ["uc_record_payment", "sys_payment"],
 ];
 
 const elements: Element[] = [
@@ -335,6 +345,7 @@ const elements: Element[] = [
   ...states,
   ...variations,
   ...conditions,
+  ...events,
   ...issues,
 ];
 
@@ -381,7 +392,7 @@ const overviewNodes: BoardNode[] = [
   { elementId: "act_room_service", x: 940, y: FRAME_Y + 112 },
   { elementId: "buc_extra_charge", x: 660, y: FRAME_Y + 276, width: 480, height: 160 },
   { elementId: "act_record_extra", x: 680, y: FRAME_Y + 332 },
-  ...frameWithActivities("biz_checkout", 40, ["act_calc_charge", "act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
+  ...frameWithActivities("biz_checkout", 40, ["act_create_bill", "act_settle", "act_collect_key"], FRAME_Y2),
   ...frameWithActivities("biz_cleaning", 340, ["act_instruct_cleaning", "act_clean", "act_inspect_room"], FRAME_Y2),
 ];
 
@@ -394,7 +405,6 @@ const flowActivities = [
   "act_assign_room",
   "act_hand_key",
   "act_record_extra",
-  "act_calc_charge",
   "act_create_bill",
   "act_settle",
   "act_collect_key",

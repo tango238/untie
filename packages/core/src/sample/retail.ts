@@ -90,8 +90,8 @@ const activities: Element[] = [
   { id: "act_stocktake", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stocktake"), hours: 2 },
   { id: "act_apply_count", kind: "activity", name: "実在庫を帳簿に反映する", bucId: dflt("biz_stocktake") },
   { id: "act_review_stock", kind: "activity", name: "欠品・過剰在庫を確認する", bucId: dflt("biz_stocktake") },
-  // 本部の会計システムが担当する。クレジットカードや電子マネーの売上は、あとから決済会社がまとめて振り込む (その間は売掛金)
-  { id: "act_book_receivable", kind: "activity", name: "売掛金を計上する", bucId: dflt("biz_receivable") },
+  // 本部の会計システムが対象。クレジットカードや電子マネーの売上は、あとから決済会社がまとめて振り込む (その間は売掛金)。
+  // 売掛金の計上は人の作業ではなく、「カード・電子マネーで支払われた」をきっかけにした自動の処理 (操作「売掛金を登録する」)
   { id: "act_manage_settlement", kind: "activity", name: "入金を管理する", bucId: dflt("biz_receivable") },
   { id: "act_clear_receivable", kind: "activity", name: "入金を消し込む", bucId: dflt("biz_receivable"), hours: 0.4 },
   // 本部の会計システムで、損益計算書 (PL) と貸借対照表 (BS) を見る
@@ -175,6 +175,11 @@ const conditions: Element[] = [
   { id: "cond_difference", kind: "condition", name: "売上と現金にずれがある", description: "ずれがあれば、原因を調べてから報告する。", contextId: "ctx_sales" },
 ];
 
+/** イベント (操作やシステムが発生させる出来事) */
+const events: Element[] = [
+  { id: "ev_card_paid", kind: "event", name: "カード・電子マネーで支払われた", contextId: "ctx_accounting" },
+];
+
 const issues: Element[] = [
   {
     id: "issue_closing_gap",
@@ -236,7 +241,6 @@ const pairs: [source: string, target: string][] = [
   ["actor_manager", "act_decide_qty"],
   ["actor_hq_purchase", "act_decide_qty"],
   ["actor_manager", "act_place_order"],
-  ["sys_ordering", "act_place_order"],
   ["actor_backyard", "act_receive"],
   ["ext_supplier", "act_receive"],
   ["actor_backyard", "act_record_receiving"],
@@ -246,10 +250,8 @@ const pairs: [source: string, target: string][] = [
   ["actor_floor", "act_markdown"],
   ["actor_manager", "act_markdown"],
   ["actor_cashier", "act_scan"],
-  ["sys_pos", "act_scan"],
   ["ext_shopper", "act_scan"],
   ["actor_cashier", "act_payment"],
-  ["sys_terminal", "act_payment"],
   ["ext_shopper", "act_payment"],
   ["actor_cashier", "act_return"],
   ["actor_manager", "act_return"],
@@ -259,21 +261,15 @@ const pairs: [source: string, target: string][] = [
   ["actor_hq_purchase", "act_special"],
   ["actor_cashier", "act_count_cash"],
   ["actor_cashier", "act_reconcile"],
-  ["sys_pos", "act_reconcile"],
   ["actor_manager", "act_report_sales"],
   ["actor_hq_purchase", "act_report_sales"],
   ["actor_manager", "act_deposit"],
   ["actor_floor", "act_stocktake"],
   ["actor_backyard", "act_stocktake"],
   // システムが担当する作業 (自動で行う)
-  ["sys_pos", "act_apply_count"],
   ["actor_manager", "act_apply_count"],
   ["actor_manager", "act_review_stock"],
-  ["sys_accounting", "act_book_receivable"],
-  ["sys_accounting", "act_manage_settlement"],
   ["actor_hq_accounting", "act_manage_settlement"],
-  ["sys_terminal", "act_manage_settlement"],
-  ["sys_accounting", "act_clear_receivable"],
   ["actor_hq_accounting", "act_clear_receivable"],
   ["actor_manager", "act_review_pl"],
   ["actor_hq_accounting", "act_review_pl"],
@@ -298,7 +294,6 @@ const pairs: [source: string, target: string][] = [
   ["act_stocktake", "uc_record_stocktake"],
   ["act_apply_count", "uc_adjust_stock"],
   ["act_review_stock", "uc_search_item"],
-  ["act_book_receivable", "uc_register_receivable"],
   ["act_manage_settlement", "uc_record_settlement"],
   ["act_clear_receivable", "uc_clear_receivable"],
   ["act_review_pl", "uc_view_pl"],
@@ -415,6 +410,18 @@ const pairs: [source: string, target: string][] = [
   ["uc_register_receivable", "st_rec_open"],
   ["uc_clear_receivable", "st_rec_partial"],
   ["uc_clear_receivable", "st_rec_cleared"],
+  // 作業に属さない自動の処理: カード・電子マネーの支払を記録すると、本部の会計システムが売掛金を登録する
+  ["uc_record_payment", "ev_card_paid"],
+  ["ev_card_paid", "uc_register_receivable"],
+  ["uc_register_receivable", "sys_accounting"],
+  // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
+  ["uc_register_order", "sys_ordering"],
+  ["uc_register_sale", "sys_pos"],
+  ["uc_record_payment", "sys_terminal"],
+  ["uc_issue_daily_report", "sys_pos"],
+  ["uc_adjust_stock", "sys_pos"],
+  ["uc_record_settlement", "sys_accounting"],
+  ["uc_clear_receivable", "sys_accounting"],
 ];
 
 const elements: Element[] = [
@@ -431,6 +438,7 @@ const elements: Element[] = [
   ...states,
   ...variations,
   ...conditions,
+  ...events,
   ...issues,
 ];
 
@@ -480,7 +488,7 @@ const overviewNodes: BoardNode[] = [
   { elementId: "act_special", x: 920, y: FRAME_Y + 292 },
   ...frameWithActivities("biz_closing", 40, ["act_count_cash", "act_reconcile", "act_report_sales", "act_deposit"], FRAME_Y2),
   ...frameWithActivities("biz_stocktake", 340, ["act_stocktake", "act_apply_count", "act_review_stock"], FRAME_Y2),
-  ...frameWithActivities("biz_receivable", 640, ["act_book_receivable", "act_manage_settlement", "act_clear_receivable"], FRAME_Y2),
+  ...frameWithActivities("biz_receivable", 640, ["act_manage_settlement", "act_clear_receivable"], FRAME_Y2),
   ...frameWithActivities("biz_monthly", 940, ["act_review_pl", "act_review_bs"], FRAME_Y2),
 ];
 

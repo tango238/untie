@@ -81,12 +81,12 @@ export interface PerformerWork {
   sections: ActivitySection[];
 }
 
-/** 担い手 (アクター・外部アクター・システム) ごとに、担当する作業を業務・活動の順に並べる。担当の無い作業は最後にまとめる */
+/** 担い手 (アクター・外部アクター) ごとに、担当する作業を業務・活動の順に並べる。担当の無い作業は最後にまとめる (0.2.0 からシステムは作業の担当にならない) */
 export function performerWorkList(model: UntieModel): { performers: PerformerWork[]; unassigned: ActivitySection[] } {
   const get = lookup(model);
   const activities = byKind(model, "activity");
   const performers = model.elements
-    .filter((e) => e.kind === "actor" || e.kind === "externalActor" || e.kind === "system")
+    .filter((e) => e.kind === "actor" || e.kind === "externalActor")
     .map((performer) => {
       const ids = new Set(targetsOf(model, "actorActivity", performer.id));
       return { performer, sections: activitySections(model, activities.filter((a) => ids.has(a.id))) };
@@ -142,6 +142,55 @@ export function informationLocations(model: UntieModel): { places: Element[]; ro
     return { information: info, places: map, usecaseCount: sourcesOf(model, "usecaseInformation", info.id).length, flags };
   });
   return { places, rows };
+}
+
+/** 画面と情報の表のセル: 扱う (ok)、扱うがそのシステムに置き場所 (取得元・保存先) が無い (noPlace) */
+export type ScreenInformationCell = "ok" | "noPlace";
+
+export interface ScreenInformationRow {
+  screen: Element;
+  /** この画面を使う操作 (要素の並び順) */
+  usecases: Element[];
+  /** 情報 id → セル。扱わない情報は入れない */
+  cells: Map<string, ScreenInformationCell>;
+  /** 扱う情報が 1 つも無い */
+  noInformation: boolean;
+}
+
+export interface ScreenInformationTable {
+  system: Element;
+  /** 列: このシステムの画面のどれかが扱う情報 (要素の並び順) */
+  informations: Element[];
+  rows: ScreenInformationRow[];
+}
+
+/**
+ * システムごとに、画面 × 情報の表を組み立てる (情報の所在の分析ボードの 2 つ目の表)。
+ * 画面の無いシステムは表を作らず、systemsWithoutScreens に並べる。帳票は画面を持たないので入れない
+ */
+export function screenInformationTables(model: UntieModel): { tables: ScreenInformationTable[]; systemsWithoutScreens: Element[] } {
+  const order = new Map(model.elements.map((e, i) => [e.id, i]));
+  const get = lookup(model);
+  const byOrder = (ids: Iterable<string>) => [...new Set(ids)].map((id) => get(id)).filter((e): e is Element => !!e).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  const screens = byKind(model, "screen");
+  const tables: ScreenInformationTable[] = [];
+  const systemsWithoutScreens: Element[] = [];
+  for (const sys of byKind(model, "system")) {
+    const own = screens.filter((sc) => sc.systemId === sys.id);
+    if (own.length === 0) {
+      systemsWithoutScreens.push(sys);
+      continue;
+    }
+    // このシステムの置き場所にある情報 (取得元・保存先)
+    const placed = new Set([...targetsOf(model, "systemInformation", sys.id), ...sourcesOf(model, "informationSystem", sys.id)]);
+    const rows = own.map((screen) => {
+      const infos = byOrder(targetsOf(model, "screenInformation", screen.id)).filter((e) => e.kind === "information");
+      const cells = new Map<string, ScreenInformationCell>(infos.map((i) => [i.id, placed.has(i.id) ? "ok" : "noPlace"]));
+      return { screen, usecases: byOrder(sourcesOf(model, "usecaseScreen", screen.id)), cells, noInformation: infos.length === 0 };
+    });
+    tables.push({ system: sys, informations: byOrder(rows.flatMap((r) => [...r.cells.keys()])), rows });
+  }
+  return { tables, systemsWithoutScreens };
 }
 
 // ---------------------------------------------------------------- 3. 課題の分布

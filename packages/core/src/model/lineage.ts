@@ -7,9 +7,12 @@ import { isContextMemberKind, type Element, type ElementKind, type UntieModel } 
  * 要素 → 1 つ上の要素。
  * - 業務 → 主担当のアクター
  * - 活動 → 業務
- * - 作業 → 活動 (業務に直接なら業務)、担当 (アクター・外部アクター・システム)
- * - 操作 → 使う作業
- * - 情報 → 扱う操作、コンテキスト、取得元・保存先 (システム・帳票)
+ * - 作業 → 活動 (業務に直接なら業務)、担当 (アクター・外部アクター)
+ * - 操作 → 使う作業、きっかけのイベント、対象 (システム・帳票)
+ * - イベント → 発生させる操作・システム、コンテキスト
+ * - 画面 → 属するシステム、使う操作
+ * - 非機能要件 → 属するシステム、求めるアクター・外部アクター
+ * - 情報 → 扱う操作・画面、コンテキスト、取得元・保存先 (システム・帳票)
  * - 条件 → 判断に使う操作、コンテキスト
  * - 状態 → 結んだ操作・状態を参照する条件、コンテキスト
  * - バリエーション → 種別にしている情報・条件、コンテキスト
@@ -32,6 +35,7 @@ function upEdges(model: UntieModel): Map<string, string[]> {
       if (buc && buc.kind === "buc") add(e.id, buc.isDefault ? buc.businessId : buc.id);
     }
     if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId) add(e.id, e.contextId);
+    if ((e.kind === "screen" || e.kind === "nfr") && "systemId" in e) add(e.id, e.systemId);
   }
   for (const r of model.relations) {
     switch (r.kind) {
@@ -45,14 +49,23 @@ function upEdges(model: UntieModel): Map<string, string[]> {
       case "conditionState":
       case "usecaseState":
       case "systemInformation":
+      case "eventUsecase":
+      case "usecaseEvent":
+      case "systemEvent":
+      case "usecaseScreen":
+      case "screenInformation":
+      case "actorNfr":
         add(r.targetId, r.sourceId);
         break;
       case "stateUsecase":
       case "informationSystem":
-        // 始点が下位 (状態 → 操作、情報 → 保存先) なので向きを逆にする
+      case "usecaseSystem":
+        // 始点が下位 (状態 → 操作、情報 → 保存先、操作 → 対象) なので向きを逆にする
         add(r.sourceId, r.targetId);
         break;
       case "informationRelated":
+      case "usecaseNext":
+        // 同じレイヤーなので辿らない
         break;
     }
   }
@@ -62,21 +75,24 @@ function upEdges(model: UntieModel): Map<string, string[]> {
 /**
  * 種類どうしの上下 (upEdges を種類にまとめたもの)。要素の種類から、上下に来うるレイヤーを決めるのに使う。
  * 登場人物は種類ごとに違う: アクターは業務の主担当と作業の担当、外部アクターは作業の担当、
- * システムは作業の担当と情報の置き場所、帳票は情報の置き場所にだけなる。
+ * システムは操作の対象・情報の置き場所・イベントの発生元と、画面・非機能要件の持ち主、帳票は操作の対象と情報の置き場所になる。
  * コンテキストは分類なので上を持たない (上へは属する要素から辿る)
  */
 const KIND_UP: Partial<Record<ElementKind, readonly ElementKind[]>> = {
   business: ["actor"],
   buc: ["business"],
-  activity: ["buc", "business", "actor", "externalActor", "system"],
-  usecase: ["activity"],
-  information: ["usecase", "context", "system", "ledger"],
+  activity: ["buc", "business", "actor", "externalActor"],
+  usecase: ["activity", "event", "system", "ledger"],
+  event: ["usecase", "system"],
+  screen: ["system", "usecase"],
+  nfr: ["system", "actor", "externalActor"],
+  information: ["usecase", "screen", "context", "system", "ledger"],
   condition: ["usecase", "context"],
   state: ["usecase", "condition", "context"],
   variation: ["information", "condition", "context"],
 };
 
-const CONTEXT_MEMBER_KINDS: readonly ElementKind[] = ["information", "condition", "state", "variation"];
+const CONTEXT_MEMBER_KINDS: readonly ElementKind[] = ["information", "condition", "state", "variation", "event"];
 const upOf = (k: ElementKind) => KIND_UP[k] ?? [];
 const KINDS_WITH_UP = Object.keys(KIND_UP) as ElementKind[];
 

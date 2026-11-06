@@ -30,7 +30,10 @@ export type Element =
   | State
   | Variation
   | Condition
-  | Issue;
+  | Issue
+  | Event
+  | Screen
+  | Nfr;
 /**
  * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
  */
@@ -51,7 +54,15 @@ export type RelationKind =
   | "conditionVariation"
   | "conditionState"
   | "stateUsecase"
-  | "usecaseState";
+  | "usecaseState"
+  | "usecaseSystem"
+  | "usecaseEvent"
+  | "systemEvent"
+  | "eventUsecase"
+  | "usecaseNext"
+  | "usecaseScreen"
+  | "screenInformation"
+  | "actorNfr";
 
 /**
  * Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。
@@ -62,12 +73,12 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.1.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.3.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.1.0";
+  version: "0.3.0";
   meta: Meta;
   /**
-   * 全要素。kind で 11 種を判別する。id はモデル内で一意。
+   * 全要素。kind で 17 種を判別する。id はモデル内で一意。
    */
   elements: Element[];
   /**
@@ -107,7 +118,7 @@ export interface ExternalActor {
   description?: Description;
 }
 /**
- * システム。情報システム (自社・社外を問わない)。作業の担当 (担い手) にも、情報の取得元・保存先 (置き場所) にもなる。
+ * システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させ、情報の取得元・保存先 (置き場所) になる。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。
  */
 export interface System {
   id: Id;
@@ -116,7 +127,7 @@ export interface System {
   description?: Description;
 }
 /**
- * 帳票。紙の台帳・伝票など。情報の取得元・保存先 (置き場所) にだけなり、作業の担当にはならない。
+ * 帳票。紙の台帳・伝票など。操作の対象と、情報の取得元・保存先 (置き場所) になる。作業の担当にはならない。
  */
 export interface Ledger {
   id: Id;
@@ -265,7 +276,7 @@ export interface Condition {
   contextId: Id | null;
 }
 /**
- * 課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作が対象) に分かれる (対象が無ければ未整理)。
+ * 課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。
  */
 export interface Issue {
   id: Id;
@@ -277,7 +288,7 @@ export interface Issue {
    */
   severity: number;
   /**
-   * 対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作だけ (混ぜない)。0 件も可 (未整理)。重複なし。
+   * 対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。
    */
   targetIds: Id[];
   analysis?: IssueAnalysis;
@@ -304,7 +315,54 @@ export interface IssueAnalysis {
   impact?: string;
 }
 /**
- * 型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可。
+ * イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。
+ */
+export interface Event {
+  id: Id;
+  kind: "event";
+  name: Name;
+  description?: Description;
+  /**
+   * 所属するコンテキストの id。未分類なら null。
+   */
+  contextId: Id | null;
+}
+/**
+ * 画面。1 つのシステムに属する (systemId)。操作が使い、情報を扱う。
+ */
+export interface Screen {
+  id: Id;
+  kind: "screen";
+  name: Name;
+  description?: Description;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  systemId: string;
+}
+/**
+ * 非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。
+ */
+export interface Nfr {
+  id: Id;
+  kind: "nfr";
+  name: Name;
+  description?: Description;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  systemId: string;
+  /**
+   * 分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。
+   */
+  category?: "availability" | "performance" | "operability" | "migration" | "security" | "environment";
+  /**
+   * 検証方法。満たしていることをどう確かめるか。
+   */
+  verification?: string;
+}
+/**
+ * 型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」も不可)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。
  */
 export interface Relation {
   id: Id;

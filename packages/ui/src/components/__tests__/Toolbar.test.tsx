@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addElement, addRelation, removeBoard } from "@untie/core/model/commands";
+import { traceWarnings } from "@untie/core/model/trace";
 import type { Platform } from "../../platform";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
@@ -131,15 +132,16 @@ describe("Toolbar", () => {
     expect((screen.getByRole("button", { name: "ボード削除" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("ボードの選択肢は固定ボード 10 枚・分析ボード・自由ボードに分かれる。固定ボードでは名前変更・削除ができない", () => {
+  it("ボードの選択肢は固定ボード 12 枚・分析ボード・自由ボードに分かれる。固定ボードでは名前変更・削除ができない", () => {
     render(<Toolbar />);
     const select = screen.getByLabelText("ボード") as HTMLSelectElement;
     const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
     expect(groups).toEqual(["固定ボード", "分析ボード", "自由ボード"]);
     const fixedOptions = Array.from(select.querySelectorAll('optgroup[label="固定ボード"] option')).map((o) => o.textContent);
-    expect(fixedOptions).toHaveLength(10);
-    // コンテキストはバリエーションの下
-    expect(fixedOptions.slice(-2)).toEqual(["バリエーション", "コンテキスト"]);
+    expect(fixedOptions).toHaveLength(12);
+    // 画面は操作の下、コンテキストはバリエーションの下、非機能要件は最後
+    expect(fixedOptions.slice(4, 6)).toEqual(["操作", "画面"]);
+    expect(fixedOptions.slice(-3)).toEqual(["バリエーション", "コンテキスト", "非機能要件"]);
     // 分析ボードは課題の分布が先頭
     expect(select.querySelector('optgroup[label="分析ボード"] option')!.textContent).toBe("課題の分布");
     fireEvent.change(select, { target: { value: "fixed:buc" } });
@@ -312,7 +314,7 @@ describe("キーボードショートカット", () => {
     });
     render(<Toolbar />);
     const btn = screen.getByRole("button", { name: /^検証/ });
-    expect(btn.textContent).toBe("検証1");
+    expect(btn.querySelector(".toolbar-count:not(.is-warning)")!.textContent).toBe("1");
     fireEvent.click(btn);
     expect(st().ui.rightPanel).toBe("trace");
     fireEvent.click(btn);
@@ -324,16 +326,17 @@ describe("キーボードショートカット", () => {
     });
     render(<Toolbar />);
     const btn = screen.getByRole("button", { name: /^検証/ });
-    // エラーは無いので、警告の 1 だけ
-    expect(btn.textContent).toBe("検証1");
+    // エラーは無いので、エラーの印は出ず、警告 (サンプルのイベントの連鎖の警告と、足した主担当の警告) の印だけ
+    expect(btn.querySelector(".toolbar-count:not(.is-warning)")).toBeNull();
     const badge = within(btn).getByTitle("警告 (エラーではありません)");
     expect(badge.className).toContain("is-warning");
+    expect(badge.textContent).toBe(String(traceWarnings(st().model).length));
     // エラーも出ると、エラーの印と警告の印が並ぶ
     act(() => {
       st().dispatch((m) => addElement(m, { kind: "context", name: "空のコンテキスト" }));
     });
-    expect(screen.getByRole("button", { name: /^検証/ }).textContent).toBe("検証11");
-    expect(within(btn).getAllByText("1")).toHaveLength(2);
+    expect(btn.querySelector(".toolbar-count:not(.is-warning)")!.textContent).toBe("1");
+    expect(within(btn).getByTitle("警告 (エラーではありません)")).toBeDefined();
   });
 
   it("「ファイル」メニューに新規作成・開く・保存・別名で保存・プロンプトから作成・AI の設定があり、プロンプトから作成でダイアログを開く", () => {

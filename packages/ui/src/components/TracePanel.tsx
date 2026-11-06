@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { moveToContext } from "@untie/core/model/commands";
 import { contextNotices, type ContextNotice } from "@untie/core/model/contexts";
 import { issuesByScope } from "@untie/core/model/selectors";
-import { traceToActors, traceWarnings, type TraceProblem, type TraceWarning } from "@untie/core/model/trace";
+import { TRACE_WARNING_HINTS, TRACE_WARNING_TITLES, traceToActors, traceWarnings, type TraceProblem, type TraceWarning, type TraceWarningType } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../store";
 import { revealOnFixedBoard } from "./actions";
@@ -39,13 +39,28 @@ export function TracePanel() {
       </ul>
       {warnings.length > 0 && (
         <section className="trace-warnings" aria-label="警告">
-          <h3 className="trace-warning-title">警告: 1 つの業務に複数のアクターが付いています ({warnings.length})</h3>
-          <p className="hint">業務をアクターごとに分解できるか検討してください。</p>
-          <ul className="trace-rows">
-            {warnings.map((w) => (
-              <WarningRow key={w.elementId} warning={w} element={byId.get(w.elementId)!} actors={w.actorIds.map((id) => byId.get(id)!)} />
-            ))}
-          </ul>
+          {WARNING_ORDER.map((type) => {
+            const list = warnings.filter((w) => w.type === type);
+            if (list.length === 0) return null;
+            return (
+              <div key={type} className="trace-warning-group" data-testid={`warnings-${type}`}>
+                <h3 className="trace-warning-title">
+                  警告: {TRACE_WARNING_TITLES[type]} ({list.length})
+                </h3>
+                <p className="hint">{TRACE_WARNING_HINTS[type]}</p>
+                <ul className="trace-rows">
+                  {list.map((w) => (
+                    <WarningRow
+                      key={`${w.type}:${w.elementId}:${w.relatedIds.join(",")}`}
+                      warning={w}
+                      element={byId.get(w.elementId)!}
+                      related={w.relatedIds.map((id) => byId.get(id)).filter((e): e is Element => !!e)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </section>
       )}
       {notices.length > 0 && (
@@ -79,36 +94,45 @@ export function TracePanel() {
         <ul>
           <li>業務 ← 主担当のアクター</li>
           <li>活動 ← 業務</li>
-          <li>作業 ← 担当のアクター／外部アクター／システム (必須。業務に属していても担当が無ければ途切れ)</li>
-          <li>操作 ← 使う作業</li>
-          <li>情報 ← 扱う操作、または関連する情報</li>
+          <li>作業 ← 担当のアクター／外部アクター (必須。業務に属していても担当が無ければ途切れ)</li>
+          <li>操作 ← 使う作業、またはきっかけのイベント</li>
+          <li>イベント ← 発生させる操作・システム</li>
+          <li>画面・非機能要件 ← 属するシステム</li>
+          <li>情報 ← 扱う操作・画面、または関連する情報</li>
           <li>コンテキスト ← 入っている情報・状態・条件・バリエーション</li>
-          <li>システム: 担い手なので辿り着く先。ただし作業の担当にも情報の置き場所にもなっていなければ途切れ</li>
-          <li>帳票 ← 取得元・保存先として結んだ情報</li>
+          <li>システム: 担い手なので辿り着く先。ただし操作の対象・情報の置き場所・イベントの発生元のどれでもなく、画面も無ければ途切れ</li>
+          <li>帳票 ← 取得元・保存先として結んだ情報、対象にする操作</li>
           <li>条件 ← 判断に使う操作</li>
           <li>バリエーション ← 種別にしている情報・条件</li>
           <li>状態 ← 結んだ操作・条件</li>
         </ul>
-        <p className="hint">警告: 1 つの業務に結ぶアクターは主担当の 1 人です。複数いると警告を出します (辿れるかには数えません)。</p>
+        <p className="hint">
+          警告 (辿れるかには数えません): 1 つの業務に結ぶアクターは主担当の 1 人です。複数いると警告を出します。作業の操作を「次に」でつないだ並びの最後の操作がイベントを発生させないとき (作業に属さない自動の処理も同じ) も警告を出します。
+        </p>
         <p className="hint">課題は対象の要素に付くものなので、検証の対象にしません。</p>
       </details>
     </aside>
   );
 }
 
-function WarningRow({ warning, element, actors }: { warning: TraceWarning; element: Element; actors: Element[] }) {
+/** 警告の種類を並べる順 */
+const WARNING_ORDER: readonly TraceWarningType[] = ["businessActors", "chainEnd"];
+
+function WarningRow({ warning, element, related }: { warning: TraceWarning; element: Element; related: Element[] }) {
   return (
-    <li className="trace-row is-warning" data-testid={`warning-${element.id}`}>
+    <li className="trace-row is-warning" data-testid={`warning-${warning.type}-${element.id}`}>
       <div className="trace-head">
         <span className="relation-kind">{ELEMENT_KIND_LABELS[element.kind]}</span>
         <ElementLink element={element} />
       </div>
       <div className="trace-reason is-warning">{warning.reason}</div>
-      <div className="trace-actors">
-        {actors.map((a) => (
-          <ElementLink key={a.id} element={a} />
-        ))}
-      </div>
+      {related.length > 0 && (
+        <div className="trace-actors">
+          {related.map((a) => (
+            <ElementLink key={a.id} element={a} />
+          ))}
+        </div>
+      )}
       <div className="trace-fix">{warning.fix}</div>
     </li>
   );

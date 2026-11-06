@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addElement, addRelation, moveActivity, removeRelation } from "../commands";
 import { traceToActors, traceWarnings } from "../trace";
+import { emptyModel } from "../types";
 import { okModel, sample } from "./helpers";
 
 describe("traceToActors", () => {
@@ -23,13 +24,14 @@ describe("traceToActors", () => {
       ["uc_x", false, ["act_x"]],
       ["info_x", false, ["act_x"]],
     ]);
-    expect(r.problems[0]!.reason).toBe("担当 (アクター・外部アクター・システム) がいません");
+    expect(r.problems[0]!.reason).toBe("担当 (アクター・外部アクター) がいません");
     expect(r.problems[1]!.reason).toMatch(/作業「孤立した作業」から先が途切れています/);
     // 業務に入れても、担当が無ければ途切れたまま (作業の担当は必須)
     m = okModel(moveActivity(m, { activityId: "act_x", bucId: "buc_dining" }));
     expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["act_x", "uc_x", "info_x"]);
-    // システムを担当にすると辿り着く
-    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "act_x" }));
+    // システムは担当にできない (0.2.0 から)。人を担当にすると辿り着く
+    expect(addRelation(m, { sourceId: "sys_pms", targetId: "act_x" }).ok).toBe(false);
+    m = okModel(addRelation(m, { sourceId: "actor_front", targetId: "act_x" }));
     expect(traceToActors(m).problems).toEqual([]);
   });
 
@@ -55,21 +57,51 @@ describe("traceToActors", () => {
     expect(r.problems.every((p) => p.isBreak)).toBe(true);
     const reasonOf = (id: string) => r.problems.find((p) => p.elementId === id)?.reason;
     expect(reasonOf("x_context")).toBe("情報・状態・条件・バリエーションが入っていません");
-    expect(reasonOf("x_system")).toBe("どの作業の担当にも、どの情報の取得元・保存先にもなっていません");
-    expect(reasonOf("x_ledger")).toBe("どの情報の取得元・保存先にもなっていません");
+    expect(reasonOf("x_system")).toBe("どの操作の対象にも、情報の取得元・保存先にもなっておらず、画面もイベントもありません");
+    expect(reasonOf("x_ledger")).toBe("どの操作の対象にも、情報の取得元・保存先にもなっていません");
     expect(reasonOf("x_variation")).toBe("どの情報・条件の種別にもなっていません");
     expect(reasonOf("x_state")).toBe("どの操作・条件ともつながっていません");
     expect(reasonOf("x_condition")).toBe("どの操作の判断にも使われていません");
   });
 
-  it("システムは辿り着く先。作業の担当か情報の置き場所になっていれば途切れにしない", () => {
+  it("システムは辿り着く先。操作の対象・情報の置き場所・イベントの発生元のどれかか、画面を持っていれば途切れにしない", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "system", name: "新システム", id: "sys_x" }));
     expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["sys_x"]);
-    const m1 = okModel(addRelation(m, { sourceId: "sys_x", targetId: "act_settle" }));
+    const m1 = okModel(addRelation(m, { sourceId: "uc_update_cleaning", targetId: "sys_x" }));
     expect(traceToActors(m1).problems).toEqual([]);
     const m2 = okModel(addRelation(m, { sourceId: "info_bill", targetId: "sys_x" }));
     expect(traceToActors(m2).problems).toEqual([]);
+    const m3 = okModel(addElement(m, { kind: "screen", name: "画面", id: "scr_x", init: { systemId: "sys_x" } }));
+    expect(traceToActors(m3).problems.map((p) => p.elementId)).toEqual([]);
+  });
+
+  it("操作はきっかけのイベントからも辿れ、イベントは発生させる操作・システムから辿る。発生元の無いイベントは途切れ箇所", () => {
+    let m = sample();
+    // 作業に属さない操作でも、システムが発生させたイベントがきっかけなら辿り着く (サンプルの「請求金額を計算する」)
+    expect(traceToActors(m).problems).toEqual([]);
+    m = okModel(addElement(m, { kind: "event", name: "発生元の無いイベント", id: "ev_x" }));
+    m = okModel(addElement(m, { kind: "usecase", name: "それをきっかけにする操作", id: "uc_x" }));
+    m = okModel(addRelation(m, { sourceId: "ev_x", targetId: "uc_x" }));
+    const r = traceToActors(m);
+    expect(r.problems.map((p) => [p.elementId, p.isBreak, p.breakIds])).toEqual([
+      ["ev_x", true, ["ev_x"]],
+      ["uc_x", false, ["ev_x"]],
+    ]);
+    expect(r.problems[0]!.reason).toBe("どの操作・システムからも発生していません");
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "ev_x" }));
+    expect(traceToActors(m).problems).toEqual([]);
+  });
+
+  it("画面と非機能要件は属するシステムから辿る。画面が扱う情報も辿り着く。帳票は対象にする操作からも辿る", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "screen", name: "画面", id: "scr_x", init: { systemId: "sys_pms" } }));
+    m = okModel(addElement(m, { kind: "nfr", name: "要件", id: "nfr_x", init: { systemId: "sys_pms" } }));
+    m = okModel(addElement(m, { kind: "information", name: "画面だけの情報", id: "info_x" }));
+    m = okModel(addRelation(m, { sourceId: "scr_x", targetId: "info_x" }));
+    m = okModel(addElement(m, { kind: "ledger", name: "記入用紙", id: "ldg_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_record_checkin", targetId: "ldg_x" }));
+    expect(traceToActors(m).problems).toEqual([]);
   });
 
   it("情報はシステム・帳票からは辿らない (操作に扱われていなければ途切れ)", () => {
@@ -106,18 +138,23 @@ describe("traceToActors", () => {
 });
 
 describe("traceWarnings", () => {
-  it("サンプルは警告が出ない", () => {
-    expect(traceWarnings(sample())).toEqual([]);
+  const businessWarnings = (m: Parameters<typeof traceWarnings>[0]) => traceWarnings(m).filter((w) => w.type === "businessActors");
+
+  it("サンプル (宿泊施設) は、業務の主担当の警告が出ない (イベントの連鎖の警告は出る)", () => {
+    const w = traceWarnings(sample());
+    expect(w.filter((x) => x.type !== "chainEnd")).toEqual([]);
+    expect(w.some((x) => x.type === "chainEnd")).toBe(true);
   });
 
   it("1 つの業務に複数のアクターが付くと、その業務の警告を出す。辿れるかのエラーには数えない", () => {
     let m = sample();
     // 「予約受付」には予約担当が付いている。支配人も付ける
     m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
-    const w = traceWarnings(m);
+    const w = businessWarnings(m);
     expect(w).toHaveLength(1);
+    expect(w[0]!.type).toBe("businessActors");
     expect(w[0]!.elementId).toBe("biz_reservation");
-    expect(w[0]!.actorIds).toEqual(["actor_reservation", "actor_manager"]);
+    expect(w[0]!.relatedIds).toEqual(["actor_reservation", "actor_manager"]);
     expect(w[0]!.reason).toBe("主担当のアクターが 2 人います: 「予約担当」、「支配人」");
     expect(w[0]!.fix).toMatch(/主担当は 1 人/);
     // エラーではない: 辿り着ける要素の検証には影響しない
@@ -129,19 +166,70 @@ describe("traceWarnings", () => {
     m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_reservation" }));
     m = okModel(addRelation(m, { sourceId: "actor_housekeeping", targetId: "biz_reservation" }));
     m = okModel(addRelation(m, { sourceId: "actor_manager", targetId: "biz_checkin" }));
-    const w = traceWarnings(m);
-    expect(w.map((x) => [x.elementId, x.actorIds.length])).toEqual([
+    const w = businessWarnings(m);
+    expect(w.map((x) => [x.elementId, x.relatedIds.length])).toEqual([
       ["biz_reservation", 3],
       ["biz_checkin", 2],
     ]);
     const extra = m.relations.find((r) => r.sourceId === "actor_manager" && r.targetId === "biz_checkin")!;
     m = okModel(removeRelation(m, { id: extra.id }));
-    expect(traceWarnings(m).map((x) => x.elementId)).toEqual(["biz_reservation"]);
+    expect(businessWarnings(m).map((x) => x.elementId)).toEqual(["biz_reservation"]);
   });
 
-  it("外部アクターやシステムが作業の担当になっても、業務の警告にはならない", () => {
+  it("外部アクターが作業の担当になっても、業務の警告にはならない", () => {
     let m = sample();
-    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "act_accept_reservation" }));
-    expect(traceWarnings(m)).toEqual([]);
+    m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "act_accept_reservation" }));
+    expect(businessWarnings(m)).toEqual([]);
+  });
+
+  /** 作業 1 つに操作を並べたモデル。chain は「次に」でつなぐ操作の id */
+  function chainModel(usecases: string[], next: [string, string][], emits: string[]) {
+    let m = emptyModel();
+    m = okModel(addElement(m, { kind: "actor", name: "担当", id: "actor_a" }));
+    m = okModel(addElement(m, { kind: "activity", name: "作業A", id: "act_a" }));
+    m = okModel(addRelation(m, { sourceId: "actor_a", targetId: "act_a" }));
+    for (const id of usecases) {
+      m = okModel(addElement(m, { kind: "usecase", name: id, id }));
+      m = okModel(addRelation(m, { sourceId: "act_a", targetId: id }));
+    }
+    for (const [a, b] of next) m = okModel(addRelation(m, { sourceId: a, targetId: b }));
+    for (const id of emits) {
+      m = okModel(addElement(m, { kind: "event", name: `${id} の結果`, id: `ev_${id}` }));
+      m = okModel(addRelation(m, { sourceId: id, targetId: `ev_${id}` }));
+    }
+    return m;
+  }
+  const chainEnds = (m: Parameters<typeof traceWarnings>[0]) => traceWarnings(m).filter((w) => w.type === "chainEnd").map((w) => [w.elementId, w.relatedIds]);
+
+  it("作業の操作を「次に」でつないだ並びの末尾の操作がイベントを発生させなければ警告する (イベントで始まらなくても)", () => {
+    // 作業A: 操作B → 操作C (C がイベントを出さない)
+    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"]], []))).toEqual([["uc_c", ["act_a"]]]);
+    // C がイベントを出せば警告しない。途中の B がイベントを出さなくてもよい
+    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"]], ["uc_c"]))).toEqual([]);
+    // 操作が 1 つだけの作業も、長さ 1 の並びとして見る
+    const single = chainModel(["uc_b"], [], []);
+    const w = traceWarnings(single).find((x) => x.type === "chainEnd")!;
+    expect(w.reason).toBe("作業「作業A」の操作の並びが、操作「uc_b」で終わっていて、イベントが発生しません");
+    // 枝分かれは末尾ごとに見る
+    expect(chainEnds(chainModel(["uc_b", "uc_c", "uc_d"], [["uc_b", "uc_c"], ["uc_b", "uc_d"]], ["uc_c"]))).toEqual([["uc_d", ["act_a"]]]);
+    // 輪の中の末尾の無い並びは警告しない
+    expect(chainEnds(chainModel(["uc_b", "uc_c"], [["uc_b", "uc_c"], ["uc_c", "uc_b"]], []))).toEqual([]);
+    // 操作の無い作業は警告しない
+    expect(chainEnds(chainModel([], [], []))).toEqual([]);
+    // 自分自身への「次に」は結べない
+    expect(addRelation(chainModel(["uc_b"], [], []), { sourceId: "uc_b", targetId: "uc_b" }).ok).toBe(false);
+  });
+
+  it("作業に属さない自動の処理 (きっかけのイベント → 操作 → …) も、末尾がイベントを出さなければ「作業なし」として警告する", () => {
+    const w = traceWarnings(sample()).filter((x) => x.type === "chainEnd" && x.relatedIds.includes("ev_checkout_day"));
+    // サンプルの「請求金額を計算する」は「請求金額が計算された」を出すので警告しない
+    expect(w).toEqual([]);
+    let m = sample();
+    m = okModel(addElement(m, { kind: "usecase", name: "割引を当てる", id: "uc_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_calc_charge", targetId: "uc_x" }));
+    const auto = traceWarnings(m).filter((x) => x.type === "chainEnd" && x.elementId === "uc_x");
+    expect(auto.map((x) => [x.relatedIds, x.reason])).toEqual([
+      [["ev_checkout_day"], "作業なし (イベント「チェックアウトの日になった」から) の処理が、操作「割引を当てる」で終わっていて、イベントが発生しません"],
+    ]);
   });
 });

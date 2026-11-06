@@ -6,8 +6,10 @@ import {
   issueDistribution,
   parseAnalysisBoardId,
   performerWorkList,
+  screenInformationTables,
 } from "../analysis";
-import { addElement, removeRelation, setIssueTargets } from "../commands";
+import { addElement, addRelation, removeRelation, setIssueTargets } from "../commands";
+import { createNetshopSample } from "../../sample";
 import { okModel, sample } from "./helpers";
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name);
@@ -21,7 +23,7 @@ describe("分析ボードの id", () => {
 });
 
 describe("担当別の作業一覧", () => {
-  it("担い手ごとに担当する作業を業務・活動の順に並べ、担当の無い作業は最後にまとめる", () => {
+  it("担い手 (人) ごとに担当する作業を業務・活動の順に並べ、担当の無い作業は最後にまとめる", () => {
     let m = sample();
     const { performers, unassigned } = performerWorkList(m);
     const front = performers.find((p) => p.performer.id === "actor_front")!;
@@ -32,7 +34,8 @@ describe("担当別の作業一覧", () => {
       ["滞在中の対応", "追加料金の対応"],
       ["チェックアウト", null],
     ]);
-    expect(names(performers.find((p) => p.performer.id === "sys_pms")!.sections.flatMap((s) => s.activities))).toEqual(["宿泊料金を計算する"]);
+    // システムは作業の担当にならないので並ばない (0.2.0 から)
+    expect(performers.some((p) => p.performer.kind === "system")).toBe(false);
     expect(unassigned).toEqual([]);
     m = okModel(addElement(m, { kind: "activity", name: "担当なし", id: "act_x" }));
     expect(performerWorkList(m).unassigned.map((s) => names(s.activities))).toEqual([["担当なし"]]);
@@ -76,5 +79,39 @@ describe("課題の分布", () => {
     m = okModel(removeRelation(m, { id: rel.id }));
     const res2 = issueDistribution(m).find((x) => x.business?.id === "biz_reservation")!;
     expect(res2.spots.some((s) => s.element.id === "uc_cancel_reservation")).toBe(false);
+  });
+});
+
+describe("画面と情報 (システムごと)", () => {
+  it("システムごとに、行は画面、列はその画面が扱う情報。画面の無いシステムは表を作らず並べる", () => {
+    const m = createNetshopSample();
+    const { tables, systemsWithoutScreens } = screenInformationTables(m);
+    expect(tables.map((t) => t.system.name)).toEqual(["モールの管理画面", "販売管理システム", "決済サービス", "会計システム"]);
+    expect(systemsWithoutScreens.map((s) => s.name)).toEqual(["自社サイトのカート"]);
+    const accounting = tables.find((t) => t.system.id === "sys_accounting")!;
+    expect(accounting.rows.map((r) => r.screen.name)).toEqual(["売掛金の消込画面", "月次レポート"]);
+    expect(accounting.informations.map((i) => i.name)).toEqual(["売掛金", "入金", "損益計算書 (PL)", "貸借対照表 (BS)"]);
+    const report = accounting.rows.find((r) => r.screen.id === "scr_monthly_report")!;
+    expect([...report.cells]).toEqual([
+      ["info_pl", "ok"],
+      ["info_bs", "ok"],
+    ]);
+    // 画面を使う操作を添える
+    expect(report.usecases.map((u) => u.name)).toEqual(["損益計算書を見る", "貸借対照表を見る", "月次の数字を報告する"]);
+  });
+
+  it("画面が扱う情報がそのシステムの置き場所に無ければ noPlace、情報を扱わない画面は noInformation", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "screen", name: "チェックイン画面", id: "scr_a", init: { systemId: "sys_pms" } }));
+    m = okModel(addElement(m, { kind: "screen", name: "空の画面", id: "scr_b", init: { systemId: "sys_pms" } }));
+    // 宿泊管理システムは予約を取得・保存する。清掃記録は清掃チェック表 (紙) にだけある
+    m = okModel(addRelation(m, { sourceId: "scr_a", targetId: "info_reservation" }));
+    m = okModel(addRelation(m, { sourceId: "scr_a", targetId: "info_cleaning_record" }));
+    const pms = screenInformationTables(m).tables.find((t) => t.system.id === "sys_pms")!;
+    const a = pms.rows.find((r) => r.screen.id === "scr_a")!;
+    expect(a.cells.get("info_reservation")).toBe("ok");
+    expect(a.cells.get("info_cleaning_record")).toBe("noPlace");
+    expect(a.noInformation).toBe(false);
+    expect(pms.rows.find((r) => r.screen.id === "scr_b")!.noInformation).toBe(true);
   });
 });

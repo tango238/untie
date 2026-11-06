@@ -11,6 +11,8 @@ export const VALUE_MAX_LENGTH = 200;
 export const ANALYSIS_MAX_LENGTH = 4000;
 export const LINK_TITLE_MAX_LENGTH = 200;
 export const LINK_URL_MAX_LENGTH = 2000;
+/** 非機能要件の検証方法 */
+export const VERIFICATION_MAX_LENGTH = 4000;
 
 /** JSON Schema の maxLength と同じ数え方 (コードポイント。サロゲートペアは 1 文字) */
 export function textLength(text: string): number {
@@ -45,6 +47,7 @@ export const LIMITS = {
   linkTitle: { max: LINK_TITLE_MAX_LENGTH, label: "リンクの表示名" },
   linkUrl: { max: LINK_URL_MAX_LENGTH, label: "リンクの URL" },
   boardName: { max: NAME_MAX_LENGTH, label: "ボード名" },
+  verification: { max: VERIFICATION_MAX_LENGTH, label: "検証方法" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;
 

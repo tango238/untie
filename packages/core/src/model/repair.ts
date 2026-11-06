@@ -3,13 +3,14 @@
 // validateModel の参照整合性検査と同じ規則で壊れた箇所を見つけ、直したモデルと変更の一覧を返す純粋関数。
 //
 // 直す規則:
-// - 業務が無い (業務でない要素を指す) 活動 (BUC) は消す
+// - 業務が無い (業務でない要素を指す) 活動 (BUC) は消す。システムが無い (システムでない要素を指す) 画面・非機能要件も消す
 // - 業務の既定の活動はちょうど 1 個にする (無ければ作る。複数なら最初を残し、他の既定の活動の作業は残した方へ付け替えて消す)
 // - 既定の活動の名前を業務名に揃える
 // - 消えた要素を指す関係・ボードのノード・課題の targetIds は消す
 // - 消えた活動を指す作業の bucId、消えたコンテキストを指す contextId は null にする
 // - 自己参照の関係と、両端の種類から決まる kind と合わない関係は消す
 // - 同じ関係 (sameRelation) の重複は先頭を残して畳む
+// - 操作の対象 (システム・帳票・画面) が 2 本以上なら、画面を優先し、先にあるものを残す
 // - 関係が消えたボードの線の設定は消す
 // - 置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・活動) のノードに width / height が無ければ既定の大きさを補う
 // - ボードが 0 枚なら「ボード 1」を作る
@@ -67,6 +68,15 @@ export function repairModel(input: UntieModel): RepairResult {
       if (problem) {
         removed.add(e.id);
         changes.push(`${label(e)} を消した (業務: ${problem})`);
+      }
+    }
+    // 画面・非機能要件。属するシステムが無いものを消す (システムを消すと一緒に消えるものなので)
+    for (const e of draft.elements) {
+      if (e.kind !== "screen" && e.kind !== "nfr") continue;
+      const problem = refProblem(e.systemId, "system");
+      if (problem) {
+        removed.add(e.id);
+        changes.push(`${label(e)} を消した (システム: ${problem})`);
       }
     }
     const defaultsByBusiness = new Map<string, Buc[]>();
@@ -185,6 +195,26 @@ export function repairModel(input: UntieModel): RepairResult {
       seenRelations.set(key, r.id);
       if (isUndirected(r.kind)) seenRelations.set(`${r.kind}\0${r.targetId}\0${r.sourceId}`, r.id);
       keptRelations.push(r);
+    }
+    // 操作の対象 (システム・帳票・画面) は 1 本まで。同時編集で 2 本になったら、画面を優先し、先にあるものを残す
+    const targetsOf = new Map<string, (typeof keptRelations)[number][]>();
+    for (const r of keptRelations) {
+      if (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") targetsOf.set(r.sourceId, [...(targetsOf.get(r.sourceId) ?? []), r]);
+    }
+    const extraTargets = new Set<string>();
+    for (const list of targetsOf.values()) {
+      if (list.length < 2) continue;
+      const keep = list.find((r) => r.kind === "usecaseScreen") ?? list[0]!;
+      for (const r of list) {
+        if (r === keep) continue;
+        extraTargets.add(r.id);
+        changes.push(`関係 ${r.id} を消した (操作 ${r.sourceId} の対象は ${keep.id} の 1 つだけにする)`);
+      }
+    }
+    if (extraTargets.size > 0) {
+      const rest = keptRelations.filter((r) => !extraTargets.has(r.id));
+      keptRelations.length = 0;
+      keptRelations.push(...rest);
     }
     if (keptRelations.length !== draft.relations.length) draft.relations = keptRelations;
     const relationIds = new Set(draft.relations.map((r) => r.id));

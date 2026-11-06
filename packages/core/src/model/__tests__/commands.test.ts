@@ -18,7 +18,10 @@ import {
   setEdgeSides,
   setIssueTargets,
   updateElement,
+  moveToSystem,
+  setUsecaseTarget,
 } from "../commands";
+import { repairModel } from "../repair";
 import { validateModel } from "../validate";
 import { emptyModel, type Buc, type UntieModel } from "../types";
 import { expectFail, okModel, sample } from "./helpers";
@@ -487,5 +490,106 @@ describe("既定の活動まわりの追加検査", () => {
     expect(board.nodes.some((n) => n.elementId === biz.id)).toBe(true);
     expect(board.nodes.some((n) => n.elementId === defaultBuc(m, biz.id).id)).toBe(false);
     expectValid(m);
+  });
+});
+
+describe("画面・非機能要件・イベント (0.2.0)", () => {
+  it("画面と非機能要件は属するシステムが要る (帳票・システムでない要素は不可)", () => {
+    const m = sample();
+    expectFail(addElement(m, { kind: "screen", name: "画面" }), /画面には属するシステムが必要です/);
+    expectFail(addElement(m, { kind: "screen", name: "画面", init: { systemId: "ldg_guest_register" } }), /画面には属するシステムが必要です/);
+    expectFail(addElement(m, { kind: "nfr", name: "要件", init: { systemId: "act_clean" } }), /非機能要件には属するシステムが必要です/);
+    const r = addElement(m, { kind: "screen", name: "チェックイン画面", init: { systemId: "sys_pms" } });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.model.elements.find((e) => e.id === r.id)).toEqual({ id: r.id, kind: "screen", name: "チェックイン画面", systemId: "sys_pms" });
+    expect(validateModel(r.model).ok).toBe(true);
+  });
+
+  it("非機能要件の分類と検証方法を持てる。分類は 6 つから選び、null で未分類に戻す。検証方法は空で消す", () => {
+    let m = sample();
+    const r = addElement(m, { kind: "nfr", name: "夜間も止まらない", init: { systemId: "sys_pms", category: "availability", verification: "夜間に再起動して確かめる" } });
+    if (!r.ok) throw new Error(r.reason);
+    m = r.model;
+    expect(m.elements.find((e) => e.id === r.id)).toMatchObject({ category: "availability", verification: "夜間に再起動して確かめる" });
+    m = okModel(updateElement(m, { id: r.id, patch: { category: "security" } }));
+    expect(m.elements.find((e) => e.id === r.id)).toMatchObject({ category: "security" });
+    expectFail(updateElement(m, { id: r.id, patch: { category: "usability" as never } }), /分類が不正です/);
+    m = okModel(updateElement(m, { id: r.id, patch: { category: null, verification: "" } }));
+    const nfr = m.elements.find((e) => e.id === r.id)!;
+    expect("category" in nfr || "verification" in nfr).toBe(false);
+    // 分類と検証方法は非機能要件だけ
+    expectFail(updateElement(m, { id: "sys_pms", patch: { verification: "x" } }), /この要素では「verification」を変更できません/);
+    expect(validateModel(m).ok).toBe(true);
+  });
+
+  it("システムを消すと、属する画面と非機能要件も消える", () => {
+    let m = sample();
+    const scr = addElement(m, { kind: "screen", name: "画面", init: { systemId: "sys_pms" } });
+    if (!scr.ok) throw new Error(scr.reason);
+    m = scr.model;
+    const nfr = addElement(m, { kind: "nfr", name: "要件", init: { systemId: "sys_pms" } });
+    if (!nfr.ok) throw new Error(nfr.reason);
+    m = okModel(addRelation(nfr.model, { sourceId: "actor_front", targetId: nfr.id }));
+    m = okModel(removeElement(m, { id: "sys_pms" }));
+    expect(m.elements.some((e) => e.id === scr.id || e.id === nfr.id)).toBe(false);
+    expect(m.relations.some((r) => r.targetId === nfr.id)).toBe(false);
+    expect(validateModel(m).ok).toBe(true);
+  });
+
+  it("moveToSystem で画面・非機能要件の属するシステムを変える (システムだけ)", () => {
+    let m = sample();
+    const scr = addElement(m, { kind: "screen", name: "画面", init: { systemId: "sys_pms" } });
+    if (!scr.ok) throw new Error(scr.reason);
+    m = okModel(moveToSystem(scr.model, { elementId: scr.id, systemId: "sys_booking_site" }));
+    expect(m.elements.find((e) => e.id === scr.id)).toMatchObject({ systemId: "sys_booking_site" });
+    expectFail(moveToSystem(m, { elementId: scr.id, systemId: "ldg_guest_register" }), /システムが存在しません/);
+    expectFail(moveToSystem(m, { elementId: "act_clean", systemId: "sys_pms" }), /画面・非機能要件が存在しません/);
+  });
+
+  it("イベントはコンテキストに任意で入れられる。操作・システムと「発生」「きっかけ」で結び、操作どうしは「次に」で結ぶ", () => {
+    let m = sample();
+    const ev = addElement(m, { kind: "event", name: "予約が確定した", init: { contextId: "ctx_reservation" } });
+    if (!ev.ok) throw new Error(ev.reason);
+    m = ev.model;
+    expect(m.elements.find((e) => e.id === ev.id)).toMatchObject({ kind: "event", contextId: "ctx_reservation" });
+    m = okModel(addRelation(m, { sourceId: "uc_confirm_reservation", targetId: ev.id }));
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: ev.id }));
+    m = okModel(addRelation(m, { sourceId: ev.id, targetId: "uc_record_checkin" }));
+    m = okModel(addRelation(m, { sourceId: "uc_search_reservation", targetId: "uc_confirm_reservation" }));
+    expect(m.relations.slice(-4).map((r) => r.kind)).toEqual(["usecaseEvent", "systemEvent", "eventUsecase", "usecaseNext"]);
+    expect(validateModel(m).ok).toBe(true);
+  });
+});
+
+describe("操作の対象は 1 つだけ (0.3.0)", () => {
+  it("2 本目の対象・画面は結べない。setUsecaseTarget で入れ替え、null で外す", () => {
+    let m = sample();
+    // 「決済を記録する」は決済サービスが対象
+    const scr = addElement(m, { kind: "screen", name: "精算画面", init: { systemId: "sys_pms" } });
+    if (!scr.ok) throw new Error(scr.reason);
+    m = scr.model;
+    expectFail(addRelation(m, { sourceId: "uc_record_payment", targetId: "sys_pms" }), /操作の対象は 1 つだけです/);
+    expectFail(addRelation(m, { sourceId: "uc_record_payment", targetId: scr.id }), /操作の対象は 1 つだけです/);
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: scr.id }));
+    const targets = () => m.relations.filter((r) => (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") && r.sourceId === "uc_record_payment").map((r) => [r.kind, r.targetId]);
+    expect(targets()).toEqual([["usecaseScreen", scr.id]]);
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: "ldg_guest_register" }));
+    expect(targets()).toEqual([["usecaseSystem", "ldg_guest_register"]]);
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: null }));
+    expect(targets()).toEqual([]);
+    expectFail(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: "act_clean" }), /対象にできるのはシステム・帳票・画面です/);
+    expect(validateModel(m).ok).toBe(true);
+  });
+
+  it("検証は対象が 2 つ以上の操作をエラーにし、修復は画面を優先して 1 つにする", () => {
+    const m = sample();
+    const scr = addElement(m, { kind: "screen", name: "精算画面", init: { systemId: "sys_pms" }, id: "scr_x" });
+    if (!scr.ok) throw new Error(scr.reason);
+    const broken = { ...scr.model, relations: [...scr.model.relations, { id: "rel_x", kind: "usecaseScreen" as const, sourceId: "uc_record_payment", targetId: "scr_x" }] };
+    const v = validateModel(JSON.parse(JSON.stringify(broken)));
+    expect(v.ok ? [] : v.errors).toEqual([expect.stringMatching(/操作「決済を記録する」\(uc_record_payment\) の対象 \(システム・帳票・画面\) が 2 つあります/)]);
+    const repaired = repairModel(broken);
+    expect(repaired.model.relations.filter((r) => r.sourceId === "uc_record_payment" && (r.kind === "usecaseSystem" || r.kind === "usecaseScreen")).map((r) => r.id)).toEqual(["rel_x"]);
+    expect(validateModel(repaired.model).ok).toBe(true);
   });
 });

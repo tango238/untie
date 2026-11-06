@@ -20,7 +20,13 @@ export const CARD_SIZE = DEFAULT_CARD_SIZE;
 export type ActorLabel = { name: string; kind: "actor" | "externalActor" | "system" };
 
 /** 情報の取得元・保存先 (システム・帳票) */
-export type SystemLabel = { name: string; kind: "system" | "ledger"; role: "source" | "store" };
+export type SystemLabel = {
+  name: string;
+  kind: "system" | "ledger";
+  role: "source" | "store" | "target";
+  /** 対象のとき、操作が使うそのシステムの画面の名前 (使う画面の順) */
+  screens?: string[];
+};
 
 export type CardNodeData = {
   elementId: string;
@@ -161,21 +167,39 @@ export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
   return result;
 }
 
-/** 情報 id → 取得元・保存先のシステム・帳票 (取得元 → 保存先、それぞれ関係の並び順) */
+/**
+ * 情報 id → 取得元・保存先のシステム・帳票 (取得元 → 保存先、それぞれ関係の並び順)。
+ * 操作 id → 対象のシステム・帳票 (直接結んだ対象 → 使う画面のシステム。同じものは 1 回)。画面を使うときは、そのシステムの画面名を添える
+ */
 export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
   const byId = elementMap(model);
   const result = new Map<string, SystemLabel[]>();
+  const push = (ownerId: string, sysId: string, role: SystemLabel["role"], screen?: string) => {
+    const sys = byId.get(sysId);
+    if (!sys || (sys.kind !== "system" && sys.kind !== "ledger")) return;
+    const list = result.get(ownerId) ?? [];
+    const name = sys.name || "(名前なし)";
+    const same = role === "target" ? list.find((l) => l.role === "target" && l.name === name && l.kind === sys.kind) : undefined;
+    const label = same ?? { name, kind: sys.kind, role };
+    if (screen !== undefined && !(label.screens ?? []).includes(screen)) label.screens = [...(label.screens ?? []), screen];
+    if (!same) {
+      list.push(label);
+      result.set(ownerId, list);
+    }
+  };
   for (const role of ["source", "store"] as const) {
     for (const r of model.relations) {
       const kind = role === "source" ? "systemInformation" : "informationSystem";
       if (r.kind !== kind) continue;
       const [sysId, infoId] = role === "source" ? [r.sourceId, r.targetId] : [r.targetId, r.sourceId];
-      const sys = byId.get(sysId);
-      if (!sys || (sys.kind !== "system" && sys.kind !== "ledger")) continue;
-      const list = result.get(infoId) ?? [];
-      list.push({ name: sys.name || "(名前なし)", kind: sys.kind, role });
-      result.set(infoId, list);
+      push(infoId, sysId, role);
     }
+  }
+  for (const r of model.relations) if (r.kind === "usecaseSystem") push(r.sourceId, r.targetId, "target");
+  for (const r of model.relations) {
+    if (r.kind !== "usecaseScreen") continue;
+    const screen = byId.get(r.targetId);
+    if (screen?.kind === "screen") push(r.sourceId, screen.systemId, "target", screen.name || "(名前なし)");
   }
   return result;
 }
