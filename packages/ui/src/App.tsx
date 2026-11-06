@@ -32,6 +32,14 @@ export default function App() {
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const builtin = fixedLayer !== null || analysis !== null;
+  const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
+  // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
+  // (広い画面では CSS で隠れる)
+  const listDrawerOpen = !builtin && elementListOpen;
+  const closeDrawers = () => {
+    setRightPanelOpen(false);
+    setElementListOpen(false);
+  };
   return (
     <div className="app">
       {readOnly && role && (
@@ -52,6 +60,9 @@ export default function App() {
       <div
         className={`main${builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
       >
+        {(listDrawerOpen || rightPanelOpen) && (
+          <div className="pane-backdrop" data-testid="pane-backdrop" onClick={closeDrawers} />
+        )}
         {!builtin && <LeftPane />}
         <main className="canvas-area">
           {fixedLayer ? (

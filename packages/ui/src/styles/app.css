@@ -642,3 +642,95 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .share-switch input[role="switch"]:disabled { opacity: 0.5; cursor: default; }
 .share-switch input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .field-error { overflow-wrap: anywhere; }
+
+/* ===== スマートフォン向け (幅 768px 以下。viewport.ts の MOBILE_MAX_WIDTH と同じ値) =====
+   左右のペインは画面の上に重なるドロワーにして、ツールバーのボタンで開閉する。広い画面の見た目は変えない */
+.mobile-only { display: none; }
+.pane-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-only { display: inline-block; }
+
+  /* 入力欄は 16px 未満だと iOS Safari が拡大表示してしまう */
+  input, select, textarea { font-size: 16px; }
+  /* 指で押しやすい高さ */
+  button { min-height: 36px; }
+  .toolbar button { min-height: 34px; padding: 3px 9px; }
+  button.link, button.link-plain, button.row-main, button.group-header, button.issue-main, button.chip-link, button.toast-close,
+  .menu-sub button, .fixed-unlink, .home-row-actions button, .issue-target-action { min-height: 32px; }
+  select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 36px; }
+
+  /* ツールバー: 1 行目はホーム・名前・ファイル、2 行目はボード、3 行目は操作 (横にスクロール) */
+  .toolbar-row { gap: 6px 8px; padding: 6px 10px; }
+  .toolbar button, .toolbar select { white-space: nowrap; }
+  .toolbar-spacer { display: none; }
+  .toolbar-board { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
+  .toolbar-board .toolbar-label { flex: 1 1 150px; min-width: 0; }
+  /* 固定ボード・分析ボードでは使えない「名前変更」「ボード削除」は、狭い画面では隠して場所を空ける */
+  .toolbar-board button:disabled { display: none; }
+  .toolbar-board .toolbar-label select { flex: 1; min-width: 0; }
+  .rename-form { flex: 1; min-width: 0; }
+  .rename-form input { flex: 1; min-width: 0; }
+  .toolbar-actions { flex: 1 1 100%; flex-wrap: wrap; }
+  .cloud-name { max-width: 14ch; }
+  .notice { padding: 4px 10px; }
+  .readonly-banner, .save-failed-banner { padding: 6px 10px; }
+  .menu-list { max-width: calc(100vw - 20px); }
+  /* 子のメニュー (最近開いたファイル) は右へ出すと画面から出るので、下へ開く */
+  .menu-sublist { position: static; margin: 0 0 4px 12px; max-width: none; box-shadow: none; }
+
+  /* 本体: キャンバス (または固定ボード) が画面いっぱいを使い、ペインは上に重ねる */
+  .main { display: block; position: relative; }
+  .canvas-area { position: absolute; inset: 0; }
+  .left-pane, .right-pane {
+    position: fixed; top: 0; bottom: 0; z-index: 60; width: min(88vw, 380px); height: 100dvh;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.3);
+  }
+  .left-pane { left: 0; }
+  .right-pane { right: 0; }
+  .main.list-closed .left-pane, .main.panel-closed .right-pane { display: none; }
+  .pane-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.35); }
+  .pane-toggle { width: 32px; height: 32px; min-height: 0; font-size: 18px; top: 4px; }
+  .left-pane .pane-toggle { left: auto; right: 6px; }
+  .left-pane .element-list .panel-title { padding-left: 12px; padding-right: 44px; }
+  .row { min-height: 40px; }
+  /* 行の「置く」は上下のボタンとくっつかないよう、行より少し低くする */
+  button.row-place { min-height: 30px; padding: 0 10px; font-size: 12px; }
+  .group-header { padding: 8px 10px; }
+
+  /* キャンバスのミニマップは画面の大半を覆うので出さない (ピンチとパンで動かす) */
+  .react-flow__minimap { display: none; }
+  .react-flow__controls-button { width: 32px; height: 32px; }
+
+  /* AI エージェントは下に出す。画面の半分までにして、キャンバスを残す */
+  .agent-pane { height: 42dvh; max-height: 320px; }
+  .agent-item { max-width: 92%; }
+  .agent-input { padding: 8px 10px; }
+
+  /* 固定ボード・分析ボード */
+  .fixed-board { padding: 10px 10px 24px; }
+  .fixed-filter { margin-left: 0; width: 100%; }
+  .fixed-groups { grid-template-columns: minmax(0, 1fr); }
+  .fixed-add select { min-height: 36px; }
+  /* 分析ボードの表は幅を保ち、はみ出す分は枠の中で横にスクロールする */
+  .an-block, .an-screens { overflow-x: auto; }
+  .an-table { min-width: 520px; }
+
+  /* ダイアログ: 画面の幅に収め、縦にも収める */
+  .dialog-backdrop { padding: 12px; }
+  .dialog, .dialog:has(.dialog-actions > :nth-child(3)), .about-dialog, .ai-dialog, .prompt-dialog, .share-dialog {
+    width: 100%; max-width: 100%; max-height: calc(100dvh - 24px); overflow-y: auto; padding: 16px;
+  }
+  .dialog-actions { flex-wrap: wrap; }
+  .about-icon { width: 64px; height: 64px; border-radius: 14px; }
+  .toast-host { left: 12px; right: 12px; transform: none; align-items: stretch; }
+  .share-inline input[type="email"], .share-inline input[readonly] { min-width: 0; }
+
+  /* ホーム */
+  .home-header { padding: 8px 12px; gap: 8px; flex-wrap: wrap; }
+  .home-main { padding: 12px; gap: 12px; }
+  .home-section { padding: 12px; }
+  .sample-gallery { grid-template-columns: minmax(0, 1fr); }
+  .home-main form.home-actions input, .home-login-code input { min-width: 0; }
+  .home-table { display: block; overflow-x: auto; }
+}

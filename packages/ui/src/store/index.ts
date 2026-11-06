@@ -10,6 +10,7 @@ import { analysisBoardId, parseAnalysisBoardId } from "@untie/core/model/analysi
 import { emptyModel } from "@untie/core/model/types";
 import type { GlobalFilter } from "@untie/core/model/lineage";
 import { createHotelSample } from "@untie/core/sample";
+import { isNarrowViewport } from "../viewport";
 
 /** 履歴の上限 */
 export const HISTORY_LIMIT = 100;
@@ -189,7 +190,19 @@ let toastSeq = 0;
  * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
  */
 export const START_BOARD_ID = analysisBoardId("issues");
-const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true };
+/**
+ * 狭い画面 (スマートフォン) では、ペインが画面の上に重なるので、最初は閉じておく
+ * (開くのはツールバーのボタン)。広い画面ではこれまでどおり、右のペインを開いておく
+ */
+function startUi() {
+  const narrow = isNarrowViewport();
+  return {
+    currentBoardId: START_BOARD_ID,
+    rightPanel: "issues" as const,
+    rightPanelOpen: !narrow,
+    ...(narrow ? { elementListOpen: false } : {}),
+  };
+}
 
 /** モデルが変わったあと、UI の参照先 (ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
@@ -258,7 +271,13 @@ export function createUntieStore(
     file: null,
     savedModel: null,
     history: { past: [], future: [] },
-    ui: { currentBoardId: startBoardId, selection: null, rightPanel: startPanel, nameFocusNonce: 0 },
+    ui: {
+      currentBoardId: startBoardId,
+      selection: null,
+      rightPanel: startPanel,
+      nameFocusNonce: 0,
+      ...(isNarrowViewport() ? { rightPanelOpen: false, elementListOpen: false } : {}),
+    },
     dragBase: null,
     agentBase: null,
     toasts: [],
@@ -426,7 +445,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
 
     loadDocument: (model, file) =>
@@ -439,7 +458,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
@@ -456,7 +475,7 @@ export function createUntieStore(
         pendingRemote: false,
         ui: {
           ...s.ui,
-          ...START_UI,
+          ...startUi(),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
           issueDraft: undefined,
@@ -507,7 +526,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       }));
     },
 
