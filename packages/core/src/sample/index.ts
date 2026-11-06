@@ -1,8 +1,10 @@
 import type { UntieModel } from "../model/types";
+import { createAccountingSample } from "./accounting";
 import { createHotelSample } from "./hotel";
 import { createNetshopSample } from "./netshop";
 import { createRetailSample } from "./retail";
 
+export { accountingSample, createAccountingSample } from "./accounting";
 export { hotelSample, createHotelSample } from "./hotel";
 export { netshopSample, createNetshopSample } from "./netshop";
 export { retailSample, createRetailSample } from "./retail";
@@ -36,5 +38,11 @@ export const SAMPLES: readonly SampleEntry[] = [
     title: "店舗の業務",
     description: "架空の日用品店の、発注・陳列・レジ・レジ締め・棚卸までの業務と、現場の困りごと",
     create: createRetailSample,
+  },
+  {
+    id: "accounting",
+    title: "経理業務",
+    description: "架空の中小企業の経理部門の、請求・入金・支払・経費精算・記帳・月次決算・年次決算までの業務と、現場の困りごと",
+    create: createAccountingSample,
   },
 ];
