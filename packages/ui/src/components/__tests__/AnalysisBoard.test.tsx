@@ -4,7 +4,7 @@ import { ANALYSIS_KINDS, ANALYSIS_LABELS } from "@untie/core/model/analysis";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { AnalysisBoard } from "../analysis/AnalysisBoard";
-import { addElement, addRelation, setIssueTargets } from "@untie/core/model/commands";
+import { addElement, setIssueTargets } from "@untie/core/model/commands";
 import { createNetshopSample } from "@untie/core/sample";
 import { Toolbar } from "../Toolbar";
 
