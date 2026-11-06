@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { addBoard, addElement, addRelation, emptyModel, placeOnBoard, removeBoard, removeRelation, setEdgeSides, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { createHotelSample } from "@untie/core/sample";
-import { applyModelDiff, getRoots, loadModel, readModel, rebuildModel, repairDoc } from "..";
+import { applyModelDiff, getRoots, loadModel, migrateDocPlacement, readModel, rebuildModel, repairDoc } from "..";
 import { cloneDoc, sync } from "./helpers";
 
 function ok<T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> {
@@ -281,5 +281,55 @@ describe("形の壊れた要素・ノード", () => {
     expect(ids).toEqual(original.filter((id) => id !== "actor_front" && id !== "actor_manager"));
     expect(rebuilt.relations.some((r) => r.id === "rel_broken")).toBe(false);
     expectValid(rebuilt);
+  });
+});
+
+describe("migrateDocPlacement: 0.3.0 までに保存した Y.Doc の旧関係を access に移す", () => {
+  /** 0.3.0 の形: システム A が情報 X の取得元だけ、操作「見る」はその画面を使う (画面の情報の旧関係も持つ) */
+  function legacyDoc(): Y.Doc {
+    const m = emptyModel();
+    const json = {
+      ...m,
+      elements: [
+        { id: "sys_a", kind: "system", name: "システムA" },
+        { id: "scr_a", kind: "screen", name: "画面A", systemId: "sys_a" },
+        { id: "uc_read", kind: "usecase", name: "見る" },
+        { id: "info_x", kind: "information", name: "X", contextId: null },
+      ],
+      relations: [
+        { id: "r_scr", kind: "usecaseScreen", sourceId: "uc_read", targetId: "scr_a" },
+        { id: "r_x", kind: "usecaseInformation", sourceId: "uc_read", targetId: "info_x" },
+        { id: "r_src", kind: "systemInformation", sourceId: "sys_a", targetId: "info_x" },
+        { id: "r_scr_x", kind: "screenInformation", sourceId: "scr_a", targetId: "info_x" },
+      ],
+    };
+    const doc = new Y.Doc();
+    loadModel(doc, json as unknown as UntieModel);
+    return doc;
+  }
+
+  it("取得元だけの旧関係は access: read に移り、旧関係は外れる。移さずに repairDoc を当てると区別が失われる", () => {
+    // 移さないと、旧関係は「結べない関係」として消えるだけで、access には何も残らない
+    const lost = legacyDoc();
+    repairDoc(lost, "repair");
+    expect(readModel(lost).relations.find((r) => r.id === "r_x")!.access).toBeUndefined();
+
+    const doc = legacyDoc();
+    const notes = migrateDocPlacement(doc, "migrate");
+    expect(notes).toEqual(["情報の取得元・保存先と画面が扱う情報は、操作が扱う情報 (取得・保存) と操作の対象から導くようになったので、2 本の関係を外しました"]);
+    const m = readModel(doc);
+    expect(m.relations.map((r) => r.id).sort()).toEqual(["r_scr", "r_x"]);
+    expect(m.relations.find((r) => r.id === "r_x")!.access).toBe("read");
+    // 移したあとは、repairDoc が足すものも消すものも無い
+    expect(repairDoc(doc, "repair")).toEqual([]);
+    expectValid(rebuildModel(doc));
+  });
+
+  it("旧関係が無ければ何も書かない", () => {
+    const doc = fresh(createHotelSample());
+    let updates = 0;
+    doc.on("update", () => updates++);
+    expect(migrateDocPlacement(doc, "migrate")).toEqual([]);
+    expect(updates).toBe(0);
   });
 });

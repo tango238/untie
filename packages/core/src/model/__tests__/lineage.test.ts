@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { expectedLayers, lineage } from "../lineage";
-import { sample } from "./helpers";
+import { addElement, setUsecaseTarget } from "../commands";
+import { okModel, sample } from "./helpers";
 
 const view = (rows: { layer: string; elements: { name: string }[] }[]) =>
   Object.fromEntries(rows.map((r) => [r.layer, r.elements.map((e) => e.name)]));
@@ -84,6 +85,18 @@ describe("globalFilterScope (グローバルフィルター)", async () => {
     expect(s.has("info_cleaning_record")).toBe(true);
     expect(s.has("ctx_room")).toBe(true);
     expect(s.has("ldg_cleaning_sheet")).toBe(true);
+  });
+
+  it("システムを選ぶと、そのシステムの画面を使う操作とその情報も残す (画面を使う操作は、画面のシステムを対象とみなす)", () => {
+    const m = sample();
+    let m2 = okModel(addElement(m, { kind: "screen", name: "清掃画面", id: "scr_clean", init: { systemId: "sys_pms" } }));
+    m2 = okModel(setUsecaseTarget(m2, { usecaseId: "uc_update_cleaning", targetId: "scr_clean" }));
+    const s = globalFilterScope(m2, { actor: ["sys_pms"] })!;
+    expect(s.has("scr_clean")).toBe(true);
+    expect(s.has("uc_update_cleaning")).toBe(true);
+    expect(s.has("info_cleaning_record")).toBe(true);
+    // 別のシステムの画面を使う操作は残らない
+    expect(s.has("uc_record_payment")).toBe(false);
   });
 
   it("固定ボードの枠は、中身か見出しが合うものだけ残す", () => {

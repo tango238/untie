@@ -55,7 +55,7 @@ export const MIGRATIONS: readonly Migration[] = [
  * 操作 → 情報 ごとに、その操作の対象 (システム・帳票。画面ならその画面のシステム) に、旧データで取得元だけがあれば read、保存先だけがあれば write、両方 (またはどちらも無い) なら省略 (取得も保存も)。
  * どの操作にも扱われていない情報の置き場所と、操作で扱わない画面の情報は導けないので消える (件数を知らせる)
  */
-function migrateDerivedPlacement(json: Json, notes: string[]): Json {
+export function migrateDerivedPlacement(json: Record<string, unknown>, notes: string[]): Record<string, unknown> {
   const elements = Array.isArray(json.elements) ? (json.elements as { id?: unknown; kind?: unknown; systemId?: unknown }[]) : [];
   const relations = Array.isArray(json.relations) ? (json.relations as (RelationJson & { access?: unknown })[]) : [];
   const dropped = relations.filter((r) => r && (r.kind === "systemInformation" || r.kind === "informationSystem" || r.kind === "screenInformation"));
