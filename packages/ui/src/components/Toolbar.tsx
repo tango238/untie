@@ -52,6 +52,10 @@ export function Toolbar() {
   const undo = useUntieStore((s) => s.undo);
   const redo = useUntieStore((s) => s.redo);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
+  const rightPanelOpen = useUntieStore((s) => s.ui.rightPanelOpen ?? true);
+  const setRightPanelOpen = useUntieStore((s) => s.setRightPanelOpen);
+  const elementListOpen = useUntieStore((s) => s.ui.elementListOpen ?? true);
+  const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   const pushToast = useUntieStore((s) => s.pushToast);
 
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -133,7 +137,7 @@ export function Toolbar() {
           />
         </div>
 
-        <div className="toolbar-group">
+        <div className="toolbar-group toolbar-board">
           {renaming === null ? (
             <>
               <label className="toolbar-label">
@@ -214,7 +218,26 @@ export function Toolbar() {
 
         <div className="toolbar-spacer" />
 
-        <div className="toolbar-group">
+        <div className="toolbar-group toolbar-actions">
+          {/* 狭い画面では左右のペインが閉じているので、ここから開く (広い画面では隠す) */}
+          {!fixed && (
+            <button
+              type="button"
+              className={`mobile-only${elementListOpen ? " active" : ""}`}
+              aria-label={elementListOpen ? "要素一覧を隠す" : "要素一覧を表示"}
+              onClick={() => setElementListOpen(!elementListOpen)}
+            >
+              要素一覧
+            </button>
+          )}
+          <button
+            type="button"
+            className={`mobile-only${rightPanelOpen && rightPanel === "properties" ? " active" : ""}`}
+            aria-label={rightPanelOpen && rightPanel === "properties" ? "プロパティを隠す" : "プロパティを表示"}
+            onClick={() => (rightPanelOpen && rightPanel === "properties" ? setRightPanelOpen(false) : setRightPanel("properties"))}
+          >
+            プロパティ
+          </button>
           <button
             type="button"
             aria-label="元に戻す"
@@ -235,10 +258,10 @@ export function Toolbar() {
           </button>
           <button
             type="button"
-            aria-pressed={rightPanel === "trace"}
-            className={rightPanel === "trace" ? "active" : ""}
+            aria-pressed={rightPanelOpen && rightPanel === "trace"}
+            className={rightPanelOpen && rightPanel === "trace" ? "active" : ""}
             title="すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる"
-            onClick={() => setRightPanel(rightPanel === "trace" ? "properties" : "trace")}
+            onClick={() => setRightPanel(rightPanelOpen && rightPanel === "trace" ? "properties" : "trace")}
           >
             検証
             {traceCount > 0 && <span className="toolbar-count">{traceCount}</span>}
@@ -250,9 +273,9 @@ export function Toolbar() {
           </button>
           <button
             type="button"
-            aria-pressed={rightPanel === "issues"}
-            className={rightPanel === "issues" ? "active" : ""}
-            onClick={() => setRightPanel(rightPanel === "issues" ? "properties" : "issues")}
+            aria-pressed={rightPanelOpen && rightPanel === "issues"}
+            className={rightPanelOpen && rightPanel === "issues" ? "active" : ""}
+            onClick={() => setRightPanel(rightPanelOpen && rightPanel === "issues" ? "properties" : "issues")}
           >
             課題一覧
           </button>
