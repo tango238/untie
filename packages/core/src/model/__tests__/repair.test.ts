@@ -211,6 +211,23 @@ describe("repairModel: 関係とボードの規則", () => {
     expectValid(r.model);
   });
 
+  it("操作が扱う情報以外に付いた access を外す", () => {
+    let m = okModel(addElement(emptyModel(), { kind: "actor", name: "A", id: "actor_a" }));
+    m = okModel(addElement(m, { kind: "activity", name: "B", id: "act_b" }));
+    m = okModel(addElement(m, { kind: "usecase", name: "U", id: "uc_u" }));
+    m = okModel(addElement(m, { kind: "information", name: "I", id: "info_i" }));
+    m = okModel(addRelation(m, { sourceId: "uc_u", targetId: "info_i", id: "rel_ok", access: "read" }));
+    m = clone(m);
+    m.relations.push({ id: "rel_bad", kind: "actorActivity", sourceId: "actor_a", targetId: "act_b", access: "read" });
+    const r = repairModel(m);
+    expect(r.model.relations.map((x) => [x.id, x.access])).toEqual([
+      ["rel_ok", "read"],
+      ["rel_bad", undefined],
+    ]);
+    expect(r.changes).toEqual(["関係 rel_bad の access を外した (actorActivity には付けられない)"]);
+    expectValid(r.model);
+  });
+
   it("置けない要素 (課題・既定の活動) のノードを消す", () => {
     let m = okModel(addElement(emptyModel(), { kind: "business", name: "業務", id: "biz_a", boardId: "board_main" }));
     m = okModel(addElement(m, { kind: "issue", name: "課題", id: "issue_a" }));

@@ -236,6 +236,11 @@ textarea { resize: vertical; width: 100%; }
 .relation-list li, .issue-link-list li, .target-list li { display: flex; align-items: center; gap: 6px; }
 .relation-list li .icon-button, .target-list li .icon-button { margin-left: auto; }
 .relation-kind { font-size: 11px; color: var(--muted); background: #ece8e0; border-radius: 3px; padding: 1px 5px; white-space: nowrap; }
+.access-select { font-size: 11px; padding: 1px 2px; margin-left: 4px; }
+.access-chip { font-size: 11px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+.derived-list li { flex-wrap: wrap; }
+.derived-via { font-size: 11px; color: var(--muted); flex-basis: 100%; padding-left: 8px; }
+.derived-via .link.muted { color: var(--muted); font-size: 11px; }
 .value-list li { display: flex; align-items: flex-end; gap: 4px; }
 .value-list li .field { flex: 1; }
 .inline-add { display: flex; gap: 6px; }
@@ -437,8 +442,6 @@ textarea { resize: vertical; width: 100%; }
 /* 情報の所在: システムごとの画面 × 情報の表 */
 .an-screens { margin-top: 24px; }
 .an-screen-table { margin-bottom: 16px; }
-.an-matrix td.an-cell.is-noplace { background: #fcf6e8; }
-.an-noplace { color: #8a6414; font-weight: 600; }
 .an-list { display: inline-flex; flex-wrap: wrap; gap: 2px 6px; }
 .an-no-screens { margin-top: 4px; }
 .an-role.role-direct { background: #f6ecd9; color: #7a5a1f; }

@@ -1,5 +1,6 @@
 // モデル (ボード内の絶対座標) と React Flow のノード・エッジの変換。純粋関数だけを置く。
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
+import { informationPlaces } from "@untie/core/model/placement";
 import { DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE } from "@untie/core/model/commands";
 import { isShownAsLabel, isUndirected, relationLabel } from "@untie/core/model/relations";
 import { issueSummaries } from "@untie/core/model/selectors";
@@ -19,7 +20,7 @@ export const CARD_SIZE = DEFAULT_CARD_SIZE;
 /** 担当 (担い手) のラベル */
 export type ActorLabel = { name: string; kind: "actor" | "externalActor" | "system" };
 
-/** 情報の取得元・保存先 (システム・帳票) */
+/** 情報の置き場所 (取得元・保存先のシステム・帳票。扱う操作から導く) と、操作の対象 */
 export type SystemLabel = {
   name: string;
   kind: "system" | "ledger";
@@ -168,8 +169,8 @@ export function actorLabels(model: UntieModel): Map<string, ActorLabel[]> {
 }
 
 /**
- * 情報 id → 取得元・保存先のシステム・帳票 (取得元 → 保存先、それぞれ関係の並び順)。
- * 操作 id → 対象のシステム・帳票 (直接結んだ対象 → 使う画面のシステム。同じものは 1 回)。画面を使うときは、そのシステムの画面名を添える
+ * 情報 id → 置き場所のシステム・帳票 (取得元 → 保存先の順。扱う操作から導く。placement.ts)。
+ * 操作 id → 対象のシステム・帳票 (直接結んだ対象か、使う画面のシステム)。画面を使うときは、そのシステムの画面名を添える
  */
 export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
   const byId = elementMap(model);
@@ -181,19 +182,15 @@ export function systemLabels(model: UntieModel): Map<string, SystemLabel[]> {
     const name = sys.name || "(名前なし)";
     const same = role === "target" ? list.find((l) => l.role === "target" && l.name === name && l.kind === sys.kind) : undefined;
     const label = same ?? { name, kind: sys.kind, role };
-    if (screen !== undefined && !(label.screens ?? []).includes(screen)) label.screens = [...(label.screens ?? []), screen];
+    if (screen !== undefined && !(label.screens ?? []).includes(screen)) label.screens = [...(label.screens ?? []),  screen];
     if (!same) {
       list.push(label);
       result.set(ownerId, list);
     }
   };
+  const places = informationPlaces(model);
   for (const role of ["source", "store"] as const) {
-    for (const r of model.relations) {
-      const kind = role === "source" ? "systemInformation" : "informationSystem";
-      if (r.kind !== kind) continue;
-      const [sysId, infoId] = role === "source" ? [r.sourceId, r.targetId] : [r.targetId, r.sourceId];
-      push(infoId, sysId, role);
-    }
+    for (const [infoId, list] of places) for (const d of list) if (d.roles.includes(role)) push(infoId, d.id, role);
   }
   for (const r of model.relations) if (r.kind === "usecaseSystem") push(r.sourceId, r.targetId, "target");
   for (const r of model.relations) {

@@ -12,7 +12,7 @@ export interface RelationRule {
   undirected: boolean;
 }
 
-/** 設計書 3 章の表 */
+/** 設計書 3 章の表。情報の置き場所 (取得元・保存先) と画面が扱う情報は関係に持たず、操作が扱う情報と対象から導く (placement.ts。0.4.0 から) */
 export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "actorBusiness", sources: ["actor"], targets: ["business"], label: "主担当", undirected: false },
   // 作業の担当は人だけ (0.2.0 から。システムは操作の対象 usecaseSystem で結ぶ)
@@ -22,8 +22,6 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "usecaseCondition", sources: ["usecase"], targets: ["condition"], label: "判断", undirected: false },
   { kind: "informationRelated", sources: ["information"], targets: ["information"], label: "関連", undirected: true },
   { kind: "informationVariation", sources: ["information"], targets: ["variation"], label: "種別", undirected: false },
-  { kind: "systemInformation", sources: ["system", "ledger"], targets: ["information"], label: "取得元", undirected: false },
-  { kind: "informationSystem", sources: ["information"], targets: ["system", "ledger"], label: "保存先", undirected: false },
   { kind: "conditionVariation", sources: ["condition"], targets: ["variation"], label: "区分", undirected: false },
   { kind: "conditionState", sources: ["condition"], targets: ["state"], label: "状態参照", undirected: false },
   { kind: "stateUsecase", sources: ["state"], targets: ["usecase"], label: "実行可", undirected: false },
@@ -35,7 +33,6 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "eventUsecase", sources: ["event"], targets: ["usecase"], label: "きっかけ", undirected: false },
   { kind: "usecaseNext", sources: ["usecase"], targets: ["usecase"], label: "次に", undirected: false },
   { kind: "usecaseScreen", sources: ["usecase"], targets: ["screen"], label: "画面", undirected: false },
-  { kind: "screenInformation", sources: ["screen"], targets: ["information"], label: "扱う", undirected: false },
   { kind: "actorNfr", sources: ["actor", "externalActor"], targets: ["nfr"], label: "求める", undirected: false },
 ];
 

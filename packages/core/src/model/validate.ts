@@ -223,6 +223,8 @@ export function checkIntegrity(model: UntieModel): string[] {
         errors.push(`関係 ${r.id} の kind「${r.kind}」が両端の種類から決まる「${expected}」と一致しません`);
       }
     }
+    // 取得・保存の区別 (access) は、操作が扱う情報の関係にだけ付けられる (0.4.0)
+    if (r.access !== undefined && r.kind !== "usecaseInformation") errors.push(`関係 ${r.id} (${r.kind}) に access が付いています (usecaseInformation だけに付けられます)`);
     for (let j = 0; j < i; j++) {
       if (sameRelation(model.relations[j], r)) {
         errors.push(`関係 ${r.id} は ${model.relations[j].id} と重複しています`);

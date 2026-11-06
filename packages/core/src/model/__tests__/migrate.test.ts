@@ -33,13 +33,13 @@ function v010(): Record<string, unknown> {
 }
 
 describe("モデルの形式のバージョン", () => {
-  it("現行は 0.3.0。新しいモデル・サンプルはこの版を持ち、スキーマもこの版だけを受ける", () => {
-    expect(MODEL_VERSION).toBe("0.3.0");
-    expect(emptyModel().version).toBe("0.3.0");
-    expect(createHotelSample().version).toBe("0.3.0");
+  it("現行は 0.4.0。新しいモデル・サンプルはこの版を持ち、スキーマもこの版だけを受ける", () => {
+    expect(MODEL_VERSION).toBe("0.4.0");
+    expect(emptyModel().version).toBe("0.4.0");
+    expect(createHotelSample().version).toBe("0.4.0");
     // スキーマは現行の版だけを受ける (古い版は loadModelJson で変換してから検査する)
     expect(validateModel(legacy()).ok).toBe(false);
-    expect(validateModel({ ...createHotelSample(), version: "0.2.0" }).ok).toBe(false);
+    expect(validateModel({ ...createHotelSample(), version: "0.3.0" }).ok).toBe(false);
   });
 
   it("compareVersions は semver を数として比べる", () => {
@@ -50,10 +50,11 @@ describe("モデルの形式のバージョン", () => {
     expect(compareVersions("0.1.0", "0.1.1")).toBeLessThan(0);
   });
 
-  it("変換は 0.1.0 → 0.2.0 → 0.3.0 の 2 つ", () => {
+  it("変換は 0.1.0 → 0.2.0 → 0.3.0 → 0.4.0 の 3 つ", () => {
     expect(MIGRATIONS.map((m) => [m.from, m.to])).toEqual([
       ["0.1.0", "0.2.0"],
       ["0.2.0", "0.3.0"],
+      ["0.3.0", "0.4.0"],
     ]);
   });
 });
@@ -62,7 +63,7 @@ describe("migrateModel", () => {
   it("現行の版はそのまま返す", () => {
     const m = createHotelSample();
     const r = migrateModel(m);
-    expect(r).toEqual({ ok: true, json: m, from: "0.3.0", migrated: false, notes: [] });
+    expect(r).toEqual({ ok: true, json: m, from: "0.4.0", migrated: false, notes: [] });
   });
 
   it("version が整数の 1 (0.1.0 より前の形式) は 0.1.0 と読み替えて、現行へ変換する。変換の要らない中身は変えず、受け取ったものも書き換えない", () => {
@@ -77,7 +78,7 @@ describe("migrateModel", () => {
   it("現行より新しい版は、古いアプリで開いて壊さないよう断る", () => {
     const r = migrateModel({ ...createHotelSample(), version: "9.0.0" });
     expect(r.ok).toBe(false);
-    expect(r.ok ? "" : r.reason).toMatch(/新しい版の Untie で作られたファイルです \(モデルの形式 9\.0\.0。この Untie は 0\.3\.0 まで\)/);
+    expect(r.ok ? "" : r.reason).toMatch(/新しい版の Untie で作られたファイルです \(モデルの形式 9\.0\.0。この Untie は 0\.4\.0 まで\)/);
   });
 
   it("古い版は MIGRATIONS を順に当てて現行にする。途中の変換が無ければ断る", () => {
@@ -113,9 +114,70 @@ describe("loadModelJson", () => {
   it("古い版のファイルを変換してから検査し、開ける", () => {
     const r = loadModelJson(JSON.parse(JSON.stringify(legacy())));
     expect(r.ok).toBe(true);
-    expect(r.ok && r.model.version).toBe("0.3.0");
+    expect(r.ok && r.model.version).toBe("0.4.0");
     expect(r.ok && r.migrated).toBe(true);
     expect(r.ok && r.from).toBe("1");
+  });
+
+  it("0.3.0 → 0.4.0: 置き場所 (取得元・保存先) と画面の情報の関係を外し、取得・保存の区別を操作が扱う情報の access に移す。導けない置き場所の件数を知らせる", () => {
+    const json = {
+      version: "0.3.0",
+      meta: { name: "0.3.0 のファイル" },
+      elements: [
+        { id: "sys_a", kind: "system", name: "システムA" },
+        { id: "ldg_a", kind: "ledger", name: "台帳" },
+        { id: "scr_a", kind: "screen", name: "画面A", systemId: "sys_a" },
+        { id: "uc_read", kind: "usecase", name: "見る" },
+        { id: "uc_write", kind: "usecase", name: "書く" },
+        { id: "uc_both", kind: "usecase", name: "直す" },
+        { id: "uc_paper", kind: "usecase", name: "記入する" },
+        { id: "uc_none", kind: "usecase", name: "対象なし" },
+        { id: "info_x", kind: "information", name: "X", contextId: null },
+        { id: "info_y", kind: "information", name: "Y", contextId: null },
+        { id: "info_z", kind: "information", name: "Z (扱う操作なし)", contextId: null },
+      ],
+      relations: [
+        { id: "r_read_scr", kind: "usecaseScreen", sourceId: "uc_read", targetId: "scr_a" },
+        { id: "r_write_sys", kind: "usecaseSystem", sourceId: "uc_write", targetId: "sys_a" },
+        { id: "r_both_sys", kind: "usecaseSystem", sourceId: "uc_both", targetId: "sys_a" },
+        { id: "r_paper", kind: "usecaseSystem", sourceId: "uc_paper", targetId: "ldg_a" },
+        { id: "r_read_x", kind: "usecaseInformation", sourceId: "uc_read", targetId: "info_x" },
+        { id: "r_write_y", kind: "usecaseInformation", sourceId: "uc_write", targetId: "info_y" },
+        { id: "r_both_x", kind: "usecaseInformation", sourceId: "uc_both", targetId: "info_x" },
+        { id: "r_paper_y", kind: "usecaseInformation", sourceId: "uc_paper", targetId: "info_y" },
+        { id: "r_none_x", kind: "usecaseInformation", sourceId: "uc_none", targetId: "info_x" },
+        // 旧: システムA は X の取得元・保存先、Y の保存先。台帳は Y の取得元。Z は置き場所だけ (扱う操作が無い)
+        { id: "r_src_x", kind: "systemInformation", sourceId: "sys_a", targetId: "info_x" },
+        { id: "r_sto_x", kind: "informationSystem", sourceId: "info_x", targetId: "sys_a" },
+        { id: "r_sto_y", kind: "informationSystem", sourceId: "info_y", targetId: "sys_a" },
+        { id: "r_src_y_paper", kind: "systemInformation", sourceId: "ldg_a", targetId: "info_y" },
+        { id: "r_src_z", kind: "systemInformation", sourceId: "sys_a", targetId: "info_z" },
+        { id: "r_scr_x", kind: "screenInformation", sourceId: "scr_a", targetId: "info_x" },
+      ],
+      boards: [{ id: "board_main", name: "ボード 1", nodes: [], edges: [{ relationId: "r_src_x", sourceSide: "top" }, { relationId: "r_read_x", targetSide: "top" }] }],
+    };
+    const r = loadModelJson(json);
+    if (!r.ok) throw new Error(r.errors.join("\n"));
+    expect(r.model.version).toBe("0.4.0");
+    expect(r.notes).toEqual(["情報の取得元・保存先と画面が扱う情報は、操作が扱う情報 (取得・保存) と操作の対象から導くようになったので、6 本の関係を外しました。うち 1 件の置き場所は、その情報を扱う操作の対象になっていないので、導けず消えます"]);
+    const kinds = r.model.relations.map((x) => x.kind);
+    expect(kinds).not.toContain("systemInformation");
+    expect(kinds).not.toContain("informationSystem");
+    expect(kinds).not.toContain("screenInformation");
+    const access = (id: string) => r.model.relations.find((x) => x.id === id)?.access;
+    // X はシステムA で取得も保存もするので、どの操作も区別なし (省略)
+    expect(access("r_read_x")).toBeUndefined();
+    expect(access("r_both_x")).toBeUndefined();
+    // Y はシステムA では保存先だけ → write、台帳では取得元だけ → read
+    expect(access("r_write_y")).toBe("write");
+    expect(access("r_paper_y")).toBe("read");
+    // 対象の無い操作は区別を決められない
+    expect(access("r_none_x")).toBeUndefined();
+    // 外した関係の線の設定も消える
+    expect(r.model.boards[0]!.edges).toEqual([{ relationId: "r_read_x", targetSide: "top" }]);
+    // 外す関係が無ければ知らせない
+    const plain = loadModelJson({ ...json, relations: json.relations.filter((x) => x.kind === "usecaseInformation"), boards: [{ id: "board_main", name: "ボード 1", nodes: [] }] });
+    expect(plain.ok && plain.notes).toEqual([]);
   });
 
   it("0.2.0 → 0.3.0: 操作の対象 (システム・帳票・画面) を 1 つにする。画面を優先し、同じ種類では先にあるものを残す。外した本数を知らせる", () => {
@@ -154,7 +216,7 @@ describe("loadModelJson", () => {
   it("0.1.0 → 0.2.0: システムの作業の担当を、その作業が使う操作の対象に移す。システムだけが担当の作業は担当が空になる", () => {
     const r = loadModelJson(v010());
     if (!r.ok) throw new Error(r.errors.join());
-    expect(r.model.version).toBe("0.3.0");
+    expect(r.model.version).toBe("0.4.0");
     expect(r.from).toBe("0.1.0");
     const rels = r.model.relations.map((x) => [x.kind, x.sourceId, x.targetId]);
     // システム → 作業 (担当) は無くなり、人の担当は残る
@@ -174,7 +236,7 @@ describe("loadModelJson", () => {
   it("現行の版はそのまま検査する。新しい版・壊れたものは理由付きで断る", () => {
     const ok = loadModelJson(createHotelSample());
     expect(ok.ok && ok.migrated).toBe(false);
-    const newer = loadModelJson({ ...createHotelSample(), version: "0.4.0" });
+    const newer = loadModelJson({ ...createHotelSample(), version: "0.5.0" });
     expect(newer.ok ? [] : newer.errors).toEqual([expect.stringMatching(/新しい版の Untie/)]);
     const broken = loadModelJson({ version: 1, meta: { name: "x" } });
     expect(broken.ok).toBe(false);

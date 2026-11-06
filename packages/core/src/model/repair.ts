@@ -8,7 +8,7 @@
 // - 既定の活動の名前を業務名に揃える
 // - 消えた要素を指す関係・ボードのノード・課題の targetIds は消す
 // - 消えた活動を指す作業の bucId、消えたコンテキストを指す contextId は null にする
-// - 自己参照の関係と、両端の種類から決まる kind と合わない関係は消す
+// - 自己参照の関係と、両端の種類から決まる kind と合わない関係は消す。usecaseInformation 以外に付いた access は外す
 // - 同じ関係 (sameRelation) の重複は先頭を残して畳む
 // - 操作の対象 (システム・帳票・画面) が 2 本以上なら、画面を優先し、先にあるものを残す
 // - 関係が消えたボードの線の設定は消す
@@ -184,6 +184,11 @@ export function repairModel(input: UntieModel): RepairResult {
       if (expected !== r.kind) {
         changes.push(`関係 ${r.id} を消した (kind「${r.kind}」が両端から決まる「${expected}」と違う)`);
         continue;
+      }
+      if (r.access !== undefined && r.kind !== "usecaseInformation") {
+        // 取得・保存の区別は操作が扱う情報の関係にだけ付けられる。ほかに付いていたら外す
+        changes.push(`関係 ${r.id} の access を外した (${r.kind} には付けられない)`);
+        delete r.access;
       }
       const key = `${r.kind}\0${r.sourceId}\0${r.targetId}`;
       const first = seenRelations.get(key);

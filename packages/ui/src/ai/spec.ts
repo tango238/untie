@@ -12,7 +12,12 @@ export interface SpecNamed {
 }
 
 export interface SpecUsecase extends SpecNamed {
+  /** 扱う情報 (取得も保存もする) */
   informations?: string[];
+  /** 取得だけする情報 */
+  reads?: string[];
+  /** 保存だけする情報 */
+  writes?: string[];
   conditions?: string[];
   /** この操作を実行できる状態 */
   from_states?: string[];
@@ -43,10 +48,6 @@ export interface SpecInformation extends SpecNamed {
   context?: string;
   related?: string[];
   variations?: string[];
-  /** 取得元 (システム・帳票の名前) */
-  sources?: string[];
-  /** 保存先 (システム・帳票の名前) */
-  stores?: string[];
 }
 
 export interface ModelSpec {
@@ -77,11 +78,13 @@ const names = (description: string) => ({ type: "array", items: { type: "string"
 const list = (items: unknown, description: string) => ({ type: "array", items, description });
 
 const usecaseSchema = named({
-  informations: names("扱う情報の名前 (informations に定義したもの)"),
+  informations: names("取得も保存もする情報の名前 (informations に定義したもの)"),
+  reads: names("取得 (読む) だけする情報の名前"),
+  writes: names("保存 (書く) だけする情報の名前"),
   conditions: names("判断に使う条件の名前 (conditions に定義したもの)"),
   from_states: names("この操作を実行できる状態の名前"),
   to_states: names("実行後に移る状態の名前"),
-  targets: names("操作の対象のシステム・帳票の名前 (systems / ledgers に定義したもの)。1 つだけ"),
+  targets: names("操作の対象のシステム・帳票の名前 (systems / ledgers に定義したもの)。1 つだけ。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
 });
 const activitySchema = named({
   performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
@@ -99,8 +102,8 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
       overview: { type: "string", description: "概要" },
       actors: list(named(), "社内の人の役割 (〇〇担当など)"),
       external_actors: list(named(), "社外の人・組織 (顧客・取引先など)"),
-      systems: list(named(), "情報システム (自社・社外を問わない)。操作の対象と、情報の置き場所になる (作業の担当にはならない)"),
-      ledgers: list(named(), "紙の台帳・伝票 (情報の置き場所)"),
+      systems: list(named(), "情報システム (自社・社外を問わない)。操作の対象になる (作業の担当にはならない)。情報の置き場所は、対象にした操作が扱う情報から導く"),
+      ledgers: list(named(), "紙の台帳・伝票。記入・参照する操作の対象になる"),
       businesses: list(
         named({
           main_actors: names("主担当のアクターの名前"),
@@ -115,8 +118,6 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
           context: { type: "string", description: "所属するコンテキストの名前" },
           related: names("関連する情報の名前"),
           variations: names("種別にしているバリエーションの名前"),
-          sources: names("取得元のシステム・帳票の名前"),
-          stores: names("保存先のシステム・帳票の名前"),
         }),
         "情報: 業務で扱う記録や書類",
       ),
@@ -209,10 +210,10 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     ids.get(group)!.set(name, r.id);
     return r.id;
   };
-  const relate = (sourceId: string | null | undefined, targetId: string | null | undefined) => {
+  const relate = (sourceId: string | null | undefined, targetId: string | null | undefined, access?: "read" | "write") => {
     if (!sourceId || !targetId) return;
     if (model.relations.some((r) => r.sourceId === sourceId && r.targetId === targetId)) return;
-    apply(addRelation(model, { sourceId, targetId }), "関係を作れません");
+    apply(addRelation(model, { sourceId, targetId, ...(access ? { access } : {}) }), "関係を作れません");
   };
   const ref = (groups: string[], name: string, what: string): string | null => {
     for (const g of groups) {
@@ -241,8 +242,6 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     const id = idOf("information", i.name);
     for (const n of i.related ?? []) relate(id, ref(["information"], n, "関連する情報"));
     for (const n of i.variations ?? []) relate(id, ref(["variation"], n, "バリエーション"));
-    for (const n of i.sources ?? []) relate(ref(["actor", "ledger"], n, "取得元"), id);
-    for (const n of i.stores ?? []) relate(id, ref(["actor", "ledger"], n, "保存先"));
   }
   for (const c of spec.conditions ?? []) {
     const id = idOf("condition", c.name);
@@ -270,6 +269,8 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       if (first) relate(ucId, "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象"));
       if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
       for (const n of u.informations ?? []) relate(ucId, ref(["information"], n, "情報"));
+      for (const n of u.reads ?? []) relate(ucId, ref(["information"], n, "情報"), "read");
+      for (const n of u.writes ?? []) relate(ucId, ref(["information"], n, "情報"), "write");
       for (const n of u.conditions ?? []) relate(ucId, ref(["condition"], n, "条件"));
       for (const n of u.from_states ?? []) relate(ref(["state"], n, "状態"), ucId);
       for (const n of u.to_states ?? []) relate(ucId, ref(["state"], n, "状態"));

@@ -2,7 +2,7 @@
 // 請求・入金・支払・経費精算・記帳・月次決算・年次決算の流れと、現場の困りごとを置く。
 // 1 つの業務の主担当は 1 人にする (業務に複数のアクターを結ぶと検証が警告を出す)。ほかの人は作業の担当にする。
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -217,7 +217,7 @@ const issues: Element[] = [
 
 // ---------------------------------------------------------------- 関係
 
-const pairs: [source: string, target: string][] = [
+const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // actorBusiness (1 つの業務の主担当は 1 人)
   ["actor_billing", "biz_billing"],
   ["actor_payable", "biz_payable"],
@@ -280,32 +280,33 @@ const pairs: [source: string, target: string][] = [
   ["act_review_bs", "uc_view_bs"],
   ["act_year_adjust", "uc_adjust_entry"],
   ["act_make_statements", "uc_issue_statements"],
-  // usecaseInformation
+  // usecaseInformation (操作 → 情報: 扱う)。3 つ目は取得・保存の区別 (read: 取得だけ、write: 保存だけ、無ければ両方)。
+  // 情報の置き場所 (取得元・保存先) と画面が扱う情報は、これと操作の対象から導く (0.4.0 から)
   ["uc_issue_invoice", "info_invoice"],
   ["uc_issue_invoice", "info_receivable"],
   ["uc_record_receipt", "info_receipt"],
   ["uc_clear_receivable", "info_receivable"],
-  ["uc_clear_receivable", "info_receipt"],
+  ["uc_clear_receivable", "info_receipt", "read"],
   ["uc_register_vendor_invoice", "info_vendor_invoice"],
-  ["uc_register_vendor_invoice", "info_payable"],
-  ["uc_search_voucher", "info_vendor_invoice"],
-  ["uc_search_voucher", "info_expense"],
+  ["uc_register_vendor_invoice", "info_payable", "read"],
+  ["uc_search_voucher", "info_vendor_invoice", "read"],
+  ["uc_search_voucher", "info_expense", "read"],
   ["uc_approve_payment", "info_payable"],
   ["uc_issue_transfer", "info_payment"],
-  ["uc_issue_transfer", "info_payable"],
-  ["uc_issue_transfer", "info_expense"],
+  ["uc_issue_transfer", "info_payable", "read"],
+  ["uc_issue_transfer", "info_expense", "read"],
   ["uc_register_expense", "info_expense"],
   ["uc_record_journal", "info_journal"],
   ["uc_record_petty_cash", "info_petty_cash"],
-  ["uc_record_petty_cash", "info_journal"],
-  ["uc_match_balance", "info_journal"],
-  ["uc_match_balance", "info_receipt"],
+  ["uc_record_petty_cash", "info_journal", "read"],
+  ["uc_match_balance", "info_journal", "read"],
+  ["uc_match_balance", "info_receipt", "read"],
   ["uc_adjust_entry", "info_journal"],
   ["uc_issue_trial", "info_trial"],
-  ["uc_issue_trial", "info_journal"],
+  ["uc_issue_trial", "info_journal", "read"],
   ["uc_close_month", "info_trial"],
-  ["uc_view_pl", "info_pl"],
-  ["uc_view_bs", "info_bs"],
+  ["uc_view_pl", "info_pl", "read"],
+  ["uc_view_bs", "info_bs", "read"],
   ["uc_issue_statements", "info_pl"],
   ["uc_issue_statements", "info_bs"],
   // usecaseCondition
@@ -326,29 +327,6 @@ const pairs: [source: string, target: string][] = [
   ["info_pl", "info_invoice"],
   ["info_bs", "info_receivable"],
   ["info_bs", "info_payable"],
-  // systemInformation (システム → 情報: 取得元)
-  ["sys_accounting", "info_receivable"],
-  ["sys_accounting", "info_receipt"],
-  ["sys_accounting", "info_payable"],
-  ["sys_accounting", "info_journal"],
-  ["sys_accounting", "info_trial"],
-  // 会計システムで PL と BS を見られる
-  ["sys_accounting", "info_pl"],
-  ["sys_accounting", "info_bs"],
-  ["sys_sales", "info_invoice"],
-  ["sys_banking", "info_receipt"],
-  ["sys_banking", "info_payment"],
-  // informationSystem (情報 → システム: 保存先)
-  ["info_invoice", "sys_sales"],
-  ["info_receivable", "sys_accounting"],
-  ["info_receipt", "sys_accounting"],
-  ["info_payable", "sys_accounting"],
-  ["info_journal", "sys_accounting"],
-  ["info_trial", "sys_accounting"],
-  ["info_payment", "sys_banking"],
-  ["info_vendor_invoice", "ldg_received_invoice"],
-  ["info_expense", "ldg_expense_form"],
-  ["info_petty_cash", "ldg_petty_cash"],
   // informationVariation
   ["info_receipt", "var_receipt_method"],
   ["info_expense", "var_expense_type"],
@@ -380,6 +358,14 @@ const pairs: [source: string, target: string][] = [
   ["uc_issue_trial", "st_month_trial"],
   ["uc_close_month", "st_month_closed"],
   // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
+  ["uc_register_vendor_invoice", "ldg_received_invoice"],
+  ["uc_search_voucher", "sys_accounting"],
+  ["uc_approve_payment", "sys_accounting"],
+  ["uc_register_expense", "ldg_expense_form"],
+  ["uc_record_petty_cash", "ldg_petty_cash"],
+  ["uc_match_balance", "sys_banking"],
+  ["uc_view_pl", "sys_accounting"],
+  ["uc_view_bs", "sys_accounting"],
   ["uc_issue_invoice", "sys_sales"],
   ["uc_record_receipt", "sys_accounting"],
   ["uc_clear_receivable", "sys_accounting"],
@@ -410,12 +396,12 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-const relations: Relation[] = pairs.map(([sourceId, targetId]) => {
+const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId };
+  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

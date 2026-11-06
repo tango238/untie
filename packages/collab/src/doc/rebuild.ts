@@ -50,7 +50,8 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
   const items: Ordered<Relation>[] = [];
   map.forEach((r, id) => {
     if (typeof r !== "object" || r === null || !isString(r.kind) || !isString(r.sourceId) || !isString(r.targetId)) return;
-    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId } as Relation });
+    const access = r.access === "read" || r.access === "write" ? { access: r.access } : {};
+    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access } as Relation });
   });
   return sortedValues(items);
 }

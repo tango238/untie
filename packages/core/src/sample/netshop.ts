@@ -4,7 +4,7 @@
 // 人が担当しない処理 (在庫の引き当て・売掛金の計上) は作業にせず、イベントをきっかけにした自動の処理にする。
 // 画面と非機能要件もシステムに持たせる。検証のエラーも警告も出ない形にする (サンプルのテストで確かめる)
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -100,6 +100,7 @@ const activities: Element[] = [
 ];
 
 const usecases: Element[] = [
+  { id: "uc_fill_receiving_sheet", kind: "usecase", name: "入荷検品表に記入する" },
   { id: "uc_register_receiving", kind: "usecase", name: "入荷を登録する" },
   {
     id: "uc_update_stock",
@@ -119,6 +120,7 @@ const usecases: Element[] = [
   { id: "uc_issue_pick_list", kind: "usecase", name: "ピッキングリストを出す" },
   { id: "uc_issue_label", kind: "usecase", name: "送り状を発行する" },
   { id: "uc_record_shipment", kind: "usecase", name: "出荷を記録する" },
+  { id: "uc_fill_return_slip", kind: "usecase", name: "返品受付票に記入する" },
   { id: "uc_register_return", kind: "usecase", name: "返品を登録する" },
   { id: "uc_record_inspection", kind: "usecase", name: "返品の検品結果を記録する" },
   { id: "uc_record_refund", kind: "usecase", name: "返金を記録する" },
@@ -303,7 +305,7 @@ const issues: Element[] = [
 
 // ---------------------------------------------------------------- 関係
 
-const pairs: [source: string, target: string][] = [
+const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // actorBusiness
   ["actor_warehouse", "biz_stock"],
   ["actor_order", "biz_order"],
@@ -347,6 +349,7 @@ const pairs: [source: string, target: string][] = [
   ["actor_manager", "act_review_bs"],
   ["actor_accounting", "act_review_bs"],
   // activityUsecase
+  ["act_receive", "uc_fill_receiving_sheet"],
   ["act_receive", "uc_register_receiving"],
   ["act_shelve", "uc_update_stock"],
   ["act_update_stock", "uc_update_stock"],
@@ -362,6 +365,7 @@ const pairs: [source: string, target: string][] = [
   ["act_notify_shipping", "uc_record_shipment"],
   ["act_accept_return", "uc_register_return"],
   ["act_accept_return", "uc_search_order"],
+  ["act_accept_return", "uc_fill_return_slip"],
   ["act_inspect_return", "uc_record_inspection"],
   ["act_refund", "uc_record_refund"],
   ["act_restock", "uc_update_stock"],
@@ -376,41 +380,44 @@ const pairs: [source: string, target: string][] = [
   ["act_review_pl", "uc_report_month"],
   ["act_review_bs", "uc_view_bs"],
   ["act_review_bs", "uc_report_month"],
-  // usecaseInformation
-  ["uc_register_receiving", "info_product"],
+  // usecaseInformation (操作 → 情報: 扱う)。3 つ目は取得・保存の区別 (read: 取得だけ、write: 保存だけ、無ければ両方)。
+  // 情報の置き場所 (取得元・保存先) と画面が扱う情報は、これと操作の対象から導く (0.4.0 から)
+  ["uc_fill_receiving_sheet", "info_stock", "write"],
+  ["uc_register_receiving", "info_product", "read"],
   ["uc_register_receiving", "info_stock"],
   ["uc_update_stock", "info_stock"],
   ["uc_record_count", "info_stock"],
-  ["uc_check_mall_order", "info_order"],
+  ["uc_check_mall_order", "info_order", "read"],
   ["uc_register_order", "info_order"],
   ["uc_register_order", "info_customer"],
-  ["uc_search_order", "info_order"],
-  ["uc_search_order", "info_shipment"],
+  ["uc_search_order", "info_order", "read"],
+  ["uc_search_order", "info_shipment", "read"],
   ["uc_confirm_order", "info_order"],
   ["uc_cancel_order", "info_order"],
   ["uc_allocate_stock", "info_stock"],
-  ["uc_allocate_stock", "info_order"],
-  ["uc_record_payment", "info_order"],
-  ["uc_issue_pick_list", "info_order"],
-  ["uc_issue_pick_list", "info_product"],
+  ["uc_allocate_stock", "info_order", "read"],
+  ["uc_record_payment", "info_order", "read"],
+  ["uc_issue_pick_list", "info_order", "read"],
+  ["uc_issue_pick_list", "info_product", "read"],
   ["uc_issue_label", "info_shipment"],
-  ["uc_issue_label", "info_order"],
+  ["uc_issue_label", "info_order", "read"],
   ["uc_record_shipment", "info_shipment"],
+  ["uc_fill_return_slip", "info_return", "write"],
   ["uc_register_return", "info_return"],
-  ["uc_register_return", "info_order"],
+  ["uc_register_return", "info_order", "read"],
   ["uc_record_inspection", "info_return"],
-  ["uc_record_refund", "info_return"],
+  ["uc_record_refund", "info_return", "read"],
   ["uc_record_inquiry", "info_inquiry"],
-  ["uc_record_inquiry", "info_customer"],
+  ["uc_record_inquiry", "info_customer", "read"],
   ["uc_register_receivable", "info_receivable"],
-  ["uc_register_receivable", "info_order"],
+  ["uc_register_receivable", "info_order", "read"],
   ["uc_record_payout", "info_payout"],
   ["uc_clear_receivable", "info_receivable"],
-  ["uc_clear_receivable", "info_payout"],
-  ["uc_view_pl", "info_pl"],
-  ["uc_view_bs", "info_bs"],
-  ["uc_report_month", "info_pl"],
-  ["uc_report_month", "info_bs"],
+  ["uc_clear_receivable", "info_payout", "read"],
+  ["uc_view_pl", "info_pl", "read"],
+  ["uc_view_bs", "info_bs", "read"],
+  ["uc_report_month", "info_pl", "read"],
+  ["uc_report_month", "info_bs", "read"],
   // usecaseCondition
   ["uc_allocate_stock", "cond_out_of_stock"],
   ["uc_register_return", "cond_return_period"],
@@ -428,34 +435,6 @@ const pairs: [source: string, target: string][] = [
   ["info_pl", "info_order"],
   ["info_bs", "info_receivable"],
   ["info_pl", "info_bs"],
-  // systemInformation (システム → 情報: 取得元)
-  ["sys_oms", "info_order"],
-  ["sys_oms", "info_customer"],
-  ["sys_oms", "info_product"],
-  ["sys_oms", "info_stock"],
-  ["sys_oms", "info_shipment"],
-  ["sys_oms", "info_return"],
-  ["sys_cart", "info_order"],
-  ["sys_cart", "info_customer"],
-  ["sys_mall", "info_order"],
-  ["sys_payment", "info_order"],
-  ["sys_accounting", "info_receivable"],
-  ["sys_accounting", "info_payout"],
-  ["sys_mall", "info_payout"],
-  // 会計システムで PL と BS を見られる
-  ["sys_accounting", "info_pl"],
-  ["sys_accounting", "info_bs"],
-  // informationSystem (情報 → システム: 保存先)
-  ["info_order", "sys_oms"],
-  ["info_order", "sys_accounting"],
-  ["info_customer", "sys_oms"],
-  ["info_product", "sys_oms"],
-  ["info_stock", "sys_oms"],
-  ["info_stock", "ldg_receiving_sheet"],
-  ["info_shipment", "sys_oms"],
-  ["info_return", "ldg_return_slip"],
-  ["info_receivable", "sys_accounting"],
-  ["info_payout", "sys_accounting"],
   // informationVariation
   ["info_order", "var_channel"],
   ["info_order", "var_payment_method"],
@@ -494,6 +473,9 @@ const pairs: [source: string, target: string][] = [
   // usecaseNext (操作 → 操作: 次に)。作業の中の操作の順番
   // 注文を取り込む: モールの注文一覧で確かめてから、販売管理システムの受注入力画面に入れる (課題「モールの注文を手で移している」の所在)
   ["uc_check_mall_order", "uc_register_order"],
+  // 紙に書いてからシステムに入れる
+  ["uc_fill_receiving_sheet", "uc_register_receiving"],
+  ["uc_fill_return_slip", "uc_register_return"],
   ["uc_search_order", "uc_confirm_order"],
   ["uc_search_order", "uc_cancel_order"],
   ["uc_search_order", "uc_register_return"],
@@ -521,6 +503,7 @@ const pairs: [source: string, target: string][] = [
   ["uc_clear_receivable", "ev_receivable_cleared"],
   ["uc_report_month", "ev_month_reported"],
   // systemEvent (システム → イベント: 発生)
+  ["sys_cart", "ev_order_received"],
   ["sys_accounting", "ev_month_closed"],
   // eventUsecase (イベント → 操作: きっかけ)
   // 作業に属さない自動の処理: 注文が確定したら在庫を引き当て、出荷が記録されたら売掛金を登録する
@@ -532,7 +515,9 @@ const pairs: [source: string, target: string][] = [
   ["ev_return_inspected", "uc_record_refund"],
   ["ev_payout_recorded", "uc_clear_receivable"],
   ["ev_month_closed", "uc_view_pl"],
-  // usecaseSystem (操作 → システム: 対象)。画面の無い自動の処理だけ直接結ぶ (画面のある操作は画面のシステムが対象)。対象は操作ごとに 1 つだけ
+  // usecaseSystem (操作 → システム・帳票: 対象)。紙の帳票への記入と、画面の無い自動の処理だけ直接結ぶ (画面のある操作は画面のシステムが対象)。対象は操作ごとに 1 つだけ
+  ["uc_fill_receiving_sheet", "ldg_receiving_sheet"],
+  ["uc_fill_return_slip", "ldg_return_slip"],
   ["uc_allocate_stock", "sys_oms"],
   ["uc_register_receivable", "sys_accounting"],
   // usecaseScreen (操作 → 画面)
@@ -557,23 +542,6 @@ const pairs: [source: string, target: string][] = [
   ["uc_view_pl", "scr_monthly_report"],
   ["uc_view_bs", "scr_monthly_report"],
   ["uc_report_month", "scr_monthly_report"],
-  // screenInformation (画面 → 情報: 扱う)
-  ["scr_order_entry", "info_order"],
-  ["scr_order_entry", "info_customer"],
-  ["scr_order_list", "info_order"],
-  ["scr_order_list", "info_shipment"],
-  ["scr_stock", "info_stock"],
-  ["scr_stock", "info_product"],
-  ["scr_shipping", "info_shipment"],
-  ["scr_shipping", "info_order"],
-  ["scr_return", "info_return"],
-  ["scr_inquiry", "info_inquiry"],
-  ["scr_mall_orders", "info_order"],
-  ["scr_payment_admin", "info_order"],
-  ["scr_receivable", "info_receivable"],
-  ["scr_receivable", "info_payout"],
-  ["scr_monthly_report", "info_pl"],
-  ["scr_monthly_report", "info_bs"],
   // actorNfr (アクター・外部アクター → 非機能要件: 求める)
   ["actor_order", "nfr_sale_peak"],
   ["ext_customer", "nfr_sale_peak"],
@@ -604,12 +572,12 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-const relations: Relation[] = pairs.map(([sourceId, targetId]) => {
+const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId };
+  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

@@ -1,3 +1,4 @@
+import { informationPlaces } from "../../model/placement";
 import { describe, expect, it } from "vitest";
 import { createNetshopSample, netshopSample, SAMPLES } from "..";
 import { traceToActors, traceWarnings } from "../../model/trace";
@@ -135,8 +136,10 @@ describe("ネットショップサンプル", () => {
       const sys = netshopSample.elements.find((e) => e.id === screen);
       expect(sys?.kind === "screen" && sys.systemId, uc).toBe("sys_accounting");
     }
+    // 置き場所は操作から導く: 売掛金・入金は会計システムに保存される
+    const places = informationPlaces(netshopSample);
     for (const info of ["info_receivable", "info_payout"]) {
-      expect(rels.some((r) => r.kind === "informationSystem" && r.sourceId === info && r.targetId === "sys_accounting"), info).toBe(true);
+      expect(places.get(info)?.find((p) => p.id === "sys_accounting")?.roles, info).toContain("store");
     }
   });
 
@@ -149,10 +152,11 @@ describe("ネットショップサンプル", () => {
 
   it("会計システムで損益計算書 (PL) と貸借対照表 (BS) を見られ、売掛金は BS に、売上は PL につながる", () => {
     const rels = netshopSample.relations;
+    const places = informationPlaces(netshopSample);
     for (const info of ["info_pl", "info_bs"]) {
-      expect(rels.some((r) => r.kind === "systemInformation" && r.sourceId === "sys_accounting" && r.targetId === info), info).toBe(true);
+      expect(places.get(info)?.find((p) => p.id === "sys_accounting")?.roles, info).toContain("source");
     }
-    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_pl" && r.targetId === "info_pl")).toBe(true);
+    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_pl" && r.targetId === "info_pl" && r.access === "read")).toBe(true);
     expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_bs" && r.targetId === "info_bs")).toBe(true);
     expect(rels.some((r) => r.kind === "informationRelated" && [r.sourceId, r.targetId].sort().join() === ["info_bs", "info_receivable"].join())).toBe(true);
   });

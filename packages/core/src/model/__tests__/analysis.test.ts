@@ -9,9 +9,9 @@ import {
   screenInformationTables,
   systemEventLists,
 } from "../analysis";
-import { addElement, addRelation, removeRelation, setIssueTargets } from "../commands";
+import { addElement, addRelation, removeRelation, setIssueTargets, setRelationAccess, setUsecaseTarget } from "../commands";
 import { createNetshopSample } from "../../sample";
-import { okModel, sample } from "./helpers";
+import { expectFail, okModel, sample } from "./helpers";
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name);
 
@@ -48,9 +48,15 @@ describe("情報の所在", () => {
     let m = sample();
     const r = informationLocations(m);
     const row = (id: string) => r.rows.find((x) => x.information.id === id)!;
+    // 置き場所は、扱う操作の対象 (画面ならそのシステム) と access から導く
     expect(row("info_reservation").places.get("sys_pms")).toEqual(["source", "store"]);
+    expect(row("info_reservation").places.get("sys_booking_site")).toEqual(["source", "store"]);
+    expect(row("info_plan").places.get("sys_pms")).toEqual(["source"]);
     expect(row("info_cleaning_record").flags).toEqual(["paperOnly"]);
     expect(row("info_guest").flags).toEqual(["multipleStores"]);
+    // 操作の access を変えると置き場所の役割も変わる
+    const readOnly = okModel(setRelationAccess(m, { id: "rel_uc_register_reservation__info_reservation", access: "read" }));
+    expect(informationLocations(readOnly).rows.find((x) => x.information.id === "info_reservation")!.places.get("sys_booking_site")).toEqual(["source"]);
     m = okModel(addElement(m, { kind: "information", name: "x", id: "info_x" }));
     expect(informationLocations(m).rows.find((x) => x.information.id === "info_x")!.flags).toEqual(["noPlace"]);
   });
@@ -93,25 +99,29 @@ describe("画面と情報", () => {
     expect(accounting.rows.map((r) => r.screen.name)).toEqual(["売掛金の消込画面", "月次レポート"]);
     expect(accounting.informations.map((i) => i.name)).toEqual(["売掛金", "入金", "損益計算書 (PL)", "貸借対照表 (BS)"]);
     const report = accounting.rows.find((r) => r.screen.id === "scr_monthly_report")!;
+    // 画面が扱う情報は、画面を使う操作が扱う情報 (取得・保存) から導く
     expect([...report.cells]).toEqual([
-      ["info_pl", "ok"],
-      ["info_bs", "ok"],
+      ["info_pl", ["source"]],
+      ["info_bs", ["source"]],
     ]);
     // 画面を使う操作を添える
     expect(report.usecases.map((u) => u.name)).toEqual(["損益計算書を見る", "貸借対照表を見る", "月次の数字を報告する"]);
   });
 
-  it("画面が扱う情報がそのシステムの置き場所に無ければ noPlace、情報を扱わない画面は noInformation", () => {
+  it("画面が扱う情報は使う操作から導く (画面と情報は直接結べない)。情報を扱わない画面は noInformation", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "screen", name: "チェックイン画面", id: "scr_a", init: { systemId: "sys_pms" } }));
     m = okModel(addElement(m, { kind: "screen", name: "空の画面", id: "scr_b", init: { systemId: "sys_pms" } }));
-    // 宿泊管理システムは予約を取得・保存する。清掃記録は清掃チェック表 (紙) にだけある
-    m = okModel(addRelation(m, { sourceId: "scr_a", targetId: "info_reservation" }));
-    m = okModel(addRelation(m, { sourceId: "scr_a", targetId: "info_cleaning_record" }));
+    expectFail(addRelation(m, { sourceId: "scr_a", targetId: "info_reservation" }), /結べません/);
+    // チェックインを記録する (予約: 取得・保存、宿泊客: 取得・保存) をこの画面で行う
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_a" }));
+    m = okModel(setRelationAccess(m, { id: "rel_uc_record_checkin__info_guest", access: "read" }));
     const pms = screenInformationTables(m).tables.find((t) => t.system.id === "sys_pms")!;
     const a = pms.rows.find((r) => r.screen.id === "scr_a")!;
-    expect(a.cells.get("info_reservation")).toBe("ok");
-    expect(a.cells.get("info_cleaning_record")).toBe("noPlace");
+    expect([...a.cells]).toEqual([
+      ["info_reservation", ["source", "store"]],
+      ["info_guest", ["source"]],
+    ]);
     expect(a.noInformation).toBe(false);
     expect(pms.rows.find((r) => r.screen.id === "scr_b")!.noInformation).toBe(true);
   });
@@ -120,8 +130,8 @@ describe("画面と情報", () => {
 describe("情報の所在: システムのイベント", () => {
   it("システムごとに、直接発生させるイベントと、そのシステムを対象にした操作 (画面を通すものも) が発生させるイベントを並べ、きっかけにする操作と作業を添える", () => {
     const { lists, systemsWithoutEvents, eventsWithoutSystem } = systemEventLists(createNetshopSample());
-    expect(lists.map((l) => l.system.name)).toEqual(["販売管理システム", "決済サービス", "会計システム"]);
-    expect(systemsWithoutEvents.map((s) => s.name)).toEqual(["自社サイトのカート", "モールの管理画面"]);
+    expect(lists.map((l) => l.system.name)).toEqual(["自社サイトのカート", "販売管理システム", "決済サービス", "会計システム"]);
+    expect(systemsWithoutEvents.map((s) => s.name)).toEqual(["モールの管理画面"]);
     expect(eventsWithoutSystem).toEqual([]);
     const accounting = lists.find((l) => l.system.id === "sys_accounting")!;
     const closed = accounting.rows.find((r) => r.event.name === "月次の締めが済んだ")!;

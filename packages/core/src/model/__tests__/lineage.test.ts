@@ -10,7 +10,7 @@ describe("lineage (トレース)", () => {
     const t = lineage(sample(), "act_verify_identity");
     expect(view(t.up)).toEqual({ actor: ["フロント担当", "宿泊客"], business: ["チェックイン"] });
     const down = view(t.down);
-    expect(down.usecase).toEqual(["チェックインを記録する"]);
+    expect(down.usecase).toEqual(["チェックインを記録する", "宿泊者名簿に記入する"]);
     expect(down.information).toEqual(["予約", "宿泊客"]);
     expect(down.condition).toEqual(["早めのチェックインができる"]);
     expect(down.state).toEqual(expect.arrayContaining(["確定", "チェックイン済", "準備完了"]));
@@ -24,6 +24,7 @@ describe("lineage (トレース)", () => {
     expect(up.activity).toEqual(["清掃を指示する", "清掃する", "部屋を点検する"]);
     expect(up.business).toEqual(["清掃・準備"]);
     expect(up.context).toEqual(["客室"]);
+    // 置き場所 (清掃チェック表) は、扱う操作の対象として上に来る
     expect(up.actor).toEqual(expect.arrayContaining(["清掃担当", "支配人", "清掃チェック表"]));
   });
 
@@ -75,10 +76,10 @@ describe("globalFilterScope (グローバルフィルター)", async () => {
     expect(s.has("act_accept_reservation")).toBe(true);
     expect(s.has("info_guest")).toBe(true);
     expect(s.has("act_confirm_reservation")).toBe(false);
-    expect(view(lineage(m, "ctx_customer").up).usecase).toEqual(["予約を登録する", "チェックインを記録する"]);
+    expect(view(lineage(m, "ctx_customer").up).usecase).toEqual(["予約を登録する", "チェックインを記録する", "宿泊者名簿に記入する"]);
   });
 
-  it("合う要素のコンテキストと、合う情報の置き場所も含める", () => {
+  it("合う要素のコンテキストと、合う操作の対象 (情報の置き場所) も含める", () => {
     const s = globalFilterScope(sample(), { actor: ["actor_housekeeping"] })!;
     expect(s.has("info_cleaning_record")).toBe(true);
     expect(s.has("ctx_room")).toBe(true);
@@ -101,18 +102,18 @@ describe("expectedLayers (トレースに出す上下のレイヤー)", () => {
       down: ["usecase", "screen", "information", "condition", "state", "variation"],
     });
     expect(expectedLayers("variation")).toEqual({
-      up: ["actor", "business", "buc", "activity", "usecase", "screen", "context", "information", "condition"],
+      up: ["actor", "business", "buc", "activity", "usecase", "context", "information", "condition"],
       down: [],
     });
     // コンテキストは属する要素の上を上、属する要素を下とする (イベントは操作のボードで扱うので、下のレイヤーには数えない)
     expect(expectedLayers("context")).toEqual({
-      up: ["actor", "business", "buc", "activity", "usecase", "screen"],
+      up: ["actor", "business", "buc", "activity", "usecase"],
       down: ["information", "condition", "state", "variation"],
     });
-    // 画面は属するシステムと使う操作の下、非機能要件は属するシステムと求める人の下
+    // 画面は属するシステムと使う操作の下。扱う情報は操作から導くので、画面の下には何も来ない。非機能要件は属するシステムと求める人の下
     expect(expectedLayers("screen")).toEqual({
       up: ["actor", "business", "buc", "activity", "usecase"],
-      down: ["information", "variation"],
+      down: [],
     });
     expect(expectedLayers("nfr")).toEqual({ up: ["actor"], down: [] });
   });
@@ -123,9 +124,9 @@ describe("expectedLayers (トレースに出す上下のレイヤー)", () => {
     expect(expectedLayers("actor").down).toEqual(["business", "buc", "activity", "usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
     // 外部アクターは作業の担当と、非機能要件を求める人 (業務の主担当にはならない)
     expect(expectedLayers("externalActor").down).toEqual(["activity", "usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
-    // システムは操作の対象・情報の置き場所と、画面・非機能要件の持ち主 (作業の担当にはならない)
+    // システムは操作の対象と、画面・非機能要件の持ち主 (作業の担当にはならない)。情報は操作を通って下に来る
     expect(expectedLayers("system").down).toEqual(["usecase", "screen", "information", "condition", "state", "variation", "nfr"]);
-    // 帳票は操作の対象と情報の置き場所
+    // 帳票は操作の対象。情報は操作を通って下に来る
     expect(expectedLayers("ledger").down).toEqual(["usecase", "screen", "information", "condition", "state", "variation"]);
   });
 
