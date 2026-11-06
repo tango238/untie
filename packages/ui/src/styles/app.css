@@ -693,7 +693,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .pane-toggle { width: 32px; height: 32px; min-height: 0; font-size: 18px; top: 4px; }
   .left-pane .pane-toggle { left: auto; right: 6px; }
   .left-pane .element-list .panel-title { padding-left: 12px; padding-right: 44px; }
-  .row { min-height: 36px; }
+  .row { min-height: 40px; }
+  /* 行の「置く」は上下のボタンとくっつかないよう、行より少し低くする */
+  button.row-place { min-height: 30px; padding: 0 10px; font-size: 12px; }
   .group-header { padding: 8px 10px; }
 
   /* キャンバスのミニマップは画面の大半を覆うので出さない (ピンチとパンで動かす) */
