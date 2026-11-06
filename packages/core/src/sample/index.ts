@@ -22,10 +22,10 @@ export interface SampleEntry {
 
 export const SAMPLES: readonly SampleEntry[] = [
   {
-    id: "hotel",
-    title: "宿泊施設の業務",
-    description: "架空の宿泊施設の、予約からチェックイン・客室対応・精算・清掃までの業務と、現場の困りごと",
-    create: createHotelSample,
+    id: "retail",
+    title: "店舗の業務",
+    description: "架空の日用品店の、発注・陳列・レジ・レジ締め・棚卸までの業務と、現場の困りごと",
+    create: createRetailSample,
   },
   {
     id: "netshop",
@@ -34,10 +34,10 @@ export const SAMPLES: readonly SampleEntry[] = [
     create: createNetshopSample,
   },
   {
-    id: "retail",
-    title: "店舗の業務",
-    description: "架空の日用品店の、発注・陳列・レジ・レジ締め・棚卸までの業務と、現場の困りごと",
-    create: createRetailSample,
+    id: "hotel",
+    title: "宿泊施設の業務",
+    description: "架空の宿泊施設の、予約からチェックイン・客室対応・精算・清掃までの業務と、現場の困りごと",
+    create: createHotelSample,
   },
   {
     id: "accounting",

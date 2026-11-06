@@ -36,7 +36,7 @@ export async function confirmDiscardIfDirty(message = DISCARD_MESSAGE, okLabel?:
   return !hasUnsavedChanges(useUntieStore.getState()) || (await getPlatform().confirmDiscard(message, okLabel));
 }
 
-/** サンプルを開く (ホームのサンプルの一覧。省略すると先頭の「宿泊施設の業務」)。未保存の変更があれば先に確かめる。開けたら true */
+/** サンプルを開く (ホームのサンプルの一覧。省略すると一覧の先頭のサンプル)。未保存の変更があれば先に確かめる。開けたら true */
 export async function openSampleDocument(sample: SampleEntry = SAMPLES[0]!): Promise<boolean> {
   if (!(await confirmDiscardIfDirty())) return false;
   const st = useUntieStore.getState();

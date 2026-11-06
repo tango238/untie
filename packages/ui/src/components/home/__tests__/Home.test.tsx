@@ -521,12 +521,13 @@ describe("Home: ローカル", () => {
     render(<Home />);
     const items = within(screen.getByRole("region", { name: "サンプル" })).getAllByRole("listitem");
     expect(items).toHaveLength(4);
-    expect(items[0]!.textContent).toContain("宿泊施設の業務");
-    expect(items[0]!.textContent).toContain("予約からチェックイン");
+    // 並びは SAMPLES の順 (店舗・ネットショップ・宿泊施設・経理業務)
+    expect(items[0]!.textContent).toContain("店舗の業務");
+    expect(items[0]!.textContent).toContain("発注・陳列・レジ");
     expect(items[1]!.textContent).toContain("ネットショップの業務");
     expect(items[1]!.textContent).toContain("入荷・受注・出荷・返品");
-    expect(items[2]!.textContent).toContain("店舗の業務");
-    expect(items[2]!.textContent).toContain("発注・陳列・レジ");
+    expect(items[2]!.textContent).toContain("宿泊施設の業務");
+    expect(items[2]!.textContent).toContain("予約からチェックイン");
     expect(items[3]!.textContent).toContain("経理業務");
     expect(items[3]!.textContent).toContain("請求・入金・支払");
     expect(screen.queryByRole("button", { name: "サンプルを開く" })).toBeNull();
