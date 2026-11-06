@@ -559,7 +559,7 @@ untie/
 │  └ server/                   … @untie/server: Cloudflare Worker (Hono)。auth/ api/ db/ jobs/、migrations/、public/_headers、wrangler.jsonc
 ├ assets/icon.png              … アプリのアイコンの元 (`pnpm icon` で各サイズを作る)
 ├ .github/workflows/
-│  ├ ci.yml                    … PR と main push で check:types・typecheck・test・build、Rust の cargo check
+│  ├ ci.yml                    … PR と main push で check:types・typecheck・test・build、Rust の cargo check (PR では apps/desktop か ci.yml が変わったときだけ)
 │  └ release.yml               … v* タグで Mac (.dmg) と Windows (.msi/.exe) を Releases に添付
 ├ README.md, LICENSE (MIT)
 └ package.json, pnpm-workspace.yaml, tsconfig.base.json, tsconfig.json, vitest.config.ts
@@ -586,7 +586,7 @@ Vitest で以下を検証する。E2E は省く。
 - **Web 版**: Cloudflare Pages (プロジェクト `untie`)。`pnpm web:deploy` か、Pages の Git 連携 (Build command `pnpm --filter @untie/web build`、出力 `apps/web/dist`)。手順は README の「Web 版の配信 (Cloudflare Pages)」。
 - **クラウド版とサーバー**: 1 つの Cloudflare Worker (`apps/server`、名前は `untie-cloud`) がクラウド版の画面 (`apps/cloud`) の静的ファイル・API・ログイン・Durable Object を持つ。`pnpm cloud:deploy` が画面を build して `wrangler deploy` する。初回の手順 (D1 の作成、OAuth クライアント、秘密の値、`APP_ORIGIN`) は README の「クラウド版の配信 (Cloudflare Workers)」、設計は collab-design 2.3・9 章。
 - GitHub Actions:
-  - `ci.yml`: PR と main push で `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web 版・クラウド版・デスクトップのフロントの build と `wrangler deploy --dry-run`)。別のジョブで Linux の `cargo check` (Rust 側がコンパイルできるか)。
+  - `ci.yml`: PR と main push で `pnpm check:types`、`pnpm typecheck`、`pnpm test`、`pnpm build` (Web 版・クラウド版・デスクトップのフロントの build と `wrangler deploy --dry-run`)。別のジョブで Linux の `cargo check` (Rust 側がコンパイルできるか)。Tauri の Linux 向けライブラリの取得に時間がかかるので、PR では `apps/desktop/**` か `ci.yml` が変わったときだけ動かし (`changes` ジョブが差分で決める。飛ばしたジョブは成功として扱われる)、main への push では常に動かす。
   - `release.yml`: `v*` タグ push で `tauri-apps/tauri-action` を使い、`macos-latest` (aarch64-apple-darwin) で .dmg、`windows-latest` で .msi と .exe (NSIS) を作り、GitHub Releases に添付する。
 - Windows 版は CI でしか作れないため、動作確認は CI の成果物で行う。
 - 署名なしなので、README に開き方 (Mac は右クリック → 開く、Windows は SmartScreen の「詳細情報」→「実行」) を書く。
