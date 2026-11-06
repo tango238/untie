@@ -7,8 +7,9 @@ import {
   DEFAULT_FRAME_SIZE,
   moveActivity,
   moveBuc,
-  moveToContext,
   moveNode,
+  moveToContext,
+  moveToSystem,
   placeOnBoard,
   removeBoard,
   removeElement,
@@ -17,9 +18,9 @@ import {
   renameBoard,
   setEdgeSides,
   setIssueTargets,
-  updateElement,
-  moveToSystem,
+  setRelationAccess,
   setUsecaseTarget,
+  updateElement,
 } from "../commands";
 import { repairModel } from "../repair";
 import { validateModel } from "../validate";
@@ -342,6 +343,22 @@ describe("関係", () => {
     m = okModel(addRelation(m, { sourceId: "st_s", targetId: "uc_u" }));
     m = okModel(addRelation(m, { sourceId: "uc_u", targetId: "st_s" }));
     expect(m.relations.map((r) => r.kind)).toEqual(["stateUsecase", "usecaseState"]);
+  });
+
+  it("操作が扱う情報には取得・保存の区別 (access) を付けられ、setRelationAccess で変えられる。ほかの関係には付けられない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "information", name: "x", id: "info_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_search_reservation", targetId: "info_x", access: "read", id: "rel_x" }));
+    expect(m.relations.find((r) => r.id === "rel_x")).toMatchObject({ kind: "usecaseInformation", access: "read" });
+    m = okModel(setRelationAccess(m, { id: "rel_x", access: "write" }));
+    expect(m.relations.find((r) => r.id === "rel_x")!.access).toBe("write");
+    // null で区別を外す (取得も保存も)
+    m = okModel(setRelationAccess(m, { id: "rel_x", access: null }));
+    expect("access" in m.relations.find((r) => r.id === "rel_x")!).toBe(false);
+    expectValid(m);
+    expectFail(setRelationAccess(m, { id: "nope", access: "read" }), /存在しません/);
+    expectFail(setRelationAccess(m, { id: "rel_act_clean__uc_update_cleaning", access: "read" }), /操作が扱う情報/);
+    expectFail(addRelation(m, { sourceId: "actor_front", targetId: "act_clean", access: "read" }), /操作が扱う情報/);
   });
 
   it("removeRelation", () => {

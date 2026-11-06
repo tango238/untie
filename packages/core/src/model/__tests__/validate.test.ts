@@ -121,6 +121,19 @@ describe("validateModel: 参照整合性", () => {
     expect(errorsOf(j).some((e) => e.includes("線で結べません"))).toBe(true);
   });
 
+  it("取得・保存の区別 (access) は、操作が扱う情報の関係にだけ付けられる", () => {
+    const j = json();
+    const perf = j.relations.find((r: { kind: string }) => r.kind === "actorActivity");
+    perf.access = "read";
+    expect(errorsOf(j).some((e) => e.includes(perf.id) && e.includes("access"))).toBe(true);
+    const ok = json();
+    ok.relations.find((r: { kind: string }) => r.kind === "usecaseInformation").access = "write";
+    expect(validateModel(ok).ok).toBe(true);
+    const bad = json();
+    bad.relations.find((r: { kind: string }) => r.kind === "usecaseInformation").access = "readwrite";
+    expect(validateModel(bad).ok).toBe(false);
+  });
+
   it("関係の重複 (無向は向き違いも重複)", () => {
     const j = json();
     j.relations.push({ ...j.relations[0], id: "rel_dup" });

@@ -10,6 +10,7 @@ import {
   removeRelation,
   setEdgeSides,
   setIssueTargets,
+  setRelationAccess,
   setUsecaseTarget,
   isUsecaseTargetKind,
   updateElement,
@@ -17,6 +18,7 @@ import {
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "@untie/core/model/relations";
 import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
+import { informationPlaces, PLACE_ROLE_LABELS, placeInformations, screenInformations, type Derived } from "@untie/core/model/placement";
 import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { activityHours, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
@@ -25,6 +27,10 @@ import {
   EDGE_SIDES,
   EDGE_SIDE_LABELS,
   ELEMENT_KIND_LABELS,
+  INFORMATION_ACCESS_BOTH_LABEL,
+  INFORMATION_ACCESS_LABELS,
+  INFORMATION_ACCESSES,
+  type InformationAccess,
   isContextMemberKind,
   isIssueTargetKind,
   isSystemMemberKind,
@@ -219,7 +225,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   };
 
   const onBoard = !!model.boards.find((b) => b.id === boardId)?.nodes.some((n) => n.elementId === element.id);
-  const relations = model.relations.filter((r) => r.sourceId === element.id || r.targetId === element.id);
+  // 操作の対象 (システム・帳票・画面) は上の「対象」の欄で選ぶので、操作では一覧に重ねて出さない
+  const relations = model.relations.filter((r) => (r.sourceId === element.id || r.targetId === element.id) && !(element.kind === "usecase" && isUsecaseTargetKind(r.kind)));
   const issues = isIssueTargetKind(element.kind) ? issuesTargeting(model, element.id) : [];
 
   const addIssue = () => createIssue([element.id]);
@@ -341,6 +348,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                   <button type="button" className="link" onClick={() => other && selectAndReveal(other.id)}>
                     {other?.name || "(名前なし)"}
                   </button>
+                  {r.kind === "usecaseInformation" && <AccessSelect relation={r} other={other} structural={structural} />}
                   {structural && (
                     <button
                       type="button"
@@ -357,6 +365,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
           </ul>
         )}
       </section>
+
+      <DerivedSection element={element} model={model} />
 
       <TraceSection element={element} model={model} />
 
@@ -542,6 +552,97 @@ function TraceRow({
 }
 
 // ---------------------------------------------------------------- 種類固有
+
+/** 操作が情報をどう扱うか (取得・保存)。関係一覧の「扱う」の行に出す。省略は取得も保存も */
+function AccessSelect({ relation, other, structural }: { relation: Relation; other: Element | undefined; structural: boolean }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const label = `「${other?.name ?? ""}」をどう扱うか`;
+  if (!structural) {
+    return <span className="access-chip">{relation.access ? INFORMATION_ACCESS_LABELS[relation.access] : INFORMATION_ACCESS_BOTH_LABEL}</span>;
+  }
+  return (
+    <select
+      className="access-select"
+      aria-label={label}
+      title="取得 (読む)・保存 (書く) の区別。置き場所の取得元・保存先はこれで決まります"
+      value={relation.access ?? ""}
+      onChange={(e) => {
+        const r = dispatch((m) => setRelationAccess(m, { id: relation.id, access: (e.target.value || null) as InformationAccess | null }));
+        if (!r.ok) pushToast(r.reason, "error");
+      }}
+    >
+      <option value="">{INFORMATION_ACCESS_BOTH_LABEL}</option>
+      {INFORMATION_ACCESSES.map((a) => (
+        <option key={a} value={a}>
+          {INFORMATION_ACCESS_LABELS[a]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * 操作から導いたもの (0.4.0 から関係には持たない):
+ * - 情報: 置き場所 (取得元・保存先のシステム・帳票)
+ * - システム・帳票: そこにある情報 (取得元・保存先)
+ * - 画面: 扱う情報
+ * どれも「扱う操作」から決まるので、変えるには操作のプロパティ欄で扱う情報・取得・保存・対象を直す
+ */
+function DerivedSection({ element, model }: { element: Element; model: UntieModel }) {
+  const derived = useMemo(() => {
+    if (element.kind === "information") return { title: "置き場所", list: informationPlaces(model).get(element.id) ?? [], hint: "扱う操作の対象 (画面ならそのシステム) と、取得・保存の区別から導いています。変えるには、操作のプロパティ欄で扱う情報と対象を直してください。" };
+    if (element.kind === "system" || element.kind === "ledger") return { title: "ここにある情報", list: placeInformations(model).get(element.id) ?? [], hint: "このシステム・帳票を対象にした操作が扱う情報から導いています。変えるには、操作のプロパティ欄で扱う情報と対象を直してください。" };
+    if (element.kind === "screen") return { title: "扱う情報", list: screenInformations(model).get(element.id) ?? [], hint: "この画面を使う操作が扱う情報から導いています。変えるには、操作のプロパティ欄で扱う情報と対象を直してください。" };
+    return null;
+  }, [element, model]);
+  if (!derived) return null;
+  const nameOf = (id: string) => model.elements.find((e) => e.id === id);
+  const roles = (d: Derived) => d.roles.map((r) => PLACE_ROLE_LABELS[r]).join("・");
+  return (
+    <section className="subsection" data-testid="derived-section">
+      <h3>{derived.title}</h3>
+      {derived.list.length === 0 ? (
+        <p className="hint">まだありません。{derived.hint}</p>
+      ) : (
+        <>
+          <ul className="relation-list derived-list">
+            {derived.list.map((d) => {
+              const other = nameOf(d.id);
+              if (!other) return null;
+              return (
+                <li key={d.id}>
+                  <span className="relation-kind">{roles(d)}</span>
+                  <span className={`relation-layer kind-${other.kind}`}>
+                    <span className="kind-dot" />
+                    {ELEMENT_KIND_LABELS[other.kind]}
+                  </span>
+                  <button type="button" className="link" onClick={() => selectAndReveal(other.id)}>
+                    {other.name || "(名前なし)"}
+                  </button>
+                  <span className="derived-via">
+                    {d.usecaseIds.map((ucId, i) => {
+                      const uc = nameOf(ucId);
+                      return (
+                        <span key={ucId}>
+                          {i > 0 && "、"}
+                          <button type="button" className="link muted" onClick={() => selectAndReveal(ucId)}>
+                            {uc?.name || "(名前なし)"}
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="hint">{derived.hint}</p>
+        </>
+      )}
+    </section>
+  );
+}
 
 /** この要素と結べる要素を選んで関係を足す (両端の種類から関係が決まる)。固定ボードだけで出す */
 function RelationAdder({ element, model }: { element: Element; model: UntieModel }) {

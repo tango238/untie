@@ -22,6 +22,7 @@ import {
   type Link,
   type NfrCategory,
   type UntieModel,
+  type InformationAccess,
 } from "./types";
 
 export interface Fail {
@@ -608,6 +609,8 @@ export interface AddRelationPayload {
   sourceId: string;
   targetId: string;
   id?: string;
+  /** 操作が情報をどう扱うか (usecaseInformation だけ)。省略は取得も保存もする */
+  access?: InformationAccess;
 }
 
 /** 両端の種類から関係の種類を決めて関係を作る。不可なら失敗を返す */
@@ -628,11 +631,35 @@ export function addRelation(model: UntieModel, payload: AddRelationPayload): Com
     return fail(USECASE_TARGET_LIMIT_REASON);
   }
 
+  if (payload.access !== undefined && kind !== "usecaseInformation") return fail(ACCESS_KIND_REASON);
+
   const id = payload.id ?? newUniqueId("relation", usedIds(model));
   const next = produce(model, (draft) => {
-    draft.relations.push({ id, kind, sourceId, targetId });
+    draft.relations.push({ id, kind, sourceId, targetId, ...(payload.access !== undefined ? { access: payload.access } : {}) });
   });
   return { ok: true, model: next, id };
+}
+
+export const ACCESS_KIND_REASON = "取得・保存の区別は、操作が扱う情報の関係にだけ付けられます";
+
+export interface SetRelationAccessPayload {
+  id: string;
+  /** read: 取得、write: 保存、null: 取得も保存も (省略) */
+  access: InformationAccess | null;
+}
+
+/** 操作が情報をどう扱うか (取得・保存) を変える。usecaseInformation だけ */
+export function setRelationAccess(model: UntieModel, payload: SetRelationAccessPayload): CommandResult {
+  const r = model.relations.find((x) => x.id === payload.id);
+  if (!r) return fail(`関係が存在しません: ${payload.id}`);
+  if (r.kind !== "usecaseInformation") return fail(ACCESS_KIND_REASON);
+  if ((r.access ?? null) === payload.access) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const d = draft.relations.find((x) => x.id === payload.id)!;
+    if (payload.access === null) delete d.access;
+    else d.access = payload.access;
+  });
+  return { ok: true, model: next };
 }
 
 /** 操作の対象の関係 (システム・帳票 / 画面)。1 つの操作に合わせて 1 本まで (0.3.0) */

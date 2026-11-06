@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
-import { addElement, moveToContext } from "@untie/core/model/commands";
+import { addElement, moveToContext, setUsecaseTarget } from "@untie/core/model/commands";
 import { PropertyPanel } from "../PropertyPanel";
 import { useAgentStore } from "../../ai/agentStore";
 
@@ -147,25 +147,73 @@ describe("PropertyPanel", () => {
     expect(screen.getByLabelText("状態グループ")).toBeDefined();
   });
 
-  it("帳票は情報と取得元・保存先で結べ、担当の候補には出ない。システムも作業の担当には結べず、操作の対象に結べる", () => {
+  it("帳票・システムは情報と直接結べず、担当の候補にも出ない。ここにある情報は、対象にした操作が扱う情報から導いて出す", () => {
     onFixedBoard();
-    selectEl("ldg_guest_register");
+    selectEl("ldg_cleaning_sheet");
     const { unmount } = render(<PropertyPanel />);
     expect(screen.getByText("帳票", { selector: ".kind-line" })).toBeDefined();
+    // 帳票は操作の対象にしかならず、対象は操作の「対象」の欄で選ぶので、関係の追加は出ない
+    expect(screen.queryByLabelText("関係を追加")).toBeNull();
     const options = () => [...(screen.getByLabelText("関係を追加") as HTMLSelectElement).querySelectorAll("optgroup")].map((g) => g.label);
-    expect(options().some((l) => l.includes("担当"))).toBe(false);
-    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "ldg_guest_register>info_room" } });
-    fireEvent.change(screen.getByLabelText("関係を追加"), { target: { value: "info_reservation>ldg_guest_register" } });
-    const kinds = st()
-      .model.relations.filter((r) => r.sourceId === "ldg_guest_register" || r.targetId === "ldg_guest_register")
-      .map((r) => r.kind);
-    expect(kinds).toEqual(expect.arrayContaining(["systemInformation", "informationSystem"]));
+    // 清掃チェック表を対象にした「清掃状況を更新する」が、清掃記録 (取得・保存) と部屋 (取得) を扱う
+    const derived = within(screen.getByTestId("derived-section"));
+    expect(derived.getByText("ここにある情報", { selector: "h3" })).toBeDefined();
+    expect(derived.getByRole("button", { name: "清掃記録" })).toBeDefined();
+    expect(derived.getByRole("button", { name: "部屋" })).toBeDefined();
+    expect(derived.getAllByText("取得元・保存先")).toHaveLength(1);
+    expect(derived.getAllByText("取得元")).toHaveLength(1);
+    // 導いた情報をクリックすると選ぶ
+    fireEvent.click(derived.getByRole("button", { name: "清掃記録" }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "info_cleaning_record" });
     unmount();
     selectEl("sys_accounting");
     render(<PropertyPanel />);
     expect(options().some((l) => l.includes("担当"))).toBe(false);
+    expect(options().some((l) => l.includes("取得元") || l.includes("保存先") || l.includes("情報"))).toBe(false);
     // 操作の対象は操作のプロパティ欄の「対象」で選ぶ (1 つだけなので、関係の追加には出さない)
     expect(options().some((l) => l.includes("対象"))).toBe(false);
+  });
+
+  it("情報には置き場所 (扱う操作の対象から導く) を出し、画面には扱う情報 (使う操作から導く) を出す", () => {
+    onFixedBoard();
+    selectEl("info_cleaning_record");
+    const { unmount } = render(<PropertyPanel />);
+    const derived = () => within(screen.getByTestId("derived-section"));
+    expect(derived().getByText("置き場所", { selector: "h3" })).toBeDefined();
+    expect(derived().getByRole("button", { name: "清掃チェック表" })).toBeDefined();
+    // 導いた置き場所の根拠の操作も出す
+    expect(derived().getByRole("button", { name: "清掃状況を更新する" })).toBeDefined();
+    unmount();
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "screen", name: "清掃画面", id: "scr_clean", init: { systemId: "sys_pms" } }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    selectEl("scr_clean");
+    render(<PropertyPanel />);
+    expect(derived().getByText("扱う情報", { selector: "h3" })).toBeDefined();
+    expect(derived().getByText(/まだありません/)).toBeDefined();
+    act(() => {
+      const r = st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_update_cleaning", targetId: "scr_clean" }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    expect(derived().getByRole("button", { name: "清掃記録" })).toBeDefined();
+  });
+
+  it("操作が扱う情報には取得・保存の区別を付けられる。操作の対象は関係一覧には重ねて出さない", () => {
+    onFixedBoard();
+    selectEl("uc_update_cleaning");
+    render(<PropertyPanel />);
+    const rels = within(screen.getByText("関係", { selector: "h3" }).parentElement!);
+    // 対象 (清掃チェック表) は「対象」の欄にだけ出す
+    expect(rels.queryByRole("button", { name: "清掃チェック表" })).toBeNull();
+    expect((screen.getByLabelText("対象") as HTMLSelectElement).value).toBe("ldg_cleaning_sheet");
+    const select = screen.getByLabelText("「清掃記録」をどう扱うか") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect((screen.getByLabelText("「部屋」をどう扱うか") as HTMLSelectElement).value).toBe("read");
+    fireEvent.change(select, { target: { value: "write" } });
+    expect(st().model.relations.find((r) => r.id === "rel_uc_update_cleaning__info_cleaning_record")?.access).toBe("write");
+    fireEvent.change(select, { target: { value: "" } });
+    expect("access" in st().model.relations.find((r) => r.id === "rel_uc_update_cleaning__info_cleaning_record")!).toBe(false);
   });
 
   it("操作の対象は、システム・帳票・画面から 1 つだけ選べ、選ぶと前の対象と入れ替わる", () => {

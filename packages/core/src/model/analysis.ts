@@ -1,4 +1,5 @@
 // 分析ボードの計算。モデルには保存せず、毎回モデルから組み立てる。純粋関数だけを置く。
+import { informationPlaces, screenInformations, type PlaceRole } from "./placement";
 import { defaultBucOf, issueScope } from "./selectors";
 import {
   type Activity,
@@ -105,7 +106,8 @@ export function usecasesOfActivity(model: UntieModel, activityId: string): Useca
 
 // ---------------------------------------------------------------- 2. 情報の所在
 
-export type LocationRole = "source" | "store";
+/** 置き場所での役割 (取得元・保存先)。0.4.0 から、扱う操作の access と対象から導く (placement.ts) */
+export type LocationRole = PlaceRole;
 
 export interface InformationLocation {
   information: Element;
@@ -123,18 +125,14 @@ export const LOCATION_FLAG_LABELS: Record<InformationLocation["flags"][number], 
   multipleStores: "保存先が複数 (二重管理の可能性)",
 };
 
-/** 情報ごとに、取得元・保存先のシステム・帳票を並べる */
+/** 情報ごとに、取得元・保存先のシステム・帳票を並べる (扱う操作の対象から導く) */
 export function informationLocations(model: UntieModel): { places: Element[]; rows: InformationLocation[] } {
   const get = lookup(model);
   const places = model.elements.filter((e) => e.kind === "system" || e.kind === "ledger");
+  const derived = informationPlaces(model);
   const rows = byKind(model, "information").map((info) => {
     const map = new Map<string, LocationRole[]>();
-    const add = (placeId: string, role: LocationRole) => {
-      if (!get(placeId)) return;
-      map.set(placeId, [...(map.get(placeId) ?? []), role]);
-    };
-    for (const id of sourcesOf(model, "systemInformation", info.id)) add(id, "source");
-    for (const id of targetsOf(model, "informationSystem", info.id)) add(id, "store");
+    for (const d of derived.get(info.id) ?? []) if (get(d.id)) map.set(d.id, [...d.roles]);
     const flags: InformationLocation["flags"] = [];
     if (map.size === 0) flags.push("noPlace");
     else if ([...map.keys()].every((id) => get(id)?.kind === "ledger")) flags.push("paperOnly");
@@ -144,15 +142,12 @@ export function informationLocations(model: UntieModel): { places: Element[]; ro
   return { places, rows };
 }
 
-/** 画面と情報の表のセル: 扱う (ok)、扱うがそのシステムに置き場所 (取得元・保存先) が無い (noPlace) */
-export type ScreenInformationCell = "ok" | "noPlace";
-
 export interface ScreenInformationRow {
   screen: Element;
   /** この画面を使う操作 (要素の並び順) */
   usecases: Element[];
-  /** 情報 id → セル。扱わない情報は入れない */
-  cells: Map<string, ScreenInformationCell>;
+  /** 情報 id → 役割 (取得・保存)。扱わない情報は入れない。扱う情報は、この画面を使う操作が扱う情報から導く */
+  cells: Map<string, LocationRole[]>;
   /** 扱う情報が 1 つも無い */
   noInformation: boolean;
 }
@@ -166,6 +161,7 @@ export interface ScreenInformationTable {
 
 /**
  * システムごとに、画面 × 情報の表を組み立てる (情報の所在の分析ボードの 2 つ目の表)。
+ * 画面が扱う情報は、その画面を使う操作が扱う情報から導く (0.4.0 から。画面に別に結ばないので、置き場所とずれない)。
  * 画面の無いシステムは表を作らず、systemsWithoutScreens に並べる。帳票は画面を持たないので入れない
  */
 export function screenInformationTables(model: UntieModel): { tables: ScreenInformationTable[]; systemsWithoutScreens: Element[] } {
@@ -173,6 +169,7 @@ export function screenInformationTables(model: UntieModel): { tables: ScreenInfo
   const get = lookup(model);
   const byOrder = (ids: Iterable<string>) => [...new Set(ids)].map((id) => get(id)).filter((e): e is Element => !!e).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   const screens = byKind(model, "screen");
+  const derived = screenInformations(model);
   const tables: ScreenInformationTable[] = [];
   const systemsWithoutScreens: Element[] = [];
   for (const sys of byKind(model, "system")) {
@@ -181,12 +178,11 @@ export function screenInformationTables(model: UntieModel): { tables: ScreenInfo
       systemsWithoutScreens.push(sys);
       continue;
     }
-    // このシステムの置き場所にある情報 (取得元・保存先)
-    const placed = new Set([...targetsOf(model, "systemInformation", sys.id), ...sourcesOf(model, "informationSystem", sys.id)]);
     const rows = own.map((screen) => {
-      const infos = byOrder(targetsOf(model, "screenInformation", screen.id)).filter((e) => e.kind === "information");
-      const cells = new Map<string, ScreenInformationCell>(infos.map((i) => [i.id, placed.has(i.id) ? "ok" : "noPlace"]));
-      return { screen, usecases: byOrder(sourcesOf(model, "usecaseScreen", screen.id)), cells, noInformation: infos.length === 0 };
+      const infos = (derived.get(screen.id) ?? []).filter((d) => get(d.id)?.kind === "information");
+      const ordered = byOrder(infos.map((d) => d.id));
+      const cells = new Map<string, LocationRole[]>(ordered.map((i) => [i.id, [...infos.find((d) => d.id === i.id)!.roles]]));
+      return { screen, usecases: byOrder(sourcesOf(model, "usecaseScreen", screen.id)), cells, noInformation: cells.size === 0 };
     });
     tables.push({ system: sys, informations: byOrder(rows.flatMap((r) => [...r.cells.keys()])), rows });
   }

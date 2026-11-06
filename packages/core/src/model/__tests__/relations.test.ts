@@ -12,10 +12,6 @@ describe("関係ルール", () => {
     ["usecase", "condition", "usecaseCondition"],
     ["information", "information", "informationRelated"],
     ["information", "variation", "informationVariation"],
-    ["system", "information", "systemInformation"],
-    ["information", "system", "informationSystem"],
-    ["ledger", "information", "systemInformation"],
-    ["information", "ledger", "informationSystem"],
     ["condition", "variation", "conditionVariation"],
     ["condition", "state", "conditionState"],
     ["state", "usecase", "stateUsecase"],
@@ -28,7 +24,6 @@ describe("関係ルール", () => {
     ["event", "usecase", "eventUsecase"],
     ["usecase", "usecase", "usecaseNext"],
     ["usecase", "screen", "usecaseScreen"],
-    ["screen", "information", "screenInformation"],
     ["actor", "nfr", "actorNfr"],
     ["externalActor", "nfr", "actorNfr"],
   ];
@@ -57,6 +52,12 @@ describe("関係ルール", () => {
     expect(relationKindFor("usecase", "activity")).toBeNull();
   });
 
+  it("情報の置き場所と画面の情報は関係にしない (操作が扱う情報と対象から導く。0.4.0 から)", () => {
+    for (const [a, b] of [["system", "information"], ["information", "system"], ["ledger", "information"], ["information", "ledger"], ["screen", "information"]] as const) {
+      expect(relationKindFor(a, b)).toBeNull();
+    }
+  });
+
   it("課題と活動は関係を持たない", () => {
     for (const k of ELEMENT_KINDS) {
       expect(relationKindFor("issue", k)).toBeNull();
@@ -70,8 +71,7 @@ describe("関係ルール", () => {
     expect(RELATION_RULES.map((r) => r.kind).sort()).toEqual([...RELATION_KINDS].sort());
     for (const k of RELATION_KINDS) expect(relationLabel(k).length).toBeGreaterThan(0);
     expect(relationLabel("usecaseState")).toBe("次の状態");
-    expect(relationLabel("systemInformation")).toBe("取得元");
-    expect(relationLabel("informationSystem")).toBe("保存先");
+    expect(relationLabel("usecaseInformation")).toBe("扱う");
   });
 
   it("無向なのは informationRelated だけ", () => {

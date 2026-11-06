@@ -268,14 +268,14 @@ function InformationLocationView({ model }: { model: UntieModel }) {
   );
 }
 
-/** システムごとの、画面 × 情報の表。画面が扱う情報がそのシステムの置き場所に無ければ印を付ける */
+/** システムごとの、画面 × 情報の表。画面が扱う情報は、その画面を使う操作が扱う情報 (取得・保存) から導く */
 function ScreenInformationView({ model }: { model: UntieModel }) {
   const data = useMemo(() => screenInformationTables(model), [model]);
   if (data.tables.length === 0 && data.systemsWithoutScreens.length === 0) return null;
   return (
     <section className="an-screens" aria-label="画面と情報">
       <h3 className="an-subtitle">画面と情報</h3>
-      {data.tables.length === 0 && <p className="hint">画面がまだありません。「画面」の固定ボードで、システムごとに画面を作れます。</p>}
+      {data.tables.length === 0 && <p className="hint">画面がまだありません。「画面」の固定ボードで、システムごとに画面を作れます。画面が扱う情報は、その画面を使う操作が扱う情報から導きます。</p>}
       {data.tables.map((t) => (
         <div key={t.system.id} className="an-screen-table" data-testid={`screen-table-${t.system.id}`}>
           <h4 className="an-block-title">
@@ -301,19 +301,14 @@ function ScreenInformationView({ model }: { model: UntieModel }) {
                     <El element={row.screen} />
                   </th>
                   {t.informations.map((i) => {
-                    const cell = row.cells.get(i.id);
+                    const roles = row.cells.get(i.id) ?? [];
                     return (
-                      <td
-                        key={i.id}
-                        className={`an-cell${cell ? " has-value" : ""}${cell === "noPlace" ? " is-noplace" : ""}`}
-                        title={cell === "noPlace" ? "このシステムに置き場所がありません" : undefined}
-                      >
-                        {cell === "ok" && "○"}
-                        {cell === "noPlace" && (
-                          <span className="an-noplace" aria-label="扱う (このシステムに置き場所がありません)">
-                            ○!
+                      <td key={i.id} className={`an-cell${roles.length > 0 ? " has-value" : ""}`}>
+                        {roles.map((r) => (
+                          <span key={r} className={`an-role role-${r}`}>
+                            {r === "source" ? "取得" : "保存"}
                           </span>
-                        )}
+                        ))}
                       </td>
                     );
                   })}
