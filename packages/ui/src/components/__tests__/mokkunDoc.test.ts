@@ -213,7 +213,7 @@ describe("描画", () => {
     expect(html).toContain("登録へ");
   });
 
-  it("v2 の CSS を取り出せ、親の document には残らない。srcdoc に CSS と HTML が入る", () => {
+  it("v2 の CSS を mokkun の MOKKUN_V2_CSS から作り、親の document には差さない。srcdoc に CSS と HTML が入る", () => {
     const css = mokkunCss();
     expect(css).toContain(".mk2-header");
     expect(css).toContain(".dads-");
