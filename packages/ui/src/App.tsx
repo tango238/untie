@@ -6,6 +6,8 @@ import { TracePanel } from "./components/TracePanel";
 import { DesignCheckPanel } from "./components/design/DesignCheckPanel";
 import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
+import { LayoutLeftPane } from "./components/design/LayoutLeftPane";
+import { LayoutProperties } from "./components/design/LayoutProperties";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
@@ -44,6 +46,8 @@ export default function App() {
   const sitemap = design === "sitemap";
   // データボードは、左にデータベースとテーブルの一覧、右に選んだテーブルのプロパティを出す
   const data = design === "data";
+  // レイアウトボードは、左に枠とヘッダーの設定、右にナビゲーションメニューを出す
+  const layout = design === "layout";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   return (
     <div className="app">
@@ -63,11 +67,12 @@ export default function App() {
       <Toolbar />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap || data ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data || layout ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}
+        {layout && <LayoutLeftPane />}
         <main className="canvas-area">
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
@@ -103,6 +108,8 @@ export default function App() {
                 <SitemapProperties />
               ) : data ? (
                 <DataProperties />
+              ) : layout ? (
+                <LayoutProperties />
               ) : (
                 <PropertyPanel />
               )}</div>

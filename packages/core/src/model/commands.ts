@@ -620,6 +620,97 @@ export function removeTransition(model: UntieModel, payload: RemoveTransitionPay
   return { ok: true, model: next };
 }
 
+// ---------------------------------------------------------------- 設計: レイアウト
+
+export interface SetDesignLayoutPayload {
+  systemId: string;
+  /** 共通の枠。省略は変えない */
+  shell?: "shell" | "plain";
+  /** ヘッダーの項目。undefined の項目は変えず、空文字 (前後の空白を除いて空) は項目を消す。すべて消えたら header ごと消す */
+  header?: { systemName?: string; userName?: string; tenantName?: string };
+}
+
+const LAYOUT_SHELLS: readonly string[] = ["shell", "plain"];
+const HEADER_KEYS = ["systemName", "userName", "tenantName"] as const;
+
+/** レイアウトの共通の枠とヘッダーを変える。設計が無ければ作る (ensureDesign) */
+export function setDesignLayout(model: UntieModel, payload: SetDesignLayoutPayload): CommandResult {
+  const ensured = ensureDesign(model, { systemId: payload.systemId });
+  if (!ensured.ok) return ensured;
+  if (payload.shell !== undefined && !LAYOUT_SHELLS.includes(payload.shell)) return fail(`レイアウトが正しくありません: ${payload.shell}`);
+  const header: Record<string, string | undefined> = {};
+  for (const key of HEADER_KEYS) {
+    const value = payload.header?.[key];
+    if (value === undefined) continue;
+    const trimmed = value.trim();
+    const reason = checkLength("name", trimmed);
+    if (reason) return fail(reason);
+    header[key] = trimmed;
+  }
+  const next = produce(ensured.model, (draft) => {
+    const layout = draft.designs.find((d) => d.systemId === payload.systemId)!.layout;
+    if (payload.shell !== undefined) layout.shell = payload.shell;
+    if (Object.keys(header).length === 0) return;
+    const merged: Record<string, string> = { ...(layout.header ?? {}) };
+    for (const [key, value] of Object.entries(header)) {
+      if (value) merged[key] = value;
+      else delete merged[key];
+    }
+    if (Object.keys(merged).length === 0) delete layout.header;
+    else layout.header = merged;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetDesignNavigationPayload {
+  systemId: string;
+  navigation: { id: string; group: string; items: { screenId: string; label?: string }[] }[];
+}
+
+/**
+ * ナビゲーションを置き換える。設計が無ければ作る (ensureDesign)。
+ * グループの id は一意で、ほかの設計や、この設計の画面・遷移の id と重ならないこと (id は設計をまたいで一意)。
+ * 項目の screenId はこの設計の画面で、group と label は名前の上限に収まること。label は前後の空白を除き、空なら省く
+ */
+export function setDesignNavigation(model: UntieModel, payload: SetDesignNavigationPayload): CommandResult {
+  const ensured = ensureDesign(model, { systemId: payload.systemId });
+  if (!ensured.ok) return ensured;
+  const design = ensured.model.designs.find((d) => d.systemId === payload.systemId)!;
+  const screenIds = new Set(design.screens.map((s) => s.id));
+  // ほかの設計の id と、この設計の画面・遷移の id (この設計の今のナビのグループは置き換えるので除く)
+  const taken = new Set<string>();
+  for (const d of ensured.model.designs) {
+    for (const s of d.screens) taken.add(s.id);
+    for (const t of d.transitions) taken.add(t.id);
+    if (d.systemId !== payload.systemId) for (const g of d.layout.navigation) taken.add(g.id);
+  }
+  const seen = new Set<string>();
+  const navigation: SetDesignNavigationPayload["navigation"] = [];
+  for (const g of payload.navigation) {
+    if (!g.id) return fail("ナビゲーションのグループの id が空です");
+    if (seen.has(g.id) || taken.has(g.id)) return fail(`ナビゲーションのグループの id が重なっています: ${g.id}`);
+    seen.add(g.id);
+    const group = g.group.trim();
+    const groupReason = checkLength("name", group);
+    if (groupReason) return fail(groupReason);
+    const items: { screenId: string; label?: string }[] = [];
+    for (const item of g.items) {
+      if (!screenIds.has(item.screenId)) return fail(`設計に無い画面です: ${item.screenId}`);
+      const label = item.label?.trim();
+      if (label) {
+        const reason = checkLength("name", label);
+        if (reason) return fail(reason);
+      }
+      items.push({ screenId: item.screenId, ...(label ? { label } : {}) });
+    }
+    navigation.push({ id: g.id, group, items });
+  }
+  const next = produce(ensured.model, (draft) => {
+    draft.designs.find((d) => d.systemId === payload.systemId)!.layout.navigation = navigation;
+  });
+  return { ok: true, model: next };
+}
+
 // ---------------------------------------------------------------- 要素
 
 export interface AddElementPayload {

@@ -1,6 +1,6 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
-import { addDesignScreens, setDatabaseDesign, updateTransition } from "../model/commands";
+import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigation, updateTransition } from "../model/commands";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
@@ -707,6 +707,24 @@ function withPosDesign(model: UntieModel): UntieModel {
     if (!r.ok) throw new Error(`サンプルの遷移が直せません: ${r.reason}`);
     next = r.model;
   }
+  // レイアウト (共通の枠つき。ヘッダーのシステム名は空で、対象システムの名前を出す) と、ナビゲーションメニュー。画面はすべてメニューから辿れる
+  const layout = setDesignLayout(next, { systemId: "sys_pos", shell: "shell" });
+  if (!layout.ok) throw new Error(`サンプルのレイアウトが作れません: ${layout.reason}`);
+  const nav = setDesignNavigation(layout.model, {
+    systemId: "sys_pos",
+    navigation: [
+      { id: "nav_pos_home", group: "ホーム", items: [{ screenId: "ds_pos_top" }] },
+      { id: "nav_pos_register", group: "レジ", items: [{ screenId: "ds_pos_sale" }, { screenId: "ds_pos_return" }, { screenId: "ds_pos_cash" }] },
+      {
+        id: "nav_pos_stock",
+        group: "商品・在庫",
+        items: [{ screenId: "ds_pos_search" }, { screenId: "ds_pos_price" }, { screenId: "ds_pos_disposal" }, { screenId: "ds_pos_stocktake" }, { screenId: "ds_pos_adjust" }],
+      },
+      { id: "nav_pos_sales", group: "売上", items: [{ screenId: "ds_pos_daily", label: "売上（日次）" }] },
+    ],
+  });
+  if (!nav.ok) throw new Error(`サンプルのナビゲーションが作れません: ${nav.reason}`);
+  next = nav.model;
   // 既定のデータベースに、POSレジが使う情報を表す DSL と、テーブルが表す情報の対応を入れる
   next = { ...next, databases: [{ id: DEFAULT_DATABASE_ID, name: DEFAULT_DATABASE_NAME, dsl: "", tables: [] }] };
   const db = setDatabaseDesign(next, {

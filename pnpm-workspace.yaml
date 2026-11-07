@@ -8,3 +8,7 @@ allowBuilds:
   protobufjs: false
   esbuild: true
   workerd: true
+
+# mokkun は版を固定している (packages/ui)。リリースから期間がたったら、この例外は消す
+minimumReleaseAgeExclude:
+  - mokkun@0.2.1

@@ -546,3 +546,61 @@ export function removeSitemapScreens(model: UntieModel, systemId: string, ids: r
   const removed = removeDesignScreensById(model, { systemId, ids: [...ids] });
   return removed.ok ? { ok: true, model: syncBuiltinTransitions(removed.model, systemId) } : removed;
 }
+
+// ---------------------------------------------------------------- ナビゲーション
+
+/** 「サイトマップから作る」で「その他」に入れる画面のグループ名と、トップページのグループ名 */
+export const NAV_HOME_GROUP = "ホーム";
+export const NAV_OTHER_GROUP = "その他";
+
+/**
+ * サイトマップの画面から、ナビゲーションを作る (AI 不要)。画面を、その画面を使う操作の業務ごとにグループ化する (業務の並び順、画面は木の順)。
+ * トップページは「ホーム」グループの先頭 (トップページが無ければ「ホーム」は作らない)。サインインは入れない。
+ * 業務に入らない画面 (使う操作が無い・活動に入っていない作業の操作) は最後の「その他」。グループの id は新しく作る (設計をまたいで一意)。
+ * 設計が無ければ空
+ */
+export function navigationFromSitemap(model: UntieModel, systemId: string): { id: string; group: string; items: { screenId: string }[] }[] {
+  const design = model.designs.find((d) => d.systemId === systemId);
+  if (!design) return [];
+  const designOf = new Map<string, string>();
+  for (const s of design.screens) if (s.source.kind === "screen") designOf.set(s.source.screenId, s.id);
+  const placed = new Set<string>();
+  const groups: { group: string; screenIds: string[] }[] = [];
+  const take = (id: string | undefined, into: string[]) => {
+    if (id === undefined || placed.has(id)) return;
+    placed.add(id);
+    into.push(id);
+  };
+
+  const top = builtinDesignScreen(design, "top");
+  const signIn = builtinDesignScreen(design, "signIn");
+  if (signIn) placed.add(signIn.id);
+  if (top) {
+    const into: string[] = [];
+    take(top.id, into);
+    groups.push({ group: NAV_HOME_GROUP, screenIds: into });
+  }
+  const walk = (node: SitemapTreeNode): string[] => [...node.screenIds, ...node.children.flatMap(walk)];
+  for (const node of sitemapTree(model, systemId)) {
+    const into: string[] = [];
+    for (const analysisId of walk(node)) take(designOf.get(analysisId), into);
+    if (into.length > 0) groups.push({ group: node.kind === "business" ? node.name : NAV_OTHER_GROUP, screenIds: into });
+  }
+  const rest: string[] = [];
+  for (const s of design.screens) take(s.id, rest);
+  if (rest.length > 0) groups.push({ group: NAV_OTHER_GROUP, screenIds: rest });
+
+  // 同じ名前のグループ (業務の名前が重なる・「その他」) は 1 つにまとめる
+  const merged: typeof groups = [];
+  for (const g of groups) {
+    const same = merged.find((m) => m.group === g.group);
+    if (same) same.screenIds.push(...g.screenIds);
+    else merged.push({ group: g.group, screenIds: [...g.screenIds] });
+  }
+  const used = usedDesignIds(model);
+  return merged.map((g) => {
+    const id = newUniqueId("navGroup", used);
+    used.add(id);
+    return { id, group: g.group, items: g.screenIds.map((screenId) => ({ screenId })) };
+  });
+}

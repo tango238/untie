@@ -185,13 +185,17 @@ describe("設計モードのツールバー", () => {
     expect(screen.getByRole("button", { name: "設計: 会計システム" })).toBeDefined();
   });
 
-  it("サイトマップは案内を、データは DSL のエディタを、レイアウトは仮置きの画面を出す。ボードを切り替えると名前が変わる", () => {
+  it("サイトマップは案内を、レイアウトはプレビューと左右のペインを、データは DSL のエディタを出す。ボードを切り替えると名前が変わる", async () => {
     render(<App />);
     act(() => st().enterDesign("sys_pms"));
     const board = screen.getByRole("region", { name: "設計ボード: サイトマップ" });
     expect(within(board).getByText("左の一覧で活動や作業を選ぶと、関連する画面が遷移と一緒に加わります")).toBeDefined();
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "design:layout" } });
-    expect(within(screen.getByRole("region", { name: "設計ボード: レイアウト" })).getByText("この画面は次の段階で作ります")).toBeDefined();
+    // レイアウトは、左に枠とヘッダー、中央にプレビュー (画面がまだ無いので案内)、右にナビゲーションメニュー
+    expect(screen.getByRole("complementary", { name: "レイアウトの設定" })).toBeDefined();
+    // プレビューは mokkun を遅延読み込みするので、出るまで待つ
+    expect(within(await screen.findByRole("region", { name: "レイアウトのプレビュー" })).getByText("サイトマップで画面を足すとプレビューできます")).toBeDefined();
+    expect(screen.getByText("ナビゲーションメニュー")).toBeDefined();
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "design:data" } });
     // データボードは DSL のエディタ (データベースがまだ無いので案内を出す)
     expect(within(screen.getByRole("region", { name: "DSL の編集" })).getByText(/＋データベース/)).toBeDefined();
