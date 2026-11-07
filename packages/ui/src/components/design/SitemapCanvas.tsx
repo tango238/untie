@@ -4,7 +4,7 @@ import { useUntieStore } from "../../store";
 import { cachedEntryNotes } from "./entryNotesCache";
 import { buildSitemapFlow, type SitemapFlowNode } from "./sitemapFlow";
 
-/** サイトマップの画面 1 つ。画面名、入口の印、入口の注記 (1 行) を出す */
+/** サイトマップの画面 1 つ。画面名、入口の印、画面 UI の有無の印、入口の注記 (1 行) を出す */
 function ScreenNode({ data }: NodeProps<SitemapFlowNode>) {
   return (
     <div
@@ -12,7 +12,7 @@ function ScreenNode({ data }: NodeProps<SitemapFlowNode>) {
       data-sitemap-node={data.designScreenId}
       role="button"
       tabIndex={0}
-      aria-label={data.entry ? `${data.name} (入口)` : data.name}
+      aria-label={`${data.name} (${data.entry ? "入口、" : ""}${data.hasView ? "UI あり" : "UI なし"})`}
       aria-pressed={data.selected}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -23,8 +23,9 @@ function ScreenNode({ data }: NodeProps<SitemapFlowNode>) {
     >
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="sitemap-node-head">
-        <span className="sitemap-node-name">{data.name}</span>
+        <span className="sitemap-node-name" title={data.name}>{data.name}</span>
         {data.entry && <span className="sitemap-entry-badge">入口</span>}
+        {data.hasView ? <span className="sitemap-ui-badge is-ui">UI あり</span> : <span className="sitemap-ui-badge is-no-ui">UI なし</span>}
       </div>
       {data.note && (
         <div className="sitemap-node-note" title={data.note}>

@@ -1,7 +1,9 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DesignScreen, SystemDesign } from "@untie/core/model/types";
 import { createRetailSample } from "@untie/core/sample";
+import { setDesignScreenView } from "@untie/core/model/commands";
+import { okModel } from "@untie/core/testing";
 import { entryNotes } from "@untie/core/model/sitemap";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -81,6 +83,16 @@ describe("ノードとエッジ", () => {
     expect(edges.find((e) => e.label === "メニュー")!.style?.strokeDasharray).toBeUndefined();
   });
 
+  it("画面 UI (view) のある画面は hasView が true、無い画面は false", () => {
+    const m0 = st().model;
+    const noView = m0.designs[0]!.screens.filter((x) => x.view === undefined);
+    const target = noView[0]!;
+    const m = okModel(setDesignScreenView(m0, { systemId: "sys_pos", id: target.id, view: { title: "t", goal: "g", sections: [] } }));
+    const d = m.designs[0]!;
+    const { nodes } = buildSitemapFlow(m, d, entryNotes(m, "sys_pos", d), undefined, undefined);
+    for (const n of nodes) expect(n.data.hasView).toBe(d.screens.find((x) => x.id === n.id)!.view !== undefined);
+  });
+
   it("選んだ遷移のエッジは太くする", () => {
     const m = st().model;
     const d = m.designs[0]!;
@@ -108,6 +120,22 @@ describe("SitemapCanvas", () => {
     expect(st().ui.designScreenId).toBe(top.id);
     expect(document.querySelector(`[data-sitemap-node="${top.id}"]`)!.className).toContain("is-selected");
     expect(screen.getAllByText("入口").length).toBeGreaterThan(0);
+  });
+
+  it("ノードに「UI あり」/「UI なし」の印を出し、aria-label にも入れる", () => {
+    const noView = st().model.designs[0]!.screens.filter((x) => x.view === undefined);
+    const target = noView[0]!;
+    act(() => {
+      st().dispatch((m) => setDesignScreenView(m, { systemId: "sys_pos", id: target.id, view: { title: "t", goal: "g", sections: [] } }));
+    });
+    render(<SitemapCanvas />);
+    const withUi = document.querySelector(`[data-sitemap-node="${target.id}"]`) as HTMLElement;
+    expect(within(withUi).getByText("UI あり")).toBeDefined();
+    expect(withUi.getAttribute("aria-label")).toMatch(/UI あり\)$/);
+    const other = document.querySelector(`[data-sitemap-node="${noView[1]!.id}"]`) as HTMLElement;
+    expect(within(other).getByText("UI なし")).toBeDefined();
+    expect(other.getAttribute("aria-label")).toMatch(/UI なし\)$/);
+    expect(other.getAttribute("aria-label")).toMatch(/^[^(]*\([^()]*\)$/);
   });
 
   it("ノードはキーボードで選べる (Tab で止まり、Enter / Space で選択)", () => {

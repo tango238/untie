@@ -87,6 +87,11 @@ function ScreenEditor({ model, systemId, design, screen }: { model: UntieModel; 
           </button>
         )}
       </div>
+      <div className="field">
+        <span className="field-label">画面 UI</span>
+        <div className="static-value">{screen.view !== undefined ? "あり" : "なし"}</div>
+        {screen.view === undefined && !readOnly && <span className="hint-inline">画面ボードで作れます</span>}
+      </div>
       {analysis?.kind === "screen" && analysis.description && (
         <div className="field">
           <span className="field-label">説明</span>

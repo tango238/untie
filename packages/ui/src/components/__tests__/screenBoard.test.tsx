@@ -143,6 +143,8 @@ describe("ScreenListPane", () => {
     expect(within(d1 as HTMLElement).getByText("UI あり")).toBeDefined();
     expect(within(d1 as HTMLElement).getByText("入口")).toBeDefined();
     expect(within(document.querySelector('[data-screen-id="d2"]') as HTMLElement).queryByText("UI あり")).toBeNull();
+    expect(within(document.querySelector('[data-screen-id="d2"]') as HTMLElement).getByText("UI なし")).toBeDefined();
+    expect(within(d1 as HTMLElement).queryByText("UI なし")).toBeNull();
   });
 
   it("押すとその画面を選ぶ。選んでいる画面は強調する", () => {

@@ -16,6 +16,8 @@ export interface SitemapNodeData extends Record<string, unknown> {
   /** 入口の注記を 1 行に */
   note: string;
   builtin: boolean;
+  /** 画面 UI (`view`) があるか */
+  hasView: boolean;
   selected: boolean;
 }
 
@@ -109,6 +111,7 @@ export function buildSitemapFlow(
       entry: notes.has(s.id),
       note: (notes.get(s.id) ?? []).join(" / "),
       builtin: s.source.kind === "builtin",
+      hasView: s.view !== undefined,
       selected: s.id === selectedId,
     },
   }));

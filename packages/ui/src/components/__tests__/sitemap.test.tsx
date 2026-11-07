@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setDesignScreenView } from "@untie/core/model/commands";
 import { addSitemapScreens } from "@untie/core/model/sitemap";
 import { emptyModel, type Element, type Relation, type UntieModel } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
@@ -327,6 +328,39 @@ describe("SitemapProperties", () => {
     fireEvent.click(screen.getByRole("button", { name: "サイトマップから外す" }));
     expect(within(screen.getByRole("dialog")).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["予約登録"]);
     expect(design()!.screens.some((s) => s.id === id2)).toBe(true);
+  });
+
+  it("画面 UI の有無を出し、無い画面には作れる案内を出す", () => {
+    const idOf = setup();
+    const withUi = idOf("予約検索");
+    act(() => {
+      const r = st().dispatch((m) => setDesignScreenView(m, { systemId: "sys_a", id: withUi, view: { title: "t", goal: "g", sections: [] } }));
+      if (!r.ok) throw new Error(r.reason);
+      st().selectDesignScreen(withUi);
+    });
+    const { unmount } = render(<SitemapProperties />);
+    let ui = screen.getByText("画面 UI").parentElement!;
+    expect(within(ui).getByText("あり")).toBeDefined();
+    expect(within(ui).queryByText("画面ボードで作れます")).toBeNull();
+    unmount();
+    act(() => st().selectDesignScreen(idOf("予約登録")));
+    render(<SitemapProperties />);
+    ui = screen.getByText("画面 UI").parentElement!;
+    expect(within(ui).getByText("なし")).toBeDefined();
+    expect(within(ui).getByText("画面ボードで作れます")).toBeDefined();
+  });
+
+  it("閲覧専用では画面 UI が無くても作れる案内を出さない", () => {
+    const idOf = setup();
+    st().loadCloudDocument(st().model, { fileId: "f", role: "viewer", doc: new (class {})() as never });
+    act(() => {
+      st().enterDesign("sys_a");
+      st().selectDesignScreen(idOf("予約検索"));
+    });
+    render(<SitemapProperties />);
+    const ui = screen.getByText("画面 UI").parentElement!;
+    expect(within(ui).getByText("なし")).toBeDefined();
+    expect(within(ui).queryByText("画面ボードで作れます")).toBeNull();
   });
 
   it("閲覧専用では編集できない", () => {

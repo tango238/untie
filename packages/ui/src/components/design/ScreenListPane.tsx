@@ -27,7 +27,7 @@ export function ScreenListPane() {
                   {designScreenName(model, s)}
                 </button>
                 {entries.has(s.id) && <span className="screen-badge is-entry">入口</span>}
-                {s.view !== undefined && <span className="screen-badge is-ui">UI あり</span>}
+                {s.view !== undefined ? <span className="screen-badge is-ui">UI あり</span> : <span className="screen-badge is-no-ui">UI なし</span>}
               </li>
             );
           })}
