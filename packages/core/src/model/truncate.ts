@@ -1,9 +1,10 @@
 // 長すぎる文字列の切り詰め (設計書 6 章)。スキーマの上限 (limits.ts) を超えた要素は、そのままだと
 // スキーマに合わない「形の壊れた要素」として全員の画面から外され、関係もサーバーに消される。
 // そうならないよう、コマンドをすり抜けて Y.Doc に入った長い文字列 (古い版のクライアント・壊れた update など) は、外さずに切り詰める。
-import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "./limits";
+import { ANALYSIS_MAX_LENGTH, DSL_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "./limits";
 import { ELEMENT_KIND_LABELS, ISSUE_ANALYSIS_KEYS, ISSUE_ANALYSIS_LABELS } from "./types";
-import type { Element, UntieModel } from "./types";
+import type { Database, DesignScreen, Layout, Transition, UntieModel } from "./types";
+import type { Element } from "./types";
 
 /** 文字列なら切り詰めて返す。切り詰めたら fields に項目名を足す。文字列でなければそのまま (型の不正は形の検査が外す) */
 function cut(value: unknown, max: number, field: string, fields: string[]): unknown {
@@ -58,6 +59,77 @@ export function truncateElementStrings<T extends object>(element: T): TruncatedE
   return { element: out as T, fields };
 }
 
+// ---------------------------------------------------------------- 設計データ (0.4.0)
+// 設計の name 型の文字列 (ナビの group / label、遷移の label、header.*、bindings の item / table / column、テーブル名、データベース名) と DSL。
+// 形がまだ検査されていない値 (Y.Doc から読んだもの) も受けるので、文字列でない項目には触れない。何も切らなければ同じ参照を返す
+
+const mapIf = <T,>(items: unknown, fn: (item: T) => T): T[] | unknown => (Array.isArray(items) ? items.map((i) => (typeof i === "object" && i !== null ? fn(i as T) : i)) : items);
+
+/** 1 つのオブジェクトの文字列項目を切り詰める。切ったら fields に足し、新しいオブジェクトを返す */
+function cutFields<T extends object>(value: T, names: Record<string, [number, string]>, fields: string[]): T {
+  const src = value as Record<string, unknown>;
+  let out: Record<string, unknown> | null = null;
+  for (const [key, [max, label]] of Object.entries(names)) {
+    if (!(key in src)) continue;
+    const cutValue = cut(src[key], max, label, fields);
+    if (cutValue !== src[key]) (out ??= { ...src })[key] = cutValue;
+  }
+  return (out ?? value) as T;
+}
+
+const NAME = (label: string): [number, string] => [NAME_MAX_LENGTH, label];
+
+export function truncateDesignScreen<T extends object = DesignScreen>(screen: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  let value = screen;
+  const bindings = (value as { bindings?: unknown }).bindings;
+  if (Array.isArray(bindings)) {
+    const next = mapIf<object>(bindings, (b) => cutFields(b, { item: NAME("項目の対応の項目"), table: NAME("項目の対応のテーブル"), column: NAME("項目の対応の列") }, fields)) as unknown[];
+    if (next.some((b, i) => b !== bindings[i])) value = { ...value, bindings: next };
+  }
+  return { value, fields };
+}
+
+export function truncateTransition<T extends object = Transition>(transition: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  return { value: cutFields(transition, { label: NAME("遷移のラベル") }, fields), fields };
+}
+
+/** ナビゲーションのグループ 1 つ (id・group・items) */
+export function truncateNavGroup<T extends object>(group: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  let value = cutFields(group, { group: NAME("ナビゲーションのグループ名") }, fields);
+  const items = (value as { items?: unknown }).items;
+  if (Array.isArray(items)) {
+    const next = mapIf<object>(items, (i) => cutFields(i, { label: NAME("ナビゲーションの項目名") }, fields)) as unknown[];
+    if (next.some((i, k) => i !== items[k])) value = { ...value, items: next };
+  }
+  return { value, fields };
+}
+
+/** レイアウトのうち、ナビゲーション以外 (shell・header) */
+export function truncateLayoutBase<T extends object = Layout>(layout: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  let value = layout;
+  const header = (value as { header?: unknown }).header;
+  if (typeof header === "object" && header !== null && !Array.isArray(header)) {
+    const next = cutFields(header, { systemName: NAME("ヘッダーのシステム名"), userName: NAME("ヘッダーのユーザー名"), tenantName: NAME("ヘッダーのテナント名") }, fields);
+    if (next !== header) value = { ...value, header: next };
+  }
+  return { value, fields };
+}
+
+export function truncateDatabase<T extends object = Database>(db: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  let value = cutFields(db, { name: NAME("名前"), dsl: [DSL_MAX_LENGTH, "DSL"] }, fields);
+  const tables = (value as { tables?: unknown }).tables;
+  if (Array.isArray(tables)) {
+    const next = mapIf<object>(tables, (tb) => cutFields(tb, { table: NAME("テーブル名") }, fields)) as unknown[];
+    if (next.some((tb, i) => tb !== tables[i])) value = { ...value, tables: next };
+  }
+  return { value, fields };
+}
+
 /**
  * モデルの長すぎる文字列 (ファイル名・説明・ボード名・要素の項目) を切り詰める。何も切らなければ同じ参照。
  * changes には id と項目名だけを出す (名前などの中身はログに出さない)
@@ -90,9 +162,46 @@ export function truncateModelStrings(model: UntieModel): { model: UntieModel; ch
     return { ...b, name };
   }) as UntieModel["boards"];
 
+  // 設計データ (0.4.0)
+  let designsChanged = false;
+  const designs = model.designs.map((d) => {
+    const fields: string[] = [];
+    const screens = d.screens.map((s) => {
+      const r = truncateDesignScreen(s);
+      fields.push(...r.fields);
+      return r.value;
+    });
+    const transitions = d.transitions.map((tr) => {
+      const r = truncateTransition(tr);
+      fields.push(...r.fields);
+      return r.value;
+    });
+    const base = truncateLayoutBase(d.layout);
+    fields.push(...base.fields);
+    const navigation = d.layout.navigation.map((g) => {
+      const r = truncateNavGroup(g);
+      fields.push(...r.fields);
+      return r.value;
+    });
+    if (fields.length === 0) return d;
+    designsChanged = true;
+    changes.push(`システム ${d.systemId} の設計の${[...new Set(fields)].join("・")}が長すぎたので切り詰めた`);
+    return { ...d, screens, transitions, layout: { ...base.value, navigation } };
+  });
+
+  // データベースの名前・DSL・テーブル名
+  let databasesChanged = false;
+  const databases = model.databases.map((db) => {
+    const r = truncateDatabase(db);
+    if (r.fields.length === 0) return db;
+    databasesChanged = true;
+    changes.push(`データベース ${db.id} の${[...new Set(r.fields)].join("・")}が長すぎたので切り詰めた`);
+    return r.value;
+  });
+
   if (changes.length === 0) return { model, changes };
   return {
-    model: { ...model, meta, elements: elementsChanged ? elements : model.elements, boards: boardsChanged ? boards : model.boards },
+    model: { ...model, meta, elements: elementsChanged ? elements : model.elements, boards: boardsChanged ? boards : model.boards, designs: designsChanged ? designs : model.designs, databases: databasesChanged ? databases : model.databases },
     changes,
   };
 }

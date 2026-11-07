@@ -15,6 +15,8 @@ export const LINK_URL_MAX_LENGTH = 2000;
 export const VERIFICATION_MAX_LENGTH = 4000;
 /** 作業の起点 (その他) */
 export const TRIGGER_NOTE_MAX_LENGTH = 4000;
+/** データベースの DSL (Prisma 風。0.4.0) */
+export const DSL_MAX_LENGTH = 200000;
 
 /** JSON Schema の maxLength と同じ数え方 (コードポイント。サロゲートペアは 1 文字) */
 export function textLength(text: string): number {
@@ -51,6 +53,7 @@ export const LIMITS = {
   boardName: { max: NAME_MAX_LENGTH, label: "ボード名" },
   verification: { max: VERIFICATION_MAX_LENGTH, label: "検証方法" },
   triggerNote: { max: TRIGGER_NOTE_MAX_LENGTH, label: "起点 (その他)" },
+  dsl: { max: DSL_MAX_LENGTH, label: "DSL" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;
 

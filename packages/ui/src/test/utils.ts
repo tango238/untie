@@ -27,6 +27,6 @@ export function resetStore(model = sampleWithActorCards()) {
     dragBase: null,
     agentBase: null,
     toasts: [],
-    ui: { currentBoardId: model.boards[0]!.id, selection: null, rightPanel: "properties", nameFocusNonce: 0 },
+    ui: { currentBoardId: model.boards[0]!.id, selection: null, rightPanel: "properties", nameFocusNonce: 0, mode: "analysis" },
   });
 }

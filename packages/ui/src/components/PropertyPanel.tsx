@@ -19,7 +19,7 @@ import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
 import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
-import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
+import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, designReferences, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
   DEFAULT_EDGE_SIDES,
   EDGE_SIDES,
@@ -56,6 +56,7 @@ import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./a
 import { useAgentStore } from "../ai/agentStore";
 import { getPlatform } from "../platform";
 import { CommitField } from "./CommitField";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { usePeersSelecting } from "./PeerMarks";
 import { HoursField } from "./Hours";
 import { GRANULARITY, isGuideKind } from "./granularity";
@@ -198,6 +199,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const readOnly = useUntieStore(selectReadOnly);
   const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
+  // 設計データが一緒に消える要素を消すときの確認 (消える設計データの要約)
+  const [confirmRemove, setConfirmRemove] = useState<string[] | null>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
@@ -212,6 +215,16 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       nameRef.current?.select();
     }
   }, [nameFocusNonce]);
+
+  const removeSelected = () => {
+    const r = dispatch((m) => removeElement(m, { id: element.id }));
+    if (!r.ok) {
+      pushToast(r.reason, "error");
+      return;
+    }
+    // 課題は課題一覧から作って紐解くので、消したら課題一覧へ戻る
+    if (element.kind === "issue") setRightPanel("issues");
+  };
 
   const update = (patch: Parameters<typeof updateElement>[1]["patch"]) => {
     const r = dispatch((m) => updateElement(m, { id: element.id, patch }));
@@ -401,13 +414,10 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             type="button"
             className="danger"
             onClick={() => {
-              const r = dispatch((m) => removeElement(m, { id: element.id }));
-              if (!r.ok) {
-                pushToast(r.reason, "error");
-                return;
-              }
-              // 課題は課題一覧から作って紐解くので、消したら課題一覧へ戻る
-              if (element.kind === "issue") setRightPanel("issues");
+              // 設計データが一緒に消えるときは、消えるものを見せて確かめる
+              const refs = designReferences(model, element.id);
+              if (refs.length > 0) setConfirmRemove(refs);
+              else removeSelected();
             }}
           >
             削除
@@ -425,6 +435,20 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             </button>
           ))}
       </div>
+      {confirmRemove && (
+        <ConfirmDialog
+          title="削除の確認"
+          message={`「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`}
+          details={confirmRemove}
+          confirmLabel="削除する"
+          danger
+          onCancel={() => setConfirmRemove(null)}
+          onConfirm={() => {
+            setConfirmRemove(null);
+            removeSelected();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -872,6 +896,12 @@ function SystemField({ element, model }: { element: Element; model: UntieModel }
   const pushToast = useUntieStore((s) => s.pushToast);
   const systems = model.elements.filter((e) => e.kind === "system");
   const current = "systemId" in element ? element.systemId : "";
+  // 画面を別のシステムへ移すと、それを指す設計データが外れる。外れるものを見せて確かめる (削除と同じ確認)
+  const [pending, setPending] = useState<{ systemId: string; refs: string[] } | null>(null);
+  const move = (systemId: string) => {
+    const r = dispatch((m) => moveToSystem(m, { elementId: element.id, systemId }));
+    if (!r.ok) pushToast(r.reason, "error");
+  };
   return (
     <label className="field">
       <span className="field-label">システム</span>
@@ -879,8 +909,10 @@ function SystemField({ element, model }: { element: Element; model: UntieModel }
         aria-label="システム"
         value={current}
         onChange={(e) => {
-          const r = dispatch((m) => moveToSystem(m, { elementId: element.id, systemId: e.target.value }));
-          if (!r.ok) pushToast(r.reason, "error");
+          const systemId = e.target.value;
+          const refs = systemId === current ? [] : designReferences(model, element.id);
+          if (refs.length > 0) setPending({ systemId, refs });
+          else move(systemId);
         }}
       >
         {systems.map((s) => (
@@ -889,6 +921,21 @@ function SystemField({ element, model }: { element: Element; model: UntieModel }
           </option>
         ))}
       </select>
+      {pending && (
+        <ConfirmDialog
+          title="所属の変更の確認"
+          message={`「${element.name || "(名前なし)"}」を別のシステムへ移すと、次の設計データが外れます。`}
+          details={pending.refs}
+          confirmLabel="移す"
+          danger
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { systemId } = pending;
+            setPending(null);
+            move(systemId);
+          }}
+        />
+      )}
     </label>
   );
 }

@@ -11,15 +11,17 @@ import { confirmDiscardIfDirty, exportModelToFile, newEmptyDocument, openDocumen
 import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
-import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus } from "../store";
+import { DESIGN_BOARD_KINDS, DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
 import { AboutDialog } from "./AboutDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { SystemSelectDialog } from "./design/SystemSelectDialog";
 import { ShareDialog } from "./share/ShareDialog";
 
-type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | null;
+type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | "selectSystem" | null;
 
 /** 既存のボード名と被らない「ボード N」 */
 export function nextBoardName(existing: readonly string[]): string {
@@ -48,6 +50,10 @@ export function Toolbar() {
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
   const setCurrentBoard = useUntieStore((s) => s.setCurrentBoard);
+  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const designSystemId = useUntieStore((s) => s.ui.designSystemId);
+  const designSystemName = useUntieStore((s) => (s.ui.designSystemId === undefined ? undefined : s.model.elements.find((e) => e.id === s.ui.designSystemId)?.name));
+  const setMode = useUntieStore((s) => s.setMode);
   const dispatch = useUntieStore((s) => s.dispatch);
   const undo = useUntieStore((s) => s.undo);
   const redo = useUntieStore((s) => s.redo);
@@ -84,6 +90,12 @@ export function Toolbar() {
     // 走っている AI エージェントはモデルを書き換え続けてしまうので、ホームへ出る前に止める
     useAgentStore.getState().cancel();
     navigate({ name: "home" });
+  };
+
+  // 設計へは、対象のシステムが決まっていればそのまま移り、未定ならシステムの選択を出す
+  const changeMode = (next: Mode) => {
+    if (next === "design" && designSystemId === undefined) setDialog("selectSystem");
+    else setMode(next);
   };
 
   const handleAddBoard = () => {
@@ -127,6 +139,8 @@ export function Toolbar() {
             // ゲストの複製は、帯の「複製して自分のファイルにする」に一本化する (ここからだと手元のモデルを別のファイルにしてしまう)
             guest={cloud?.role === "guest"}
             readOnly={readOnly}
+            mode={mode}
+            onModeChange={changeMode}
             onHome={() => void goHome()}
             onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
             onCreateFromPrompt={() => setDialog("createFromPrompt")}
@@ -147,20 +161,32 @@ export function Toolbar() {
                     e.target.blur();
                   }}
                 >
-                  <optgroup label="固定ボード">
-                    {FIXED_BOARD_MENU_ORDER.map((layer) => (
-                      <option key={layer} value={fixedBoardId(layer)}>
-                        {FIXED_LAYER_LABELS[layer]}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="分析ボード">
-                    {ANALYSIS_KINDS.map((kind) => (
-                      <option key={kind} value={analysisBoardId(kind)}>
-                        {ANALYSIS_LABELS[kind]}
-                      </option>
-                    ))}
-                  </optgroup>
+                  {mode === "design" ? (
+                    <optgroup label="設計ボード">
+                      {DESIGN_BOARD_KINDS.map((kind) => (
+                        <option key={kind} value={designBoardId(kind)}>
+                          {DESIGN_BOARD_LABELS[kind]}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    <>
+                      <optgroup label="固定ボード">
+                        {FIXED_BOARD_MENU_ORDER.map((layer) => (
+                          <option key={layer} value={fixedBoardId(layer)}>
+                            {FIXED_LAYER_LABELS[layer]}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="分析ボード">
+                        {ANALYSIS_KINDS.map((kind) => (
+                          <option key={kind} value={analysisBoardId(kind)}>
+                            {ANALYSIS_LABELS[kind]}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </>
+                  )}
                   <optgroup label="自由ボード">
                     {boards.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -170,6 +196,11 @@ export function Toolbar() {
                   </optgroup>
                 </select>
               </label>
+              {mode === "design" && (
+                <button type="button" className="design-system-button" title="設計するシステムを切り替える" onClick={() => setDialog("selectSystem")}>
+                  設計: {designSystemName || "(名前なし)"}
+                </button>
+              )}
               {!readOnly && (
                 <>
                   <button type="button" title="自由ボードを追加" onClick={handleAddBoard}>
@@ -248,14 +279,17 @@ export function Toolbar() {
               </span>
             )}
           </button>
-          <button
-            type="button"
-            aria-pressed={rightPanel === "issues"}
-            className={rightPanel === "issues" ? "active" : ""}
-            onClick={() => setRightPanel(rightPanel === "issues" ? "properties" : "issues")}
-          >
-            課題一覧
-          </button>
+          {/* 課題は分析のためのものなので、設計モードでは出さない */}
+          {mode !== "design" && (
+            <button
+              type="button"
+              aria-pressed={rightPanel === "issues"}
+              className={rightPanel === "issues" ? "active" : ""}
+              onClick={() => setRightPanel(rightPanel === "issues" ? "properties" : "issues")}
+            >
+              課題一覧
+            </button>
+          )}
           {!readOnly && (
             <button
               type="button"
@@ -293,6 +327,7 @@ export function Toolbar() {
         />
       )}
       {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
+      {dialog === "selectSystem" && <SystemSelectDialog onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutDialog onClose={() => setDialog(null)} />}
       {/* 所有者でなくなった (譲った) ら、ダイアログも閉じる */}
       {shareOpen && cloud && canShare && <ShareDialog fileId={cloud.fileId} onClose={() => setShareOpen(false)} />}
@@ -363,13 +398,15 @@ function CloudBadges({ name, status, role }: { name: string; status: CloudStatus
 }
 
 /**
- * ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・クラウドへ保存・プロンプトから作成。
- * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製) だけ
+ * ファイルのメニュー: 新規作成・開く・最近開いたファイル・モード・保存・別名で保存・クラウドへ保存・プロンプトから作成。
+ * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製)・モードだけ
  */
 function FileMenu({
   cloud,
   guest,
   readOnly,
+  mode,
+  onModeChange,
   onHome,
   onNew,
   onCreateFromPrompt,
@@ -377,12 +414,15 @@ function FileMenu({
   cloud: boolean;
   guest: boolean;
   readOnly: boolean;
+  mode: Mode;
+  onModeChange: (mode: Mode) => void;
   onHome: () => void;
   onNew: () => void;
   onCreateFromPrompt: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   // 読み込むまでは null (前に開いたときの一覧を出すと、読み込み後に並びが変わってフォーカスが外れる)
   const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
@@ -392,6 +432,8 @@ function FileMenu({
   const ref = useRef<HTMLDivElement>(null);
   const recentRef = useRef<HTMLButtonElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
+  const modeRef = useRef<HTMLButtonElement>(null);
+  const modeSubRef = useRef<HTMLDivElement>(null);
   // → で開いたら、サブメニューの先頭へ移る (一覧の読み込みが済んでから)
   const focusFirstRecent = useRef(false);
   useEffect(() => {
@@ -402,6 +444,7 @@ function FileMenu({
   useEffect(() => {
     if (!open) {
       setRecentOpen(false);
+      setModeOpen(false);
       setRecent(null);
       focusFirstRecent.current = false;
       return;
@@ -420,6 +463,7 @@ function FileMenu({
   const close = () => {
     setOpen(false);
     setRecentOpen(false);
+    setModeOpen(false);
   };
   const item = (label: string, shortcut: string, action: () => void, disabled = false) => (
     <button
@@ -427,9 +471,15 @@ function FileMenu({
       role="menuitem"
       className="menu-item"
       disabled={disabled}
-      // 別の項目に移ったら、最近開いたファイルのサブメニューを閉じる
-      onFocus={() => setRecentOpen(false)}
-      onMouseEnter={() => setRecentOpen(false)}
+      // 別の項目に移ったら、サブメニュー (最近開いたファイル・モード) を閉じる
+      onFocus={() => {
+        setRecentOpen(false);
+        setModeOpen(false);
+      }}
+      onMouseEnter={() => {
+        setRecentOpen(false);
+        setModeOpen(false);
+      }}
       onClick={() => {
         close();
         action();
@@ -438,6 +488,76 @@ function FileMenu({
       <span>{label}</span>
       <span className="menu-shortcut">{shortcut}</span>
     </button>
+  );
+  // 「モード」のサブメニュー (最近開いたファイルと同じ作り)。今のモードに ✓ を付ける
+  const modeMenu = (
+    <div className="menu-sub">
+      <button
+        ref={modeRef}
+        type="button"
+        role="menuitem"
+        className="menu-item"
+        aria-haspopup="menu"
+        aria-expanded={modeOpen}
+        onFocus={() => {
+          setModeOpen(true);
+          setRecentOpen(false);
+        }}
+        onMouseEnter={() => {
+          setModeOpen(true);
+          setRecentOpen(false);
+        }}
+        onClick={() => setModeOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            setModeOpen(true);
+            // サブメニューが描かれてから先頭へ移る
+            // 今のモード (✓) の項目へ
+            setTimeout(() => modeSubRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus(), 0);
+          }
+        }}
+      >
+        <span>モード</span>
+        <span className="menu-shortcut">▸</span>
+      </button>
+      {modeOpen && (
+        <div
+          ref={modeSubRef}
+          className="menu-list menu-sublist"
+          role="menu"
+          aria-label="モード"
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              modeRef.current?.focus();
+            }
+          }}
+        >
+          {(
+            [
+              ["analysis", "分析"],
+              ["design", "設計"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={mode === value}
+              className="menu-item"
+              onClick={() => {
+                close();
+                onModeChange(value);
+              }}
+            >
+              <span>{label}</span>
+              <span className="menu-shortcut">{mode === value ? "✓" : ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
   const reopenable = getPlatform().canReopenFiles();
   const saveCopyToCloud = () => {
@@ -454,6 +574,7 @@ function FileMenu({
           {item("ホーム", "", onHome)}
           {item("JSON に書き出す…", "⌘S", () => void exportModelToFile())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
+          {modeMenu}
           {!readOnly && (
             <>
               <div className="menu-sep" role="separator" />
@@ -476,8 +597,8 @@ function FileMenu({
               aria-expanded={recentOpen}
               disabled={!reopenable}
               title={reopenable ? undefined : "このブラウザでは、開いたファイルを開き直せません"}
-              onFocus={() => setRecentOpen(true)}
-              onMouseEnter={() => setRecentOpen(true)}
+              onFocus={() => { setRecentOpen(true); setModeOpen(false); }}
+              onMouseEnter={() => { setRecentOpen(true); setModeOpen(false); }}
               onClick={() => setRecentOpen(true)}
               onKeyDown={(e) => {
                 if (e.key === "ArrowRight") {
@@ -544,6 +665,7 @@ function FileMenu({
               </div>
             )}
           </div>
+          {modeMenu}
           {item("保存", "⌘S", () => void saveDocument())}
           {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}

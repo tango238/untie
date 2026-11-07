@@ -1,9 +1,9 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidElementShape, MODEL_VERSION, repairModel, truncateElementStrings, truncateModelStrings } from "@untie/core";
-import type { Board, BoardEdge, BoardNode, Element, Meta, Relation, UntieModel } from "@untie/core";
+import { EDGE_SIDES, isValidDesignShape, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
+import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
-import { getRoots, ORDER_KEY } from "./roots";
+import { databaseKey, designKey, getRoots, keyOwner, ORDER_KEY } from "./roots";
 import type { EdgeRecord, NodeRecord, RelationRecord } from "./roots";
 
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -113,6 +113,72 @@ function readBoards(map: Y.Map<Y.Map<unknown>>): Board[] {
   return sortedValues(items);
 }
 
+// ---------------------------------------------------------------- 設計 (0.4.0)
+// 設計データは平らなキーに置いてある (roots.ts)。形の壊れた項目は、スキーマの検証関数で読む時点で読み飛ばす
+// (isValidElementShape と同じ流儀。長すぎる文字列は切り詰めた写しで検査し、値は切り詰めずに返す)。
+// 設計があるかは `${systemId}/meta` の有無で決め、systemId の設計が無い (消えた) 画面・遷移・ナビは読み飛ばす。
+// 参照の整合 (消えた画面を指す遷移など) はここでは見ない (rebuildModel の repairModel が直す)。
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isString);
+
+/** 値から systemId と order を外し、id をキーに揃えた、スキーマの形の値にする */
+function partOf(id: string, record: Record<string, unknown>): Record<string, unknown> {
+  const { systemId: _systemId, order: _order, ...rest } = record;
+  return cloneJson({ ...rest, id });
+}
+
+/** systemId ごとに、画面・遷移・ナビのグループを順序つきで集める */
+function readParts<T>(map: Y.Map<unknown>, kind: "designScreen" | "transition" | "navGroup", truncate: (v: Record<string, unknown>) => Record<string, unknown>, systems: ReadonlySet<string>): Map<string, T[]> {
+  const grouped = new Map<string, Ordered<T>[]>();
+  map.forEach((record, id) => {
+    if (!isRecord(record) || !isString(record.systemId) || !systems.has(record.systemId)) return;
+    const part = partOf(id, record);
+    if (!isValidDesignShape(kind, truncate(part))) return;
+    const list = grouped.get(record.systemId) ?? [];
+    list.push({ order: orderOf(record.order), id, value: part as T });
+    grouped.set(record.systemId, list);
+  });
+  return new Map([...grouped].map(([systemId, list]) => [systemId, sortedValues(list)]));
+}
+
+function readDesigns(roots: ReturnType<typeof getRoots>): SystemDesign[] {
+  const metas: Ordered<{ databaseIds: string[] }>[] = [];
+  roots.designs.forEach((value, key) => {
+    if (!key.endsWith("/meta") || !isRecord(value) || !isStringArray(value.databaseIds)) return;
+    const systemId = keyOwner(key);
+    metas.push({ order: orderOf(value.order), id: systemId, value: { databaseIds: cloneJson(value.databaseIds) } });
+  });
+  const systems = new Set(metas.map((m) => m.id));
+  const screens = readParts<DesignScreen>(roots.designScreens as Y.Map<unknown>, "designScreen", (v) => truncateDesignScreen(v).value, systems);
+  const transitions = readParts<Transition>(roots.designTransitions as Y.Map<unknown>, "transition", (v) => truncateTransition(v).value, systems);
+  const groups = readParts<NavGroup>(roots.designNav as Y.Map<unknown>, "navGroup", (v) => truncateNavGroup(v).value, systems);
+  return metas.sort(compareByOrder).map((m) => {
+    // レイアウトが壊れている・無いときは既定値で補い、画面と遷移は残す
+    const stored = roots.designs.get(designKey(m.id, "layout"));
+    const base = isRecord(stored) && isValidDesignShape("layout", { ...truncateLayoutBase(cloneJson(stored)).value, navigation: [] }) ? (cloneJson(stored) as { shell: Layout["shell"]; header?: Layout["header"] }) : { shell: "shell" as const };
+    return {
+      systemId: m.id,
+      databaseIds: m.value.databaseIds,
+      screens: screens.get(m.id) ?? [],
+      transitions: transitions.get(m.id) ?? [],
+      layout: { shell: base.shell, ...(base.header !== undefined ? { header: base.header } : {}), navigation: groups.get(m.id) ?? [] },
+    };
+  });
+}
+
+function readDatabases(map: Y.Map<unknown>): Database[] {
+  const items: Ordered<Database>[] = [];
+  map.forEach((name, key) => {
+    if (!key.endsWith("/name") || !isString(name)) return;
+    const id = keyOwner(key);
+    const db = { id, name, dsl: map.get(databaseKey(id, "dsl")), tables: cloneJson(map.get(databaseKey(id, "tables"))) };
+    if (!isValidDesignShape("database", truncateDatabase(db).value)) return;
+    items.push({ order: orderOf(map.get(databaseKey(id, "order"))), id, value: db as Database });
+  });
+  return sortedValues(items);
+}
+
 /** next の各項目を、prev に同じ id で内容が同じ項目があればその参照にする。全部同じなら prev の配列自体 */
 function shareList<T>(next: readonly T[], prev: readonly T[], idOf: (t: T) => string, share: (n: T, p: T) => T): T[] {
   const prevById = new Map(prev.map((t) => [idOf(t), t]));
@@ -137,14 +203,27 @@ function shareBoard(n: Board, p: Board): Board {
   return { id: n.id, name: n.name, nodes, ...(edges !== undefined ? { edges } : {}) };
 }
 
+/** 設計 1 つ。画面・遷移・ナビのグループを id ごとに共有する (1 つの view を変えても、ほかの画面の参照は変わらない) */
+function shareDesign(n: SystemDesign, p: SystemDesign): SystemDesign {
+  const screens = shareList(n.screens, p.screens, (s) => s.id, shareDeep);
+  const transitions = shareList(n.transitions, p.transitions, (x) => x.id, shareDeep);
+  const navigation = shareList(n.layout.navigation, p.layout.navigation, (g) => g.id, shareDeep);
+  const databaseIds = shareDeep(n.databaseIds, p.databaseIds);
+  const header = shareDeep(n.layout.header, p.layout.header);
+  if (screens === p.screens && transitions === p.transitions && navigation === p.layout.navigation && databaseIds === p.databaseIds && header === p.layout.header && n.layout.shell === p.layout.shell) return p;
+  return { systemId: n.systemId, databaseIds, screens, transitions, layout: { shell: n.layout.shell, ...(header !== undefined ? { header } : {}), navigation } };
+}
+
 /** prev と内容が同じ部分は prev の参照を使い回す */
 function shareModel(next: UntieModel, prev: UntieModel): UntieModel {
   const meta = shareDeep(next.meta, prev.meta);
   const elements = shareList(next.elements, prev.elements, (e) => e.id, shareDeep);
   const relations = shareList(next.relations, prev.relations, (r) => r.id, shareDeep);
   const boards = shareList(next.boards as Board[], prev.boards as Board[], (b) => b.id, shareBoard) as UntieModel["boards"];
-  if (meta === prev.meta && elements === prev.elements && relations === prev.relations && boards === prev.boards) return prev;
-  return { ...next, meta, elements, relations, boards };
+  const designs = shareList(next.designs, prev.designs, (d) => d.systemId, shareDesign);
+  const databases = shareList(next.databases, prev.databases, (d) => d.id, shareDeep);
+  if (meta === prev.meta && elements === prev.elements && relations === prev.relations && boards === prev.boards && designs === prev.designs && databases === prev.databases) return prev;
+  return { ...next, meta, elements, relations, boards, designs, databases };
 }
 
 /**
@@ -162,6 +241,8 @@ export function readRawModel(doc: Y.Doc): UntieModel {
     elements: readElements(roots.elements),
     relations: readRelations(roots.relations),
     boards: readBoards(roots.boards) as UntieModel["boards"],
+    designs: readDesigns(roots),
+    databases: readDatabases(roots.databases),
   };
 }
 

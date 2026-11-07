@@ -343,7 +343,7 @@ describe("キーボードショートカット", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
     const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
-    expect(items).toEqual(["新規作成", "開く…⌘O", "最近開いたファイル▸", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
+    expect(items).toEqual(["新規作成", "開く…⌘O", "最近開いたファイル▸", "モード▸", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
     fireEvent.click(screen.getByRole("menuitem", { name: /プロンプトから作成/ }));
     expect(screen.getByRole("dialog", { name: "プロンプトから作成" })).toBeDefined();
     expect(screen.queryByRole("menu")).toBeNull();

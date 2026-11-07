@@ -219,3 +219,51 @@ export function triggerSummaries(model: UntieModel): Map<string, string> {
 export function triggerSummary(model: UntieModel, activityId: string): string | undefined {
   return triggerSummaries(model).get(activityId);
 }
+
+/**
+ * その要素 (システム・画面・情報) を消したとき (画面は別のシステムへ移したときも) に、一緒に消える設計データの要約 (0.4.0)。
+ * 「○○」の設計 (画面 3、遷移 4、画面 UI 2)」「テーブルとの対応 2」のような文字列。
+ * 空なら、その要素は設計から参照されていない (確認なしで消してよい)。
+ * 消える範囲は removeElement の連鎖と同じ
+ */
+export function designReferences(model: UntieModel, elementId: string): string[] {
+  const target = model.elements.find((e) => e.id === elementId);
+  if (!target) return [];
+  const out: string[] = [];
+  const parts = (items: [string, number][]) => items.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join("、");
+
+  if (target.kind === "system") {
+    const design = model.designs.find((d) => d.systemId === target.id);
+    if (design) {
+      const navigation = design.layout.navigation.reduce((n, g) => n + g.items.length, 0);
+      const detail = parts([
+        ["画面", design.screens.length],
+        ["遷移", design.transitions.length],
+        ["画面 UI", design.screens.filter((s) => s.view !== undefined).length],
+        ["ナビゲーション", navigation],
+      ]);
+      // 画面も遷移も無い空の設計は、消えても困らないので参照に数えない
+      if (detail) out.push(`「${target.name || "(名前なし)"}」の設計 (${detail})`);
+    }
+  } else if (target.kind === "screen") {
+    const design = model.designs.find((d) => d.systemId === target.systemId);
+    if (design) {
+      const gone = new Set(design.screens.filter((s) => s.source.kind === "screen" && s.source.screenId === target.id));
+      if (gone.size > 0) {
+        const ids = new Set([...gone].map((s) => s.id));
+        const system = model.elements.find((e) => e.id === target.systemId);
+        const detail = parts([
+          ["画面", gone.size],
+          ["遷移", design.transitions.filter((t) => ids.has(t.from) || ids.has(t.to)).length],
+          ["画面 UI", [...gone].filter((s) => s.view !== undefined).length],
+          ["ナビゲーション", design.layout.navigation.reduce((n, g) => n + g.items.filter((i) => ids.has(i.screenId)).length, 0)],
+        ]);
+        out.push(`「${system?.name || "(名前なし)"}」の設計 (${detail})`);
+      }
+    }
+  } else if (target.kind === "information") {
+    const n = model.databases.reduce((sum, db) => sum + db.tables.filter((t) => t.informationIds.includes(target.id)).length, 0);
+    if (n > 0) out.push(`テーブルとの対応 ${n}`);
+  }
+  return out;
+}

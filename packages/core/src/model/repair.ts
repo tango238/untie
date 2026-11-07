@@ -14,6 +14,8 @@
 // - 関係が消えたボードの線の設定は消す
 // - 置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・活動) のノードに width / height が無ければ既定の大きさを補う
 // - ボードが 0 枚なら「ボード 1」を作る
+// - 設計データ (0.4.0): システムが無い設計、元の画面が無い (別のシステムの画面を含む) 設計の画面、画面が無い遷移・ナビゲーションの項目、
+//   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)
 // - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
 //
 // changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
@@ -24,6 +26,7 @@
 // - 課題の対象の混在 (登場人物と業務・作業・操作が同じ課題に混ざる)
 import { produce } from "immer";
 import { DEFAULT_FRAME_SIZE } from "./commands";
+import { removeDesignScreens } from "./design";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
 import { truncateModelStrings } from "./truncate";
@@ -260,7 +263,63 @@ export function repairModel(input: UntieModel): RepairResult {
       }
     }
 
-    // 5. ボードが 0 枚なら「ボード 1」を作る
+    // 5. 設計データ。消えた要素を指すものを外す (removeElement の連鎖と同じ範囲)
+    const databaseIds = new Set(draft.databases.map((d) => d.id));
+    draft.designs = draft.designs.filter((d) => {
+      const problem = refProblem(d.systemId, "system");
+      if (problem) changes.push(`システム ${d.systemId} の設計を消した (${problem})`);
+      return !problem;
+    });
+    for (const design of draft.designs) {
+      const where = `システム ${design.systemId} の設計`;
+      const usable = design.databaseIds.filter((id) => databaseIds.has(id));
+      if (usable.length !== design.databaseIds.length) {
+        changes.push(`${where}のデータベースの指定を外した (データベースが無い)`);
+        design.databaseIds = usable;
+      }
+      for (const s of design.screens) {
+        if (s.bindings) {
+          const kept = s.bindings.filter((b) => databaseIds.has(b.databaseId));
+          if (kept.length !== s.bindings.length) {
+            changes.push(`${where}の画面 ${s.id} の項目の対応を外した (データベースが無い)`);
+            s.bindings = kept;
+          }
+        }
+      }
+      // 元の画面が無い (別のシステムの画面を含む) 画面と、それを指す遷移・ナビゲーションの項目は、removeElement と同じ範囲で外す
+      const badSource = (s: (typeof design.screens)[number]) => {
+        if (s.source.kind !== "screen") return false;
+        const el = byId.get(s.source.screenId);
+        return !el || el.kind !== "screen" || el.systemId !== design.systemId;
+      };
+      for (const s of design.screens) if (badSource(s)) changes.push(`${where}の画面 ${s.id} を消した (元の画面が、このシステムに無い)`);
+      removeDesignScreens(design, badSource);
+      // 画面が無い遷移とナビゲーションの項目 (消した画面を指すもの、もとから壊れていたもの)
+      const known = new Set(design.screens.map((s) => s.id));
+      const transitions = design.transitions.filter((t) => known.has(t.from) && known.has(t.to));
+      if (transitions.length !== design.transitions.length) {
+        for (const t of design.transitions) if (!known.has(t.from) || !known.has(t.to)) changes.push(`${where}の遷移 ${t.id} を消した (画面が無い)`);
+        design.transitions = transitions;
+      }
+      for (const group of design.layout.navigation) {
+        const items = group.items.filter((i) => known.has(i.screenId));
+        if (items.length !== group.items.length) {
+          changes.push(`${where}のナビゲーションの項目を外した (画面が無い)`);
+          group.items = items;
+        }
+      }
+    }
+    for (const db of draft.databases) {
+      for (const table of db.tables) {
+        const ids = table.informationIds.filter((id) => kindOf.get(id) === "information");
+        if (ids.length !== table.informationIds.length) {
+          changes.push(`データベース ${db.id} のテーブルの情報の対応を外した (情報が無い)`);
+          table.informationIds = ids;
+        }
+      }
+    }
+
+    // 6. ボードが 0 枚なら「ボード 1」を作る
     if (draft.boards.length === 0) {
       const id = usedIds.has(FALLBACK_BOARD_ID) ? newUniqueId("board", usedIds) : FALLBACK_BOARD_ID;
       const board: Board = { id, name: "ボード 1", nodes: [] };

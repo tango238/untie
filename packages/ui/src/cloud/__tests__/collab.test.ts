@@ -140,6 +140,19 @@ describe("attachPresence", () => {
     expect(awareness.getLocalState()).toBeNull();
   });
 
+  it("設計モードで設計ボードを開いても、boardId にそのまま入り、他の人の設計ボードも peers に写る", () => {
+    const stop = attachPresence(awareness, { userId: "u1", name: "自分" });
+    st().enterDesign("sys_pms");
+    expect(awareness.getLocalState()?.boardId).toBe("design:sitemap");
+    st().setCurrentBoard("design:data");
+    expect(awareness.getLocalState()?.boardId).toBe("design:data");
+    other.setLocalState({ userId: "u2", name: "花子", color: "#aa3333", boardId: "design:layout", selection: null });
+    receive(other);
+    expect(st().peers.map((p) => p.boardId)).toEqual(["design:layout"]);
+    stop();
+    st().setMode("analysis");
+  });
+
   it("ゲスト (userId が null) の色は接続 id から決める", () => {
     const stop = attachPresence(awareness, { userId: null, name: "ゲスト 1" });
     expect(awareness.getLocalState()).toMatchObject({ userId: null, color: colorFor(String(awareness.clientID)) });

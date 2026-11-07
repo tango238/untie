@@ -18,6 +18,7 @@ import {
   VALUE_MAX_LENGTH,
   VERIFICATION_MAX_LENGTH,
   TRIGGER_NOTE_MAX_LENGTH,
+  DSL_MAX_LENGTH,
 } from "../limits";
 import { repairModel } from "../repair";
 import { truncateElementStrings, truncateModelStrings } from "../truncate";
@@ -46,6 +47,7 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
     expect(LINK_URL_MAX_LENGTH).toBe(def("link").properties!.url.maxLength);
     expect(VERIFICATION_MAX_LENGTH).toBe(def("nfr").properties!.verification.maxLength);
     expect(TRIGGER_NOTE_MAX_LENGTH).toBe(def("activity").properties!.triggerNote.maxLength);
+    expect(DSL_MAX_LENGTH).toBe(def("database").properties!.dsl.maxLength);
   });
 
   it("スキーマに maxLength を足したら、ここも足すこと (文字列の上限を持つ項目はこれだけ。id は自動で振るので上限の検査は要らない)", () => {
@@ -72,6 +74,7 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "link.url",
         "nfr.verification",
         "activity.triggerNote",
+        "database.dsl",
       ].sort(),
     );
   });

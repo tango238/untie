@@ -8,6 +8,11 @@ export const ROOT_NAMES = {
   elements: "elements",
   relations: "relations",
   boards: "boards",
+  designs: "designs",
+  designScreens: "designScreens",
+  designTransitions: "designTransitions",
+  designNav: "designNav",
+  databases: "databases",
 } as const;
 
 /** 順序キーを入れる項目名 (要素・ボードは Y.Map のキー、関係・ノード・線は値の項目) */
@@ -37,6 +42,59 @@ export interface EdgeRecord {
   order: string;
 }
 
+// 設計データ (0.4.0) は、入れ子の Y.Map を使わず、ルートごとに平らな「キー → JSON の値」で置く。
+// 決まったキーに Y.Map を新しく set する作りだと、2 人が同時に作ったときに片方が丸ごと消える (後から作った Y.Map ごと負ける)。
+// 値だけなら、別々のキーに足したものは両方残り、同じキーへの同時の書き込みは後勝ちで 1 つになる。
+
+/** `${systemId}/meta` の値。設計があるかは、このキーの有無で決める */
+export interface DesignMetaRecord {
+  databaseIds: string[];
+  order: string;
+}
+
+/** `${systemId}/layout` の値。ナビゲーション以外のレイアウト (ナビのグループは designNav に別のキーで置く) */
+export interface DesignLayoutRecord {
+  shell: string;
+  header?: unknown;
+}
+
+/** designScreens の値 (キーは DesignScreen.id)。order は設計の中での並び */
+export interface DesignScreenRecord {
+  systemId: string;
+  id: string;
+  source: unknown;
+  view?: unknown;
+  bindings?: unknown;
+  order: string;
+}
+
+/** designTransitions の値 (キーは Transition.id) */
+export interface TransitionRecord {
+  systemId: string;
+  id: string;
+  from: string;
+  to: string;
+  via?: string;
+  label?: string;
+  order: string;
+}
+
+/** designNav の値 (キーはナビゲーションのグループの id) */
+export interface NavGroupRecord {
+  systemId: string;
+  id: string;
+  group: string;
+  items: unknown;
+  order: string;
+}
+
+/** designs のキー。systemId・データベースの id は [A-Za-z0-9_-] だけなので、`/` で区切れる */
+export const designKey = (systemId: string, part: "meta" | "layout") => `${systemId}/${part}`;
+/** databases のキー。データベースがあるかは `${id}/name` の有無で決める */
+export const databaseKey = (id: string, part: "name" | "dsl" | "tables" | "order") => `${id}/${part}`;
+/** キーの `/` の前 (systemId・データベースの id) */
+export const keyOwner = (key: string) => (key.includes("/") ? key.slice(0, key.lastIndexOf("/")) : key);
+
 /** Y.Doc のルート (型付きの見方) */
 export interface UntieDocRoots {
   /** { name, description? } */
@@ -47,6 +105,16 @@ export interface UntieDocRoots {
   relations: Y.Map<RelationRecord>;
   /** ボード id → Y.Map { name, order, nodes: Y.Map<elementId, NodeRecord>, edges: Y.Map<relationId, EdgeRecord> } */
   boards: Y.Map<Y.Map<unknown>>;
+  /** `${systemId}/meta` → DesignMetaRecord、`${systemId}/layout` → DesignLayoutRecord */
+  designs: Y.Map<unknown>;
+  /** DesignScreen.id → DesignScreenRecord */
+  designScreens: Y.Map<DesignScreenRecord>;
+  /** Transition.id → TransitionRecord */
+  designTransitions: Y.Map<TransitionRecord>;
+  /** ナビゲーションのグループの id → NavGroupRecord */
+  designNav: Y.Map<NavGroupRecord>;
+  /** `${id}/name`・`${id}/dsl` (文字列)、`${id}/tables` (JSON)、`${id}/order` */
+  databases: Y.Map<unknown>;
 }
 
 /** Y.Doc からルートを取り出す (無ければ作られる) */
@@ -56,5 +124,10 @@ export function getRoots(doc: Y.Doc): UntieDocRoots {
     elements: doc.getMap(ROOT_NAMES.elements),
     relations: doc.getMap(ROOT_NAMES.relations),
     boards: doc.getMap(ROOT_NAMES.boards),
+    designs: doc.getMap(ROOT_NAMES.designs),
+    designScreens: doc.getMap(ROOT_NAMES.designScreens),
+    designTransitions: doc.getMap(ROOT_NAMES.designTransitions),
+    designNav: doc.getMap(ROOT_NAMES.designNav),
+    databases: doc.getMap(ROOT_NAMES.databases),
   };
 }

@@ -1,9 +1,10 @@
 // モデルの項目を Y.Doc の値に変える書き込みの部品 (loadModel と applyModelDiff で共有する)。
 import * as Y from "yjs";
-import type { Board, BoardEdge, BoardNode, Element, IssueAnalysis, Relation } from "@untie/core";
+import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, IssueAnalysis, Layout, NavGroup, Relation, SystemDesign, Transition } from "@untie/core";
 import { cloneJson } from "./json";
-import { ORDER_KEY } from "./roots";
-import type { EdgeRecord, NodeRecord, RelationRecord } from "./roots";
+import { initialOrders } from "./order";
+import { databaseKey, designKey, ORDER_KEY } from "./roots";
+import type { DesignLayoutRecord, DesignMetaRecord, DesignScreenRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
 
 /** 要素の Y.Map に置かない項目 (id はキー、order は別に振る) */
 export const ELEMENT_SKIPPED_KEYS: ReadonlySet<string> = new Set(["id", ORDER_KEY]);
@@ -73,4 +74,51 @@ export function boardToYMap(
   (board.edges ?? []).forEach((e, i) => edges.set(e.relationId, { ...edgeFields(e), order: edgeOrders[i] }));
   map.set("edges", edges);
   return map;
+}
+
+// ---------------------------------------------------------------- 設計 (0.4.0)
+
+/** order を除いた値 (比較用)。systemId を値に持たせる (設計が消えたら一緒に読み飛ばすため) */
+export function designScreenFields(systemId: string, s: DesignScreen): Omit<DesignScreenRecord, "order"> {
+  return {
+    systemId,
+    id: s.id,
+    source: cloneJson(s.source),
+    ...(s.view !== undefined ? { view: cloneJson(s.view) } : {}),
+    ...(s.bindings !== undefined ? { bindings: cloneJson(s.bindings) } : {}),
+  };
+}
+
+export function transitionFields(systemId: string, t: Transition): Omit<TransitionRecord, "order"> {
+  return { systemId, id: t.id, from: t.from, to: t.to, ...(t.via !== undefined ? { via: t.via } : {}), ...(t.label !== undefined ? { label: t.label } : {}) };
+}
+
+export function navGroupFields(systemId: string, g: NavGroup): Omit<NavGroupRecord, "order"> {
+  return { systemId, id: g.id, group: g.group, items: cloneJson(g.items) };
+}
+
+/** ナビゲーションを除いたレイアウト */
+export function layoutRecord(layout: Layout): DesignLayoutRecord {
+  return { shell: layout.shell, ...(layout.header !== undefined ? { header: cloneJson(layout.header) } : {}) };
+}
+
+/** 設計を平らなキーに書く (loadModel と、applyModelDiff で足された設計) */
+export function writeDesign(roots: UntieDocRoots, design: SystemDesign, order: string): void {
+  const id = design.systemId;
+  roots.designs.set(designKey(id, "meta"), { databaseIds: cloneJson(design.databaseIds), order } satisfies DesignMetaRecord);
+  roots.designs.set(designKey(id, "layout"), layoutRecord(design.layout));
+  const screens = initialOrders(design.screens.length);
+  design.screens.forEach((s, i) => roots.designScreens.set(s.id, { ...designScreenFields(id, s), order: screens[i] }));
+  const transitions = initialOrders(design.transitions.length);
+  design.transitions.forEach((t, i) => roots.designTransitions.set(t.id, { ...transitionFields(id, t), order: transitions[i] }));
+  const groups = initialOrders(design.layout.navigation.length);
+  design.layout.navigation.forEach((g, i) => roots.designNav.set(g.id, { ...navGroupFields(id, g), order: groups[i] }));
+}
+
+/** データベースを平らなキーに書く。有無は `${id}/name` で決まる */
+export function writeDatabase(roots: UntieDocRoots, db: Database, order: string): void {
+  roots.databases.set(databaseKey(db.id, "name"), db.name);
+  roots.databases.set(databaseKey(db.id, "dsl"), db.dsl);
+  roots.databases.set(databaseKey(db.id, "tables"), cloneJson(db.tables));
+  roots.databases.set(databaseKey(db.id, "order"), order);
 }

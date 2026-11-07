@@ -276,6 +276,13 @@ textarea { resize: vertical; width: 100%; }
 .dialog { background: #fff; border-radius: 8px; padding: 18px 20px; width: 380px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
 .dialog h2 { margin: 0 0 8px; font-size: 15px; }
 .dialog p { margin: 0 0 16px; line-height: 1.6; }
+.dialog-details { margin: -8px 0 16px; padding-left: 20px; line-height: 1.6; }
+.system-select-list { list-style: none; margin: 0 0 16px; padding: 0; max-height: 50vh; overflow: auto; }
+.system-select-list label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; }
+.system-select-badge { font-size: 11px; color: var(--muted); border: 1px solid var(--border, #d8d4cc); border-radius: 10px; padding: 0 6px; }
+.design-board { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: #efece6; color: var(--muted); }
+.design-board h2 { margin: 0; font-size: 18px; color: inherit; }
+.design-board p { margin: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions button { white-space: nowrap; }
 /* 選択肢が 3 つあるときはボタンが並ぶ幅を取る */

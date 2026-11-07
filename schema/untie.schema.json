@@ -4,7 +4,7 @@
   "title": "UntieModel",
   "description": "Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。",
   "type": "object",
-  "required": ["version", "meta", "elements", "relations", "boards"],
+  "required": ["version", "meta", "elements", "relations", "boards", "designs", "databases"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.3.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.4.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.3.1"
+      "const": "0.4.0"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -32,6 +32,16 @@
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/board" }
+    },
+    "designs": {
+      "description": "システムごとの設計 (設計モード。0.4.0 から)。systemId は一意。参照整合性は validateModel() で検査する。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/systemDesign" }
+    },
+    "databases": {
+      "description": "設計をまたいで共有するデータベース (0.4.0 から)。id は一意。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/database" }
     }
   },
   "$defs": {
@@ -488,6 +498,294 @@
         "targetId": {
           "description": "終点の要素 id。",
           "$ref": "#/$defs/id"
+        }
+      }
+    },
+  "systemDesign": {
+      "description": "1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。",
+      "type": "object",
+      "required": [
+        "systemId",
+        "databaseIds",
+        "screens",
+        "transitions",
+        "layout"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "systemId": {
+          "description": "elements の system の id。",
+          "$ref": "#/$defs/id"
+        },
+        "databaseIds": {
+          "description": "使うデータベース (databases の id)。空なら既定のデータベース。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "screens": {
+          "description": "サイトマップの画面。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/designScreen"
+          }
+        },
+        "transitions": {
+          "description": "画面遷移。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        }
+      }
+    },
+    "designScreen": {
+      "description": "サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。",
+      "type": "object",
+      "required": [
+        "id",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "screenId"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "screen"
+                },
+                "screenId": {
+                  "description": "分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。",
+                  "$ref": "#/$defs/id"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "builtin"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "builtin"
+                },
+                "builtin": {
+                  "enum": [
+                    "signIn",
+                    "top",
+                    "signUp",
+                    "passwordReminder"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "view": {
+          "description": "画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "bindings": {
+          "description": "画面の項目とテーブルの列の対応。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "item",
+              "databaseId",
+              "table",
+              "column"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/name"
+              },
+              "databaseId": {
+                "$ref": "#/$defs/id"
+              },
+              "table": {
+                "$ref": "#/$defs/name"
+              },
+              "column": {
+                "$ref": "#/$defs/name"
+              }
+            }
+          }
+        }
+      }
+    },
+    "transition": {
+      "description": "画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。",
+      "type": "object",
+      "required": [
+        "id",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "from": {
+          "$ref": "#/$defs/id"
+        },
+        "to": {
+          "$ref": "#/$defs/id"
+        },
+        "via": {
+          "description": "遷移のきっかけ。省略は未定。",
+          "enum": [
+            "button",
+            "row",
+            "nav",
+            "afterSubmit"
+          ]
+        },
+        "label": {
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "layout": {
+      "description": "システム共通のレイアウト。",
+      "type": "object",
+      "required": [
+        "shell",
+        "navigation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "shell": {
+          "description": "shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。",
+          "enum": [
+            "shell",
+            "plain"
+          ]
+        },
+        "header": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "systemName": {
+              "$ref": "#/$defs/name"
+            },
+            "userName": {
+              "$ref": "#/$defs/name"
+            },
+            "tenantName": {
+              "$ref": "#/$defs/name"
+            }
+          }
+        },
+        "navigation": {
+          "description": "ナビゲーション。グループごとに画面を並べる。",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/navGroup"
+          }
+        }
+      }
+    },
+    "navGroup": {
+      "description": "ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。",
+      "type": "object",
+      "required": [
+        "id",
+        "group",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "group": {
+          "$ref": "#/$defs/name"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "screenId"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "screenId": {
+                "description": "DesignScreen.id",
+                "$ref": "#/$defs/id"
+              },
+              "label": {
+                "$ref": "#/$defs/name"
+              }
+            }
+          }
+        }
+      }
+    },
+    "database": {
+      "description": "データベース。設計をまたいで共有する。",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "dsl",
+        "tables"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "dsl": {
+          "description": "Prisma 風の DSL (今は解析しない)。",
+          "type": "string",
+          "maxLength": 200000
+        },
+        "tables": {
+          "description": "テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "table",
+              "informationIds"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "table": {
+                "$ref": "#/$defs/name"
+              },
+              "informationIds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            }
+          }
         }
       }
     },

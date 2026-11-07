@@ -1,11 +1,11 @@
 import * as Y from "yjs";
-import type { Board, Element, IssueAnalysis, UntieModel } from "@untie/core";
+import type { Board, Database, DesignScreen, Element, IssueAnalysis, NavGroup, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { initialOrders, planOrders } from "./order";
 import { isUndirected, RELATION_KINDS } from "@untie/core";
-import { getRoots, ORDER_KEY } from "./roots";
-import type { EdgeRecord, NodeRecord, RelationRecord, UntieDocRoots } from "./roots";
-import { boardToYMap, edgeFields, elementToYMap, ELEMENT_SKIPPED_KEYS, analysisToYMap, nodeFields, relationFields } from "./write";
+import { databaseKey, designKey, getRoots, ORDER_KEY } from "./roots";
+import type { DesignMetaRecord, DesignScreenRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
+import { analysisToYMap, boardToYMap, designScreenFields, edgeFields, elementToYMap, ELEMENT_SKIPPED_KEYS, layoutRecord, navGroupFields, nodeFields, relationFields, transitionFields, writeDatabase, writeDesign } from "./write";
 
 /** 配列 (id を持つ項目の並び) を Y.Map に書くための部品 */
 interface ListAdapter<T> {
@@ -183,6 +183,75 @@ function boardAdapter(map: Y.Map<Y.Map<unknown>>): ListAdapter<Board> {
   };
 }
 
+// ---------------------------------------------------------------- 設計 (0.4.0)
+// 平らなキー (roots.ts)。設計の画面・遷移・ナビのグループは、設計を持つ systemId を値に持つ別のキーに置く。
+
+/** 設計の画面・遷移・ナビのグループの Y.Map から、その systemId の値をすべて消す */
+function deleteOwned<V extends { systemId: string }>(map: Y.Map<V>, systemId: string): void {
+  const keys: string[] = [];
+  map.forEach((v, k) => {
+    if (v?.systemId === systemId) keys.push(k);
+  });
+  for (const k of keys) map.delete(k);
+}
+
+function designAdapter(roots: UntieDocRoots): ListAdapter<SystemDesign> {
+  const metaOf = (id: string) => roots.designs.get(designKey(id, "meta")) as Partial<DesignMetaRecord> | undefined;
+  const writeMeta = (id: string, databaseIds: readonly string[], order: string) =>
+    roots.designs.set(designKey(id, "meta"), { databaseIds: cloneJson([...databaseIds]), order } satisfies DesignMetaRecord);
+  return {
+    idOf: (d) => d.systemId,
+    has: (id) => roots.designs.has(designKey(id, "meta")),
+    getOrder: (id) => metaOf(id)?.order,
+    remove(id) {
+      roots.designs.delete(designKey(id, "meta"));
+      roots.designs.delete(designKey(id, "layout"));
+      deleteOwned(roots.designScreens, id);
+      deleteOwned(roots.designTransitions, id);
+      deleteOwned(roots.designNav, id);
+    },
+    create: (d, order) => writeDesign(roots, d, order),
+    changed: (b, a) => !deepEqual(b, a),
+    update(b, a, order) {
+      const id = a.systemId;
+      if (order !== undefined || !deepEqual(b.databaseIds, a.databaseIds)) writeMeta(id, a.databaseIds, order ?? metaOf(id)?.order ?? "");
+      if (!deepEqual(layoutRecord(b.layout), layoutRecord(a.layout))) roots.designs.set(designKey(id, "layout"), layoutRecord(a.layout));
+      if (b.screens !== a.screens) {
+        syncList(b.screens, a.screens, recordAdapter<DesignScreen, DesignScreenRecord>(roots.designScreens, (s) => s.id, (s) => designScreenFields(id, s)));
+      }
+      if (b.transitions !== a.transitions) {
+        syncList(b.transitions, a.transitions, recordAdapter<Transition, TransitionRecord>(roots.designTransitions, (x) => x.id, (x) => transitionFields(id, x)));
+      }
+      if (b.layout.navigation !== a.layout.navigation) {
+        syncList(b.layout.navigation, a.layout.navigation, recordAdapter<NavGroup, NavGroupRecord>(roots.designNav, (g) => g.id, (g) => navGroupFields(id, g)));
+      }
+    },
+    setOrder: (d, order) => writeMeta(d.systemId, metaOf(d.systemId)?.databaseIds ?? d.databaseIds, order),
+  };
+}
+
+function databaseAdapter(roots: UntieDocRoots): ListAdapter<Database> {
+  const map = roots.databases;
+  return {
+    idOf: (d) => d.id,
+    has: (id) => map.has(databaseKey(id, "name")),
+    getOrder: (id) => map.get(databaseKey(id, "order")) as string | undefined,
+    remove(id) {
+      for (const part of ["name", "dsl", "tables", "order"] as const) map.delete(databaseKey(id, part));
+    },
+    create: (d, order) => writeDatabase(roots, d, order),
+    changed: (b, a) => !deepEqual(b, a),
+    // dsl は 1 つの文字列として置く (文字単位では合流しない)。変わった項目だけ書く
+    update(b, a, order) {
+      if (order !== undefined) map.set(databaseKey(a.id, "order"), order);
+      if (b.name !== a.name) map.set(databaseKey(a.id, "name"), a.name);
+      if (b.dsl !== a.dsl) map.set(databaseKey(a.id, "dsl"), a.dsl);
+      if (!deepEqual(b.tables, a.tables)) map.set(databaseKey(a.id, "tables"), cloneJson(a.tables));
+    },
+    setOrder: (d, order) => map.set(databaseKey(d.id, "order"), order),
+  };
+}
+
 /**
  * 関係を消したとき、Y.Doc に残っている同じ関係 (sameRelation) の重複と、その線の設定も消す。
  * 残すと、見えていた方を消した途端に、表示から外れていた重複の方が現れてしまう。
@@ -237,5 +306,7 @@ export function applyModelDiff(doc: Y.Doc, before: UntieModel, after: UntieModel
     removeHiddenDuplicates(roots, before, after);
     materializeFallbackBoards(roots, before);
     syncList(before.boards, after.boards, boardAdapter(roots.boards));
+    syncList(before.designs, after.designs, designAdapter(roots));
+    syncList(before.databases, after.databases, databaseAdapter(roots));
   }, origin);
 }

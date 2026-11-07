@@ -557,6 +557,8 @@ export const retailSample: UntieModel = {
     { id: "board_flow", name: "発注からレジ締め・棚卸まで", nodes: flowNodes },
     { id: "board_state", name: "情報と状態", nodes: stateNodes },
   ],
+  designs: [],
+  databases: [],
 };
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */

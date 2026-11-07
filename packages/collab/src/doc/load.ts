@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import type { UntieModel } from "@untie/core";
 import { initialOrders } from "./order";
 import { getRoots } from "./roots";
-import { boardToYMap, elementToYMap, relationToRecord } from "./write";
+import { boardToYMap, elementToYMap, relationToRecord, writeDatabase, writeDesign } from "./write";
 
 /**
  * JSON から読んだモデルを空の Y.Doc に 1 トランザクションで入れる。
@@ -25,5 +25,10 @@ export function loadModel(doc: Y.Doc, model: UntieModel, origin?: unknown): void
     model.boards.forEach((b, i) => {
       roots.boards.set(b.id, boardToYMap(b, boardOrders[i], initialOrders(b.nodes.length), initialOrders((b.edges ?? []).length)));
     });
+
+    const designOrders = initialOrders(model.designs.length);
+    model.designs.forEach((d, i) => writeDesign(roots, d, designOrders[i]));
+    const databaseOrders = initialOrders(model.databases.length);
+    model.databases.forEach((db, i) => writeDatabase(roots, db, databaseOrders[i]));
   }, origin);
 }

@@ -1,5 +1,5 @@
 export { ROOT_NAMES, ORDER_KEY, getRoots } from "./roots";
-export type { UntieDocRoots, RelationRecord, NodeRecord, EdgeRecord } from "./roots";
+export type { UntieDocRoots, RelationRecord, NodeRecord, EdgeRecord, DesignScreenRecord, TransitionRecord, NavGroupRecord, DesignMetaRecord, DesignLayoutRecord } from "./roots";
 export { loadModel } from "./load";
 export { readModel, readRawModel, rebuildModel } from "./rebuild";
 export { repairDoc } from "./repairDoc";

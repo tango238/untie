@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
-import { addElement, moveToContext } from "@untie/core/model/commands";
+import { addElement, ensureDesign, moveToContext } from "@untie/core/model/commands";
+import type { UntieModel } from "@untie/core/model/types";
 import { PropertyPanel } from "../PropertyPanel";
 import { useAgentStore } from "../../ai/agentStore";
 
@@ -715,3 +716,112 @@ describe("PropertyPanel: 作業の起点", () => {
     expect(screen.getByText(/足します/)).toBeDefined();
   });
 });
+
+describe("PropertyPanel: 設計データを巻き込む削除", () => {
+  /** 宿泊管理システムの画面を 1 つ作り、その設計に画面・遷移・ナビを足した状態にする */
+  function withDesign(): string {
+    let screenId = "";
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "screen", name: "予約一覧", init: { systemId: "sys_pms" } }));
+      if (!r.ok) throw new Error(r.reason);
+      screenId = r.id;
+      st().dispatch((m) => ensureDesign(m, { systemId: "sys_pms" }));
+      st().dispatch((m) => {
+        const next = JSON.parse(JSON.stringify(m)) as UntieModel;
+        const d = next.designs.find((x) => x.systemId === "sys_pms")!;
+        d.screens.push({ id: "ds_top", source: { kind: "builtin", builtin: "top" } }, { id: "ds_1", source: { kind: "screen", screenId }, view: { type: "page" } });
+        d.transitions.push({ id: "tr_1", from: "ds_top", to: "ds_1", via: "nav" });
+        d.layout.navigation.push({ id: "nav_1", group: "予約", items: [{ screenId: "ds_1" }] });
+        return { ok: true, model: next };
+      });
+    });
+    return screenId;
+  }
+
+  it("設計から参照されている画面を消すときは確認を出す。キャンセルすれば消えない", () => {
+    const screenId = withDesign();
+    onFixedBoard();
+    selectEl(screenId);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    const dialog = screen.getByRole("dialog", { name: "削除の確認" });
+    expect(within(dialog).getByText("「予約一覧」を削除すると、次の設計データも一緒に消えます。")).toBeDefined();
+    expect(within(dialog).getByText("「宿泊管理システム」の設計 (画面 1、遷移 1、画面 UI 1、ナビゲーション 1)")).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(el(screenId)).toBeDefined();
+    expect(st().model.designs[0]!.screens).toHaveLength(2);
+  });
+
+  it("確認して削除すると、画面と設計データが消える", () => {
+    const screenId = withDesign();
+    onFixedBoard();
+    selectEl(screenId);
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "削除の確認" })).getByRole("button", { name: "削除する" }));
+    expect(st().model.elements.some((e) => e.id === screenId)).toBe(false);
+    expect(st().model.designs[0]!.screens.map((s) => s.id)).toEqual(["ds_top"]);
+    expect(st().model.designs[0]!.transitions).toEqual([]);
+  });
+
+  it("システムを消すときも、設計の要約を出す", () => {
+    withDesign();
+    onFixedBoard();
+    selectEl("sys_pms");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    const dialog = screen.getByRole("dialog", { name: "削除の確認" });
+    expect(within(dialog).getByText(/^「宿泊管理システム」の設計 \(画面 2、遷移 1、画面 UI 1/)).toBeDefined();
+  });
+
+  it("設計から参照されていない要素は、今までどおり確認なしで消える", () => {
+    onFixedBoard();
+    selectEl("sys_payment");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(st().model.elements.some((e) => e.id === "sys_payment")).toBe(false);
+  });
+
+  it("画面の所属(システム)を変えるときも、外れる設計データを見せて確認する。キャンセルすれば移らない", () => {
+    const screenId = withDesign();
+    onFixedBoard();
+    selectEl(screenId);
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("システム"), { target: { value: "sys_accounting" } });
+    const dialog = screen.getByRole("dialog", { name: "所属の変更の確認" });
+    expect(within(dialog).getByText("「予約一覧」を別のシステムへ移すと、次の設計データが外れます。")).toBeDefined();
+    expect(within(dialog).getByText("「宿泊管理システム」の設計 (画面 1、遷移 1、画面 UI 1、ナビゲーション 1)")).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
+    expect((el(screenId) as { systemId: string }).systemId).toBe("sys_pms");
+    expect(st().model.designs[0]!.screens).toHaveLength(2);
+  });
+
+  it("確認して移すと、画面は移り、それを指す設計の画面・遷移・ナビの項目が外れる", () => {
+    const screenId = withDesign();
+    onFixedBoard();
+    selectEl(screenId);
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("システム"), { target: { value: "sys_accounting" } });
+    fireEvent.click(within(screen.getByRole("dialog", { name: "所属の変更の確認" })).getByRole("button", { name: "移す" }));
+    expect((el(screenId) as { systemId: string }).systemId).toBe("sys_accounting");
+    expect(st().model.designs[0]!.screens.map((s) => s.id)).toEqual(["ds_top"]);
+    expect(st().model.designs[0]!.transitions).toEqual([]);
+  });
+
+  it("設計に使われていない画面は、確認なしで移る", () => {
+    let screenId = "";
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "screen", name: "未使用", init: { systemId: "sys_pms" } }));
+      if (r.ok) screenId = r.id;
+    });
+    onFixedBoard();
+    selectEl(screenId);
+    render(<PropertyPanel />);
+    fireEvent.change(screen.getByLabelText("システム"), { target: { value: "sys_accounting" } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect((el(screenId) as { systemId: string }).systemId).toBe("sys_accounting");
+  });
+});
+

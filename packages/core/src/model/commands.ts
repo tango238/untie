@@ -1,6 +1,7 @@
 // モデルを変える純粋関数 (設計書 6 章)。
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
+import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens } from "./design";
 import { newUniqueId } from "./id";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
@@ -202,6 +203,61 @@ function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void 
   for (const e of draft.elements) {
     if (e.kind === "issue") e.targetIds = e.targetIds.filter((id) => !removed.has(id));
   }
+  sweepDesigns(draft, removed);
+}
+
+/**
+ * 削除した要素への参照を、設計データから掃除する (0.4.0)。
+ * - システムを消すと、その設計も消す
+ * - 画面を消すと、それを参照する設計の画面と、その画面を参照する遷移・ナビゲーションの項目を消す (bindings は画面と一緒に消える)
+ * - 情報を消すと、データベースのテーブルが表す情報から外す。データベース自体は消さない
+ */
+function sweepDesigns(draft: UntieModel, removed: ReadonlySet<string>): void {
+  draft.designs = draft.designs.filter((d) => !removed.has(d.systemId));
+  for (const design of draft.designs) {
+    removeDesignScreens(design, (s) => s.source.kind === "screen" && removed.has(s.source.screenId));
+  }
+  for (const db of draft.databases) {
+    for (const table of db.tables) table.informationIds = table.informationIds.filter((id) => !removed.has(id));
+  }
+}
+
+// ---------------------------------------------------------------- 設計
+
+export interface EnsureDesignPayload {
+  systemId: string;
+}
+
+/**
+ * そのシステムの設計が無ければ空の設計を足す。データベースが 1 つも無ければ既定のデータベースも足す。
+ * 設計モードでシステムを選んだときに呼ぶ。すでにあれば何も変えない
+ */
+export function ensureDesign(model: UntieModel, payload: EnsureDesignPayload): CommandResult {
+  const system = findElement(model, payload.systemId);
+  if (!system || system.kind !== "system") return fail(`システムが存在しません: ${payload.systemId}`);
+  const needsDesign = !model.designs.some((d) => d.systemId === payload.systemId);
+  const needsDatabase = model.databases.length === 0;
+  if (!needsDesign && !needsDatabase) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    if (needsDesign) {
+      draft.designs.push({ systemId: payload.systemId, databaseIds: [], screens: [], transitions: [], layout: { shell: "shell", navigation: [] } });
+    }
+    if (needsDatabase) draft.databases.push({ id: DEFAULT_DATABASE_ID, name: DEFAULT_DATABASE_NAME, dsl: "", tables: [] });
+  });
+  return { ok: true, model: next };
+}
+
+export interface RemoveDesignPayload {
+  systemId: string;
+}
+
+/** システムの設計を消す。データベースは消さない */
+export function removeDesign(model: UntieModel, payload: RemoveDesignPayload): CommandResult {
+  if (!model.designs.some((d) => d.systemId === payload.systemId)) return fail(`設計が存在しません: ${payload.systemId}`);
+  const next = produce(model, (draft) => {
+    draft.designs = draft.designs.filter((d) => d.systemId !== payload.systemId);
+  });
+  return { ok: true, model: next };
 }
 
 // ---------------------------------------------------------------- 要素
@@ -470,7 +526,7 @@ export interface RemoveElementPayload {
   id: string;
 }
 
-/** 要素と付随するもの (関係・ボードのノード・課題の対象・業務なら BUC・システムなら画面と非機能要件) を消す */
+/** 要素と付随するもの (関係・ボードのノード・課題の対象・設計データ・業務なら BUC・システムなら画面と非機能要件) を消す */
 export function removeElement(model: UntieModel, payload: RemoveElementPayload): CommandResult {
   const target = findElement(model, payload.id);
   if (!target) return fail(`要素が存在しません: ${payload.id}`);
@@ -516,7 +572,7 @@ export interface MoveToSystemPayload {
   systemId: string;
 }
 
-/** 画面・非機能要件の属するシステムを変える */
+/** 画面・非機能要件の属するシステムを変える。画面なら、それを指す設計の画面と遷移・ナビゲーションの項目も外す */
 export function moveToSystem(model: UntieModel, payload: MoveToSystemPayload): CommandResult {
   const target = findElement(model, payload.elementId);
   if (!target || !isSystemMemberKind(target.kind)) return fail(`画面・非機能要件が存在しません: ${payload.elementId}`);
@@ -526,6 +582,10 @@ export function moveToSystem(model: UntieModel, payload: MoveToSystemPayload): C
   const next = produce(model, (draft) => {
     const el = draft.elements.find((e) => e.id === payload.elementId);
     if (el && "systemId" in el) el.systemId = payload.systemId;
+    // 設計の画面は同じシステムの画面しか指せないので、別のシステムへ移った画面を指すものは外す (removeElement と同じ範囲)
+    if (target.kind === "screen") {
+      for (const design of draft.designs) removeDesignScreens(design, (s) => s.source.kind === "screen" && s.source.screenId === payload.elementId);
+    }
   });
   return { ok: true, model: next };
 }
@@ -879,6 +939,8 @@ export function clearAll(model: UntieModel, payload: ClearAllPayload = {}): Comm
   const next = produce(model, (draft) => {
     draft.elements = [];
     draft.relations = [];
+    draft.designs = [];
+    draft.databases = [];
     draft.boards = [{ id: payload.boardId ?? newUniqueId("board", new Set()), name: "ボード 1", nodes: [] }];
   });
   return { ok: true, model: next };

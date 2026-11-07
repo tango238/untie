@@ -109,6 +109,18 @@ export function isValidElementShape(json: unknown): json is Element {
   return validate !== undefined && validate(json);
 }
 
+/** 設計データの部品 (スキーマの $defs) */
+export type DesignPartKind = "designScreen" | "transition" | "layout" | "navGroup" | "database";
+
+/**
+ * 設計データの部品 1 つがスキーマに合うか。参照整合性は見ない。
+ * 同時編集で Y.Doc から読むとき、形の壊れた画面・遷移・ナビ・データベースを読み飛ばすのに使う (isValidElementShape と同じ流儀)
+ */
+export function isValidDesignShape(kind: DesignPartKind, json: unknown): boolean {
+  const validate = validators[`validateDef_${kind}`];
+  return validate !== undefined && validate(json);
+}
+
 /** 参照整合性の検査。問題を日本語で列挙する */
 export function checkIntegrity(model: UntieModel): string[] {
   const errors: string[] = [];
@@ -257,6 +269,69 @@ export function checkIntegrity(model: UntieModel): string[] {
     }
   }
 
+  errors.push(...checkDesignIntegrity(model, byId));
+
+  return errors;
+}
+
+/** 設計データ (designs・databases。0.4.0) の参照整合性 */
+function checkDesignIntegrity(model: UntieModel, byId: ReadonlyMap<string, Element>): string[] {
+  const errors: string[] = [];
+  const databaseIds = new Set<string>();
+  for (const db of model.databases) {
+    if (databaseIds.has(db.id)) errors.push(`データベースの id が重複しています: ${db.id}`);
+    databaseIds.add(db.id);
+    for (const table of db.tables) {
+      for (const infoId of table.informationIds) {
+        const info = byId.get(infoId);
+        if (!info) errors.push(`データベース「${db.name}」のテーブル「${table.table}」の情報 ${infoId} が存在しません`);
+        else if (info.kind !== "information") errors.push(`データベース「${db.name}」のテーブル「${table.table}」の ${infoId} は情報ではありません`);
+      }
+    }
+  }
+  const seenSystems = new Set<string>();
+  // 画面・遷移・ナビゲーションのグループの id は、設計をまたいで一意 (同時編集で 1 つの Y.Map に置くため)
+  const seenScreens = new Set<string>();
+  const seenTransitions = new Set<string>();
+  const seenGroups = new Set<string>();
+  for (const design of model.designs) {
+    const sys = byId.get(design.systemId);
+    const where = sys ? `設計「${sys.name}」(${design.systemId})` : `設計 (システム ${design.systemId})`;
+    if (!sys) errors.push(`${where} のシステムが存在しません`);
+    else if (sys.kind !== "system") errors.push(`${where} の systemId はシステムではありません`);
+    if (seenSystems.has(design.systemId)) errors.push(`${where} が複数あります (システムごとに 1 つだけです)`);
+    seenSystems.add(design.systemId);
+    for (const dbId of design.databaseIds) if (!databaseIds.has(dbId)) errors.push(`${where} のデータベース ${dbId} が存在しません`);
+
+    const screenIds = new Set<string>();
+    for (const s of design.screens) {
+      if (seenScreens.has(s.id)) errors.push(`${where} の画面の id が重複しています: ${s.id}`);
+      seenScreens.add(s.id);
+      screenIds.add(s.id);
+      if (s.source.kind === "screen") {
+        const screen = byId.get(s.source.screenId);
+        if (!screen) errors.push(`${where} の画面 ${s.id} が指す画面 ${s.source.screenId} が存在しません`);
+        else if (screen.kind !== "screen") errors.push(`${where} の画面 ${s.id} が指す ${s.source.screenId} は画面ではありません`);
+        else if (screen.systemId !== design.systemId) errors.push(`${where} の画面 ${s.id} が指す画面 ${s.source.screenId} は別のシステムの画面です`);
+      }
+      for (const b of s.bindings ?? []) {
+        if (!databaseIds.has(b.databaseId)) errors.push(`${where} の画面 ${s.id} の対応のデータベース ${b.databaseId} が存在しません`);
+      }
+    }
+    for (const t of design.transitions) {
+      if (seenTransitions.has(t.id)) errors.push(`${where} の遷移の id が重複しています: ${t.id}`);
+      seenTransitions.add(t.id);
+      if (!screenIds.has(t.from)) errors.push(`${where} の遷移 ${t.id} の遷移元 ${t.from} が、この設計の画面にありません`);
+      if (!screenIds.has(t.to)) errors.push(`${where} の遷移 ${t.id} の遷移先 ${t.to} が、この設計の画面にありません`);
+    }
+    for (const group of design.layout.navigation) {
+      if (seenGroups.has(group.id)) errors.push(`${where} のナビゲーションのグループの id が重複しています: ${group.id}`);
+      seenGroups.add(group.id);
+      for (const item of group.items) {
+        if (!screenIds.has(item.screenId)) errors.push(`${where} のナビゲーション「${group.group}」の画面 ${item.screenId} が、この設計の画面にありません`);
+      }
+    }
+  }
   return errors;
 }
 

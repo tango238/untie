@@ -317,11 +317,18 @@ doc
 ├ meta:      Y.Map { name, description }
 ├ elements:  Y.Map<id, Y.Map>   … kind, name, description, 種類固有の項目, order
 ├ relations: Y.Map<id, JSON>    … { kind, sourceId, targetId } (作ったあと変えないので値ごと置く)
-└ boards:    Y.Map<id, Y.Map { name, order,
-                               nodes: Y.Map<elementId, { x, y, width?, height? }>,
-                               edges: Y.Map<relationId, { sourceSide, targetSide }> }>
+├ boards:    Y.Map<id, Y.Map { name, order,
+│                              nodes: Y.Map<elementId, { x, y, width?, height? }>,
+│                              edges: Y.Map<relationId, { sourceSide, targetSide }> }>
+├ designs:      Y.Map<`${systemId}/meta` → JSON { databaseIds, order },
+│                    `${systemId}/layout` → JSON { shell, header? }>
+├ designScreens:     Y.Map<DesignScreen.id → JSON { systemId, id, source, view?, bindings?, order }>
+├ designTransitions: Y.Map<Transition.id → JSON { systemId, id, from, to, via?, label?, order }>
+├ designNav:         Y.Map<グループの id → JSON { systemId, id, group, items, order }>
+└ databases:    Y.Map<`${id}/name` → string, `${id}/dsl` → string, `${id}/tables` → JSON, `${id}/order` → string>
 ```
 
+- **設計データ** (`designs`・`designScreens`・`designTransitions`・`designNav`・`databases`。モデルの形式 0.4.0、設計書 4.0・5.7 章): **入れ子の Y.Map を使わず、ルートごとに平らな「キー → JSON の値」で置く**。決まったキーに Y.Map を新しく `set` する作りだと、2 人が同時に設計 (`ensureDesign`) や既定のデータベースを作ったとき、後から作った Y.Map ごと片方が消える。値だけなら、別々のキーに足したものは両方残り、同じキーへの同時の書き込みは後勝ちで 1 つになる。設計があるかは `${systemId}/meta` の有無、データベースがあるかは `${id}/name` の有無で決める。画面・遷移・ナビのグループ (`layout.navigation[]`。そのため `id` を持つ) は、設計を持つ `systemId` を値に入れた別のキーに置くので、同じ設計に 2 人が別々の画面・グループを足しても両方残る (画面・遷移・グループの id は設計をまたいで一意)。画面 UI (`view`) は画面の値の中の 1 つの JSON で、同じ画面の UI を同時に変えたときは後勝ち。データベースの `dsl` は 1 つの文字列で、文字単位では合流しない。設計・データベース・画面・遷移・グループにも `order` を持たせ、組み立てるときに並べて落とす。レイアウトが壊れている・無いときは既定値 (`shell`) で補い、画面と遷移は残す。**読むとき**はスキーマの検証関数 (`designScreen`・`transition`・`navGroup`・`layout`・`database`。`isValidDesignShape`) で部品ごとに検査し、合わないもの、設計 (`/meta`) が無い (消えた) システムの画面・遷移・ナビは読み飛ばす (要素の `isValidElementShape` と同じ流儀。長すぎる文字列は切り詰めた写しで検査する)。`rebuildModel(doc, prev)` は設計の画面・遷移・グループを id ごとに参照を共有する (`shareDesign`)。`observeModelChanges` は変わった `designs`(systemId)・`databases`(id) も知らせる。壊れた参照 (消えたシステム・画面・情報・データベースを指す設計データ) は `repairModel` が `removeElement` の連鎖と同じ範囲で外し、長すぎる設計の文字列は `truncateModelStrings` が切り詰める
 - 要素の項目 (`name`、`description`、`bucId`、`contextId`、`severity`、`hours`、`verification`、`triggerNote`、`values`、`targetIds`、`links`、`analysis`) は Y.Map の値ごとに後勝ち。`values`・`targetIds`・`links` は小さな配列なので丸ごと 1 つの値として置く。
 - `elements` と `boards` の配列の順番は、固定ボードの並び (`fixedBoards.ts` の index による tie-break) に効いている。配列は合流に向かないので、各要素に順序キー `order` (fractional index の文字列) を持たせ、組み立てるときに `order` で並べる。JSON に書き出すときは並べた順の配列にし、`order` は落とす。読み込むときは配列の順に `order` を振る。
 - ノードの座標 `{x, y, width, height}` は 1 つの値として置く (ドラッグの確定は座標とサイズをまとめて 1 回で書く)。
@@ -342,7 +349,7 @@ doc
 | `applyModelDiff(doc, before, after, origin)` | 2 つのモデルを id 単位で比べ、違う項目だけを 1 つのトランザクションで Y.Doc に書く |
 | `repairModel(model)` | 壊れた参照を見つけ、直したモデルと変更の一覧を返す (6 章。core にあり、Y.Doc を知らない) |
 | `repairDoc(doc, origin)` | サーバーだけが呼ぶ。`readRawModel` の結果に `repairModel` を当て、差分を `applyModelDiff` で `origin` 付きに書き (長すぎる文字列は切り詰めて書き戻す)、変更の一覧を返す。壊れていなければ何も書かない |
-| `observeModelChanges(doc, callback)` | 変わった id (`elements` / `relations` / `boards` / `meta`) を、**トランザクションごとに 1 回**、`origin` 付きで知らせる (`observeDeep` を包む)。戻り値は解除 |
+| `observeModelChanges(doc, callback)` | 変わった id (`elements` / `relations` / `boards` / `designs` / `databases` / `meta`) を、**トランザクションごとに 1 回**、`origin` 付きで知らせる (`observeDeep` を包む)。戻り値は解除 |
 
 読み込んだあとのストアは、入れたモデルではなく **`rebuildModel` の結果**を使う。Y.Doc を通すと `$schema`、空の `edges: []`、空の `analysis: {}` は落ちる (コマンドはどれも作らないので、通常の編集では起きない)。
 
@@ -376,6 +383,7 @@ Yjs は「要素 A を消す」と「A への関係を足す」を両方受け�
 - `repairModel` (core、純粋関数) が、`validateModel` の参照整合性検査と同じ規則で壊れた箇所を見つけ、直し方を返す。
   - **持っている規則**: 消えた要素を指す関係・ノード・`targetIds` は消す。消えた BUC を指す `bucId` と消えたコンテキストを指す `contextId` は `null` にする (「無い」ものと「種類が違う」ものを分けて報告する)。業務が消えた BUC は消す。業務の既定の活動はちょうど 1 個にする (無ければ作る。id は `buc_<業務の id>` で、どの端末で直しても同じ。複数なら最初を残し、他の既定の活動の作業は残した方へ付け替えて消す) 。既定の活動の名前を業務名に揃える。自己参照の関係と、両端の種類から決まる kind と合わない関係は消す。置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・BUC) のノードに `width` / `height` が無ければ既定の大きさを補う。関係が消えたボードの線の設定は消す。ボードが 0 枚なら「ボード 1」を作る。
   - **長すぎる文字列は切り詰める**: スキーマの上限 (`limits.ts`。1 章の表) を超えた名前・説明・状態グループ・値・分析の項目・リンクの表示名と URL・ボード名・ファイル名は、要素ごと外さず上限の文字数 (コードポイント) に切り詰める (`truncate.ts`)。外すと、その要素が全員の画面から消え、関係もサーバーに消されるため。コマンドが上限を超える入力を断る (1 章) ので、通常の編集では起きない。古い版のクライアントや壊れた update が書いたときの備え。
+  - **設計データ (0.4.0)**: システムが消えた設計、元の画面が同じシステムの画面でなくなった設計の画面、画面が消えた遷移とナビゲーションの項目、データベースが消えた使用指定と項目の対応、情報が消えたテーブルの対応は消す・外す (データベース自体は消さない。`removeElement` の連鎖と同じ範囲)。データベースの名前と DSL の長すぎる文字列は切り詰める。
   - **同じ関係の重複**は `sameRelation` で畳み、**`(order, id)` で先頭のものを残す**。畳んだ関係の線の設定も消す。
   - **changes の文言**は id・種類・項目名・件数だけで、業務名などの中身を含まない (`作業 act_x の説明が長すぎたので切り詰めた`、`ボード board_x のノード … を消した`)。ルームの `console.log` がそのまま出すため。
   - **持っていない規則 (対象外)**: 要素・関係・ボードをまたいだ id の重複、`hours` の小数点の桁、課題の対象の混在。`validateModel` は検査するが、同時編集では起きにくいので直さない (起きたら `onSave` の検証で見つけて記録し、`save_failed` で知らせる。7.5)。

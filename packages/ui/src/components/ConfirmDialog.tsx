@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 export interface ConfirmDialogProps {
   title: string;
   message: string;
+  /** メッセージの下に箇条書きで添える項目 (例: 一緒に消えるもの) */
+  details?: readonly string[];
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -17,6 +19,7 @@ export interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
+  details,
   confirmLabel = "OK",
   cancelLabel = "キャンセル",
   danger = false,
@@ -39,6 +42,13 @@ export function ConfirmDialog({
       <div className="dialog" role="dialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         <p>{message}</p>
+        {details && details.length > 0 && (
+          <ul className="dialog-details">
+            {details.map((d) => (
+              <li key={d}>{d}</li>
+            ))}
+          </ul>
+        )}
         <div className="dialog-actions">
           <button type="button" ref={cancelRef} onClick={onCancel}>
             {cancelLabel}

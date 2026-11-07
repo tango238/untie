@@ -3,6 +3,7 @@ import { okModel, sample } from "@untie/core/testing";
 import type { CommandResult } from "@untie/core/model/commands";
 import type { UntieModel } from "@untie/core/model/types";
 import { validateModel } from "@untie/core/model/validate";
+import { ensureDesign } from "@untie/core/model/commands";
 import { executeTool, MODEL_TOOLS, modelForAi, type ModelEditor } from "../tools";
 
 function editorOf(initial: UntieModel): ModelEditor & { model: UntieModel } {
@@ -88,6 +89,20 @@ describe("AI の道具", () => {
     expect(e.model.elements.find((x) => x.id === "cond_full")).toMatchObject({ contextId: null });
     expect(executeTool(e, "remove_element", { id: "act_clean" }).ok).toBe(true);
     void okModel;
+  });
+
+  it("remove_element は確認なしで消すが、一緒に消えた設計データを結果に含める。設計に使われていなければ含めない", () => {
+    const e = editorOf(sample());
+    expect(parse(executeTool(e, "remove_element", { id: "sys_payment" }).content)).toEqual({ ok: true });
+    e.model = okModel(ensureDesign(e.model, { systemId: "sys_pms" }));
+    e.model = {
+      ...e.model,
+      designs: e.model.designs.map((d) => ({ ...d, screens: [{ id: "ds_top", source: { kind: "builtin" as const, builtin: "top" as const } }] })),
+    };
+    const r = executeTool(e, "remove_element", { id: "sys_pms" });
+    expect(r.ok && r.changed).toBe(true);
+    expect(parse(r.content).removedDesign).toBe("設計データも一緒に消えました: 「宿泊管理システム」の設計 (画面 1)");
+    expect(e.model.designs).toEqual([]);
   });
 
   it("update_element の trigger_note は作業の起点 (その他) を書き、空文字で消す。作業以外には書けない", () => {

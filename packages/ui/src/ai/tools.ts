@@ -13,7 +13,7 @@ import {
   type CommandResult,
   type ElementPatch,
 } from "@untie/core/model/commands";
-import { defaultBucOf } from "@untie/core/model/selectors";
+import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
 import { ELEMENT_KINDS, type ElementKind, type UntieModel } from "@untie/core/model/types";
 
 /** プロバイダーに渡す道具の定義 (JSON Schema) */
@@ -105,7 +105,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "remove_element",
     description:
-      "要素を消す。つながる関係・ボード上の配置・課題の対象も消える。業務を消すとその BUC も消え、作業は未所属になる。",
+      "要素を消す。つながる関係・ボード上の配置・課題の対象も消える。システム・画面を消すとその設計データ (サイトマップなど)、情報を消すとデータベースのテーブルとの対応も消える (結果に消えた設計データを返す)。業務を消すとその BUC も消え、作業は未所属になる。",
     parameters: { type: "object", properties: { id: str("要素の id") }, required: ["id"], additionalProperties: false },
   },
   {
@@ -264,7 +264,9 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
     case "remove_element": {
       const id = s(input.id);
       if (!id) return fail("id が必要です");
-      return run(editor, (m) => removeElement(m, { id }));
+      // 確認なしで消すが、一緒に消えた設計データは結果に含めて、AI と利用者に伝える
+      const removedDesign = designReferences(editor.getModel(), id);
+      return run(editor, (m) => removeElement(m, { id }), () => ({ ok: true, ...(removedDesign.length > 0 ? { removedDesign: `設計データも一緒に消えました: ${removedDesign.join("、")}` } : {}) }));
     }
 
     case "add_relation": {

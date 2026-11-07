@@ -75,9 +75,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.3.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.4.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.3.1";
+  version: "0.4.0";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -93,6 +93,14 @@ export interface UntieModel {
    * @minItems 1
    */
   boards: [Board, ...Board[]];
+  /**
+   * システムごとの設計 (設計モード。0.4.0 から)。systemId は一意。参照整合性は validateModel() で検査する。
+   */
+  designs: SystemDesign[];
+  /**
+   * 設計をまたいで共有するデータベース (0.4.0 から)。id は一意。
+   */
+  databases: Database[];
 }
 /**
  * モデル全体の情報。
@@ -426,4 +434,122 @@ export interface BoardEdge {
    * 終点の要素のどの辺に線を入れるか。省略時は left。
    */
   targetSide?: "left" | "right" | "top" | "bottom";
+}
+/**
+ * 1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。
+ */
+export interface SystemDesign {
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  systemId: string;
+  /**
+   * 使うデータベース (databases の id)。空なら既定のデータベース。
+   */
+  databaseIds: Id[];
+  /**
+   * サイトマップの画面。
+   */
+  screens: DesignScreen[];
+  /**
+   * 画面遷移。
+   */
+  transitions: Transition[];
+  layout: Layout;
+}
+/**
+ * サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。
+ */
+export interface DesignScreen {
+  id: Id;
+  source:
+    | {
+        kind: "screen";
+        /**
+         * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+         */
+        screenId: string;
+      }
+    | {
+        kind: "builtin";
+        builtin: "signIn" | "top" | "signUp" | "passwordReminder";
+      };
+  /**
+   * 画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。
+   */
+  view?: {
+    [k: string]: unknown;
+  };
+  /**
+   * 画面の項目とテーブルの列の対応。
+   */
+  bindings?: {
+    item: Name;
+    databaseId: Id;
+    table: Name;
+    column: Name;
+  }[];
+}
+/**
+ * 画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。
+ */
+export interface Transition {
+  id: Id;
+  from: Id;
+  to: Id;
+  /**
+   * 遷移のきっかけ。省略は未定。
+   */
+  via?: "button" | "row" | "nav" | "afterSubmit";
+  label?: Name;
+}
+/**
+ * システム共通のレイアウト。
+ */
+export interface Layout {
+  /**
+   * shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。
+   */
+  shell: "shell" | "plain";
+  header?: {
+    systemName?: Name;
+    userName?: Name;
+    tenantName?: Name;
+  };
+  /**
+   * ナビゲーション。グループごとに画面を並べる。
+   */
+  navigation: NavGroup[];
+}
+/**
+ * ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。
+ */
+export interface NavGroup {
+  id: Id;
+  group: Name;
+  items: {
+    /**
+     * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+     */
+    screenId: string;
+    label?: Name;
+  }[];
+}
+/**
+ * データベース。設計をまたいで共有する。
+ */
+export interface Database {
+  id: Id;
+  name: Name;
+  /**
+   * Prisma 風の DSL (今は解析しない)。
+   */
+  dsl: string;
+  /**
+   * テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。
+   */
+  tables: {
+    table: Name;
+    informationIds: Id[];
+  }[];
 }

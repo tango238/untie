@@ -8,7 +8,9 @@ import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./components/useKeyboard";
 import { parseAnalysisBoardId } from "@untie/core/model/analysis";
+import { parseDesignBoardId } from "@untie/core/model/design";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
+import { DesignBoard } from "./components/design/DesignBoard";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
 import { selectReadOnly, useUntieStore } from "./store";
 import { ROLE_LABELS } from "@untie/api";
@@ -31,7 +33,8 @@ export default function App() {
   const saveFailed = useUntieStore((s) => s.cloud?.saveFailed ?? false);
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
-  const builtin = fixedLayer !== null || analysis !== null;
+  const design = useUntieStore((s) => parseDesignBoardId(s.ui.currentBoardId));
+  const builtin = fixedLayer !== null || analysis !== null || design !== null;
   return (
     <div className="app">
       {readOnly && role && (
@@ -48,7 +51,7 @@ export default function App() {
         </div>
       )}
       <Toolbar />
-      {/* 固定ボード・分析ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
+      {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
         className={`main${builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
       >
@@ -58,6 +61,8 @@ export default function App() {
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
           ) : analysis ? (
             <AnalysisBoard key={analysis} kind={analysis} />
+          ) : design ? (
+            <DesignBoard key={design} kind={design} />
           ) : (
             <Canvas />
           )}

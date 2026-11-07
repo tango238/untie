@@ -473,3 +473,45 @@ describe("ストア: クラウドファイル", () => {
     expect(st().peers).toEqual([]);
   });
 });
+
+describe("ストア: クラウドファイルと設計モード", () => {
+  it("他の人が設計の対象のシステムを消すと、分析モードに戻る", () => {
+    attach();
+    st().enterDesign("sys_pms");
+    st().setCurrentBoard("design:data");
+    expect(st().ui.mode).toBe("design");
+    peerEdit((m) => removeElement(m, { id: "sys_pms" }));
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.designSystemId).toBeUndefined();
+    expect(st().ui.currentBoardId).toBe("analysis:issues");
+  });
+
+  it("他の人が別のシステムを消しても、設計モードのまま", () => {
+    attach();
+    st().enterDesign("sys_pms");
+    peerEdit((m) => removeElement(m, { id: "sys_payment" }));
+    expect(st().ui.mode).toBe("design");
+  });
+
+  it("つなぎ直し (keepUi) ではモードと設計の対象を引き継ぐ", () => {
+    st().enterDesign("sys_pms");
+    st().setCurrentBoard("design:data");
+    detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "design:data", selection: null } });
+    st().setCloudStatus("connected");
+    expect(st().ui.mode).toBe("design");
+    expect(st().ui.designSystemId).toBe("sys_pms");
+    expect(st().ui.currentBoardId).toBe("design:data");
+  });
+
+  it("クラウドファイルを開く・閉じると分析に戻る", () => {
+    st().enterDesign("sys_pms");
+    attach();
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.designSystemId).toBeUndefined();
+    st().enterDesign("sys_pms");
+    st().closeCloud();
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.currentBoardId).toBe("analysis:issues");
+  });
+});
+

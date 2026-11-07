@@ -12,3 +12,4 @@ export * from "./analysis";
 export * from "./repair";
 export * from "./limits";
 export * from "./truncate";
+export * from "./design";
