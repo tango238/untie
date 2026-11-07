@@ -9,13 +9,17 @@ import {
   removeElement,
   removeRelation,
   setDatabaseDsl,
+  setDesignScreenView,
   setIssueTargets,
   setTableInformation,
   updateElement,
   type CommandResult,
   type ElementPatch,
 } from "@untie/core/model/commands";
+import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { designsUsingDatabase } from "@untie/core/model/designData";
+import { viewBindingSlots, viewShapeProblem } from "@untie/core/model/designView";
+import { designScreenName } from "@untie/core/model/sitemap";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
 import { ELEMENT_KINDS, type ElementKind, type UntieModel } from "@untie/core/model/types";
@@ -193,6 +197,42 @@ export const MODEL_TOOLS: ToolDef[] = [
       type: "object",
       properties: { database_id: str("データベースの id"), table: str("テーブル (model) の名前"), information_ids: strArray("表す情報の id (空で対応を消す)") },
       required: ["database_id", "table", "information_ids"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_design_screens",
+    description:
+      "設計モードの画面の一覧を返す。各画面の id (設計の画面の id)・名前・システム・画面 UI (view) の有無・項目と列の対応の数と、対応が無い項目の数。画面 UI は get_design_screen で読み、set_design_screen_view で置き換える。",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_design_screen",
+    description:
+      "設計の画面 1 つの画面 UI (mokkun v2 の view)、項目と列の対応 (bindings)、画面が使う情報、この画面からの遷移、使うデータベースのテーブルと列を返す。画面 UI を直す前に呼ぶこと。",
+    parameters: { type: "object", properties: { screen_id: str("設計の画面の id (list_design_screens の id)") }, required: ["screen_id"], additionalProperties: false },
+  },
+  {
+    name: "set_design_screen_view",
+    description:
+      "設計の画面の画面 UI (view 全体) を置き換える。view は mokkun v2 の view (title, goal, sections ...) で、mokkun の検証に通らなければ失敗にして理由を返す。遷移は action の navigate / submit の to、一覧の列の to に設計の画面の id を書く。bindings は項目と列の対応で、省くと今のまま、渡すと全部を置き換える。",
+    parameters: {
+      type: "object",
+      properties: {
+        screen_id: str("設計の画面の id"),
+        view: { type: "object", description: "mokkun v2 の view", additionalProperties: true },
+        bindings: {
+          type: "array",
+          description: "項目と列の対応。item は fields[].item、一覧の列は `<セクションの id>.<列の id>`",
+          items: {
+            type: "object",
+            properties: { item: str("項目のキー"), database_id: str("データベースの id"), table: str("テーブルの名前"), column: str("列の名前") },
+            required: ["item", "database_id", "table", "column"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["screen_id", "view"],
       additionalProperties: false,
     },
   },
@@ -404,8 +444,147 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       return run(editor, (m) => setTableInformation(m, { id, table, informationIds }));
     }
 
+    case "list_design_screens": {
+      const model = editor.getModel();
+      return okJson(
+        model.designs.flatMap((d) =>
+          d.screens.map((sc) => {
+            const bound = new Set((sc.bindings ?? []).map((b) => b.item));
+            return {
+              id: sc.id,
+              name: designScreenName(model, sc),
+              system: model.elements.find((e) => e.id === d.systemId)?.name || "(名前なし)",
+              hasView: sc.view !== undefined,
+              bindings: sc.bindings?.length ?? 0,
+              ...(sc.view !== undefined ? { unmappedItems: viewBindingSlots(sc.view).filter((x) => !bound.has(x.key) && (x.kind === "column" || x.sectionKind === "form")).length } : {}),
+            };
+          }),
+        ),
+        false,
+      );
+    }
+
+    case "get_design_screen": {
+      const id = s(input.screen_id);
+      if (!id) return fail("screen_id が必要です");
+      const model = editor.getModel();
+      const design = model.designs.find((d) => d.screens.some((x) => x.id === id));
+      const screen = design?.screens.find((x) => x.id === id);
+      if (!design || !screen) return fail(`設計に無い画面です: ${id}`);
+      const byId = new Map(model.elements.map((e) => [e.id, e]));
+      const name = (eid: string) => byId.get(eid)?.name || "(名前なし)";
+      const analysisId = screen.source.kind === "screen" ? screen.source.screenId : undefined;
+      const databases = effectiveDatabaseIds(model, design).flatMap((dbId) => {
+        const db = model.databases.find((d) => d.id === dbId);
+        if (!db) return [];
+        return [
+          {
+            id: db.id,
+            name: db.name,
+            tables: (() => {
+              const schema = parsePrismaDslCached(db.dsl);
+              const modelNames = new Set(schema.models.map((x) => x.name));
+              return schema.models.map((m) => ({
+                table: m.name,
+                informations: infoRefs(db.tables.find((t) => t.table === m.name)?.informationIds ?? [], name),
+                // 他のテーブルを指す関連の列は除く (列の対応に使えるのは値の列)
+                columns: m.fields.filter((f) => !modelNames.has(f.type)).map((f) => f.name),
+              }));
+            })(),
+          },
+        ];
+      });
+      return okJson(
+        {
+          id: screen.id,
+          name: designScreenName(model, screen),
+          systemId: design.systemId,
+          ...(analysisId && byId.get(analysisId)?.description ? { description: byId.get(analysisId)!.description } : {}),
+          hasView: screen.view !== undefined,
+          ...(screen.view !== undefined ? { view: screen.view } : {}),
+          bindings: (screen.bindings ?? []).map((b) => ({ item: b.item, database_id: b.databaseId, table: b.table, column: b.column })),
+          informations: analysisId ? model.relations.filter((r) => r.kind === "screenInformation" && r.sourceId === analysisId).map((r) => ({ id: r.targetId, name: name(r.targetId) })) : [],
+          transitions: design.transitions
+            .filter((t) => t.from === id)
+            .map((t) => ({ to: t.to, toName: design.screens.find((x) => x.id === t.to) ? designScreenName(model, design.screens.find((x) => x.id === t.to)!) : t.to, ...(t.via ? { via: t.via } : {}), ...(t.label ? { label: t.label } : {}) })),
+          databases,
+        },
+        false,
+      );
+    }
+
+    case "set_design_screen_view":
+      // mokkun の検証は遅延読み込みの非同期なので、executeToolAsync で扱う
+      return fail("set_design_screen_view は executeToolAsync で実行します");
+
     default:
       return fail(`不明な道具です: ${name}`);
   }
 }
 
+/**
+ * 道具を 1 回実行する (非同期版)。mokkun の検証が要る道具 (set_design_screen_view) だけここで扱い、ほかは executeTool に任せる。
+ * mokkun は大きいので、使うときに読み込む
+ */
+export async function executeToolAsync(editor: ModelEditor, name: string, rawInput: unknown): Promise<ToolOutcome> {
+  if (name !== "set_design_screen_view") return executeTool(editor, name, rawInput);
+  const input = (rawInput && typeof rawInput === "object" ? rawInput : {}) as Input;
+  const id = s(input.screen_id);
+  if (!id) return fail("screen_id が必要です");
+  const model = editor.getModel();
+  const design = model.designs.find((d) => d.screens.some((x) => x.id === id));
+  if (!design) return fail(`設計に無い画面です: ${id}`);
+  let view: unknown = input.view;
+  if (typeof view === "string") {
+    try {
+      view = JSON.parse(view);
+    } catch {
+      return fail("view は JSON のオブジェクトで渡してください");
+    }
+  }
+  if (!view || typeof view !== "object" || Array.isArray(view)) return fail("view (オブジェクト) が必要です");
+  let bindings: { item: string; databaseId: string; table: string; column: string }[] | undefined;
+  if (input.bindings !== undefined) {
+    if (!Array.isArray(input.bindings)) return fail("bindings は配列で渡してください");
+    bindings = [];
+    for (const b of input.bindings) {
+      const x = (b && typeof b === "object" ? b : {}) as Input;
+      const item = s(x.item);
+      const databaseId = s(x.database_id);
+      const table = s(x.table);
+      const column = s(x.column);
+      if (!item || !databaseId || !table || !column) return fail("bindings の各要素には item・database_id・table・column が必要です");
+      bindings.push({ item, databaseId, table, column });
+    }
+  }
+  const { validateView } = await import("../components/design/viewValidate");
+  const screen = design.screens.find((x) => x.id === id)!;
+  const analysis = screen.source.kind === "screen" ? model.elements.find((e) => e.id === (screen.source as { screenId: string }).screenId) : undefined;
+  const title = designScreenName(model, screen);
+  const goal = (analysis?.kind === "screen" && analysis.description?.trim()) || title;
+  const shape = viewShapeProblem(view);
+  if (shape) return fail(shape);
+  // title / goal が無ければ、画面の名前と説明で補って検証する (保存は渡されたまま。プレビューも同じ補いをする)
+  const check = validateView({ title, goal, ...(view as Record<string, unknown>) }, id, design.screens.map((x) => x.id));
+  if (!check.ok) return fail(`view が mokkun の検証に通りません: ${check.message}`);
+  const systemId = design.systemId;
+  const slots = viewBindingSlots(view);
+  const keys = new Set(slots.map((x) => x.key));
+  // view に無い項目の対応は外す (フォーム・YAML の編集と同じ)。bindings を省いたときは、今の対応から外す
+  const base = bindings ?? (screen.bindings ?? []).map((b) => ({ ...b }));
+  const kept = base.filter((b) => keys.has(b.item));
+  const droppedBindings = base.length - kept.length;
+  return run(
+    editor,
+    (m) => setDesignScreenView(m, { systemId, id, view: view as Record<string, unknown>, bindings: kept }),
+    () => {
+      const bound = new Set(kept.map((b) => b.item));
+      return {
+        ok: true,
+        // 列の対応が無い入力の項目と一覧の列 (要約・表示の値は結ばなくてよい)
+        unmappedItems: slots.filter((x) => !bound.has(x.key) && (x.kind === "column" || x.sectionKind === "form")).map((x) => x.key),
+        droppedBindings,
+      };
+    },
+  );
+}

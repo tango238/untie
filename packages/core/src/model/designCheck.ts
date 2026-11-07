@@ -1,6 +1,7 @@
 // 設計モードの検証 (5.7)。設計のあるシステムを、データベースとの対応・サイトマップ・画面の面から調べる。純粋関数だけを置く。
 import { systemInformationIds } from "./designData";
 import { effectiveDatabaseIds } from "./design";
+import { viewBindingSlots } from "./designView";
 import { parsePrismaDslCached } from "./prismaCache";
 import { designScreenName } from "./sitemap";
 import type { UntieModel } from "./types";
@@ -13,7 +14,8 @@ export type DesignProblemType =
   | "noDatabase"
   | "transitionViaUndecided"
   | "screenUnreachable"
-  | "screenWithoutView";
+  | "screenWithoutView"
+  | "bindingUnmapped";
 
 export interface DesignProblemTarget {
   kind: "database" | "table" | "screen" | "transition" | "information" | "board";
@@ -44,6 +46,7 @@ export const DESIGN_PROBLEM_TITLES: Record<DesignProblemType, string> = {
   transitionViaUndecided: "きっかけが未定の遷移",
   screenUnreachable: "メニューからも遷移からも辿れない画面",
   screenWithoutView: "画面 UI がまだ無い画面",
+  bindingUnmapped: "列の対応が無い項目",
 };
 
 /** 種類を並べる順 (エラー・警告それぞれの中で) */
@@ -55,6 +58,7 @@ export const DESIGN_PROBLEM_ORDER: readonly DesignProblemType[] = [
   "bindingInvalid",
   "transitionViaUndecided",
   "screenUnreachable",
+  "bindingUnmapped",
   "screenWithoutView",
 ];
 
@@ -163,6 +167,19 @@ export function checkDesign(model: UntieModel, systemId: string): DesignCheckRes
       type: "screenWithoutView",
       message: `画面 UI がまだ無い画面が ${noView.length} 件あります (${noView.slice(0, 3).map((s) => designScreenName(model, s)).join("、")}${noView.length > 3 ? " ほか" : ""})`,
       target: { kind: "board", id: "screen" },
+    });
+  }
+  // (i) 画面 UI の入力の項目 (form の fields[].item) と一覧の列のうち、列の対応 (bindings) が無いもの。画面ごとに 1 行にまとめ、画面ボードでその画面を選ぶ
+  for (const s of design.screens) {
+    if (s.view === undefined) continue;
+    const bound = new Set((s.bindings ?? []).map((b) => b.item));
+    // 入力の項目 (form) と一覧の列だけを数える。readonly / summary の計算した値は、列に結ばなくてよい
+    const missing = viewBindingSlots(s.view).filter((slot) => !bound.has(slot.key) && (slot.kind === "column" || slot.sectionKind === "form"));
+    if (missing.length === 0) continue;
+    warnings.push({
+      type: "bindingUnmapped",
+      message: `画面「${screenName(s.id)}」に、列の対応が無い項目が ${missing.length} 件あります (${missing.slice(0, 3).map((m) => m.label).join("、")}${missing.length > 3 ? " ほか" : ""})`,
+      target: { kind: "screen", id: s.id },
     });
   }
   return { problems: sortProblems(problems), warnings: sortProblems(warnings) };

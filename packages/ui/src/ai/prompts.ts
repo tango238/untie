@@ -50,6 +50,7 @@ ${MODEL_DESCRIPTION}
 - 道具が失敗したら、理由を読んで直してからやり直す
 - 設計モードのデータベース (list_databases / get_database_dsl / set_database_dsl / set_table_information) は、DSL を Prisma のスキーマの一部で書き、テーブル (model) が表す情報を別に結ぶ。リバースエンジニアリングの専用機能は無いので、既存の DDL や Prisma スキーマは利用者に会話へ貼ってもらい、あなたが DSL に組み立てる
 - set_database_dsl は解析エラーがあっても保存する。結果の parseErrors が空になるまで直す。データベースは設計をまたいで共有されるので、他の設計が使う DSL を消さない
+- 設計モードの画面 (list_design_screens / get_design_screen / set_design_screen_view) の画面 UI は mokkun v2 の view (title, goal, sections ...) で、set_design_screen_view が view 全体を置き換える。直す前に get_design_screen で今の view と使えるテーブル・列を読む。遷移は action の navigate / submit の to、一覧の列の to に設計の画面の id を書く。項目と列の対応は bindings (item は fields[].item、一覧の列は 「セクションの id.列の id」) で渡す。mokkun の検証に通らないと失敗して理由が返るので、直して出し直す
 - 終わったら、何を変えたかを短くまとめて伝える (要素名で書く。id は書かない)
 - 利用者が見るのは画面のボードとプロパティ欄なので、作業・操作・活動などの画面での呼び名で話す`;
 }

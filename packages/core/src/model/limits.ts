@@ -17,6 +17,11 @@ export const VERIFICATION_MAX_LENGTH = 4000;
 export const TRIGGER_NOTE_MAX_LENGTH = 4000;
 /** データベースの DSL (Prisma 風。0.4.0) */
 export const DSL_MAX_LENGTH = 200000;
+/** 画面 UI (view) を JSON にしたときの大きさ (設計の画面 UI。0.4.0) */
+export const VIEW_JSON_MAX_LENGTH = 200000;
+/** 画面 UI (view) の入れ子の深さと、節 (オブジェクト・配列・値) の数の上限。YAML のエイリアスなどで小さな入力が巨大に膨らむのを防ぐ */
+export const VIEW_MAX_DEPTH = 64;
+export const VIEW_MAX_NODES = 50000;
 
 /** JSON Schema の maxLength と同じ数え方 (コードポイント。サロゲートペアは 1 文字) */
 export function textLength(text: string): number {
@@ -54,6 +59,7 @@ export const LIMITS = {
   verification: { max: VERIFICATION_MAX_LENGTH, label: "検証方法" },
   triggerNote: { max: TRIGGER_NOTE_MAX_LENGTH, label: "起点 (その他)" },
   dsl: { max: DSL_MAX_LENGTH, label: "DSL" },
+  viewJson: { max: VIEW_JSON_MAX_LENGTH, label: "画面 UI (JSON にしたもの)" },
   transitionLabel: { max: NAME_MAX_LENGTH, label: "遷移の文言" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;

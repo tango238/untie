@@ -1,6 +1,6 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
-import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigation, updateTransition } from "../model/commands";
+import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigation, setDesignScreenView, updateTransition } from "../model/commands";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
@@ -678,6 +678,132 @@ model Stocktake {
 }
 `;
 
+/** POSレジの画面 UI (mokkun v2 の view) と、項目と列の対応。遷移先は設計の画面の id */
+const POS_VIEWS: { id: string; view: Record<string, unknown>; bindings: { item: string; table: string; column: string }[] }[] = [
+  {
+    id: "ds_pos_search",
+    view: {
+      title: "商品・在庫の検索",
+      goal: "商品と在庫数を調べ、値引きや廃棄が要る商品を見つける",
+      sections: [
+        {
+          id: "condition",
+          title: "検索条件",
+          kind: "form",
+          columns: 2,
+          fields: [
+            { item: "keyword", label: "商品名・コード", component: "text", example: "おにぎり" },
+            {
+              item: "categoryId",
+              label: "カテゴリ",
+              component: "select",
+              options: [
+                { value: "food", label: "食品" },
+                { value: "drink", label: "飲料" },
+                { value: "daily", label: "日用品" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "results",
+          title: "検索結果",
+          kind: "list",
+          list: {
+            columns: [
+              { id: "code", label: "商品コード", to: "ds_pos_disposal" },
+              { id: "name", label: "商品名" },
+              { id: "price", label: "売価", type: "number" },
+              { id: "quantity", label: "在庫数", type: "number" },
+            ],
+            paging: { pageSize: 20 },
+            selection: "none",
+          },
+        },
+      ],
+    },
+    bindings: [
+      { item: "keyword", table: "Item", column: "name" },
+      { item: "categoryId", table: "Item", column: "categoryId" },
+      { item: "results.code", table: "Item", column: "code" },
+      { item: "results.name", table: "Item", column: "name" },
+      { item: "results.price", table: "Item", column: "price" },
+      { item: "results.quantity", table: "StockLevel", column: "quantity" },
+    ],
+  },
+  {
+    id: "ds_pos_sale",
+    view: {
+      title: "レジ打ち",
+      goal: "商品を読み取って明細を作り、支払を受けて会計を終える",
+      primaryAction: { id: "checkout", label: "会計する", kind: "submit", style: "primary" },
+      sections: [
+        {
+          id: "lines",
+          title: "明細",
+          kind: "list",
+          list: {
+            columns: [
+              { id: "item", label: "商品" },
+              { id: "quantity", label: "数量", type: "number" },
+              { id: "price", label: "単価", type: "number" },
+            ],
+            selection: "none",
+          },
+        },
+        {
+          id: "payment",
+          title: "支払",
+          kind: "form",
+          columns: 2,
+          fields: [
+            {
+              item: "method",
+              label: "支払方法",
+              component: "select",
+              required: true,
+              options: [
+                { value: "CASH", label: "現金" },
+                { value: "CARD", label: "カード" },
+                { value: "QR", label: "QR コード" },
+              ],
+            },
+            { item: "amount", label: "支払額", component: "number", required: true, unit: "円" },
+          ],
+        },
+      ],
+    },
+    bindings: [
+      { item: "lines.item", table: "SaleLine", column: "itemId" },
+      { item: "lines.quantity", table: "SaleLine", column: "quantity" },
+      { item: "lines.price", table: "SaleLine", column: "price" },
+      { item: "method", table: "Payment", column: "method" },
+      { item: "amount", table: "Payment", column: "amount" },
+    ],
+  },
+  {
+    id: "ds_pos_top",
+    view: {
+      title: "トップページ",
+      goal: "店の今日の状況をひと目で確かめる",
+      sections: [
+        {
+          id: "today",
+          title: "今日の状況",
+          kind: "summary",
+          columns: 2,
+          fields: [
+            { item: "todaySales", label: "本日の売上", component: "text", readonly: true, example: "128,400 円" },
+            { item: "lowStock", label: "在庫の少ない商品", component: "text", readonly: true, example: "3 点" },
+          ],
+        },
+      ],
+    },
+    // 要約の値は計算した値なので、列には結ばない
+    bindings: [],
+  },
+];
+
 /**
  * POSレジの設計 (サイトマップ): サインイン・トップページと、POSレジの画面に届く作業をすべてチェックしたのと同じ内容。
  * 遷移は deriveTransitions で導き、いくつかにはきっかけ (via) を入れる
@@ -696,7 +822,7 @@ function withPosDesign(model: UntieModel): UntieModel {
   if (!added.ok) throw new Error(`サンプルの設計が作れません: ${added.reason}`);
   let next = added.model;
   const via: [from: string, to: string, via: "button" | "row" | "nav", label?: string][] = [
-    ["scr_pos_search", "scr_pos_disposal", "button", "値引き・廃棄へ"],
+    ["scr_pos_search", "scr_pos_disposal", "row"],
     ["scr_pos_search", "scr_pos_stocktake", "button"],
     ["scr_pos_cash", "scr_pos_daily", "button", "日次売上を見る"],
   ];
@@ -740,7 +866,14 @@ function withPosDesign(model: UntieModel): UntieModel {
     ],
   });
   if (!db.ok) throw new Error(`サンプルのデータベースが作れません: ${db.reason}`);
-  return db.model;
+  // 画面 UI (3 画面) と、項目と既定のデータベースの列の対応
+  next = db.model;
+  for (const v of POS_VIEWS) {
+    const r = setDesignScreenView(next, { systemId: "sys_pos", id: v.id, view: v.view, bindings: v.bindings.map((b) => ({ ...b, databaseId: DEFAULT_DATABASE_ID })) });
+    if (!r.ok) throw new Error(`サンプルの画面 UI が作れません: ${r.reason}`);
+    next = r.model;
+  }
+  return next;
 }
 
 export const retailSample: UntieModel = withPosDesign(baseModel);

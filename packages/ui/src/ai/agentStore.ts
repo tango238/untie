@@ -8,7 +8,7 @@ import { executeGrillTool, GRILL_TOOLS, grillOpening, grillSystemPrompt } from "
 import { getApiKey } from "./keys";
 import { agentSystemPrompt } from "./prompts";
 import { loadAiSettings, PROVIDERS, saveAiSettings, type AiSettings } from "./providers";
-import { executeTool, MODEL_TOOLS, type ModelEditor, type ToolDef, type ToolOutcome } from "./tools";
+import { executeToolAsync, MODEL_TOOLS, type ModelEditor, type ToolDef, type ToolOutcome } from "./tools";
 
 export type ChatItemRole = "user" | "assistant" | "tool" | "error" | "info";
 
@@ -94,7 +94,7 @@ function screenContext(): string {
 }
 
 /** モードごとの指示と道具 */
-function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolDef[]; runTool: (name: string, input: unknown) => ToolOutcome } {
+function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolDef[]; runTool: (name: string, input: unknown) => ToolOutcome | Promise<ToolOutcome> } {
   if (mode.kind === "grill") {
     return {
       key: `grill:${mode.issueId}`,
@@ -103,7 +103,7 @@ function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolD
       runTool: (name, input) => executeGrillTool(storeEditor, mode.issueId, name, input),
     };
   }
-  return { key: "edit", system: agentSystemPrompt(), tools: MODEL_TOOLS, runTool: (name, input) => executeTool(storeEditor, name, input) };
+  return { key: "edit", system: agentSystemPrompt(), tools: MODEL_TOOLS, runTool: (name, input) => executeToolAsync(storeEditor, name, input) };
 }
 
 export const useAgentStore = create<AgentState>()((set, get) => {

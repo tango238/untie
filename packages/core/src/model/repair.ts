@@ -15,7 +15,7 @@
 // - 置けない要素 (課題・既定の活動) のノードは消す。枠 (業務・活動) のノードに width / height が無ければ既定の大きさを補う
 // - ボードが 0 枚なら「ボード 1」を作る
 // - 設計データ (0.4.0): システムが無い設計、元の画面が無い (別のシステムの画面を含む) 設計の画面、画面が無い遷移・ナビゲーションの項目、
-//   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)
+//   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)。大きすぎる・深すぎる・使えないキーを含む画面 UI は、画面を残して画面 UI と対応を消す
 // - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
 //
 // changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
@@ -27,6 +27,8 @@
 import { produce } from "immer";
 import { DEFAULT_FRAME_SIZE } from "./commands";
 import { removeDesignScreens } from "./design";
+import { viewShapeProblem } from "./designView";
+import { isTooLong, VIEW_JSON_MAX_LENGTH } from "./limits";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
 import { truncateModelStrings } from "./truncate";
@@ -278,6 +280,16 @@ export function repairModel(input: UntieModel): RepairResult {
         design.databaseIds = usable;
       }
       for (const s of design.screens) {
+        // 画面 UI が大きすぎる・深すぎる・使えないキーを含むときは、画面を残して画面 UI と対応を捨てる
+        if (s.view !== undefined) {
+          const problem = viewShapeProblem(s.view) ?? (isTooLong(JSON.stringify(s.view), VIEW_JSON_MAX_LENGTH) ? "大きすぎる" : null);
+          if (problem) {
+            changes.push(`${where}の画面 ${s.id} の画面 UI と項目の対応を消した (${problem === "大きすぎる" ? problem : "形が正しくない"})`);
+            delete s.view;
+            delete s.bindings;
+            continue;
+          }
+        }
         if (s.bindings) {
           const kept = s.bindings.filter((b) => databaseIds.has(b.databaseId));
           if (kept.length !== s.bindings.length) {

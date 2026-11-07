@@ -114,6 +114,8 @@ textarea { resize: vertical; width: 100%; }
 .main.no-list.panel-closed { grid-template-columns: 1fr 32px; }
 .main.with-tree { grid-template-columns: 280px 1fr 320px; }
 .main.with-tree.panel-closed { grid-template-columns: 280px 1fr 32px; }
+.main.with-tree.with-screen { grid-template-columns: 240px 1fr 420px; }
+.main.with-tree.with-screen.panel-closed { grid-template-columns: 240px 1fr 32px; }
 .main.list-closed { grid-template-columns: 32px 1fr 320px; }
 .main.list-closed.panel-closed { grid-template-columns: 32px 1fr 32px; }
 .element-list, .right-panel { background: var(--panel); overflow-y: auto; min-height: 0; }
@@ -735,3 +737,31 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .nav-row > .field { flex: 1; min-width: 0; }
 .nav-buttons { display: flex; gap: 2px; flex: none; }
 .nav-add-item, .nav-add-group { align-self: flex-start; }
+
+/* 設計モードの画面ボード */
+.screen-list-hint { padding: 0 12px; }
+.screen-pick { list-style: none; margin: 0; padding: 0 8px; }
+.screen-pick-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; }
+.screen-pick-row.is-selected { background: #e8eef7; }
+.screen-pick-name { flex: 1; min-width: 0; border: none; background: none; padding: 0; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.screen-pick-row.is-selected .screen-pick-name { font-weight: 600; }
+.screen-badge { flex: none; font-size: 10px; color: #fff; border-radius: 8px; padding: 0 6px; }
+.screen-badge.is-entry { background: var(--c-activity); }
+.screen-badge.is-ui { background: var(--muted); }
+.screen-problem p { margin: 2px 0; overflow-wrap: anywhere; }
+.screen-builder-body { display: flex; flex-direction: column; gap: 8px; }
+.screen-title { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.screen-form { display: flex; flex-direction: column; gap: 10px; }
+.screen-block { display: flex; flex-direction: column; gap: 6px; }
+.screen-heading { margin: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
+.screen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.screen-card { border: 1px solid var(--border); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.screen-card.is-field { background: #faf9f6; }
+.screen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; align-items: end; }
+.screen-list-editor { display: flex; flex-direction: column; gap: 6px; }
+.binding-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 4px; }
+.binding-picker select { min-width: 0; }
+.screen-yaml { display: flex; flex-direction: column; gap: 4px; }
+.screen-yaml-textarea { min-height: 360px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; tab-size: 2; overflow: auto; }
+.screen-empty { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.screen-clear { align-self: flex-start; }

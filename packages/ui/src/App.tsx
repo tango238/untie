@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Canvas } from "./components/canvas/Canvas";
 import { FixedBoard } from "./components/FixedBoard";
 import { LeftPane } from "./components/LeftPane";
@@ -8,6 +9,7 @@ import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
 import { LayoutLeftPane } from "./components/design/LayoutLeftPane";
 import { LayoutProperties } from "./components/design/LayoutProperties";
+import { ScreenListPane } from "./components/design/ScreenListPane";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
@@ -24,6 +26,9 @@ import { ROLE_LABELS } from "@untie/api";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
 import { LinkGuestNotice } from "./components/share/LinkGuestNotice";
+
+// 画面の組み立ては mokkun (約 750KB) の検証を使うので、画面ボードを開くまで読み込まない
+const ScreenBuilder = lazy(() => import("./components/design/ScreenBuilder").then((m) => ({ default: m.ScreenBuilder })));
 
 const RIGHT_PANEL_LABELS = { properties: "プロパティ", issues: "課題一覧", trace: "検証" } as const;
 
@@ -48,6 +53,8 @@ export default function App() {
   const data = design === "data";
   // レイアウトボードは、左に枠とヘッダーの設定、右にナビゲーションメニューを出す
   const layout = design === "layout";
+  // 画面ボードは、左に画面の一覧、右に画面の組み立てを出す
+  const screenBoard = design === "screen";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   return (
     <div className="app">
@@ -67,12 +74,13 @@ export default function App() {
       <Toolbar />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap || data || layout ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data || layout || screenBoard ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}
         {layout && <LayoutLeftPane />}
+        {screenBoard && <ScreenListPane />}
         <main className="canvas-area">
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
@@ -110,6 +118,10 @@ export default function App() {
                 <DataProperties />
               ) : layout ? (
                 <LayoutProperties />
+              ) : screenBoard ? (
+                <Suspense fallback={<p className="hint">読み込んでいます…</p>}>
+                  <ScreenBuilder />
+                </Suspense>
               ) : (
                 <PropertyPanel />
               )}</div>

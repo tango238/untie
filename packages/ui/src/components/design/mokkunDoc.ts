@@ -71,6 +71,67 @@ function actionIdsOf(view: ViewV2): Set<string> {
   return ids;
 }
 
+/** view が持つ遷移先 (to) をすべて集める (画面の主・副の操作、セクションの操作、一覧の行・一括の操作と列、項目)。view 自身が遷移先を決めているかを見るため */
+function targetsOf(view: ViewV2): Set<string> {
+  const targets = new Set<string>();
+  const add = (x: unknown) => {
+    if (isObject(x) && typeof x.to === "string") targets.add(x.to);
+  };
+  const list = (xs: unknown) => (Array.isArray(xs) ? xs.forEach(add) : undefined);
+  add(view.primaryAction);
+  list(view.secondaryActions);
+  for (const section of Array.isArray(view.sections) ? view.sections : []) {
+    if (!isObject(section)) continue;
+    list(section.actions);
+    list(section.fields);
+    if (isObject(section.list)) {
+      list(section.list.columns);
+      list(section.list.rowActions);
+      list(section.list.bulkActions);
+    }
+  }
+  return targets;
+}
+
+/**
+ * 設計に無い画面を指す遷移先 (to) を、view の写しから外す (画面をサイトマップから外したあとも、画面 UI が mokkun の検証に落ちないように)。
+ * 遷移 (navigate) の操作は丸ごと外し、ほかの to は to だけを消す。view は書き換える
+ */
+function dropUnknownTargets(view: Record<string, unknown>, known: ReadonlySet<string>): void {
+  const unknownTo = (a: unknown): a is Record<string, unknown> => isObject(a) && typeof a.to === "string" && !known.has(a.to);
+  /** 操作の配列から、行き先の無い遷移を外し、ほかの操作の to を消す */
+  const cleanActions = (xs: unknown): unknown => {
+    if (!Array.isArray(xs)) return xs;
+    return xs
+      .filter((a) => !(unknownTo(a) && a.kind === "navigate"))
+      .map((a) => {
+        if (!unknownTo(a)) return a;
+        const { to: _to, ...rest } = a;
+        return rest;
+      });
+  };
+  /** 列・項目の to を消す */
+  const cleanItems = (xs: unknown): void => {
+    if (Array.isArray(xs)) for (const x of xs) if (unknownTo(x)) delete x.to;
+  };
+  if (unknownTo(view.primaryAction)) {
+    if (view.primaryAction.kind === "navigate") delete view.primaryAction;
+    else delete view.primaryAction.to;
+  }
+  view.secondaryActions = cleanActions(view.secondaryActions);
+  if (view.secondaryActions === undefined) delete view.secondaryActions;
+  for (const section of Array.isArray(view.sections) ? view.sections : []) {
+    if (!isObject(section)) continue;
+    if (section.actions !== undefined) section.actions = cleanActions(section.actions);
+    cleanItems(section.fields);
+    if (isObject(section.list)) {
+      cleanItems(section.list.columns);
+      if (section.list.rowActions !== undefined) section.list.rowActions = cleanActions(section.list.rowActions);
+      if (section.list.bulkActions !== undefined) section.list.bulkActions = cleanActions(section.list.bulkActions);
+    }
+  }
+}
+
 /** mokkun の検証のエラーの path (`views.<id>.…`) から、壊れている view の名前を取り出す */
 function brokenViews(errors: { path?: string }[]): { views: Set<string>; others: number } {
   const views = new Set<string>();
@@ -91,7 +152,9 @@ const describeErrors = (errors: { path?: string; message: string }[]): string =>
 /**
  * 設計の画面ごとに mokkun の view を作る文書を組み立てる。
  * - app: name はヘッダーに出すシステム名 (設計の layout.header.systemName、空なら対象システムの名前)、layout は設計のレイアウト、header は利用者名・テナント名 (mokkun の header.systemName は小さな補足なので使わない)、navigation は設計のナビゲーション (view は画面の id、label は省略時は画面名)
- * - views: キーは画面の id。画面 UI (view) があればその中身をそのまま使い (title は画面名を正にする)、無ければ仮の 1 セクション。遷移は secondaryActions に navigate として足す (きっかけがメニュー (nav) の遷移は足さない。メニューで行く)。操作の id が重なるときは `_2` のように付け直す
+ * - views: キーは画面の id。画面 UI (view) があればその中身をそのまま使い (title は画面名を正にする。設計に無い画面を指す to は外す)、無ければ仮の 1 セクション。
+ *   遷移 (きっかけがメニュー (nav) のものは足さない。メニューで行く): view 自身が同じ遷移先の to を持っていれば足さない。afterSubmit は主の操作が遷移先の無い submit (kind 省略も submit) ならその to に、row は kind が list のセクションの最初の列に遷移先が無ければその to に写す。同じ遷移先への遷移が複数あるときは最初の 1 つだけ写す。
+ *   それ以外 (button・きっかけ未定・写せなかったもの) は secondaryActions に navigate として足す。操作の id が重なるときは `_2` のように付け直す
  * 組み立てた文書は mokkun の検証 (parseV2Document) に通す。画面 UI が壊れている画面は、その画面だけ仮の view に替えてもう一度検証し、理由は viewErrors (画面の id → 理由) に入れる。
  * それでも通らない (画面の外の問題) ときは理由を error に入れる
  */
@@ -121,21 +184,51 @@ export function buildMokkunSchema(model: UntieModel, systemId: string, design: S
 
   const buildViews = (placeholders: ReadonlySet<string>): MokkunV2Schema["views"] => {
     const views: MokkunV2Schema["views"] = {};
+    const known = new Set(screens.map((s) => s.id));
     for (const screen of screens) {
       const title = names.get(screen.id)!;
       const analysis = screen.source.kind === "screen" ? byId.get(screen.source.screenId) : undefined;
       const goal = (analysis?.kind === "screen" && analysis.description?.trim()) || title;
-      // 画面 UI は JSON の写しを使う (モデルの値を mokkun に触らせない)
+      // 画面 UI は JSON の写しを使う (モデルの値を mokkun に触らせない)。設計に無い画面を指す遷移先は外す
       const given = !placeholders.has(screen.id) && isObject(screen.view) ? (JSON.parse(JSON.stringify(screen.view)) as Partial<ViewV2>) : undefined;
+      if (given) dropUnknownTargets(given as Record<string, unknown>, known);
       const base: ViewV2 = given ? ({ ...given, title, goal: given.goal ?? goal } as ViewV2) : placeholderView(model, screen, title, goal);
       // メニューに載っている画面は、現在地を示すために nav を付ける (画面 UI が決めていればそれを使う)
-      const view: ViewV2 = inNavigation.has(screen.id) && base.nav === undefined ? { ...base, nav: screen.id } : base;
+      let view: ViewV2 = inNavigation.has(screen.id) && base.nav === undefined ? { ...base, nav: screen.id } : base;
 
       // 遷移の操作の id は、画面 UI の操作の id と重ならないようにする (重なったら _2, _3 … を付ける。遷移は捨てない)
       const taken = actionIdsOf(view);
+      const targets = targetsOf(view);
       const actions: ActionV2[] = [];
+      let submitDone = false;
+      let rowDone = false;
       for (const t of design.transitions) {
         if (t.from !== screen.id || t.via === "nav" || !names.has(t.to)) continue;
+        // 画面 UI が同じ遷移先を決めていれば足さない
+        if (targets.has(t.to)) continue;
+        targets.add(t.to);
+        // 送信のあと: 画面 UI の主の操作が遷移先の無い submit なら、その to にする
+        if (t.via === "afterSubmit" && !submitDone && view.primaryAction !== undefined && (view.primaryAction.kind ?? "submit") === "submit" && view.primaryAction.to === undefined) {
+          submitDone = true;
+          view = { ...view, primaryAction: { ...view.primaryAction, to: t.to } };
+          continue;
+        }
+        // 一覧の行: 画面 UI の一覧の最初の列が遷移先を持たなければ、その to にする
+        if (t.via === "row" && !rowDone) {
+          const index = (Array.isArray(view.sections) ? view.sections : []).findIndex((sec) => sec.kind === "list" && isObject(sec.list) && Array.isArray(sec.list.columns) && sec.list.columns.length > 0 && isObject(sec.list.columns[0]) && sec.list.columns[0].to === undefined);
+          if (index >= 0) {
+            rowDone = true;
+            view = {
+              ...view,
+              sections: view.sections.map((sec, i) => {
+                if (i !== index || !sec.list) return sec;
+                const [first, ...rest] = sec.list.columns;
+                return { ...sec, list: { ...sec.list, columns: [{ ...first!, to: t.to }, ...rest] } };
+              }),
+            };
+            continue;
+          }
+        }
         let id = t.id;
         for (let n = 2; taken.has(id); n++) id = `${t.id}_${n}`;
         taken.add(id);

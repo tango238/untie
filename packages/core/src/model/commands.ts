@@ -3,6 +3,7 @@
 import { produce } from "immer";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
 import { newUniqueId } from "./id";
+import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
@@ -616,6 +617,120 @@ export function removeTransition(model: UntieModel, payload: RemoveTransitionPay
   const next = produce(model, (draft) => {
     const d = draft.designs.find((x) => x.systemId === payload.systemId)!;
     d.transitions = d.transitions.filter((t) => t.id !== payload.id);
+  });
+  return { ok: true, model: next };
+}
+
+// ---------------------------------------------------------------- 設計: 画面 UI
+
+type ScreenBinding = NonNullable<DesignScreen["bindings"]>[number];
+
+/** 項目と列の対応を検証して、写しを返す (item の重複なし・データベースが存在する・名前の長さ)。失敗は理由 */
+function checkBindings(model: UntieModel, bindings: readonly ScreenBinding[]): ScreenBinding[] | Fail {
+  const seen = new Set<string>();
+  const out: ScreenBinding[] = [];
+  for (const b of bindings) {
+    if (!b.item) return fail("対応の項目が空です");
+    if (seen.has(b.item)) return fail(`項目の対応が重なっています: ${b.item}`);
+    seen.add(b.item);
+    for (const text of [b.item, b.table, b.column]) {
+      const reason = checkLength("name", text);
+      if (reason) return fail(reason);
+    }
+    if (!b.table || !b.column) return fail(`項目「${b.item}」の対応のテーブルか列が空です`);
+    if (!databaseOf(model, b.databaseId)) return fail(`データベースが存在しません: ${b.databaseId}`);
+    out.push({ item: b.item, databaseId: b.databaseId, table: b.table, column: b.column });
+  }
+  return out;
+}
+
+function designScreenOf(design: SystemDesign, id: string): DesignScreen | Fail {
+  return design.screens.find((s) => s.id === id) ?? fail(`設計に無い画面です: ${id}`);
+}
+const isScreenFail = (x: DesignScreen | Fail): x is Fail => "ok" in x;
+
+export interface SetDesignScreenViewPayload {
+  systemId: string;
+  /** 設計の画面の id */
+  id: string;
+  /** 画面 UI (mokkun v2 の ViewV2 を JSON で)。中身は検証しない (mokkun の検証は呼ぶ側で行う) */
+  view: Record<string, unknown>;
+  /** 項目と列の対応。省略は今のまま、渡すと置き換える */
+  bindings?: ScreenBinding[];
+}
+
+/** 画面の画面 UI (view 全体) を置き換える。view は JSON にしたときの大きさに上限がある。bindings は item の重複なし・データベースが存在すること */
+export function setDesignScreenView(model: UntieModel, payload: SetDesignScreenViewPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  const screen = designScreenOf(design, payload.id);
+  if (isScreenFail(screen)) return screen;
+  const view = payload.view as unknown;
+  if (typeof view !== "object" || view === null || Array.isArray(view)) return fail("画面 UI はオブジェクトで渡してください");
+  const shape = viewShapeProblem(view);
+  if (shape) return fail(shape);
+  let json: string;
+  try {
+    json = JSON.stringify(view);
+  } catch {
+    return fail("画面 UI を JSON にできません");
+  }
+  const tooLong = checkLength("viewJson", json);
+  if (tooLong) return fail(tooLong);
+  let bindings: ScreenBinding[] | undefined;
+  if (payload.bindings !== undefined) {
+    const checked = checkBindings(model, payload.bindings);
+    if (!Array.isArray(checked)) return checked;
+    bindings = checked;
+  }
+  const next = produce(model, (draft) => {
+    const s = draft.designs.find((d) => d.systemId === payload.systemId)!.screens.find((x) => x.id === payload.id)!;
+    s.view = JSON.parse(json) as Record<string, unknown>;
+    if (bindings !== undefined) {
+      if (bindings.length > 0) s.bindings = bindings;
+      else delete s.bindings;
+    }
+  });
+  return { ok: true, model: next };
+}
+
+export interface ClearDesignScreenViewPayload {
+  systemId: string;
+  id: string;
+}
+
+/** 画面の画面 UI と、項目と列の対応を消す */
+export function clearDesignScreenView(model: UntieModel, payload: ClearDesignScreenViewPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  const screen = designScreenOf(design, payload.id);
+  if (isScreenFail(screen)) return screen;
+  const next = produce(model, (draft) => {
+    const s = draft.designs.find((d) => d.systemId === payload.systemId)!.screens.find((x) => x.id === payload.id)!;
+    delete s.view;
+    delete s.bindings;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetDesignScreenBindingsPayload {
+  systemId: string;
+  id: string;
+  bindings: ScreenBinding[];
+}
+
+/** 画面の項目と列の対応を置き換える (空なら消す) */
+export function setDesignScreenBindings(model: UntieModel, payload: SetDesignScreenBindingsPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  const screen = designScreenOf(design, payload.id);
+  if (isScreenFail(screen)) return screen;
+  const bindings = checkBindings(model, payload.bindings);
+  if (!Array.isArray(bindings)) return bindings;
+  const next = produce(model, (draft) => {
+    const s = draft.designs.find((d) => d.systemId === payload.systemId)!.screens.find((x) => x.id === payload.id)!;
+    if (bindings.length > 0) s.bindings = bindings;
+    else delete s.bindings;
   });
   return { ok: true, model: next };
 }

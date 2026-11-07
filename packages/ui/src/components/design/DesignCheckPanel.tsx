@@ -22,6 +22,13 @@ export function revealDesignProblem(problem: DesignProblem): void {
     if (target.kind === "table") st.selectDesignTable(target.table);
     return;
   }
+  // 画面の項目の対応に関わる問題は、画面ボードでその画面を選ぶ
+  if (target.kind === "screen" && (problem.type === "bindingInvalid" || problem.type === "bindingUnmapped")) {
+    st.setCurrentBoard(designBoardId("screen"));
+    st.selectDesignScreen(target.id);
+    st.setRightPanel("properties");
+    return;
+  }
   st.setCurrentBoard(designBoardId("sitemap"));
   if (target.kind === "screen") st.selectDesignScreen(target.id);
   else {
@@ -55,7 +62,7 @@ export function DesignCheckPanel() {
         <summary>調べること</summary>
         <ul>
           <li>エラー: システムが使う情報がテーブルに対応しているか／対応のあるテーブルが DSL にあるか／DSL に解析エラーが無いか／画面の項目の対応が無い列を指していないか／使うデータベースがあるか</li>
-          <li>警告: 遷移のきっかけが未定／画面 UI がまだ無い画面</li>
+          <li>警告: 遷移のきっかけが未定／メニューからも遷移からも辿れない画面／画面 UI がまだ無い画面／画面 UI の項目に列の対応が無い</li>
         </ul>
       </details>
     </aside>
