@@ -13,7 +13,7 @@ import {
   type FixedLayer,
   type FixedSection,
 } from "@untie/core/model/fixedBoards";
-import { issueSummaries } from "@untie/core/model/selectors";
+import { issueSummaries, triggerSummaries } from "@untie/core/model/selectors";
 import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { addElement, updateElement } from "@untie/core/model/commands";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
@@ -64,6 +64,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
   const scope = useMemo(() => globalFilterScope(model, globalFilter), [model, globalFilter]);
   const groups = useMemo(() => filterGroups(scopeGroups(allGroups, scope), query), [allGroups, scope, query]);
   const summaries = useMemo(() => issueSummaries(model), [model]);
+  const triggers = useMemo(() => triggerSummaries(model), [model]);
   const actors = useMemo(() => actorLabels(model), [model]);
   const systems = useMemo(() => systemLabels(model), [model]);
   const selectedId = selection?.type === "element" ? selection.id : null;
@@ -111,6 +112,7 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
                 model={model}
                 selectedId={selectedId}
                 summaries={summaries}
+                triggers={triggers}
                 actors={actors}
                 systems={systems}
                 readOnly={readOnly}
@@ -262,6 +264,7 @@ function GroupView({
   model,
   selectedId,
   summaries,
+  triggers,
   actors,
   systems,
   readOnly,
@@ -272,6 +275,8 @@ function GroupView({
   model: UntieModel;
   selectedId: string | null;
   summaries: ReturnType<typeof issueSummaries>;
+  /** 作業ごとの起点の要約 */
+  triggers: Map<string, string>;
   actors: ReturnType<typeof actorLabels>;
   systems: Map<string, SystemLabel[]>;
   readOnly: boolean;
@@ -339,6 +344,7 @@ function GroupView({
               model={model}
               selected={selectedId === e.id}
               summary={isIssueTargetKind(e.kind) ? summaries.get(e.id) : undefined}
+              trigger={triggers.get(e.id)}
               actors={actors.get(e.id)}
               systems={systems.get(e.id)}
               showStateGroup={contextMembers}
@@ -425,6 +431,7 @@ function FixedCard({
   model,
   selected,
   summary,
+  trigger,
   actors,
   systems,
   showStateGroup,
@@ -435,6 +442,8 @@ function FixedCard({
   model: UntieModel;
   selected: boolean;
   summary?: { count: number; maxSeverity: number };
+  /** 作業の起点の要約 */
+  trigger?: string;
   actors?: ReturnType<typeof actorLabels> extends Map<string, infer V> ? V : never;
   systems?: SystemLabel[];
   /** 状態に状態グループ名を添える (コンテキストの枠では、複数のグループが同じ枠に並ぶので) */
@@ -465,6 +474,7 @@ function FixedCard({
     <>
       {showStateGroup && element.kind === "state" && element.group && <span className="fixed-card-sub">状態グループ: {element.group}</span>}
       <HoursLabel element={element} model={model} />
+      {trigger && <span className="fixed-card-sub fixed-card-trigger" title={trigger}>{trigger}</span>}
       {actors && <ActorChips actors={actors} />}
       {systems && <SystemChips systems={systems} />}
     </>

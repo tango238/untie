@@ -322,7 +322,7 @@ doc
                                edges: Y.Map<relationId, { sourceSide, targetSide }> }>
 ```
 
-- 要素の項目 (`name`、`description`、`bucId`、`contextId`、`severity`、`hours`、`values`、`targetIds`、`links`、`analysis`) は Y.Map の値ごとに後勝ち。`values`・`targetIds`・`links` は小さな配列なので丸ごと 1 つの値として置く。
+- 要素の項目 (`name`、`description`、`bucId`、`contextId`、`severity`、`hours`、`verification`、`triggerNote`、`values`、`targetIds`、`links`、`analysis`) は Y.Map の値ごとに後勝ち。`values`・`targetIds`・`links` は小さな配列なので丸ごと 1 つの値として置く。
 - `elements` と `boards` の配列の順番は、固定ボードの並び (`fixedBoards.ts` の index による tie-break) に効いている。配列は合流に向かないので、各要素に順序キー `order` (fractional index の文字列) を持たせ、組み立てるときに `order` で並べる。JSON に書き出すときは並べた順の配列にし、`order` は落とす。読み込むときは配列の順に `order` を振る。
 - ノードの座標 `{x, y, width, height}` は 1 つの値として置く (ドラッグの確定は座標とサイズをまとめて 1 回で書く)。
 - **関係・ノード・線の値にも `order` を持たせる**。関係 (`relations`)、ボードの `nodes`、`edges` も配列の順に意味があり (`setEdgeSides` は線の並びを変える)、Y.Map の反復順は端末ごとに揃わないため、値の中に `order` を入れる (`{ kind, sourceId, targetId, order }`、`{ x, y, width?, height?, order }`、`{ sourceSide?, targetSide?, order }`)。組み立てるときに落とす。

@@ -17,9 +17,9 @@ import {
 import { relationKindFor, relationLabel, relationRule, sameRelation } from "@untie/core/model/relations";
 import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
-import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH } from "@untie/core/model/limits";
+import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
-import { activityHours, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
+import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
   DEFAULT_EDGE_SIDES,
   EDGE_SIDES,
@@ -219,7 +219,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   };
 
   const onBoard = !!model.boards.find((b) => b.id === boardId)?.nodes.some((n) => n.elementId === element.id);
-  const relations = model.relations.filter((r) => r.sourceId === element.id || r.targetId === element.id);
+  // 作業の起点は「起点」の節で扱う (関係の一覧・追加には出さない)
+  const relations = model.relations.filter((r) => (r.sourceId === element.id || r.targetId === element.id) && !isTriggerKind(r.kind));
   const issues = isIssueTargetKind(element.kind) ? issuesTargeting(model, element.id) : [];
 
   const addIssue = () => createIssue([element.id]);
@@ -273,6 +274,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
           </p>
         )
       )}
+      {element.kind === "activity" && <TriggerSection activity={element} model={model} structural={structural} update={update} />}
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
@@ -544,6 +546,8 @@ function TraceRow({
 // ---------------------------------------------------------------- 種類固有
 
 /** この要素と結べる要素を選んで関係を足す (両端の種類から関係が決まる)。固定ボードだけで出す */
+const isTriggerKind = (kind: string) => kind === "activityTrigger" || kind === "eventActivity";
+
 function RelationAdder({ element, model }: { element: Element; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
@@ -558,6 +562,8 @@ function RelationAdder({ element, model }: { element: Element; model: UntieModel
       if (!kind) continue;
       // 操作の対象 (システム・帳票・画面) は 1 つだけなので、操作のプロパティ欄の「対象」で選ぶ
       if (isUsecaseTargetKind(kind)) break;
+      // 作業の起点は、作業の「起点」の節で足す
+      if (isTriggerKind(kind)) break;
       if (model.relations.some((r) => sameRelation(r, { kind, sourceId, targetId }))) break;
       const dir = relationRule(kind).undirected ? "↔" : sourceId === element.id ? "→" : "←";
       options.push({
@@ -594,6 +600,143 @@ function RelationAdder({ element, model }: { element: Element; model: UntieModel
         </optgroup>
       ))}
     </select>
+  );
+}
+
+/** 作業の候補を選ぶときの区別用の見出し (「業務」、活動があれば「業務 / 活動」)。未所属は「未所属」 */
+function activityGroupLabel(model: UntieModel, activity: Activity): string {
+  const buc = activity.bucId ? model.elements.find((e) => e.id === activity.bucId) : undefined;
+  if (!buc || buc.kind !== "buc") return "未所属";
+  const biz = model.elements.find((e) => e.id === buc.businessId);
+  const bizName = biz?.name || "(名前なし)";
+  return buc.isDefault ? bizName : `${bizName} / ${buc.name || "(名前なし)"}`;
+}
+
+/** 作業の起点。起点の作業・イベントを足す・外し (固定ボードだけ)、その他を 1 行で書く (固定ボードだけ)。この作業を起点にする作業は読み取りだけ */
+function TriggerSection({
+  activity,
+  model,
+  structural,
+  update,
+}: {
+  activity: Activity;
+  model: UntieModel;
+  structural: boolean;
+  update: (patch: Parameters<typeof updateElement>[1]["patch"]) => void;
+}) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const triggers = activityTriggers(model, activity.id);
+  const followers = activitiesTriggeredBy(model, activity.id);
+  const chosen = new Set([...triggers.activities, ...triggers.events].map((e) => e.id));
+  const activityOptions = model.elements.filter((e): e is Activity => e.kind === "activity" && e.id !== activity.id && !chosen.has(e.id));
+  const eventOptions = model.elements.filter((e) => e.kind === "event" && !chosen.has(e.id));
+  const activityGroups = [...new Set(activityOptions.map((a) => activityGroupLabel(model, a)))];
+  const rows = [...triggers.activities, ...triggers.events];
+
+  return (
+    <section className="subsection" data-testid="trigger-section">
+      <h3>起点</h3>
+      {rows.length === 0 ? (
+        structural && <p className="hint">この作業が始まるきっかけ (前の作業・イベント・その他) を足します。</p>
+      ) : (
+        <ul className="relation-list">
+          {rows.map((other) => {
+            const rel = model.relations.find(
+              (r) => isTriggerKind(r.kind) && r.sourceId === other.id && r.targetId === activity.id,
+            );
+            return (
+              <li key={other.id}>
+                <span className="relation-kind">起点</span>
+                <span className="relation-dir" aria-hidden="true">
+                  ←
+                </span>
+                <span className={`relation-layer kind-${other.kind}`}>
+                  <span className="kind-dot" />
+                  {ELEMENT_KIND_LABELS[other.kind]}
+                </span>
+                <button type="button" className="link" onClick={() => selectAndReveal(other.id)}>
+                  {other.name || "(名前なし)"}
+                </button>
+                {structural && rel && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`起点「${other.name || "(名前なし)"}」を外す`}
+                    onClick={() => dispatch((m) => removeRelation(m, { id: rel.id }))}
+                  >
+                    ×
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {structural && (activityOptions.length > 0 || eventOptions.length > 0) && (
+        <select
+          aria-label="起点を追加"
+          value=""
+          onChange={(ev) => {
+            const sourceId = ev.target.value;
+            if (!sourceId) return;
+            const r = dispatch((m) => addRelation(m, { sourceId, targetId: activity.id }));
+            if (!r.ok) pushToast(r.reason, "error");
+          }}
+        >
+          <option value="">起点を追加…</option>
+          {activityGroups.map((g) => (
+            <optgroup key={g} label={`${ELEMENT_KIND_LABELS.activity}: ${g}`}>
+              {activityOptions
+                .filter((a) => activityGroupLabel(model, a) === g)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name || "(名前なし)"}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+          {eventOptions.length > 0 && (
+            <optgroup label={ELEMENT_KIND_LABELS.event}>
+              {eventOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name || "(名前なし)"}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      )}
+      <CommitField
+        label="起点 (その他)"
+        maxLength={TRIGGER_NOTE_MAX_LENGTH}
+        value={activity.triggerNote ?? ""}
+        readOnly={!structural}
+        onCommit={(triggerNote) => update({ triggerNote })}
+      />
+      {followers.length > 0 && (
+        <>
+          <h4>この作業を起点にする作業</h4>
+          <ul className="relation-list" aria-label="この作業を起点にする作業">
+            {followers.map((other) => (
+              <li key={other.id}>
+                <span className="relation-kind">起点</span>
+                <span className="relation-dir" aria-hidden="true">
+                  →
+                </span>
+                <span className={`relation-layer kind-${other.kind}`}>
+                  <span className="kind-dot" />
+                  {ELEMENT_KIND_LABELS[other.kind]}
+                </span>
+                <button type="button" className="link" onClick={() => selectAndReveal(other.id)}>
+                  {other.name || "(名前なし)"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

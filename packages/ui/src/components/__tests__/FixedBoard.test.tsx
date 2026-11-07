@@ -96,7 +96,7 @@ describe("FixedBoard", () => {
     render(<FixedBoard layer="activity" />);
     fireEvent.click(within(groupEl("飲食提供")).getByRole("button", { name: "飲食提供" }));
     expect(st().ui.selection).toEqual({ type: "element", id: "buc_dining" });
-    fireEvent.click(screen.getByRole("button", { name: /ルームサービスを提供する/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^作業ルームサービスを提供する/ }));
     expect(st().ui.selection).toEqual({ type: "element", id: "act_room_service" });
   });
 });
@@ -228,5 +228,17 @@ describe("コンテキストの固定ボード", () => {
       expect(ev).toBe(false);
       expect(screen.getByLabelText("作業の名前")).toBeDefined();
     });
+  });
+});
+
+describe("FixedBoard: 作業カードの起点の要約", () => {
+  it("起点のある作業のカードに、作業・イベント・その他の要約を出す。無い作業には出さない", () => {
+    render(<FixedBoard layer="activity" />);
+    const card = (id: string) => document.querySelector(`[data-fixed-card="${id}"]`) as HTMLElement;
+    expect(card("act_create_bill").textContent).toContain("起点: チェックアウトの日になった (イベント)");
+    expect(card("act_confirm_reservation").textContent).toContain("起点: 予約を受け付ける");
+    expect(card("act_accept_reservation").textContent).toContain("起点: 電話・予約サイトからの申し込み");
+    expect(card("act_verify_identity").textContent).toContain("起点: 到着を確認する");
+    expect(card("act_change_cancel").textContent).toContain("起点: 宿泊客からの電話・メール");
   });
 });

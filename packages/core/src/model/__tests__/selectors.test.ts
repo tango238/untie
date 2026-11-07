@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { setIssueTargets } from "../commands";
-import { issueBoardSections, issueScope, issueSummaries, issuesByScope, issuesTargeting, listableElements, sortedIssues } from "../selectors";
+import { addRelation, setIssueTargets } from "../commands";
+import { activitiesTriggeredBy, activityTriggers, issueBoardSections, issueScope, issueSummaries, issuesByScope, issuesTargeting, listableElements, sortedIssues, triggerSummaries, triggerSummary } from "../selectors";
 import type { Issue, UntieModel } from "../types";
 import { okModel, sample } from "./helpers";
 
@@ -86,5 +86,33 @@ describe("activityHours", () => {
     expect(activityHours(m, "act_confirm_reservation")).toEqual({ usecases: 0.3 });
     expect(formatHours(0.3)).toBe("0.3 時間");
     expect(formatHours(2)).toBe("2.0 時間");
+  });
+});
+
+describe("作業の起点", () => {
+  it("activityTriggers は起点の作業・イベント・その他を返し、activitiesTriggeredBy は後続の作業を返す", () => {
+    const m = sample();
+    const t = activityTriggers(m, "act_create_bill");
+    expect(t.activities).toEqual([]);
+    expect(t.events.map((e) => e.name)).toEqual(["チェックアウトの日になった"]);
+    expect(activityTriggers(m, "act_accept_reservation")).toEqual({ activities: [], events: [], note: "電話・予約サイトからの申し込み" });
+    expect(activityTriggers(m, "act_clean").activities.map((e) => e.name)).toEqual(["清掃を指示する"]);
+    expect(activityTriggers(m, "uc_calc_charge")).toEqual({ activities: [], events: [] });
+    expect(activitiesTriggeredBy(m, "act_clean").map((e) => e.name)).toEqual(["部屋を点検する"]);
+  });
+
+  it("triggerSummary は「起点: 作業 / イベント (イベント) / その他」の順。起点が無ければ undefined。triggerSummaries は 1 度の走査で全作業ぶん返す", () => {
+    let m = sample();
+    expect(triggerSummary(m, "act_create_bill")).toBe("起点: チェックアウトの日になった (イベント)");
+    expect(triggerSummary(m, "act_change_cancel")).toBe("起点: 宿泊客からの電話・メール");
+    expect(triggerSummary(m, "act_hand_key")).toBe("起点: 部屋を割り当てる");
+    m = okModel(addRelation(m, { sourceId: "ev_checkout_day", targetId: "act_change_cancel" }));
+    m = okModel(addRelation(m, { sourceId: "act_clean", targetId: "act_change_cancel" }));
+    expect(triggerSummary(m, "act_change_cancel")).toBe("起点: 清掃する / チェックアウトの日になった (イベント) / 宿泊客からの電話・メール");
+    expect(triggerSummary(m, "uc_calc_charge")).toBeUndefined();
+    const all = triggerSummaries(m);
+    expect(all.get("act_change_cancel")).toBe(triggerSummary(m, "act_change_cancel"));
+    expect(all.has("act_collect_key")).toBe(true);
+    expect(all.has("act_identity_none")).toBe(false);
   });
 });

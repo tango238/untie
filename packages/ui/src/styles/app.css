@@ -340,6 +340,7 @@ textarea { resize: vertical; width: 100%; }
 .fixed-add select { flex: 1; min-width: 0; }
 .fixed-add select.fixed-move { flex-basis: 100%; }
 .fixed-card-sub { font-size: 11px; color: var(--muted); }
+.fixed-card-trigger { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .plain-fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .plain-fieldset:disabled select, .plain-fieldset:disabled input, .plain-fieldset:disabled textarea, .plain-fieldset:disabled button {
   opacity: 0.55; cursor: not-allowed;
@@ -615,6 +616,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .share-section { border-top: 1px solid var(--border); padding: 10px 0 4px; }
 .share-section h3 { margin: 0 0 6px; font-size: 13px; }
 .share-section h4 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+.subsection h4 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
 .share-section .hint { margin: 4px 0; }
 .share-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .share-row { display: flex; align-items: center; gap: 8px; }

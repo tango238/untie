@@ -94,6 +94,8 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "systemEvent",
   "eventUsecase",
   "usecaseNext",
+  "activityTrigger",
+  "eventActivity",
   "usecaseScreen",
   "screenInformation",
   "actorNfr",
@@ -213,7 +215,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.3.0";
+export const MODEL_VERSION = "0.3.1";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

@@ -41,6 +41,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.3.0",
     migrate: migrateSingleUsecaseTarget,
   },
+  {
+    // 0.3.1: 作業の起点。新しい関係 (activityTrigger・eventActivity) と、作業の項目 triggerNote を足すだけなので変換は要らない
+    from: "0.3.0",
+    to: "0.3.1",
+    migrate: (json) => json,
+  },
 ];
 
 /** 0.2.0 → 0.3.0: 操作の対象 (システム・帳票・画面) を 1 本にする */

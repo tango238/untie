@@ -17,9 +17,10 @@ import {
   truncateText,
   VALUE_MAX_LENGTH,
   VERIFICATION_MAX_LENGTH,
+  TRIGGER_NOTE_MAX_LENGTH,
 } from "../limits";
 import { repairModel } from "../repair";
-import { truncateModelStrings } from "../truncate";
+import { truncateElementStrings, truncateModelStrings } from "../truncate";
 import { validateModel } from "../validate";
 import { emptyModel, type Element, type UntieModel } from "../types";
 import { expectFail, okModel } from "./helpers";
@@ -44,6 +45,7 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
     expect(LINK_TITLE_MAX_LENGTH).toBe(def("link").properties!.title.maxLength);
     expect(LINK_URL_MAX_LENGTH).toBe(def("link").properties!.url.maxLength);
     expect(VERIFICATION_MAX_LENGTH).toBe(def("nfr").properties!.verification.maxLength);
+    expect(TRIGGER_NOTE_MAX_LENGTH).toBe(def("activity").properties!.triggerNote.maxLength);
   });
 
   it("スキーマに maxLength を足したら、ここも足すこと (文字列の上限を持つ項目はこれだけ。id は自動で振るので上限の検査は要らない)", () => {
@@ -69,6 +71,7 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "link.title",
         "link.url",
         "nfr.verification",
+        "activity.triggerNote",
       ].sort(),
     );
   });
@@ -234,3 +237,17 @@ import { addRelation } from "../commands";
 function addRelationFor(m: UntieModel, sourceId: string, targetId: string) {
   return addRelation(m, { sourceId, targetId });
 }
+
+describe("truncateElementStrings: 作業の起点 (その他)", () => {
+  it("上限を超えたら切り詰め、空文字なら項目ごと消す (minLength: 1 で作業が弾かれないように)", () => {
+    const a = { id: "act_x", kind: "activity", name: "作業", bucId: null } as const;
+    const long = truncateElementStrings({ ...a, triggerNote: "あ".repeat(TRIGGER_NOTE_MAX_LENGTH + 1) });
+    expect((long.element as { triggerNote: string }).triggerNote).toHaveLength(TRIGGER_NOTE_MAX_LENGTH);
+    expect(long.fields).toEqual(["起点 (その他)"]);
+    const empty = truncateElementStrings({ ...a, triggerNote: "" });
+    expect("triggerNote" in empty.element).toBe(false);
+    expect(empty.fields).toEqual(["起点 (その他)"]);
+    const ok = { ...a, triggerNote: "電話" };
+    expect(truncateElementStrings(ok).element).toBe(ok);
+  });
+});

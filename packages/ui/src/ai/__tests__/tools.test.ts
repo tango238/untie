@@ -89,4 +89,17 @@ describe("AI の道具", () => {
     expect(executeTool(e, "remove_element", { id: "act_clean" }).ok).toBe(true);
     void okModel;
   });
+
+  it("update_element の trigger_note は作業の起点 (その他) を書き、空文字で消す。作業以外には書けない", () => {
+    const e = editorOf(sample());
+    expect(executeTool(e, "update_element", { id: "act_clean", trigger_note: "電話" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === "act_clean")).toMatchObject({ triggerNote: "電話" });
+    expect(executeTool(e, "update_element", { id: "act_clean", trigger_note: "" }).ok).toBe(true);
+    expect("triggerNote" in e.model.elements.find((x) => x.id === "act_clean")!).toBe(false);
+    expect(executeTool(e, "update_element", { id: "act_clean", trigger_note: "あ".repeat(4001) }).ok).toBe(false);
+    expect(executeTool(e, "update_element", { id: "uc_calc_charge", trigger_note: "電話" }).ok).toBe(false);
+    // 起点の関係は add_relation で結べる
+    expect(executeTool(e, "add_relation", { source_id: "act_hand_key", target_id: "act_collect_key" }).ok).toBe(true);
+    expect(e.model.relations[e.model.relations.length - 1]!.kind).toBe("activityTrigger");
+  });
 });

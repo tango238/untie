@@ -1,7 +1,7 @@
 // 長すぎる文字列の切り詰め (設計書 6 章)。スキーマの上限 (limits.ts) を超えた要素は、そのままだと
 // スキーマに合わない「形の壊れた要素」として全員の画面から外され、関係もサーバーに消される。
 // そうならないよう、コマンドをすり抜けて Y.Doc に入った長い文字列 (古い版のクライアント・壊れた update など) は、外さずに切り詰める。
-import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH } from "./limits";
+import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "./limits";
 import { ELEMENT_KIND_LABELS, ISSUE_ANALYSIS_KEYS, ISSUE_ANALYSIS_LABELS } from "./types";
 import type { Element, UntieModel } from "./types";
 
@@ -31,6 +31,14 @@ export function truncateElementStrings<T extends object>(element: T): TruncatedE
   if ("description" in src) out.description = cut(src.description, DESCRIPTION_MAX_LENGTH, "説明", fields);
   if ("group" in src) out.group = cut(src.group, GROUP_MAX_LENGTH, "状態グループ", fields);
   if ("verification" in src) out.verification = cut(src.verification, VERIFICATION_MAX_LENGTH, "検証方法", fields);
+  if ("triggerNote" in src) {
+    out.triggerNote = cut(src.triggerNote, TRIGGER_NOTE_MAX_LENGTH, "起点 (その他)", fields);
+    // 空文字は持たない (スキーマの minLength: 1 で要素ごと外されないよう、項目を消す)
+    if (out.triggerNote === "") {
+      delete out.triggerNote;
+      if (!fields.includes("起点 (その他)")) fields.push("起点 (その他)");
+    }
+  }
   if (Array.isArray(src.values)) out.values = src.values.map((v) => cut(v, VALUE_MAX_LENGTH, "値", fields));
   if (Array.isArray(src.links)) {
     out.links = src.links.map((l) => {

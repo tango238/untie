@@ -105,6 +105,11 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
         add(r.sourceId, r.targetId);
         add(r.targetId, r.sourceId);
         break;
+      case "usecaseNext":
+      case "activityTrigger":
+      case "eventActivity":
+        // 担い手へのつながりではないので辿らない (作業の起点は、作業の担当とは別。循環してもよい)
+        break;
     }
   }
   return parents;

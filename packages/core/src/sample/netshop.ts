@@ -62,11 +62,11 @@ const bucs: Element[] = [
 const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
 
 const activities: Element[] = [
-  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_stock") },
+  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_stock"), triggerNote: "仕入先からの荷物の到着" },
   { id: "act_shelve", kind: "activity", name: "商品を棚に収める", bucId: dflt("biz_stock") },
   { id: "act_update_stock", kind: "activity", name: "在庫数を更新する", bucId: dflt("biz_stock"), hours: 0.5 },
-  { id: "act_count", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stock") },
-  { id: "act_import_order", kind: "activity", name: "注文を取り込む", bucId: "buc_order_check", hours: 0.3 },
+  { id: "act_count", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stock"), triggerNote: "月末の棚卸日" },
+  { id: "act_import_order", kind: "activity", name: "注文を取り込む", bucId: "buc_order_check", hours: 0.3, triggerNote: "モールの注文通知" },
   { id: "act_check_order", kind: "activity", name: "注文内容を確認する", bucId: "buc_order_check" },
   { id: "act_check_payment", kind: "activity", name: "入金を確認する", bucId: "buc_payment_check" },
   { id: "act_pick", kind: "activity", name: "ピッキングする", bucId: dflt("biz_shipping"), hours: 0.4 },
@@ -83,16 +83,16 @@ const activities: Element[] = [
     ],
   },
   { id: "act_notify_shipping", kind: "activity", name: "発送を連絡する", bucId: dflt("biz_shipping") },
-  { id: "act_accept_return", kind: "activity", name: "返品を受け付ける", bucId: dflt("biz_return") },
+  { id: "act_accept_return", kind: "activity", name: "返品を受け付ける", bucId: dflt("biz_return"), triggerNote: "お客さまからの返品の連絡" },
   { id: "act_inspect_return", kind: "activity", name: "返品を検品する", bucId: dflt("biz_return") },
   { id: "act_refund", kind: "activity", name: "返金・交換を手配する", bucId: dflt("biz_return") },
   { id: "act_restock", kind: "activity", name: "在庫に戻す", bucId: dflt("biz_return") },
-  { id: "act_answer", kind: "activity", name: "問い合わせに答える", bucId: dflt("biz_support") },
+  { id: "act_answer", kind: "activity", name: "問い合わせに答える", bucId: dflt("biz_support"), triggerNote: "お客さまからの問い合わせ" },
   { id: "act_track", kind: "activity", name: "配送状況を調べる", bucId: dflt("biz_support"), hours: 0.1 },
   { id: "act_record_inquiry", kind: "activity", name: "対応を記録する", bucId: dflt("biz_support") },
   // 会計システムが対象。モールからの入金は、販売手数料や送料を引いた額で、あとから数日おきにまとめて届く。
   // 売掛金の計上は人の作業ではなく、「出荷が記録された」をきっかけにした自動の処理 (操作「売掛金を登録する」)
-  { id: "act_manage_payment", kind: "activity", name: "入金を管理する", bucId: dflt("biz_receivable") },
+  { id: "act_manage_payment", kind: "activity", name: "入金を管理する", bucId: dflt("biz_receivable"), triggerNote: "モールからの入金通知" },
   { id: "act_clear_receivable", kind: "activity", name: "入金を消し込む", bucId: dflt("biz_receivable"), hours: 0.4 },
   // 会計システムで、損益計算書 (PL) と貸借対照表 (BS) を見る
   { id: "act_review_pl", kind: "activity", name: "損益を確認する", bucId: dflt("biz_monthly") },
@@ -580,6 +580,23 @@ const pairs: [source: string, target: string][] = [
   ["actor_manager", "nfr_backup"],
   ["ext_customer", "nfr_card_data"],
   ["actor_manager", "nfr_accounting_access"],
+  // activityTrigger / eventActivity (作業の起点)
+  ["ev_received", "act_shelve"],
+  ["act_shelve", "act_update_stock"],
+  ["act_import_order", "act_check_order"],
+  ["act_check_order", "act_check_payment"],
+  ["ev_pick_listed", "act_pick"],
+  ["act_pick", "act_pack"],
+  ["act_pack", "act_issue_label"],
+  ["ev_shipped", "act_notify_shipping"],
+  ["ev_return_accepted", "act_inspect_return"],
+  ["act_inspect_return", "act_refund"],
+  ["act_inspect_return", "act_restock"],
+  ["act_answer", "act_track"],
+  ["act_answer", "act_record_inquiry"],
+  ["act_manage_payment", "act_clear_receivable"],
+  ["ev_month_closed", "act_review_pl"],
+  ["act_review_pl", "act_review_bs"],
 ];
 
 const elements: Element[] = [

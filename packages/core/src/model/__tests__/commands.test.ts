@@ -593,3 +593,47 @@ describe("操作の対象は 1 つだけ (0.3.0)", () => {
     expect(validateModel(repaired.model).ok).toBe(true);
   });
 });
+
+describe("作業の起点 (0.3.1)", () => {
+  it("作業 → 作業 (activityTrigger)・イベント → 作業 (eventActivity) を結べる。自分自身・種類違いは結べず、循環は許す", () => {
+    let m = sample();
+    const a = "act_clean";
+    const b = "act_inspect_room";
+    m = okModel(removeRelationBetween(m, "act_clean", "act_inspect_room"));
+    m = okModel(addRelation(m, { sourceId: a, targetId: b }));
+    m = okModel(addRelation(m, { sourceId: b, targetId: a }));
+    expect(m.relations.slice(-2).map((r) => r.kind)).toEqual(["activityTrigger", "activityTrigger"]);
+    m = okModel(addRelation(m, { sourceId: "ev_charge_calculated", targetId: a }));
+    expect(m.relations[m.relations.length - 1]!.kind).toBe("eventActivity");
+    expectFail(addRelation(m, { sourceId: a, targetId: a }), /自分自身には線を引けません/);
+    expectFail(addRelation(m, { sourceId: "uc_calc_charge", targetId: a }), /この組み合わせの要素は線で結べません/);
+    expectFail(addRelation(m, { sourceId: a, targetId: b }), /同じ関係がすでにあります/);
+    expect(validateModel(m).ok).toBe(true);
+  });
+
+  it("要素を消すと起点の関係も消える", () => {
+    const before = sample();
+    const n = before.relations.filter((r) => r.kind === "activityTrigger" || r.kind === "eventActivity").length;
+    expect(n).toBeGreaterThan(0);
+    const m = okModel(removeElement(before, { id: "act_clean" }));
+    expect(m.relations.some((r) => r.sourceId === "act_clean" || r.targetId === "act_clean")).toBe(false);
+    const ev = okModel(removeElement(before, { id: "ev_checkout_day" }));
+    expect(ev.relations.some((r) => r.kind === "eventActivity" && r.sourceId === "ev_checkout_day")).toBe(false);
+  });
+
+  it("triggerNote は作業だけが持ち、空文字で消え、長すぎると失敗する", () => {
+    let m = sample();
+    m = okModel(updateElement(m, { id: "act_clean", patch: { triggerNote: "電話" } }));
+    expect(m.elements.find((e) => e.id === "act_clean")).toMatchObject({ triggerNote: "電話" });
+    expect(validateModel(m).ok).toBe(true);
+    m = okModel(updateElement(m, { id: "act_clean", patch: { triggerNote: "  " } }));
+    expect("triggerNote" in m.elements.find((e) => e.id === "act_clean")!).toBe(false);
+    expectFail(updateElement(m, { id: "act_clean", patch: { triggerNote: "あ".repeat(4001) } }), /起点/);
+    expectFail(updateElement(m, { id: "uc_calc_charge", patch: { triggerNote: "電話" } }), /変更できません/);
+  });
+});
+
+function removeRelationBetween(m: UntieModel, s: string, t: string) {
+  const r = m.relations.find((x) => x.sourceId === s && x.targetId === t);
+  return r ? removeRelation(m, { id: r.id }) : { ok: true as const, model: m };
+}

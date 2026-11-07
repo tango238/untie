@@ -90,6 +90,8 @@ export interface ElementPatch {
   category?: NfrCategory | null;
   /** nfr。検証方法。空文字で消す */
   verification?: string;
+  /** activity。起点のうち、作業・イベント以外の自由入力 (その他)。空文字 (空白だけも) で消す */
+  triggerNote?: string;
 }
 
 const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> = {
@@ -99,7 +101,7 @@ const PATCH_KEYS_BY_KIND: Record<ElementKind, readonly (keyof ElementPatch)[]> =
   ledger: [],
   business: [],
   buc: [],
-  activity: ["links", "hours"],
+  activity: ["links", "hours", "triggerNote"],
   usecase: ["links", "hours"],
   context: [],
   information: [],
@@ -376,6 +378,7 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     patch.group === undefined ? null : checkLength("group", patch.group),
     patch.values === undefined ? null : checkValues(patch.values),
     patch.verification === undefined ? null : checkLength("verification", patch.verification),
+    patch.triggerNote === undefined ? null : checkLength("triggerNote", patch.triggerNote),
     ...(patch.analysis ? ISSUE_ANALYSIS_KEYS.map((key) => (patch.analysis![key] === undefined ? null : checkLength("analysis", patch.analysis![key]!.trim()))) : []),
   );
   if (tooLong) return fail(tooLong);
@@ -430,6 +433,10 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       const links = patch.links.map((l) => ({ title: l.title.trim() || truncateText(l.url.trim(), LINK_TITLE_MAX_LENGTH), url: l.url.trim() }));
       if (links.length === 0) delete el.links;
       else el.links = links;
+    }
+    if (el.kind === "activity" && patch.triggerNote !== undefined) {
+      if (patch.triggerNote.trim() === "") delete el.triggerNote;
+      else el.triggerNote = patch.triggerNote;
     }
     if (el.kind === "nfr") {
       if (patch.category === null) delete el.category;

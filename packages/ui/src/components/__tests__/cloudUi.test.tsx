@@ -423,6 +423,15 @@ describe("共有ボタン", () => {
 describe("プロパティ欄", () => {
   const selectEl = (id: string) => act(() => st().select({ type: "element", id }));
 
+  it("閲覧者は作業の起点を足せず、その他の入力も読み取り専用", () => {
+    openCloud("viewer", "fixed:activity");
+    selectEl("act_hand_key");
+    render(<PropertyPanel />);
+    expect(screen.queryByLabelText("起点を追加")).toBeNull();
+    expect(screen.queryByRole("button", { name: /起点「.*」を外す/ })).toBeNull();
+    expect((screen.getByLabelText("起点 (その他)") as HTMLInputElement).readOnly).toBe(true);
+  });
+
   it("閲覧者は入力欄がすべて読み取り専用で、変更・削除・関係の追加のボタンが出ない", () => {
     openCloud("viewer", "fixed:activity");
     selectEl("act_hand_key");

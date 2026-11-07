@@ -65,7 +65,9 @@ function upEdges(model: UntieModel): Map<string, string[]> {
         break;
       case "informationRelated":
       case "usecaseNext":
-        // 同じレイヤーなので辿らない
+      case "activityTrigger":
+      case "eventActivity":
+        // 同じレイヤーなので辿らない (作業の起点は、作業どうし・イベントから作業への流れで、上下ではない)
         break;
     }
   }

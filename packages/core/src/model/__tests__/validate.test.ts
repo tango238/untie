@@ -259,3 +259,28 @@ describe("isValidElementShape", () => {
     expect(isValidElementShape("x")).toBe(false);
   });
 });
+
+describe("validateModel: 作業の起点 (0.3.1)", () => {
+  it("起点の循環はエラーにしない。種類の合わない起点・自己参照・空の triggerNote はエラー", () => {
+    const j = json();
+    j.relations.push({ id: "r_t1", kind: "activityTrigger", sourceId: "act_hand_key", targetId: "act_collect_key" });
+    j.relations.push({ id: "r_t2", kind: "activityTrigger", sourceId: "act_collect_key", targetId: "act_hand_key" });
+    expect(validateModel(j).ok).toBe(true);
+    const bad = json();
+    bad.relations.push({ id: "r_b", kind: "activityTrigger", sourceId: "uc_calc_charge", targetId: "act_clean" });
+    expect(errorsOf(bad).join()).toMatch(/線で結べません/);
+    // kind と両端が食い違う (eventActivity なのに始点が作業、activityTrigger なのに始点がイベント)
+    const mismatch = json();
+    mismatch.relations.push({ id: "r_m1", kind: "eventActivity", sourceId: "act_hand_key", targetId: "act_collect_key" });
+    expect(errorsOf(mismatch).join()).toMatch(/関係 r_m1 の kind「eventActivity」が両端の種類から決まる「activityTrigger」と一致しません/);
+    const mismatch2 = json();
+    mismatch2.relations.push({ id: "r_m2", kind: "activityTrigger", sourceId: "ev_checkout_day", targetId: "act_hand_key" });
+    expect(errorsOf(mismatch2).join()).toMatch(/関係 r_m2 の kind「activityTrigger」が両端の種類から決まる「eventActivity」と一致しません/);
+    const self = json();
+    self.relations.push({ id: "r_s", kind: "activityTrigger", sourceId: "act_clean", targetId: "act_clean" });
+    expect(errorsOf(self).join()).toMatch(/自己参照/);
+    const empty = json();
+    empty.elements.find((e: Json) => e.id === "act_clean").triggerNote = "";
+    expect(errorsOf(empty).length).toBeGreaterThan(0);
+  });
+});

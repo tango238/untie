@@ -54,10 +54,10 @@ const bucs: Element[] = [
 const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
 
 const activities: Element[] = [
-  { id: "act_accept_reservation", kind: "activity", name: "予約を受け付ける", bucId: dflt("biz_reservation") },
+  { id: "act_accept_reservation", kind: "activity", name: "予約を受け付ける", bucId: dflt("biz_reservation"), triggerNote: "電話・予約サイトからの申し込み" },
   { id: "act_confirm_reservation", kind: "activity", name: "予約内容を確認する", bucId: dflt("biz_reservation") },
-  { id: "act_change_cancel", kind: "activity", name: "予約を変更・取消する", bucId: dflt("biz_reservation") },
-  { id: "act_confirm_arrival", kind: "activity", name: "到着を確認する", bucId: dflt("biz_checkin") },
+  { id: "act_change_cancel", kind: "activity", name: "予約を変更・取消する", bucId: dflt("biz_reservation"), triggerNote: "宿泊客からの電話・メール" },
+  { id: "act_confirm_arrival", kind: "activity", name: "到着を確認する", bucId: dflt("biz_checkin"), triggerNote: "宿泊客の来館" },
   { id: "act_verify_identity", kind: "activity", name: "本人確認をする", bucId: dflt("biz_checkin"), hours: 0.1 },
   { id: "act_assign_room", kind: "activity", name: "部屋を割り当てる", bucId: dflt("biz_checkin") },
   {
@@ -71,7 +71,7 @@ const activities: Element[] = [
       { title: "鍵の保管ルール", url: "https://example.com/manual/key-storage" },
     ],
   },
-  { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care" },
+  { id: "act_room_request", kind: "activity", name: "客室の要望に応える", bucId: "buc_room_care", triggerNote: "客室からの電話" },
   { id: "act_room_service", kind: "activity", name: "ルームサービスを提供する", bucId: "buc_dining" },
   { id: "act_record_extra", kind: "activity", name: "追加料金を記録する", bucId: "buc_extra_charge" },
   { id: "act_create_bill", kind: "activity", name: "請求を作成する", bucId: dflt("biz_checkout") },
@@ -329,6 +329,19 @@ const pairs: [source: string, target: string][] = [
   // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
   ["uc_register_reservation", "sys_booking_site"],
   ["uc_record_payment", "sys_payment"],
+  // activityTrigger / eventActivity (作業の起点)
+  ["act_accept_reservation", "act_confirm_reservation"],
+  ["act_confirm_arrival", "act_verify_identity"],
+  ["act_verify_identity", "act_assign_room"],
+  ["act_assign_room", "act_hand_key"],
+  ["act_room_request", "act_room_service"],
+  ["act_room_service", "act_record_extra"],
+  ["ev_checkout_day", "act_create_bill"],
+  ["act_create_bill", "act_settle"],
+  ["act_settle", "act_collect_key"],
+  ["act_collect_key", "act_instruct_cleaning"],
+  ["act_instruct_cleaning", "act_clean"],
+  ["act_clean", "act_inspect_room"],
 ];
 
 const elements: Element[] = [

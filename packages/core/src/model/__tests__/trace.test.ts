@@ -211,3 +211,21 @@ describe("traceWarnings", () => {
     expect(addRelation(chainModel(["uc_b"], [], []), { sourceId: "uc_b", targetId: "uc_b" }).ok).toBe(false);
   });
 });
+
+describe("traceToActors: 作業の起点 (0.3.1)", () => {
+  it("起点だけでつながった作業は、担当が無ければ途切れとして出る。起点が循環しても終わり、結果が変わらない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "activity", name: "起点だけの作業", id: "act_t1" }));
+    m = okModel(addElement(m, { kind: "activity", name: "もう一つ", id: "act_t2" }));
+    m = okModel(addRelation(m, { sourceId: "act_clean", targetId: "act_t1" }));
+    m = okModel(addRelation(m, { sourceId: "ev_checkout_day", targetId: "act_t2" }));
+    m = okModel(addRelation(m, { sourceId: "act_t1", targetId: "act_t2" }));
+    m = okModel(addRelation(m, { sourceId: "act_t2", targetId: "act_t1" }));
+    const r = traceToActors(m);
+    // 担当のいる作業から起点で結んでも、担い手には辿り着かない
+    expect(r.problems.map((p) => [p.elementId, p.isBreak])).toEqual([["act_t1", true], ["act_t2", true]]);
+    // 起点を外しても、サンプルの結果は変わらない
+    expect(traceToActors(sample()).problems).toEqual([]);
+    expect(traceWarnings(m)).toEqual(traceWarnings(sample()));
+  });
+});

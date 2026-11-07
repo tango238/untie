@@ -140,3 +140,14 @@ describe("expectedLayers (トレースに出す上下のレイヤー)", () => {
     expect(t.down.find((r) => r.layer === "usecase")!.elements.length).toBeGreaterThan(0);
   });
 });
+
+describe("lineage: 作業の起点 (0.3.1)", () => {
+  it("起点の作業・イベントは、上にも下にも入らない", () => {
+    const t = lineage(sample(), "act_clean");
+    const names = [...t.up, ...t.down].flatMap((r) => r.elements.map((e) => e.name));
+    expect(names).not.toContain("清掃を指示する");
+    expect(names).not.toContain("部屋を点検する");
+    const bill = lineage(sample(), "act_create_bill");
+    expect([...bill.up, ...bill.down].flatMap((r) => r.elements.map((e) => e.name))).not.toContain("チェックアウトの日になった");
+  });
+});

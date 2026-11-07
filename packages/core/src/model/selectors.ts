@@ -148,3 +148,74 @@ export function activityHours(model: UntieModel, activityId: string): ActivityHo
 export function formatHours(hours: number): string {
   return `${hours.toFixed(1)} 時間`;
 }
+
+export interface ActivityTriggers {
+  /** 起点となる作業 (activityTrigger。関係の並び順) */
+  activities: Element[];
+  /** 起点となるイベント (eventActivity。関係の並び順) */
+  events: Element[];
+  /** その他 (triggerNote) */
+  note?: string;
+}
+
+const isTriggerRelation = (kind: string) => kind === "activityTrigger" || kind === "eventActivity";
+
+/** 作業ごとの起点 (作業・イベント・その他)。起点のある作業だけが入る。モデルを 1 度だけ走査する */
+export function activityTriggerIndex(model: UntieModel): Map<string, ActivityTriggers> {
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const map = new Map<string, ActivityTriggers>();
+  const entry = (id: string): ActivityTriggers => {
+    let t = map.get(id);
+    if (!t) map.set(id, (t = { activities: [], events: [] }));
+    return t;
+  };
+  for (const r of model.relations) {
+    if (!isTriggerRelation(r.kind)) continue;
+    const from = byId.get(r.sourceId);
+    if (!from || byId.get(r.targetId)?.kind !== "activity") continue;
+    (r.kind === "activityTrigger" ? entry(r.targetId).activities : entry(r.targetId).events).push(from);
+  }
+  for (const e of model.elements) if (e.kind === "activity" && e.triggerNote) entry(e.id).note = e.triggerNote;
+  return map;
+}
+
+/** 作業の起点 (作業・イベント・その他) */
+export function activityTriggers(model: UntieModel, activityId: string): ActivityTriggers {
+  return activityTriggerIndex(model).get(activityId) ?? { activities: [], events: [] };
+}
+
+/** この作業を起点にしている作業 (後続の作業。関係の並び順) */
+export function activitiesTriggeredBy(model: UntieModel, activityId: string): Element[] {
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const out: Element[] = [];
+  for (const r of model.relations) {
+    if (r.kind !== "activityTrigger" || r.sourceId !== activityId) continue;
+    const to = byId.get(r.targetId);
+    if (to) out.push(to);
+  }
+  return out;
+}
+
+function summaryOf(t: ActivityTriggers): string | undefined {
+  const parts = [
+    ...t.activities.map((a) => a.name || "(名前なし)"),
+    ...t.events.map((e) => `${e.name || "(名前なし)"} (イベント)`),
+    ...(t.note ? [t.note] : []),
+  ];
+  return parts.length > 0 ? `起点: ${parts.join(" / ")}` : undefined;
+}
+
+/** 作業ごとの起点の要約 (「起点: 受注の確認 / 入荷が登録された (イベント) / 電話」)。起点のある作業だけが入る */
+export function triggerSummaries(model: UntieModel): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [id, t] of activityTriggerIndex(model)) {
+    const text = summaryOf(t);
+    if (text) map.set(id, text);
+  }
+  return map;
+}
+
+/** 1 つの作業の起点の要約。起点が無ければ undefined */
+export function triggerSummary(model: UntieModel, activityId: string): string | undefined {
+  return triggerSummaries(model).get(activityId);
+}

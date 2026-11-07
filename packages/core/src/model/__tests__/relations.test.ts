@@ -27,6 +27,8 @@ describe("関係ルール", () => {
     ["system", "event", "systemEvent"],
     ["event", "usecase", "eventUsecase"],
     ["usecase", "usecase", "usecaseNext"],
+    ["activity", "activity", "activityTrigger"],
+    ["event", "activity", "eventActivity"],
     ["usecase", "screen", "usecaseScreen"],
     ["screen", "information", "screenInformation"],
     ["actor", "nfr", "actorNfr"],

@@ -86,3 +86,34 @@ describe("buildModelFromSpec: AI の出力が長くても要素が消えない",
     expect(validateModel(JSON.parse(JSON.stringify(model))).ok).toBe(true);
   });
 });
+
+describe("buildModelFromSpec: 作業の起点", () => {
+  const act = (name: string, extra: Record<string, unknown> = {}) => ({ name, performers: ["担当"], ...extra });
+  const base = (activities: Record<string, unknown>[], more: Record<string, unknown>[] = []): ModelSpec => ({
+    system_name: "x",
+    actors: [{ name: "担当" }],
+    businesses: [
+      { name: "業務A", main_actors: ["担当"], activities: activities as never },
+      ...(more.length ? [{ name: "業務B", main_actors: ["担当"], activities: more as never }] : []),
+    ],
+  });
+  const triggers = (r: ReturnType<typeof buildModelFromSpec>) =>
+    r.model.relations.filter((x) => x.kind === "activityTrigger").map((x) => [r.model.elements.find((e) => e.id === x.sourceId)!.name, r.model.elements.find((e) => e.id === x.targetId)!.name]);
+
+  it("起点の作業 (後ろの作業を指してもよい) と、その他を書く", () => {
+    const r = buildModelFromSpec(base([act("先", { trigger_activities: ["後"], trigger_note: " 電話 " }), act("後")]));
+    expect(r.warnings).toEqual([]);
+    expect(triggers(r)).toEqual([["後", "先"]]);
+    expect(r.model.elements.find((e) => e.kind === "activity" && e.name === "先")).toMatchObject({ triggerNote: "電話" });
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
+  it("見つからない起点・自分自身は結ばず、warnings に残す。同名の作業が複数あれば知らせて最初の 1 つを結ぶ", () => {
+    const r = buildModelFromSpec(base([act("先", { trigger_activities: ["いない作業", "先"] })]));
+    expect(r.warnings).toEqual(expect.arrayContaining(["起点の作業「いない作業」が見つかりません", "作業「先」は自分自身を起点にできないので、起点「先」は結びませんでした"]));
+    expect(triggers(r)).toEqual([]);
+    const dup = buildModelFromSpec(base([act("先", { trigger_activities: ["同名"] }), act("同名")], [act("同名")]));
+    expect(dup.warnings).toEqual(["起点の作業「同名」と同じ名前の作業が 2 つあるので、最初の 1 つを結びました"]);
+    expect(triggers(dup)).toEqual([["同名", "先"]]);
+  });
+});

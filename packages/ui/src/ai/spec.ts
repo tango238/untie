@@ -1,7 +1,7 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, type CommandResult, type ElementInit } from "@untie/core/model/commands";
-import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
+import { addElement, addRelation, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { defaultBucOf } from "@untie/core/model/selectors";
 import { emptyModel, isIssueTargetKind, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import type { ToolDef } from "./tools";
@@ -26,6 +26,10 @@ export interface SpecActivity extends SpecNamed {
   /** 担当 (アクター・外部アクターの名前。システムの名前が来たら、その作業の操作の対象にする) */
   performers?: string[];
   usecases?: SpecUsecase[];
+  /** 起点となる作業の名前 (別の作業。モデルのどこにあってもよい) */
+  trigger_activities?: string[];
+  /** 起点のうち、作業・イベント以外 (「電話」など。1 行) */
+  trigger_note?: string;
 }
 
 export interface SpecBuc extends SpecNamed {
@@ -86,6 +90,8 @@ const usecaseSchema = named({
 const activitySchema = named({
   performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
   usecases: list(usecaseSchema, "この作業で使う操作 (システム・帳票に対する 1 回の操作)。同じ名前の操作は同じものとして扱う"),
+  trigger_activities: names("この作業が始まる起点になる別の作業の名前 (どこの業務の作業でもよい。モデルのほかの作業と同じ名前にする)。無ければ省く"),
+  trigger_note: { type: "string", description: "起点のうち、作業以外の 1 行 (例: 電話、月初になったとき)。無ければ省く" },
 });
 
 export const SUBMIT_MODEL_TOOL: ToolDef = {
@@ -251,9 +257,12 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   }
 
   // 業務 → 活動 → 作業 → 操作
+  // 起点の作業は後ろの作業を指してもよいので、全部作ってから結ぶ
+  const pendingTriggers: { id: string; spec: SpecActivity }[] = [];
   const addActivity = (a: SpecActivity, bucId: string) => {
     const id = add("activity", `activity:${bucId}`, a, { bucId });
     if (!id) return;
+    if (a.trigger_activities?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
     // システムは作業の担当にならない (0.2.0)。担当に書かれたシステムは、その作業の操作の対象にする
     const systemTargets: string[] = [];
     for (const n of a.performers ?? []) {
@@ -289,6 +298,22 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       const bucId = add("buc", `buc:${bizId}`, buc, { businessId: bizId });
       if (bucId) for (const a of buc.activities ?? []) addActivity(a, bucId);
     }
+  }
+
+  // 作業の起点 (作業・その他)。イベントは下書きに無いので扱わない
+  for (const { id, spec: a } of pendingTriggers) {
+    for (const n of a.trigger_activities ?? []) {
+      const same = model.elements.filter((e) => e.kind === "activity" && e.name === nameOf(n));
+      const others = same.filter((e) => e.id !== id);
+      if (same.length === 0) warnings.push(`起点の作業「${n}」が見つかりません`);
+      else if (others.length === 0) warnings.push(`作業「${a.name}」は自分自身を起点にできないので、起点「${n}」は結びませんでした`);
+      else {
+        if (others.length > 1) warnings.push(`起点の作業「${n}」と同じ名前の作業が ${others.length} つあるので、最初の 1 つを結びました`);
+        relate(others[0]!.id, id);
+      }
+    }
+    const note = a.trigger_note?.trim();
+    if (note) apply(updateElement(model, { id, patch: { triggerNote: truncateText(note, TRIGGER_NOTE_MAX_LENGTH) } }), `作業「${a.name}」の起点を書けません`);
   }
 
   // 課題

@@ -24,6 +24,7 @@ const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言�
   - 全体的な課題: 登場人物 (actor / externalActor / system / ledger) を対象にする。その登場人物全体にかかわる課題
   - 具体的な課題: 業務・作業・操作 (business / activity / usecase) を対象にする。特定の業務や操作で起きている課題
 - 作業と操作には時間 (hours: 時間単位、小数点第一位まで) とリンク (マニュアルなど) を付けられる
+- 作業には起点 (何をきっかけに始まるか) を付けられる。起点は、別の作業 (activity → activity)、イベント (event → activity)、その他の 1 行 (update_element の trigger_note) のどれでもよく、複数付けてよい
 
 つながりの決まり:
 - 作業には必ず担当 (actor / externalActor → activity) を結ぶ。システムは担当にしない

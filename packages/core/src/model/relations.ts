@@ -34,6 +34,9 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "systemEvent", sources: ["system"], targets: ["event"], label: "発生", undirected: false },
   { kind: "eventUsecase", sources: ["event"], targets: ["usecase"], label: "きっかけ", undirected: false },
   { kind: "usecaseNext", sources: ["usecase"], targets: ["usecase"], label: "次に", undirected: false },
+  // 0.3.1 から。作業の起点 (作業・イベント)。もう 1 つの起点「その他」は作業の項目 triggerNote
+  { kind: "activityTrigger", sources: ["activity"], targets: ["activity"], label: "起点", undirected: false },
+  { kind: "eventActivity", sources: ["event"], targets: ["activity"], label: "起点", undirected: false },
   { kind: "usecaseScreen", sources: ["usecase"], targets: ["screen"], label: "画面", undirected: false },
   { kind: "screenInformation", sources: ["screen"], targets: ["information"], label: "扱う", undirected: false },
   { kind: "actorNfr", sources: ["actor", "externalActor"], targets: ["nfr"], label: "求める", undirected: false },

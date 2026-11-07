@@ -61,19 +61,19 @@ const bucs: Element[] = [
 const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
 
 const activities: Element[] = [
-  { id: "act_decide_qty", kind: "activity", name: "発注数を決める", bucId: dflt("biz_purchase"), hours: 0.5 },
+  { id: "act_decide_qty", kind: "activity", name: "発注数を決める", bucId: dflt("biz_purchase"), hours: 0.5, triggerNote: "毎週の発注日" },
   { id: "act_place_order", kind: "activity", name: "発注する", bucId: dflt("biz_purchase") },
-  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_purchase") },
+  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_purchase"), triggerNote: "仕入先からの納品" },
   { id: "act_record_receiving", kind: "activity", name: "検品の結果を記録する", bucId: dflt("biz_purchase") },
   { id: "act_display", kind: "activity", name: "商品を陳列する", bucId: dflt("biz_display") },
-  { id: "act_price", kind: "activity", name: "売価・値札を直す", bucId: dflt("biz_display") },
-  { id: "act_check_shelf", kind: "activity", name: "棚の在庫を確認する", bucId: dflt("biz_display") },
+  { id: "act_price", kind: "activity", name: "売価・値札を直す", bucId: dflt("biz_display"), triggerNote: "本部からの価格変更の通知" },
+  { id: "act_check_shelf", kind: "activity", name: "棚の在庫を確認する", bucId: dflt("biz_display"), triggerNote: "開店前・閉店後の巡回" },
   { id: "act_markdown", kind: "activity", name: "売れ残りを値引き・廃棄する", bucId: dflt("biz_display") },
-  { id: "act_scan", kind: "activity", name: "商品を読み取る", bucId: "buc_checkout" },
+  { id: "act_scan", kind: "activity", name: "商品を読み取る", bucId: "buc_checkout", triggerNote: "レジに商品が出されたとき" },
   { id: "act_payment", kind: "activity", name: "代金を受け取る", bucId: "buc_checkout" },
-  { id: "act_return", kind: "activity", name: "返品・交換に応じる", bucId: "buc_return" },
-  { id: "act_special", kind: "activity", name: "お取り寄せを受ける", bucId: "buc_special" },
-  { id: "act_count_cash", kind: "activity", name: "現金を数える", bucId: dflt("biz_closing"), hours: 0.2 },
+  { id: "act_return", kind: "activity", name: "返品・交換に応じる", bucId: "buc_return", triggerNote: "お客さまからの申し出" },
+  { id: "act_special", kind: "activity", name: "お取り寄せを受ける", bucId: "buc_special", triggerNote: "お客さまからの注文" },
+  { id: "act_count_cash", kind: "activity", name: "現金を数える", bucId: dflt("biz_closing"), hours: 0.2, triggerNote: "閉店" },
   { id: "act_reconcile", kind: "activity", name: "売上と現金を突き合わせる", bucId: dflt("biz_closing"), hours: 0.5 },
   {
     id: "act_report_sales",
@@ -87,7 +87,7 @@ const activities: Element[] = [
     ],
   },
   { id: "act_deposit", kind: "activity", name: "売上金を保管・入金する", bucId: dflt("biz_closing") },
-  { id: "act_stocktake", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stocktake"), hours: 2 },
+  { id: "act_stocktake", kind: "activity", name: "棚卸をする", bucId: dflt("biz_stocktake"), hours: 2, triggerNote: "月末" },
   { id: "act_apply_count", kind: "activity", name: "実在庫を帳簿に反映する", bucId: dflt("biz_stocktake") },
   { id: "act_review_stock", kind: "activity", name: "欠品・過剰在庫を確認する", bucId: dflt("biz_stocktake") },
   // 本部の会計システムが対象。クレジットカードや電子マネーの売上は、あとから決済会社がまとめて振り込む (その間は売掛金)。
@@ -422,6 +422,20 @@ const pairs: [source: string, target: string][] = [
   ["uc_adjust_stock", "sys_pos"],
   ["uc_record_settlement", "sys_accounting"],
   ["uc_clear_receivable", "sys_accounting"],
+  // activityTrigger / eventActivity (作業の起点)
+  ["act_decide_qty", "act_place_order"],
+  ["act_receive", "act_record_receiving"],
+  ["act_record_receiving", "act_display"],
+  ["act_check_shelf", "act_markdown"],
+  ["act_scan", "act_payment"],
+  ["act_count_cash", "act_reconcile"],
+  ["act_reconcile", "act_report_sales"],
+  ["act_report_sales", "act_deposit"],
+  ["act_stocktake", "act_apply_count"],
+  ["act_apply_count", "act_review_stock"],
+  ["ev_card_paid", "act_manage_settlement"],
+  ["act_manage_settlement", "act_clear_receivable"],
+  ["act_review_pl", "act_review_bs"],
 ];
 
 const elements: Element[] = [

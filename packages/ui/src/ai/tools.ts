@@ -93,6 +93,7 @@ export const MODEL_TOOLS: ToolDef[] = [
         group: str("state の状態グループ名 (空文字で消す)"),
         values: strArray("variation の値の一覧 (全部を置き換える)"),
         hours: { type: ["number", "null"], description: "activity / usecase の時間。null で消す" },
+        trigger_note: str("activity の起点のうち作業・イベント以外の 1 行 (例: 電話)。空文字で消す。4000 文字まで"),
         links: linkSchema,
         severity: { type: "integer", minimum: 1, maximum: 5, description: "issue の重要度" },
         target_ids: strArray("issue の対象 (全部を置き換える。登場人物だけ、または業務・作業・操作だけ)"),
@@ -110,7 +111,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "add_relation",
     description:
-      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor → activity は担当 (システムは担当にならない)、usecase → system / ledger / screen は対象 (1 つの操作に 1 つだけ)、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、system / ledger → information は取得元、information → system / ledger は保存先)。表に無い組み合わせは失敗する。",
+      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor → activity は担当 (システムは担当にならない)、usecase → system / ledger / screen は対象 (1 つの操作に 1 つだけ)、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、system / ledger → information は取得元、information → system / ledger は保存先、activity → activity は作業の起点 (始点が起点になる作業、終点が起点を持つ作業)、event → activity も作業の起点)。表に無い組み合わせは失敗する。",
     parameters: {
       type: "object",
       properties: { source_id: str("始点の要素 id"), target_id: str("終点の要素 id") },
@@ -243,6 +244,7 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       if (typeof input.description === "string") patch.description = input.description;
       if (typeof input.group === "string") patch.group = input.group;
       if (arr(input.values)) patch.values = arr(input.values);
+      if (typeof input.trigger_note === "string") patch.triggerNote = input.trigger_note;
       if (typeof input.hours === "number" || input.hours === null) patch.hours = input.hours as number | null;
       if (Array.isArray(input.links)) {
         patch.links = input.links

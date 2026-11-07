@@ -62,18 +62,18 @@ const bucs: Element[] = [
 const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
 
 const activities: Element[] = [
-  { id: "act_issue_invoice", kind: "activity", name: "請求書を発行する", bucId: "buc_invoice" },
+  { id: "act_issue_invoice", kind: "activity", name: "請求書を発行する", bucId: "buc_invoice", triggerNote: "月末の締め" },
   { id: "act_send_invoice", kind: "activity", name: "請求書を送る", bucId: "buc_invoice" },
   { id: "act_manage_receipt", kind: "activity", name: "入金を管理する", bucId: "buc_receipt" },
   { id: "act_clear_receivable", kind: "activity", name: "入金を消し込む", bucId: "buc_clearing", hours: 0.5 },
-  { id: "act_receive_vendor_invoice", kind: "activity", name: "請求書を受け取る", bucId: dflt("biz_payable") },
+  { id: "act_receive_vendor_invoice", kind: "activity", name: "請求書を受け取る", bucId: dflt("biz_payable"), triggerNote: "取引先からの請求書の到着" },
   { id: "act_check_vendor_invoice", kind: "activity", name: "請求書の内容を確認する", bucId: dflt("biz_payable"), hours: 0.2 },
   { id: "act_approve_payment", kind: "activity", name: "支払を承認する", bucId: dflt("biz_payable") },
   { id: "act_pay", kind: "activity", name: "支払を実行する", bucId: dflt("biz_payable") },
-  { id: "act_accept_expense", kind: "activity", name: "経費の申請を受け付ける", bucId: dflt("biz_expense") },
+  { id: "act_accept_expense", kind: "activity", name: "経費の申請を受け付ける", bucId: dflt("biz_expense"), triggerNote: "社員からの申請" },
   { id: "act_check_expense", kind: "activity", name: "領収書と内容を確認する", bucId: dflt("biz_expense"), hours: 0.2 },
   { id: "act_pay_expense", kind: "activity", name: "精算金を支払う", bucId: dflt("biz_expense") },
-  { id: "act_journal", kind: "activity", name: "取引を仕訳する", bucId: dflt("biz_booking"), hours: 0.1 },
+  { id: "act_journal", kind: "activity", name: "取引を仕訳する", bucId: dflt("biz_booking"), hours: 0.1, triggerNote: "取引が発生したとき" },
   {
     id: "act_keep_evidence",
     kind: "activity",
@@ -85,14 +85,14 @@ const activities: Element[] = [
       { title: "電子帳簿保存法への対応", url: "https://example.com/manual/e-bookkeeping" },
     ],
   },
-  { id: "act_petty_cash", kind: "activity", name: "小口現金を管理する", bucId: dflt("biz_booking") },
+  { id: "act_petty_cash", kind: "activity", name: "小口現金を管理する", bucId: dflt("biz_booking"), triggerNote: "小口現金の出し入れ" },
   { id: "act_check_balance", kind: "activity", name: "預金残高を確認する", bucId: dflt("biz_booking") },
   { id: "act_adjust_month", kind: "activity", name: "月末の調整仕訳を入れる", bucId: dflt("biz_monthly") },
   { id: "act_make_trial", kind: "activity", name: "試算表を作る", bucId: dflt("biz_monthly") },
   // 会計システムで、損益計算書 (PL) と貸借対照表 (BS) を見る
   { id: "act_review_pl", kind: "activity", name: "損益を確認する", bucId: dflt("biz_monthly") },
   { id: "act_review_bs", kind: "activity", name: "財務の状況を確認する", bucId: dflt("biz_monthly") },
-  { id: "act_year_adjust", kind: "activity", name: "決算整理をする", bucId: dflt("biz_annual") },
+  { id: "act_year_adjust", kind: "activity", name: "決算整理をする", bucId: dflt("biz_annual"), triggerNote: "決算月の終了" },
   { id: "act_make_statements", kind: "activity", name: "決算書を作る", bucId: dflt("biz_annual") },
   { id: "act_tax_filing", kind: "activity", name: "申告の資料を税理士とそろえる", bucId: dflt("biz_annual") },
 ];
@@ -389,6 +389,22 @@ const pairs: [source: string, target: string][] = [
   ["uc_issue_trial", "sys_accounting"],
   ["uc_close_month", "sys_accounting"],
   ["uc_issue_statements", "sys_accounting"],
+  // activityTrigger / eventActivity (作業の起点)
+  ["act_issue_invoice", "act_send_invoice"],
+  ["act_send_invoice", "act_manage_receipt"],
+  ["act_manage_receipt", "act_clear_receivable"],
+  ["act_receive_vendor_invoice", "act_check_vendor_invoice"],
+  ["act_check_vendor_invoice", "act_approve_payment"],
+  ["act_approve_payment", "act_pay"],
+  ["act_accept_expense", "act_check_expense"],
+  ["act_check_expense", "act_pay_expense"],
+  ["act_journal", "act_keep_evidence"],
+  ["act_journal", "act_check_balance"],
+  ["act_adjust_month", "act_make_trial"],
+  ["act_make_trial", "act_review_pl"],
+  ["act_review_pl", "act_review_bs"],
+  ["act_year_adjust", "act_make_statements"],
+  ["act_make_statements", "act_tax_filing"],
 ];
 
 const elements: Element[] = [
