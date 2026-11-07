@@ -54,6 +54,7 @@ export const LIMITS = {
   verification: { max: VERIFICATION_MAX_LENGTH, label: "検証方法" },
   triggerNote: { max: TRIGGER_NOTE_MAX_LENGTH, label: "起点 (その他)" },
   dsl: { max: DSL_MAX_LENGTH, label: "DSL" },
+  transitionLabel: { max: NAME_MAX_LENGTH, label: "遷移の文言" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;
 

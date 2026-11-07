@@ -1,7 +1,9 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
+import { addDesignScreens, updateTransition } from "../model/commands";
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
+import { deriveTransitions, sitemapTree } from "../model/sitemap";
+import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -178,6 +180,19 @@ const conditions: Element[] = [
 /** イベント (操作やシステムが発生させる出来事) */
 const events: Element[] = [
   { id: "ev_card_paid", kind: "event", name: "カード・電子マネーで支払われた", contextId: "ctx_accounting" },
+];
+
+/** POSレジの画面 (設計モードのサイトマップの材料。ほかのシステムの画面は置かない) */
+const screens: Element[] = [
+  { id: "scr_pos_search", kind: "screen", name: "商品・在庫の検索", systemId: "sys_pos" },
+  { id: "scr_pos_price", kind: "screen", name: "売価の変更", systemId: "sys_pos" },
+  { id: "scr_pos_disposal", kind: "screen", name: "値引き・廃棄の入力", systemId: "sys_pos" },
+  { id: "scr_pos_sale", kind: "screen", name: "レジ打ち", systemId: "sys_pos" },
+  { id: "scr_pos_return", kind: "screen", name: "返品・交換の入力", systemId: "sys_pos" },
+  { id: "scr_pos_cash", kind: "screen", name: "現金の確認", systemId: "sys_pos" },
+  { id: "scr_pos_daily", kind: "screen", name: "日次売上", systemId: "sys_pos" },
+  { id: "scr_pos_stocktake", kind: "screen", name: "棚卸の入力", systemId: "sys_pos" },
+  { id: "scr_pos_adjust", kind: "screen", name: "在庫の調整", systemId: "sys_pos" },
 ];
 
 const issues: Element[] = [
@@ -414,14 +429,38 @@ const pairs: [source: string, target: string][] = [
   ["uc_record_payment", "ev_card_paid"],
   ["ev_card_paid", "uc_register_receivable"],
   ["uc_register_receivable", "sys_accounting"],
-  // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
+  // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする。POSレジの操作は画面で結ぶ (下)
   ["uc_register_order", "sys_ordering"],
-  ["uc_register_sale", "sys_pos"],
   ["uc_record_payment", "sys_terminal"],
-  ["uc_issue_daily_report", "sys_pos"],
-  ["uc_adjust_stock", "sys_pos"],
   ["uc_record_settlement", "sys_accounting"],
   ["uc_clear_receivable", "sys_accounting"],
+  // usecaseScreen / screenInformation (POSレジの画面。1 つの操作の対象は、システム・画面のどちらか 1 つだけ)
+  ["uc_search_item", "scr_pos_search"],
+  ["uc_change_price", "scr_pos_price"],
+  ["uc_record_disposal", "scr_pos_disposal"],
+  ["uc_register_sale", "scr_pos_sale"],
+  ["uc_register_return", "scr_pos_return"],
+  ["uc_record_cash", "scr_pos_cash"],
+  ["uc_issue_daily_report", "scr_pos_daily"],
+  ["uc_record_stocktake", "scr_pos_stocktake"],
+  ["uc_adjust_stock", "scr_pos_adjust"],
+  ["scr_pos_search", "info_item"],
+  ["scr_pos_search", "info_stock"],
+  ["scr_pos_price", "info_item"],
+  ["scr_pos_disposal", "info_stock"],
+  ["scr_pos_sale", "info_sale"],
+  ["scr_pos_sale", "info_item"],
+  ["scr_pos_return", "info_sale"],
+  ["scr_pos_cash", "info_payment"],
+  ["scr_pos_daily", "info_sale"],
+  ["scr_pos_daily", "info_payment"],
+  ["scr_pos_stocktake", "info_stocktake"],
+  ["scr_pos_adjust", "info_stock"],
+  // 作業が使う操作 (activityUsecase) と操作の順 (usecaseNext)。値引き・廃棄と棚卸は、商品を探してから記録する
+  ["act_markdown", "uc_search_item"],
+  ["act_stocktake", "uc_search_item"],
+  ["uc_search_item", "uc_record_disposal"],
+  ["uc_search_item", "uc_record_stocktake"],
   // activityTrigger / eventActivity (作業の起点)
   ["act_decide_qty", "act_place_order"],
   ["act_receive", "act_record_receiving"],
@@ -453,6 +492,7 @@ const elements: Element[] = [
   ...variations,
   ...conditions,
   ...events,
+  ...screens,
   ...issues,
 ];
 
@@ -544,7 +584,7 @@ const stateNodes: BoardNode[] = [
   ...column(states.filter((e) => e.id.startsWith("st_rec_")).map((e) => e.id), 1240, 540, 90),
 ];
 
-export const retailSample: UntieModel = {
+const baseModel: UntieModel = {
   version: MODEL_VERSION,
   meta: {
     name: "店舗の業務 (サンプル)",
@@ -560,6 +600,40 @@ export const retailSample: UntieModel = {
   designs: [],
   databases: [],
 };
+
+/**
+ * POSレジの設計 (サイトマップ): サインイン・トップページと、POSレジの画面に届く作業をすべてチェックしたのと同じ内容。
+ * 遷移は deriveTransitions で導き、いくつかにはきっかけ (via) を入れる
+ */
+function withPosDesign(model: UntieModel): UntieModel {
+  const walk = (nodes: ReturnType<typeof sitemapTree>): string[] => nodes.flatMap((n) => [...n.screenIds, ...walk(n.children)]);
+  const screenIds = [...new Set(walk(sitemapTree(model, "sys_pos")))];
+  // 画面と遷移の id は固定にする (開くたびに変わらないように)
+  const screens: DesignScreen[] = [
+    { id: "ds_pos_signin", source: { kind: "builtin", builtin: "signIn" } },
+    { id: "ds_pos_top", source: { kind: "builtin", builtin: "top" } },
+    ...screenIds.map((screenId): DesignScreen => ({ id: `ds_${screenId.replace("scr_", "")}`, source: { kind: "screen", screenId } })),
+  ];
+  const transitions = deriveTransitions(model, "sys_pos", screens).map((t, i) => ({ id: `tr_pos_${i + 1}`, ...t }));
+  const added = addDesignScreens(model, { systemId: "sys_pos", screens, transitions });
+  if (!added.ok) throw new Error(`サンプルの設計が作れません: ${added.reason}`);
+  let next = added.model;
+  const via: [from: string, to: string, via: "button" | "row" | "nav", label?: string][] = [
+    ["scr_pos_search", "scr_pos_disposal", "button", "値引き・廃棄へ"],
+    ["scr_pos_search", "scr_pos_stocktake", "button"],
+    ["scr_pos_cash", "scr_pos_daily", "button", "日次売上を見る"],
+  ];
+  for (const [from, to, v, label] of via) {
+    const tr = transitions.find((t) => t.from === `ds_${from.replace("scr_", "")}` && t.to === `ds_${to.replace("scr_", "")}`);
+    if (!tr) throw new Error(`サンプルの遷移が見つかりません: ${from} -> ${to}`);
+    const r = updateTransition(next, { systemId: "sys_pos", id: tr.id, patch: { via: v, ...(label ? { label } : {}) } });
+    if (!r.ok) throw new Error(`サンプルの遷移が直せません: ${r.reason}`);
+    next = r.model;
+  }
+  return next;
+}
+
+export const retailSample: UntieModel = withPosDesign(baseModel);
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */
 export function createRetailSample(): UntieModel {

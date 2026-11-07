@@ -13,3 +13,4 @@ export * from "./repair";
 export * from "./limits";
 export * from "./truncate";
 export * from "./design";
+export * from "./sitemap";

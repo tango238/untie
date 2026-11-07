@@ -52,3 +52,14 @@ export function effectiveDatabaseIds(model: Pick<UntieModel, "databases">, desig
   const fallback = model.databases.find((d) => d.id === DEFAULT_DATABASE_ID) ?? model.databases[0];
   return fallback ? [fallback.id] : [];
 }
+
+/** すべての設計で使われている id (画面・遷移・ナビゲーションのグループ)。これらは設計をまたいで一意なので、新しい id を作るときに避ける */
+export function usedDesignIds(model: Pick<UntieModel, "designs">): Set<string> {
+  const used = new Set<string>();
+  for (const d of model.designs) {
+    for (const s of d.screens) used.add(s.id);
+    for (const t of d.transitions) used.add(t.id);
+    for (const g of d.layout.navigation) used.add(g.id);
+  }
+  return used;
+}

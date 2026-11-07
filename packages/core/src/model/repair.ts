@@ -294,6 +294,17 @@ export function repairModel(input: UntieModel): RepairResult {
       };
       for (const s of design.screens) if (badSource(s)) changes.push(`${where}の画面 ${s.id} を消した (元の画面が、このシステムに無い)`);
       removeDesignScreens(design, badSource);
+      // 同じ元の画面 (同じ分析の画面・同じ組み込みの画面) を指す画面が 2 つ以上あれば、後のものを消す (同時編集で、2 人が同じ画面を足したときに起きる)
+      const sourceSeen = new Set<string>();
+      const dup = (s: (typeof design.screens)[number]) => {
+        const key = s.source.kind === "screen" ? `screen:${s.source.screenId}` : `builtin:${s.source.builtin}`;
+        if (sourceSeen.has(key)) return true;
+        sourceSeen.add(key);
+        return false;
+      };
+      const dupIds = new Set(design.screens.filter(dup).map((s) => s.id));
+      for (const id of dupIds) changes.push(`${where}の画面 ${id} を消した (同じ画面が重なっている)`);
+      removeDesignScreens(design, (s) => dupIds.has(s.id));
       // 画面が無い遷移とナビゲーションの項目 (消した画面を指すもの、もとから壊れていたもの)
       const known = new Set(design.screens.map((s) => s.id));
       const transitions = design.transitions.filter((t) => known.has(t.from) && known.has(t.to));
@@ -301,6 +312,18 @@ export function repairModel(input: UntieModel): RepairResult {
         for (const t of design.transitions) if (!known.has(t.from) || !known.has(t.to)) changes.push(`${where}の遷移 ${t.id} を消した (画面が無い)`);
         design.transitions = transitions;
       }
+      // 同じ from / to の遷移が 2 本以上あれば、後のものを消す
+      const pairSeen = new Set<string>();
+      const uniq = design.transitions.filter((t) => {
+        const key = `${t.from}\n${t.to}`;
+        if (pairSeen.has(key)) {
+          changes.push(`${where}の遷移 ${t.id} を消した (同じ遷移が重なっている)`);
+          return false;
+        }
+        pairSeen.add(key);
+        return true;
+      });
+      design.transitions = uniq;
       for (const group of design.layout.navigation) {
         const items = group.items.filter((i) => known.has(i.screenId));
         if (items.length !== group.items.length) {

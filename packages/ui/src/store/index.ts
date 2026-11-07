@@ -29,6 +29,10 @@ export interface UiState {
   mode?: Mode;
   /** 設計の対象のシステム (system 要素の id)。まだ選んでいなければ未設定。モードを分析に戻しても覚えておき、ファイルを開き直すと忘れる */
   designSystemId?: string;
+  /** サイトマップで選んでいる画面 (対象の設計の DesignScreen.id)。保存せず・履歴に積まない。モード・対象のシステムが変わるか、画面が無くなると消える */
+  designScreenId?: string;
+  /** サイトマップのエッジを押したときに、プロパティで強調する遷移 (Transition.id)。画面を選び直すと消える */
+  designTransitionId?: string;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
   /** 固定ボード共通のグローバルフィルター (レイヤーごとに選んだ要素 id。保存しない・履歴に積まない) */
@@ -185,6 +189,8 @@ export interface UntieState {
   setMode: (mode: Mode) => void;
   /** system を設計の対象にして設計モードにする。すでに設計モードならボードはそのまま。システムが無ければ何もしない */
   enterDesign: (systemId: string) => void;
+  /** サイトマップで画面を選ぶ (設計の画面の id。undefined で選択を外す)。右のペインを開いてプロパティを出す */
+  selectDesignScreen: (id: string | undefined, transitionId?: string) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
   setGuideOpen: (open: boolean) => void;
   setGlobalFilter: (layer: FixedLayer, ids: string[]) => void;
@@ -206,7 +212,7 @@ let toastSeq = 0;
  * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
  */
 export const START_BOARD_ID = analysisBoardId("issues");
-const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true, mode: "analysis" as const, designSystemId: undefined };
+const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true, mode: "analysis" as const, designSystemId: undefined, designScreenId: undefined, designTransitionId: undefined };
 
 /** 設計モードに入るとき、課題一覧のペインは閉じる (設計では使わない。分析に戻しても自動では開き直さない) */
 function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOpen"> {
@@ -229,7 +235,7 @@ function boardFitsMode(boardId: string, mode: Mode): boolean {
 
 /** モデルが変わったあと、UI の参照先 (モード・ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
-  let { currentBoardId, selection, mode, designSystemId } = ui;
+  let { currentBoardId, selection, mode, designSystemId, designScreenId } = ui;
   mode ??= "analysis";
   // 設計の対象のシステムが消えたら (同時編集で他の人が消した場合も)、分析に戻す
   if (designSystemId !== undefined && !model.elements.some((e) => e.id === designSystemId && e.kind === "system")) {
@@ -250,8 +256,14 @@ function reconcileUi(ui: UiState, model: UntieModel): UiState {
         : model.relations.some((r) => r.id === selection!.id);
     if (!exists) selection = null;
   }
-  if (currentBoardId === ui.currentBoardId && selection === ui.selection && mode === (ui.mode ?? "analysis") && designSystemId === ui.designSystemId) return ui;
-  return { ...ui, currentBoardId, selection, mode, designSystemId };
+  // サイトマップで選んだ画面が、対象の設計から無くなったら (他の人が外した場合も) 消す
+  if (designScreenId !== undefined) {
+    const design = designSystemId === undefined || mode !== "design" ? undefined : model.designs.find((d) => d.systemId === designSystemId);
+    if (!design?.screens.some((s) => s.id === designScreenId)) designScreenId = undefined;
+  }
+  const designTransitionId = designScreenId === undefined ? undefined : ui.designTransitionId;
+  if (currentBoardId === ui.currentBoardId && selection === ui.selection && mode === (ui.mode ?? "analysis") && designSystemId === ui.designSystemId && designScreenId === ui.designScreenId && designTransitionId === ui.designTransitionId) return ui;
+  return { ...ui, currentBoardId, selection, mode, designSystemId, designScreenId, designTransitionId };
 }
 
 /** 閲覧専用か (クラウドファイルを、編集できない役割で開いている) */
@@ -509,7 +521,7 @@ export function createUntieStore(
           ...s.ui,
           ...START_UI,
           // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析に戻す
-          ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId } : {}),
+          ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId } : {}),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
           issueDraft: undefined,
@@ -576,13 +588,13 @@ export function createUntieStore(
       }
       // 固定ボード・分析ボードへ飛ぶと分析モードへ移る (設計モードから要素の場所へ飛べるように)。自由ボードはモードを変えない
       const next: Mode = isFixedBoard(boardId) || isAnalysisBoard(boardId) ? "analysis" : mode;
-      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null } }));
+      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next === "analysis" ? { designScreenId: undefined, designTransitionId: undefined } : {}) } }));
     },
     setMode: (mode) => {
       const { ui } = get();
       if ((ui.mode ?? "analysis") === mode) return;
       if (mode === "design" && ui.designSystemId === undefined) return;
-      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined } }));
+      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined, designScreenId: undefined, designTransitionId: undefined } }));
     },
     enterDesign: (systemId) => {
       const { model, ui } = get();
@@ -598,10 +610,22 @@ export function createUntieStore(
           ...(inDesign ? {} : { currentBoardId: DESIGN_START_BOARD_ID }),
           // 別のシステムへ切り替えても、選択は引き継がない
           selection: inDesign && s.ui.designSystemId === systemId ? s.ui.selection : null,
+          designScreenId: inDesign && s.ui.designSystemId === systemId ? s.ui.designScreenId : undefined,
+          designTransitionId: undefined,
           issueDraft: undefined,
         },
       }));
     },
+    selectDesignScreen: (id, transitionId) =>
+      set((s) => ({
+        ui: {
+          ...s.ui,
+          designScreenId: id,
+          designTransitionId: id === undefined ? undefined : transitionId,
+          // 画面を選んだらプロパティを見せる (課題一覧・検証を出していても、設計モードではプロパティに切り替える)
+          ...(id !== undefined && (s.ui.mode ?? "analysis") === "design" ? { rightPanel: "properties" as const, rightPanelOpen: true } : {}),
+        },
+      })),
     setFixedFilter: (layer, query) =>
       set((s) => ({ ui: { ...s.ui, fixedFilters: { ...s.ui.fixedFilters, [layer]: query } } })),
     setGuideOpen: (guideOpen) => set((s) => ({ ui: { ...s.ui, guideOpen } })),

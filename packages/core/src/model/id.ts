@@ -1,6 +1,6 @@
 import type { ElementKind } from "./types";
 
-export type IdKind = ElementKind | "relation" | "board";
+export type IdKind = ElementKind | "relation" | "board" | "designScreen" | "transition";
 
 export const ID_PREFIXES: Record<IdKind, string> = {
   actor: "actor",
@@ -22,6 +22,9 @@ export const ID_PREFIXES: Record<IdKind, string> = {
   nfr: "nfr",
   relation: "rel",
   board: "board",
+  // 設計データ (0.4.0): サイトマップの画面と遷移
+  designScreen: "ds",
+  transition: "tr",
 };
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

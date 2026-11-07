@@ -1,7 +1,7 @@
 // モデルを変える純粋関数 (設計書 6 章)。
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
-import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens } from "./design";
+import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
 import { newUniqueId } from "./id";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
@@ -16,6 +16,9 @@ import {
   ISSUE_ANALYSIS_KEYS,
   issueScopeOfKind,
   type Buc,
+  type DesignScreen,
+  type SystemDesign,
+  type Transition,
   type EdgeSide,
   type Element,
   type ElementKind,
@@ -256,6 +259,187 @@ export function removeDesign(model: UntieModel, payload: RemoveDesignPayload): C
   if (!model.designs.some((d) => d.systemId === payload.systemId)) return fail(`設計が存在しません: ${payload.systemId}`);
   const next = produce(model, (draft) => {
     draft.designs = draft.designs.filter((d) => d.systemId !== payload.systemId);
+  });
+  return { ok: true, model: next };
+}
+
+// ---------------------------------------------------------------- 設計: サイトマップ
+
+const BUILTIN_SCREENS: readonly string[] = ["signIn", "top", "signUp", "passwordReminder"];
+const TRANSITION_VIAS: readonly string[] = ["button", "row", "nav", "afterSubmit"];
+
+/** 設計が無ければ失敗 (足す以外のコマンドは、設計を作らない) */
+function existingDesign(model: UntieModel, systemId: string): SystemDesign | Fail {
+  return model.designs.find((d) => d.systemId === systemId) ?? fail(`設計が存在しません: ${systemId}`);
+}
+const isFail = (x: SystemDesign | Fail): x is Fail => "ok" in x;
+
+const sourceKey = (source: DesignScreen["source"]): string => (source.kind === "screen" ? `screen:${source.screenId}` : `builtin:${source.builtin}`);
+
+export interface AddDesignScreensPayload {
+  systemId: string;
+  /** 足す画面。id を省くと作る (遷移から指したいときは、先に決めた id を渡す) */
+  screens: { id?: string; source: DesignScreen["source"] }[];
+  /** 足す遷移。from / to は設計にある画面か、同時に足す画面の id */
+  transitions: { id?: string; from: string; to: string; via?: Transition["via"]; label?: string }[];
+}
+
+/**
+ * サイトマップに画面と遷移を足す。設計が無ければ作る (ensureDesign)。
+ * 分析の画面は同じシステムの画面だけ。同じ画面を 2 つ足せず、同じ from / to の遷移は 2 本持てない
+ */
+export function addDesignScreens(model: UntieModel, payload: AddDesignScreensPayload): CommandResult<{ screenIds: string[]; transitionIds: string[] }> {
+  if (payload.screens.length === 0 && payload.transitions.length === 0) return { ok: true, model, screenIds: [], transitionIds: [] };
+  const ensured = ensureDesign(model, { systemId: payload.systemId });
+  if (!ensured.ok) return ensured;
+  const base = ensured.model;
+  const design = base.designs.find((d) => d.systemId === payload.systemId)!;
+  const used = usedDesignIds(base);
+  const sources = new Set(design.screens.map((s) => sourceKey(s.source)));
+  const added: DesignScreen[] = [];
+  for (const input of payload.screens) {
+    const { source } = input;
+    if (source.kind === "screen") {
+      const screen = findElement(base, source.screenId);
+      if (!screen || screen.kind !== "screen") return fail(`画面が存在しません: ${source.screenId}`);
+      if (screen.systemId !== payload.systemId) return fail(`別のシステムの画面は足せません: ${screen.name || source.screenId}`);
+    } else if (!BUILTIN_SCREENS.includes(source.builtin)) {
+      return fail(`組み込みの画面ではありません: ${String(source.builtin)}`);
+    }
+    if (sources.has(sourceKey(source))) return fail("その画面はすでにサイトマップにあります");
+    sources.add(sourceKey(source));
+    if (input.id !== undefined && used.has(input.id)) return fail(`id がすでに使われています: ${input.id}`);
+    const id = input.id ?? newUniqueId("designScreen", used);
+    used.add(id);
+    added.push({ id, source: source.kind === "screen" ? { kind: "screen", screenId: source.screenId } : { kind: "builtin", builtin: source.builtin } });
+  }
+  const screenIds = new Set([...design.screens, ...added].map((s) => s.id));
+  const pairs = new Set(design.transitions.map((t) => `${t.from}\n${t.to}`));
+  const transitions: Transition[] = [];
+  for (const t of payload.transitions) {
+    const reason = checkTransition(t, screenIds, pairs);
+    if (reason) return fail(reason);
+    pairs.add(`${t.from}\n${t.to}`);
+    if (t.id !== undefined && used.has(t.id)) return fail(`id がすでに使われています: ${t.id}`);
+    const id = t.id ?? newUniqueId("transition", used);
+    used.add(id);
+    transitions.push({ id, from: t.from, to: t.to, ...(t.via ? { via: t.via } : {}), ...(t.label ? { label: t.label } : {}) });
+  }
+  const next = produce(base, (draft) => {
+    const d = draft.designs.find((x) => x.systemId === payload.systemId)!;
+    d.screens.push(...added);
+    d.transitions.push(...transitions);
+  });
+  return { ok: true, model: next, screenIds: added.map((s) => s.id), transitionIds: transitions.map((t) => t.id) };
+}
+
+/** 遷移の入力の検査。問題があれば理由 */
+function checkTransition(t: { from: string; to: string; via?: string; label?: string }, screenIds: ReadonlySet<string>, pairs: ReadonlySet<string>): string | null {
+  if (!screenIds.has(t.from) || !screenIds.has(t.to)) return "遷移の両端はサイトマップの画面でなければなりません";
+  if (t.from === t.to) return "同じ画面への遷移は作れません";
+  if (pairs.has(`${t.from}\n${t.to}`)) return "その遷移はすでにあります";
+  if (t.via !== undefined && !TRANSITION_VIAS.includes(t.via)) return `遷移のきっかけが正しくありません: ${t.via}`;
+  if (t.label !== undefined) return checkLength("transitionLabel", t.label);
+  return null;
+}
+
+export interface RemoveDesignScreensByIdPayload {
+  systemId: string;
+  /** 外す DesignScreen の id */
+  ids: string[];
+}
+
+/** サイトマップから画面を外す。その画面を指す遷移とナビゲーションの項目も外す (画面 UI・bindings は画面と一緒に消える) */
+export function removeDesignScreensById(model: UntieModel, payload: RemoveDesignScreensByIdPayload): CommandResult<{ removed: string[] }> {
+  if (payload.ids.length === 0) return { ok: true, model, removed: [] };
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  const missing = payload.ids.find((id) => !design.screens.some((s) => s.id === id));
+  if (missing !== undefined) return fail(`サイトマップに画面がありません: ${missing}`);
+  const ids = new Set(payload.ids);
+  let removed: string[] = [];
+  const next = produce(model, (draft) => {
+    const d = draft.designs.find((x) => x.systemId === payload.systemId)!;
+    removed = [...removeDesignScreens(d, (s) => ids.has(s.id))];
+  });
+  return { ok: true, model: next, removed };
+}
+
+export interface AddTransitionPayload {
+  systemId: string;
+  from: string;
+  to: string;
+  via?: Transition["via"];
+  label?: string;
+}
+
+/** 遷移を足す。両端はサイトマップの画面で、同じ from / to の遷移はすでにあれば失敗 */
+export function addTransition(model: UntieModel, payload: AddTransitionPayload): CommandResult<{ id: string }> {
+  const ensured = ensureDesign(model, { systemId: payload.systemId });
+  if (!ensured.ok) return ensured;
+  const design = ensured.model.designs.find((d) => d.systemId === payload.systemId)!;
+  const label = payload.label?.trim();
+  const reason = checkTransition(
+    { from: payload.from, to: payload.to, via: payload.via, label },
+    new Set(design.screens.map((s) => s.id)),
+    new Set(design.transitions.map((t) => `${t.from}\n${t.to}`)),
+  );
+  if (reason) return fail(reason);
+  const id = newUniqueId("transition", usedDesignIds(ensured.model));
+  const next = produce(ensured.model, (draft) => {
+    draft.designs.find((d) => d.systemId === payload.systemId)!.transitions.push({
+      id,
+      from: payload.from,
+      to: payload.to,
+      ...(payload.via ? { via: payload.via } : {}),
+      ...(label ? { label } : {}),
+    });
+  });
+  return { ok: true, model: next, id };
+}
+
+export interface UpdateTransitionPayload {
+  systemId: string;
+  id: string;
+  /** undefined は変えない。via の null は「未定」に戻す。label の null か空文字は文言を消す */
+  patch: { via?: Transition["via"] | null; label?: string | null };
+}
+
+/** 遷移のきっかけ (via) と文言 (label) を変える。両端は変えられない (消して作り直す) */
+export function updateTransition(model: UntieModel, payload: UpdateTransitionPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  if (!design.transitions.some((t) => t.id === payload.id)) return fail(`遷移が存在しません: ${payload.id}`);
+  const { via, label } = payload.patch;
+  if (via !== undefined && via !== null && !TRANSITION_VIAS.includes(via)) return fail(`遷移のきっかけが正しくありません: ${via}`);
+  const trimmed = label === undefined || label === null ? label : label.trim();
+  if (trimmed) {
+    const reason = checkLength("transitionLabel", trimmed);
+    if (reason) return fail(reason);
+  }
+  const next = produce(model, (draft) => {
+    const t = draft.designs.find((d) => d.systemId === payload.systemId)!.transitions.find((x) => x.id === payload.id)!;
+    if (via === null) delete t.via;
+    else if (via !== undefined) t.via = via;
+    if (trimmed === null || trimmed === "") delete t.label;
+    else if (trimmed !== undefined) t.label = trimmed;
+  });
+  return { ok: true, model: next };
+}
+
+export interface RemoveTransitionPayload {
+  systemId: string;
+  id: string;
+}
+
+/** 遷移を消す */
+export function removeTransition(model: UntieModel, payload: RemoveTransitionPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  if (!design.transitions.some((t) => t.id === payload.id)) return fail(`遷移が存在しません: ${payload.id}`);
+  const next = produce(model, (draft) => {
+    const d = draft.designs.find((x) => x.systemId === payload.systemId)!;
+    d.transitions = d.transitions.filter((t) => t.id !== payload.id);
   });
   return { ok: true, model: next };
 }

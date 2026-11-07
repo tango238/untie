@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addElement, ensureDesign, removeElement } from "@untie/core/model/commands";
+import { addElement, ensureDesign, removeDesignScreensById, removeElement } from "@untie/core/model/commands";
+import { addSitemapScreens } from "@untie/core/model/sitemap";
 import { createHotelSample } from "@untie/core/sample";
 import { createUntieStore, START_BOARD_ID } from "..";
 import { loadLastDesignSystemId } from "../designPrefs";
@@ -195,5 +196,72 @@ describe("ファイルを開く・閉じると分析に戻る", () => {
       expect(s.getState().ui.designSystemId).toBeUndefined();
       expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
     }
+  });
+});
+
+describe("サイトマップで選んだ画面 (ui.designScreenId)", () => {
+  const withScreens = () => {
+    const s = make();
+    s.getState().dispatch((m) => addElement(m, { kind: "screen", name: "一覧", init: { systemId: "sys_pms" } }));
+    const screenId = s.getState().model.elements.find((e) => e.kind === "screen" && e.name === "一覧")!.id;
+    s.getState().enterDesign("sys_pms");
+    const r = s.getState().dispatch((m) => addSitemapScreens(m, "sys_pms", [{ kind: "screen", screenId }, { kind: "builtin", builtin: "top" }]));
+    expect(r.ok).toBe(true);
+    const ids = s.getState().model.designs[0]!.screens.map((x) => x.id);
+    return { s, screenId, ids };
+  };
+
+  it("既定は未選択。選ぶと覚え、課題一覧のペインを出していてもプロパティに切り替える", () => {
+    const { s, ids } = withScreens();
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+    s.getState().selectDesignScreen(ids[0], "tr_x");
+    expect(s.getState().ui.designScreenId).toBe(ids[0]);
+    expect(s.getState().ui.designTransitionId).toBe("tr_x");
+    expect(s.getState().ui.rightPanel).toBe("properties");
+    s.getState().selectDesignScreen(ids[1]);
+    expect(s.getState().ui.designTransitionId).toBeUndefined();
+    s.getState().selectDesignScreen(undefined);
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+  });
+
+  it("reconcileUi: 選んだ画面が設計から無くなったら消える (画面の削除・サイトマップから外す・undo)", () => {
+    const { s, screenId, ids } = withScreens();
+    s.getState().selectDesignScreen(ids[0]);
+    s.getState().dispatch((m) => removeDesignScreensById(m, { systemId: "sys_pms", ids: [ids[1]!] }));
+    expect(s.getState().ui.designScreenId).toBe(ids[0]);
+    s.getState().dispatch((m) => removeElement(m, { id: screenId }));
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+    s.getState().undo();
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+  });
+
+  it("存在しない id を選んでも、次のモデルの変更で消える", () => {
+    const { s } = withScreens();
+    s.getState().selectDesignScreen("ds_nothing");
+    s.getState().dispatch((m) => addElement(m, { kind: "screen", name: "別の画面", init: { systemId: "sys_pms" } }));
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+  });
+
+  it("ボードの切り替えでは残り (画面ボードへ開く)、分析へ戻る・対象のシステムが変わると消える", () => {
+    const { s, ids } = withScreens();
+    s.getState().selectDesignScreen(ids[0]);
+    s.getState().setCurrentBoard("design:screen");
+    expect(s.getState().ui.designScreenId).toBe(ids[0]);
+    s.getState().enterDesign("sys_pms");
+    expect(s.getState().ui.designScreenId).toBe(ids[0]);
+    s.getState().enterDesign("sys_payment");
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+
+    s.getState().enterDesign("sys_pms");
+    s.getState().selectDesignScreen(ids[0]);
+    s.getState().setMode("analysis");
+    expect(s.getState().ui.designScreenId).toBeUndefined();
+  });
+
+  it("対象のシステムが消えると分析に戻り、選択も消える", () => {
+    const { s, ids } = withScreens();
+    s.getState().selectDesignScreen(ids[0]);
+    s.getState().dispatch((m) => removeElement(m, { id: "sys_pms" }));
+    expect(s.getState().ui.designScreenId).toBeUndefined();
   });
 });
