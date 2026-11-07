@@ -3,7 +3,7 @@ import { okModel, sample } from "@untie/core/testing";
 import type { CommandResult } from "@untie/core/model/commands";
 import type { UntieModel } from "@untie/core/model/types";
 import { validateModel } from "@untie/core/model/validate";
-import { ensureDesign } from "@untie/core/model/commands";
+import { addDatabase, ensureDesign } from "@untie/core/model/commands";
 import { executeTool, MODEL_TOOLS, modelForAi, type ModelEditor } from "../tools";
 
 function editorOf(initial: UntieModel): ModelEditor & { model: UntieModel } {
@@ -116,5 +116,48 @@ describe("AI の道具", () => {
     // 起点の関係は add_relation で結べる
     expect(executeTool(e, "add_relation", { source_id: "act_hand_key", target_id: "act_collect_key" }).ok).toBe(true);
     expect(e.model.relations[e.model.relations.length - 1]!.kind).toBe("activityTrigger");
+  });
+});
+
+describe("AI の道具: データベース", () => {
+  const withDb = () => {
+    const e = editorOf(sample());
+    expect(parse(executeTool(e, "set_database_dsl", { database_id: "db_none", dsl: "" }).content).error).toMatch(/存在しません/);
+    e.model = okModel(addDatabase(e.model, { id: "db_x", name: "予約DB" }));
+    return e;
+  };
+
+  it("set_database_dsl は解析エラーがあっても保存し、結果にエラーを返す", () => {
+    const e = withDb();
+    const r = executeTool(e, "set_database_dsl", { database_id: "db_x", dsl: "model A {\n  1x Int\n}" });
+    expect(r.ok).toBe(true);
+    expect(r.changed).toBe(true);
+    expect((parse(r.content).parseErrors as unknown[]).length).toBe(1);
+    expect(parse(r.content).parseErrorCount).toBe(1);
+    // 多いときは先頭 20 件と件数
+    const many = executeTool(e, "set_database_dsl", { database_id: "db_x", dsl: "model A {\n" + "1x Int\n".repeat(30) + "}" });
+    expect((parse(many.content).parseErrors as unknown[]).length).toBe(20);
+    expect(parse(many.content).parseErrorCount).toBe(30);
+    executeTool(e, "set_database_dsl", { database_id: "db_x", dsl: "model A {\n  1x Int\n}" });
+    expect(e.model.databases[0]!.dsl).toBe("model A {\n  1x Int\n}");
+    const good = executeTool(e, "set_database_dsl", { database_id: "db_x", dsl: "model A {\n  id String @id\n}" });
+    expect(parse(good.content).parseErrors).toEqual([]);
+    expect(executeTool(e, "set_database_dsl", { database_id: "db_x" }).ok).toBe(false);
+  });
+
+  it("get_database_dsl / list_databases / set_table_information", () => {
+    const e = withDb();
+    executeTool(e, "set_database_dsl", { database_id: "db_x", dsl: "model Reservation {\n  id String @id\n}" });
+    const info = e.model.elements.find((x) => x.kind === "information")!;
+    const set = executeTool(e, "set_table_information", { database_id: "db_x", table: "Reservation", information_ids: [info.id] });
+    expect(set.ok).toBe(true);
+    expect(executeTool(e, "set_table_information", { database_id: "db_x", table: "Reservation", information_ids: ["nope"] }).ok).toBe(false);
+    expect(executeTool(e, "set_table_information", { database_id: "db_x", table: "Reservation" }).ok).toBe(false);
+    const got = parse(executeTool(e, "get_database_dsl", { database_id: "db_x" }).content);
+    expect(got).toMatchObject({ id: "db_x", name: "予約DB", dsl: "model Reservation {\n  id String @id\n}", parseErrors: [] });
+    const list = parse(executeTool(e, "list_databases", {}).content) as unknown as { id: string; tables: { table: string; inDsl: boolean; informations: { id: string; name: string }[] }[] }[];
+    expect(list[0]!.id).toBe("db_x");
+    expect(list[0]!.tables).toEqual([{ table: "Reservation", inDsl: true, informations: [{ id: info.id, name: info.name }] }]);
+    expect(executeTool(e, "get_database_dsl", { database_id: "nope" }).ok).toBe(false);
   });
 });

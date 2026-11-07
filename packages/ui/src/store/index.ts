@@ -7,7 +7,8 @@ import type { UntieModel } from "@untie/core/model/types";
 import { moveNode, type Position, type Size } from "@untie/core/model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { analysisBoardId, parseAnalysisBoardId } from "@untie/core/model/analysis";
-import { designBoardId, parseDesignBoardId } from "@untie/core/model/design";
+import { designBoardId, effectiveDatabaseIds, parseDesignBoardId } from "@untie/core/model/design";
+import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { saveLastDesignSystemId } from "./designPrefs";
 import { emptyModel } from "@untie/core/model/types";
 import type { GlobalFilter } from "@untie/core/model/lineage";
@@ -33,6 +34,10 @@ export interface UiState {
   designScreenId?: string;
   /** サイトマップのエッジを押したときに、プロパティで強調する遷移 (Transition.id)。画面を選び直すと消える */
   designTransitionId?: string;
+  /** データボードで選んでいるデータベース (Database.id)。保存せず・履歴に積まない。モード・対象のシステムが変わると消え、データベースが無くなると既定の規則で使われるデータベースか先頭になる */
+  designDatabaseId?: string;
+  /** データボードで選んでいるテーブル (model の名前)。DSL にも対応にも無くなると消える */
+  designTableName?: string;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
   /** 固定ボード共通のグローバルフィルター (レイヤーごとに選んだ要素 id。保存しない・履歴に積まない) */
@@ -126,6 +131,8 @@ export interface UntieState {
   peers: Peer[];
   /** ドラッグ中に届いたリモートの変更を後回しにしているか (確定・取り消しのあとで組み立て直す) */
   pendingRemote: boolean;
+  /** 開いている文書の世代。新規作成・開く・クラウドで開く (つなぎ直しは除く) たびに増える。書きかけの下書きが別の文書へ書かれるのを防ぐのに使う */
+  docSeq: number;
 
   /** コマンドを実行し、成功したら履歴に積む。失敗や変更なしは何もしない */
   dispatch: <T>(command: (model: UntieModel) => CommandResult<T>) => CommandResult<T>;
@@ -191,6 +198,10 @@ export interface UntieState {
   enterDesign: (systemId: string) => void;
   /** サイトマップで画面を選ぶ (設計の画面の id。undefined で選択を外す)。右のペインを開いてプロパティを出す */
   selectDesignScreen: (id: string | undefined, transitionId?: string) => void;
+  /** データボードでデータベースを選ぶ (テーブルの選択は外す)。table も渡すとそのテーブルも選ぶ */
+  selectDesignDatabase: (id: string | undefined, table?: string) => void;
+  /** データボードでテーブルを選ぶ (undefined で外す)。表示中のデータベースの id も渡すと、そのデータベースも一緒に保存する (未選択のまま既定で表示しているときも選択が効くように)。右のペインを開いてプロパティを出す */
+  selectDesignTable: (table: string | undefined, databaseId?: string) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
   setGuideOpen: (open: boolean) => void;
   setGlobalFilter: (layer: FixedLayer, ids: string[]) => void;
@@ -212,11 +223,11 @@ let toastSeq = 0;
  * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
  */
 export const START_BOARD_ID = analysisBoardId("issues");
-const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true, mode: "analysis" as const, designSystemId: undefined, designScreenId: undefined, designTransitionId: undefined };
+const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true, mode: "analysis" as const, designSystemId: undefined, designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined };
 
-/** 設計モードに入るとき、課題一覧のペインは閉じる (設計では使わない。分析に戻しても自動では開き直さない) */
+/** 設計モードに入るとき、課題一覧のペインはプロパティに替え (設計では使わない)、右のペインを開く (設計ボードの選択はプロパティに出るため) */
 function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOpen"> {
-  return ui.rightPanel === "issues" ? { rightPanel: "properties", rightPanelOpen: false } : { rightPanel: ui.rightPanel, rightPanelOpen: ui.rightPanelOpen };
+  return { rightPanel: ui.rightPanel === "issues" ? "properties" : ui.rightPanel, rightPanelOpen: true };
 }
 
 /** 設計モードに入ったときの最初のボード */
@@ -235,7 +246,7 @@ function boardFitsMode(boardId: string, mode: Mode): boolean {
 
 /** モデルが変わったあと、UI の参照先 (モード・ボード・選択) が実在するよう整える */
 function reconcileUi(ui: UiState, model: UntieModel): UiState {
-  let { currentBoardId, selection, mode, designSystemId, designScreenId } = ui;
+  let { currentBoardId, selection, mode, designSystemId, designScreenId, designDatabaseId, designTableName } = ui;
   mode ??= "analysis";
   // 設計の対象のシステムが消えたら (同時編集で他の人が消した場合も)、分析に戻す
   if (designSystemId !== undefined && !model.elements.some((e) => e.id === designSystemId && e.kind === "system")) {
@@ -262,6 +273,24 @@ function reconcileUi(ui: UiState, model: UntieModel): UiState {
     if (!design?.screens.some((s) => s.id === designScreenId)) designScreenId = undefined;
   }
   const designTransitionId = designScreenId === undefined ? undefined : ui.designTransitionId;
+  // データボードで選んだデータベース・テーブルが無くなったら消す。データベースは、既定の規則で使われるものか先頭に代える
+  if (mode !== "design" || designSystemId === undefined) {
+    designDatabaseId = undefined;
+    designTableName = undefined;
+  } else if (designDatabaseId !== undefined) {
+    if (!model.databases.some((d) => d.id === designDatabaseId)) {
+      const design = model.designs.find((d) => d.systemId === designSystemId);
+      designDatabaseId = (design ? effectiveDatabaseIds(model, design)[0] : undefined) ?? model.databases[0]?.id;
+      designTableName = undefined;
+    }
+  } else designTableName = undefined;
+  if (designTableName !== undefined) {
+    const db = model.databases.find((d) => d.id === designDatabaseId);
+    if (!db || (!db.tables.some((t) => t.table === designTableName) && !parsePrismaDslCached(db.dsl).models.some((m) => m.name === designTableName))) designTableName = undefined;
+  }
+  if (designDatabaseId !== ui.designDatabaseId || designTableName !== ui.designTableName) {
+    return { ...ui, currentBoardId, selection, mode, designSystemId, designScreenId, designTransitionId, designDatabaseId, designTableName };
+  }
   if (currentBoardId === ui.currentBoardId && selection === ui.selection && mode === (ui.mode ?? "analysis") && designSystemId === ui.designSystemId && designScreenId === ui.designScreenId && designTransitionId === ui.designTransitionId) return ui;
   return { ...ui, currentBoardId, selection, mode, designSystemId, designScreenId, designTransitionId };
 }
@@ -328,6 +357,7 @@ export function createUntieStore(
     cloud: null,
     peers: [],
     pendingRemote: false,
+    docSeq: 0,
 
     dispatch: (command) => {
       if (selectReadOnly(get())) return { ok: false, reason: READ_ONLY_REASON };
@@ -489,6 +519,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
+        docSeq: s.docSeq + 1,
         ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
       })),
 
@@ -502,6 +533,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
+        docSeq: s.docSeq + 1,
         ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
@@ -517,11 +549,12 @@ export function createUntieStore(
         cloud: { ...cloud, status: cloud.status ?? "loading", dirtySinceOffline: false, saveFailed: false },
         peers: [],
         pendingRemote: false,
+        docSeq: options?.keepUi ? s.docSeq : s.docSeq + 1,
         ui: {
           ...s.ui,
           ...START_UI,
           // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析に戻す
-          ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId } : {}),
+          ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
           issueDraft: undefined,
@@ -572,6 +605,7 @@ export function createUntieStore(
         cloud: null,
         peers: [],
         pendingRemote: false,
+        docSeq: s.docSeq + 1,
         ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
       }));
     },
@@ -588,13 +622,13 @@ export function createUntieStore(
       }
       // 固定ボード・分析ボードへ飛ぶと分析モードへ移る (設計モードから要素の場所へ飛べるように)。自由ボードはモードを変えない
       const next: Mode = isFixedBoard(boardId) || isAnalysisBoard(boardId) ? "analysis" : mode;
-      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next === "analysis" ? { designScreenId: undefined, designTransitionId: undefined } : {}) } }));
+      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next === "analysis" ? { designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined } : {}) } }));
     },
     setMode: (mode) => {
       const { ui } = get();
       if ((ui.mode ?? "analysis") === mode) return;
       if (mode === "design" && ui.designSystemId === undefined) return;
-      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined, designScreenId: undefined, designTransitionId: undefined } }));
+      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined, designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined } }));
     },
     enterDesign: (systemId) => {
       const { model, ui } = get();
@@ -612,6 +646,8 @@ export function createUntieStore(
           selection: inDesign && s.ui.designSystemId === systemId ? s.ui.selection : null,
           designScreenId: inDesign && s.ui.designSystemId === systemId ? s.ui.designScreenId : undefined,
           designTransitionId: undefined,
+          designDatabaseId: inDesign && s.ui.designSystemId === systemId ? s.ui.designDatabaseId : undefined,
+          designTableName: inDesign && s.ui.designSystemId === systemId ? s.ui.designTableName : undefined,
           issueDraft: undefined,
         },
       }));
@@ -624,6 +660,16 @@ export function createUntieStore(
           designTransitionId: id === undefined ? undefined : transitionId,
           // 画面を選んだらプロパティを見せる (課題一覧・検証を出していても、設計モードではプロパティに切り替える)
           ...(id !== undefined && (s.ui.mode ?? "analysis") === "design" ? { rightPanel: "properties" as const, rightPanelOpen: true } : {}),
+        },
+      })),
+    selectDesignDatabase: (id, table) => set((s) => ({ ui: { ...s.ui, designDatabaseId: id, designTableName: id === undefined ? undefined : table } })),
+    selectDesignTable: (table, databaseId) =>
+      set((s) => ({
+        ui: {
+          ...s.ui,
+          ...(databaseId !== undefined ? { designDatabaseId: databaseId } : {}),
+          designTableName: table,
+          ...(table !== undefined && (s.ui.mode ?? "analysis") === "design" ? { rightPanel: "properties" as const, rightPanelOpen: true } : {}),
         },
       })),
     setFixedFilter: (layer, query) =>

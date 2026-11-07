@@ -128,14 +128,14 @@ describe("ボードの切り替えとモード", () => {
 });
 
 describe("課題一覧のペイン", () => {
-  it("設計モードに入ると閉じ、分析に戻しても自動では開き直さない", () => {
+  it("設計モードに入るとプロパティに替えて右のペインを開く。分析に戻してもそのまま", () => {
     const s = createUntieStore(createHotelSample(), START_BOARD_ID, "issues");
-    s.getState().setRightPanelOpen(true);
+    s.getState().setRightPanelOpen(false);
     s.getState().enterDesign("sys_pms");
-    expect(s.getState().ui.rightPanel).not.toBe("issues");
-    expect(s.getState().ui.rightPanelOpen).toBe(false);
+    expect(s.getState().ui.rightPanel).toBe("properties");
+    expect(s.getState().ui.rightPanelOpen).toBe(true);
     s.getState().setMode("analysis");
-    expect(s.getState().ui.rightPanelOpen).toBe(false);
+    expect(s.getState().ui.rightPanelOpen).toBe(true);
   });
 
   it("課題一覧を開いていなければ、ペインの開閉は変えない", () => {

@@ -171,7 +171,7 @@ UntieModel
 
 ### 4.0 設計データ (`designs`・`databases`。0.4.0)
 
-設計モード (5.7) が使う入れ物。モデルのトップレベルに必須 (空配列可) で持つ。形は 0.4.0 で定め、中身を編集する画面は段階的に作る (サイトマップの `screens`・`transitions` は 5.7 のサイトマップで編集できる。`layout`・`view`・`bindings`・`databases` は今後)。
+設計モード (5.7) が使う入れ物。モデルのトップレベルに必須 (空配列可) で持つ。形は 0.4.0 で定め、中身を編集する画面は段階的に作る (サイトマップの `screens`・`transitions` は 5.7 のサイトマップで、`databases` と `databaseIds` は 5.7 のデータで編集できる。`layout`・`view`・`bindings` は今後)。
 
 ```
 SystemDesign                 … システムごとの設計。systemId は一意
@@ -194,7 +194,7 @@ Transition                   … id、from / to (DesignScreen.id)、via? ("butto
 Layout                       … shell ("shell" | "plain")、header? { systemName?, userName?, tenantName? }、
                                navigation: NavGroup[]
 NavGroup                     … id (ナビゲーションのグループの id)、group (名前)、items: { screenId (DesignScreen.id), label? }[]
-Database                     … id、name、dsl (Prisma 風の DSL。この段階では解析しない。200000 文字まで)、
+Database                     … id、name、dsl (Prisma のスキーマ言語の一部。5.7 のデータで解析する。200000 文字まで)、
                                tables: { table, informationIds[] }[] (テーブル → 表す情報。1 つの情報に複数のテーブルがあってよい)
 ```
 
@@ -203,6 +203,7 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
 - **コマンド**: `ensureDesign(model, systemId)` はその system の設計が無ければ空の設計 (`layout` は `shell` / ナビなし) を足し、データベースが 1 つも無ければ既定のデータベース (`db_default` / 「既定のデータベース」/ 空の DSL) も足す。設計モードに入るだけでは呼ばない: 最初の編集 (次の段階のコマンド) が内部で呼んで作る。`effectiveDatabaseIds(model, design)` (design.ts) は、設計が使うデータベースを返す: `databaseIds` が空なら、`db_default` があればそれ、無ければ `databases` の先頭、それも無ければ無し。`removeDesign(model, systemId)` は設計だけを消す。
 - **削除の連鎖** (`removeElement`): system を消すと、その設計も消える。screen を消すと、それを参照する設計の画面と、その画面を参照する遷移・ナビゲーションの項目が消える (`bindings` は画面と一緒に消える)。画面を別のシステムへ移す (`moveToSystem`) ときも、設計の画面は同じシステムの画面しか指せないので、同じ範囲を外す。この連鎖は `removeDesignScreens` (design.ts) 1 つにまとめ、`removeElement`・`moveToSystem`・`repairModel` が使う。information を消すと、テーブルの `informationIds` から外れる。データベースは消えない。`clearAll` は設計とデータベースも空にする。
 - **`designReferences(model, elementId)`** (selectors): system / screen / information を消したときに一緒に消える設計データの要約 (「「予約システム」の設計 (画面 3、遷移 4、画面 UI 2、ナビゲーション 2)」「テーブルとの対応 2」)。空なら設計から参照されていない。画面も遷移も無い空の設計は参照に数えない。プロパティ欄の削除・所属 (システム) の変更の確認と、AI の `remove_element` の結果に使う。
+- **データのコマンド** (commands.ts。引数は payload): `addDatabase({ id?, name })` (`db_` + ランダム文字列の id。DSL は空)、`renameDatabase({ id, name })`、`removeDatabase({ id })` (全設計の `databaseIds` から外し、そのデータベースを指す `bindings` を消す)、`setDatabaseDsl({ id, dsl })` (上限は `DSL_MAX_LENGTH`。解析エラーがあっても保存する)、`setTableInformation({ id, table, informationIds })` (置き換え。重複は除き、空ならテーブルの項目を消す。存在しない情報は失敗)、`setDesignDatabases({ systemId, databaseIds })` (`ensureDesign` を呼ぶ。存在しないデータベースは失敗)、`setDatabaseDesign({ id, dsl, tables })` (DSL と対応を 1 回の変更で置き換える。雛形・AI が使う)。名前の上限は要素の名前と同じ (`name`)。
 - **同時編集**: Y.Doc の `designs`・`designScreens`・`designTransitions`・`designNav`・`databases` ルートに、入れ子の Y.Map を使わず平らな「キー → JSON の値」で置く (collab-design 4.1)。読むときはスキーマの検証関数で部品ごとに検査し、合わないものを読み飛ばす。長すぎる name 型の文字列 (ナビの group / label、遷移の label、header.*、bindings の item / table / column、テーブル名、データベース名) と DSL は、`truncateModelStrings` が上限まで切り詰める。
 
 ### 4.1 ボードの種類
@@ -377,6 +378,8 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
 
 ### 5.6 検証パネル (担い手まで辿れるか)
 
+設計モードでは、同じ「検証」ボタンとパネルが設計の検証 (5.7) に切り替わる。以下は分析モードの検証。
+
 すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる (`packages/core/src/model/trace.ts`)。つながりは必須にしない。上から順に書き出していく途中の状態 (担当の決まっていない作業など) を作れるようにするため。代わりに、辿り着けない要素とどこで途切れているかを知らせる。
 
 - 要素ごとに「担い手に近い側」を決め、担い手から下へ広げて届いたものを「辿り着ける」とする。
@@ -412,11 +415,11 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
 
 ### 5.7 設計モード
 
-分析で出てきたシステムごとに、サイトマップ・レイアウト・画面 UI・データ (DB) を設計するモード。土台 (モードの切り替え・対象システムの選択・設計データの入れ物・削除の連鎖) と、サイトマップができている。ほかの設計ボードの中身は仮置き。
+分析で出てきたシステムごとに、サイトマップ・レイアウト・画面 UI・データ (DB) を設計するモード。土台 (モードの切り替え・対象システムの選択・設計データの入れ物・削除の連鎖) と、サイトマップ・データができている。ほかの設計ボード (レイアウト・画面) の中身は仮置き。
 
 - **モード**: `analysis` (分析。既定) と `design` (設計)。`ui.mode` と、設計の対象のシステム `ui.designSystemId` をストアに持つ (どちらもファイルには保存せず、履歴に積まない)。新規作成・開く・クラウドで開く・閉じるで分析に戻り、対象も忘れる (クラウドのつなぎ直しだけ引き継ぐ)。「ファイル」メニュー (ローカル・クラウドの両方) の「モード」サブメニューで「分析」「設計」を切り替え、今のモードに ✓ を付ける。
 - **対象システムの選択**: 設計に切り替えるとき、対象が未定なら「システムの選択」ダイアログを出す。モデルのすべてのシステムを名前順に並べ、設計データがあるものには「設計あり」を付ける。選ぶと設計モードへ移る (最初のボードはサイトマップ)。**モデルには書かない**: 設計と既定のデータベースは、最初の編集 (次の段階のコマンド) が `ensureDesign` を内部で呼んで作る。ダイアログの「設計あり」は、そのシステムの設計 (`designs` の項目) があるときに付ける。選ぶ操作はキーボードだけでもできる (選ばれているラジオ、無ければ先頭にフォーカスし、Enter で決定)。キャンセルしたら分析のまま。システムが無ければ「システムがまだありません。登場人物ボードでシステムを足してください。」と出して選べない。最後に設計したシステムの id を localStorage (`untie.design.lastSystemId`) に覚え、初期選択にする (モデルにあるときだけ。切り替え中はいまのシステム)。設計モードの間は、ボードの select の隣に「設計: ○○」のボタンを出し、同じダイアログで切り替えられる (キャンセルなら今のまま)。閲覧専用のファイルでは設計データを書けないが、設計モードに入って見ることはできる。
-- **ボードの出し分け**: 分析モードは固定ボード + 分析ボード + 自由ボード (今までどおり)。設計モードは設計ボード + 自由ボード。モードと合わないボード (分析モードの `design:*`、設計モードの `fixed:*`・`analysis:*`) が選ばれたら、そのモードの最初のボード (分析は `analysis:issues`、設計は `design:sitemap`) へ戻す (モデルの変更や同時編集のあとの `reconcileUi`)。一方、`setCurrentBoard` に固定ボード・分析ボードの id が渡されたら分析モードへ移し (設計モードから要素の場所へ飛べる)、設計ボードの id が渡されたら設計モードへ移す (対象のシステムが未定なら何もしない)。自由ボードはモードを変えない。設計モードに入ったら課題一覧のペインを閉じ、ツールバーの「課題一覧」ボタンは設計モードでは出さない (分析に戻しても自動では開き直さない。「検証」はそのまま)。
+- **ボードの出し分け**: 分析モードは固定ボード + 分析ボード + 自由ボード (今までどおり)。設計モードは設計ボード + 自由ボード。モードと合わないボード (分析モードの `design:*`、設計モードの `fixed:*`・`analysis:*`) が選ばれたら、そのモードの最初のボード (分析は `analysis:issues`、設計は `design:sitemap`) へ戻す (モデルの変更や同時編集のあとの `reconcileUi`)。一方、`setCurrentBoard` に固定ボード・分析ボードの id が渡されたら分析モードへ移し (設計モードから要素の場所へ飛べる)、設計ボードの id が渡されたら設計モードへ移す (対象のシステムが未定なら何もしない)。自由ボードはモードを変えない。設計モードに入ったら課題一覧のペインをプロパティに替えて右のペインを開き、ツールバーの「課題一覧」ボタンは設計モードでは出さない (分析に戻しても自動では開き直さない。「検証」はそのまま)。
 - **設計ボード** (`packages/core/src/model/design.ts`。id は `design:<種類>`。固定ボード・分析ボードと同じく、モデルには保存せず、左の要素一覧も出さない):
 
 | ボード | id | 中身 (今後) |
@@ -426,7 +429,7 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
 | 画面 | `design:screen` | 画面 UI (`view`) と、項目 → テーブルの列の対応 (`bindings`) |
 | データ | `design:data` | データベースの DSL とテーブル → 情報の対応 (`databases`) |
 
-  サイトマップだけ中身がある (下の「サイトマップ」)。レイアウト・画面・データは `DesignBoard` が、ボード名と「この画面は次の段階で作ります」を中央に出すだけ。
+  サイトマップとデータに中身がある (下の「サイトマップ」「データ」)。レイアウト・画面は `DesignBoard` が、ボード名と「この画面は次の段階で作ります」を中央に出すだけ。
 - **サイトマップ** (`design:sitemap`。`packages/core/src/model/sitemap.ts` と `packages/ui/src/components/design/`): 画面の追加・削除の木、画面と遷移の図、選んだ画面のプロパティの 3 列。設計の対象システムを以下「対象」と呼ぶ。保存するのは設計の `screens`・`transitions` だけで、チェックの状態・入口・注記・位置はその都度導く。
   - **左の木** (`SitemapTree`): 上に「組み込みの画面」のチェックボックス (サインイン・トップページ。サインアップ・パスワードリマインダーは出さない)、その下に分析の木 (業務 → 活動 → 作業 → 操作。既定の活動は出さず、その作業を業務の直下に置く。活動に入っていない作業は最後。作業に使われていない操作は出さない)。操作の行には、その操作の画面名 (対象の画面のみ) を小さく添える。
   - **チェックの意味**: 「対象の画面に届く」とは、操作が `usecaseScreen` で対象の画面 (`screen.systemId` が対象) に結ばれていること。節 (操作・作業・活動・業務) ごとに「部分木が届く画面の集合」を持ち、それがすべてサイトマップにあれば checked、一部なら indeterminate、無ければ unchecked。届く画面が無い節は薄く表示してチェックできない。チェックを入れると、部分木の届く画面のうちまだ無いものを足し、あわせて遷移を導いて足す (1 回の変更)。外すと、部分木の届く画面をすべて消す (ほかの操作と共有している画面も消える。残したい側は再チェックで戻る)。消える画面に `view` か `bindings` があるとき (画面設計に進んでいる) は、確認ダイアログ (danger) に画面名を並べて「次の画面の設計も一緒に消えます」と出し、無ければ確認しない。画面が消えると、それを指す遷移・ナビの項目も消える。組み込みの画面も同じ。閲覧専用ではチェックできない。
@@ -438,6 +441,17 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
   - **組み込みの画面** (入口に合わせて付け直す): トップページがあれば、トップページ → 入口の画面に `via: "nav"`、サインイン → トップページに `via: "afterSubmit"`。トップページが無ければ、サインイン → 入口の画面すべてに `afterSubmit`。画面を足す・外すたびに (`addSitemapScreens`・`removeSitemapScreens`。`syncBuiltinTransitions`)、サインイン・トップページからの遷移のうち `via` が `nav` / `afterSubmit` のままで `label` が無いものを今の入口とトップの有無に合わせて付け直す (足りないものを足し、入口でなくなった先のものを消す)。`label` を付けるなど手を入れた遷移は残す。
   - **中央** (`SitemapCanvas`): React Flow で画面をノード、遷移をエッジに描く。位置は保存せず、入ってくる遷移が無い画面から幅優先で層を決め、左から右へ並べる (同じ層は縦に並べ、遷移が 1 本も無い孤立した画面は最後の列。動かせない。ズーム・パンはできる)。ノードは画面名、「入口」の印、注記 1 行 (`data-sitemap-node`)。エッジは `via` の表示 (未定は破線。ボタン / 一覧の行 / メニュー / 送信のあと) と文言。エッジを押すと from の画面を選び、プロパティの該当の遷移を強調する。ノードはキーボードで選べる (Tab で止まり、Enter / Space)。画面の集合か対象のシステムが変わると全体が見えるよう合わせ直す (`fitView`)。画面が 1 つも無いときは案内を出す。選んだ画面は `ui.designScreenId` (保存しない・履歴に積まない。対象のシステムやモードが変わるか、画面が設計から無くなると `reconcileUi` が消す)。
   - **右のペイン** (`SitemapProperties`): 選んだ画面の名前 (読み取り。分析の画面なら「分析の画面ボードで見る」)、分析の画面の説明、この画面を使う操作 (作業名つき)、この画面が使う情報、入口の注記、出ていく遷移 (遷移先・きっかけ (未定 / ボタン / 一覧の行 / メニュー / 送信のあと)・文言・削除)、「遷移を追加…」、入ってくる遷移 (読み取り。押すとその画面を選ぶ)。「画面ボードで開く」で `design:screen` へ移り (選択はそのまま)、「サイトマップから外す」は木のチェックを外すのと同じ (確認の規則も同じ)。閲覧専用では編集できない。
+- **データ** (`design:data`。`packages/core/src/model/prisma.ts`・`prismaCache.ts`・`designData.ts` と `packages/ui/src/components/design/Data*.tsx`・`DslEditor.tsx`): データベースの DSL を書き、テーブルが表す情報を結ぶ。左のデータベースとテーブルの一覧、中央の DSL のエディタ、右のテーブルのプロパティの 3 列。データベースは設計をまたいで共有する。
+  - **画面構成**: 左 (`DataLeftPane`) は「データベース」の一覧。名前、この設計で使うかのチェックボックス (`designs[].databaseIds`)、選んだデータベースの強調 (`ui.designDatabaseId`)、「＋データベース」(名前を入れて追加)、選んだデータベースの名前変更と削除。その下に、選んだデータベースの DSL から読めたテーブル (model) の名前と、対応する情報の数 (選ぶと `ui.designTableName`)。対応はあるのに DSL に無いテーブルは薄く「DSL にありません」と出す。削除は、DSL が空でなく、または情報の対応・画面の項目の対応 (`bindings`) で参照されていれば、確認ダイアログ (danger) に消えるものと使っている設計の名前を並べる。空なら確認しない。中央 (`DslEditor`) は monospace の textarea と、下の解析エラーの一覧 (`行:列 メッセージ`。押すとその行にカーソルを移す)、上の「情報から作る (AI)」「雛形を足す」。入力中は下書きで、blur か Cmd/Ctrl+Enter で `setDatabaseDsl` する (下書きが無いときだけ外の値に追従し、同時編集の更新で書きかけを壊さない。ほかへ移るときも確定する)。右 (`DataProperties`) は、選んだテーブルの名前 (`@@map` があれば添える)、列の一覧 (名前と型・`?` / `[]`・`@id` `@unique` `@default` `@relation` の要約)、「表す情報」のチェックボックス (対象システムが使う情報を先に、ほかを「その他の情報」として折りたたむ。チェックで `setTableInformation`)。何も選んでいないときはデータベースの概要 (テーブル数、使っている設計) と、システムが使う情報ごとの対応するテーブル (無ければ赤く「未対応」)。閲覧専用では読み取り。選んだデータベース・テーブルは保存せず、履歴に積まない。モード・対象のシステムが変わると消え、データベースが無くなると既定の規則で使われるデータベースか先頭に代わり、DSL にも対応にも無くなったテーブルの選択は消える (`reconcileUi`)。
+  - **使うデータベースの規則**: 設計の `databaseIds` が空のときは既定のデータベース (`effectiveDatabaseIds`: `db_default` → 先頭 → 無し)。一覧は、何もチェックが無いとき、使われるデータベースに「既定」の印とその旨の 1 行を出す。
+  - **システムが使う情報** (`systemInformationIds(model, systemId)`): そのシステムに取得元 (`systemInformation`) か保存先 (`informationSystem`) として結んだ情報と、そのシステムの画面が扱う (`screenInformation`) 情報の和集合 (名前順)。
+  - **DSL の対応範囲** (`parsePrismaDsl(dsl)`。純粋。`parsePrismaDslCached` が直前の 1 件を覚える): Prisma のスキーマ言語の一部。`model` / `enum` ブロック、型 (`String` `Int` `BigInt` `Float` `Boolean` `DateTime` `Decimal` `Json` `Bytes` と model・enum の名前)、`?` / `[]`、`@id` `@unique` `@default(...)` `@relation(fields, references)` `@map("...")`、`@@id([...])` `@@unique([...])` `@@map("...")`、`//` コメント。`datasource` / `generator` (と `type` / `view`) のブロックは読み飛ばす (`type` / `view` の名前は型として使える)。それ以外の属性 (`@db.VarChar` など) は生のまま持ち、エラーにしない。ブロックの終わりの `}` は文字列の中を除いて探し (`@default("{}")` が通る)、`}` を忘れたまま次のブロックの見出しが来たら、そこで閉じ忘れのエラーを出して見出しから読み直す。`//` (`///` も) のコメント、CRLF、タブを読める。**対応外**: 複数行にまたがる属性、`Unsupported(...)` の型、同じ行で `}` のあとに書いたもの (無視する)。結果は `{ models, enums, errors }` で、エラーは行・列つき。ブロック単位 (model の中は 1 行単位) で復帰して続けるので、1 つ壊れていても他の model は読める。未知の型を参照するフィールド、同名の model / enum、同名のフィールドはエラー。保存する値は DSL の文字列だけで、解析結果は保存しない。
+  - **雛形を足す**: 対象システムが使う情報のうち、まだこのデータベースのどのテーブルにも対応していないものについて、`// TODO: 名前を直す` と `model Table1 { id String @id  @@map("情報名") }` (名前は既存と重ならない連番) を DSL の末尾に足し、対応 (`tables[]`) も足す (`addScaffold`。1 回の変更)。model の名前は後で利用者が直す前提。足すものが無ければ何もしない。
+  - **情報から作る (AI)** (`ai/designData.ts`): 一回きりの生成。依頼に、対象システムが使う情報 (名前・説明・関連する情報・画面での使われ方・取得元 / 保存先) と、今の DSL・対応を渡し、`submit_database` で `{ dsl, tables: [{ table, informationIds }] }` を提出させる (文章で JSON を返したときも読む)。DSL を `parsePrismaDsl` で調べ、エラーがあれば理由を返して 1 回だけ出し直させる。それでも残れば残ったまま置き、トーストで件数を伝える。存在しない情報の id と、DSL に無い model の対応は捨てる。今の DSL が空でなければ、置き換えの確認ダイアログを出す。API キーが無い・閲覧専用のときはボタンを無効にし、「AI の設定」でキーを入れる旨を添える (キーの有無は `getApiKey` で先に調べる)。置き換えは `setDatabaseDesign` の 1 回の変更。既存の DDL や Prisma スキーマからのリバースエンジニアリングの専用機能は無い: 会話に貼ってもらい、エージェント (6.2) が DSL に組み立てる。
+- **設計の検証** (`checkDesign(model, systemId)`・`checkAllDesigns(model)`。`packages/core/src/model/designCheck.ts`。純粋): 設計のあるシステムだけを調べ、`{ problems, warnings }` を返す (`DesignProblem = { type, message, target? }`。`target` は `database` / `table` / `screen` / `transition` / `information` の id)。
+  - **エラー**: (a) システムが使う情報が、使うデータベース (`effectiveDatabaseIds`) のどのテーブルにも対応していない。(b) 対応のあるテーブルが DSL に無い。(c) DSL に解析エラーがある (データベースごとに 1 件。件数と最初のエラーを添える)。(d) 画面の項目の対応 (`bindings`) が、無いデータベース・テーブル・列を指す。(e) 使うデータベースが 1 つも無い (このときは (a) は出さない。行を押すとデータボードへ)。
+  - **警告**: (f) 遷移の `via` が未定 (遷移ごとに from → to を添える)。(g) 画面に `view` が無い (件数つきの 1 行にまとめる。押すと画面ボードへ。画面が 1 つも無ければ出さない)。画面 UI はまだ作れないので、設計中は出続ける。
+  - **UI**: 設計モードの「検証」ボタンのバッジ (エラーの件数だけ。警告はパネルの見出しの件数で見せる。分析の検証のバッジは今までどおり) と右のペインの中身を、設計の検証に切り替える (`DesignCheckPanel`。エラー → 警告の順に、種類ごとにまとめる)。行を押すと該当へ移る: database / table → データボードでそのデータベース・テーブルを選ぶ、screen / transition → サイトマップでその画面 (遷移なら from の画面と遷移) を選ぶ、information → データボードで何も選ばない状態 (概要)。分析モードは担い手まで辿れるかの検証 (5.6) のまま。
 - **対象システムが消えたとき**: 同時編集で他の人が消した場合も含め、`reconcileUi` が分析モード (`analysis:issues`) に戻し、対象を未定にする。
 - **削除の連鎖と確認**: system・screen・information を消すと設計データも一緒に消える (4.0)。プロパティ欄の削除ボタンと、画面の所属 (システム) の変更は、`designReferences` が空でなければ確認ダイアログ (danger) に「○○を削除すると、次の設計データも一緒に消えます」と要約の一覧を出し、確認してから消す。空なら今までどおり確認しない。AI の `remove_element` は確認なしで消し、結果に消えた設計データの要約 (`removedDesign`) を含める。
 - **同時編集の awareness**: `boardId` は文字列のまま共有するので、設計ボードの id が入ってもそのまま写る。
@@ -499,7 +513,7 @@ Database                     … id、name、dsl (Prisma 風の DSL。この段�
 
 **会話 (下のペイン)**: ツールバーの「AI」で開閉する。依頼を書いて Enter で送る (Shift+Enter で改行、変換中は送らない)。
 
-- AI は道具 (`packages/ui/src/ai/tools.ts`) でモデルを読み書きする: `get_model` (要素と関係の一覧。既定 BUC は隠し、業務に直接属する作業は業務を示す)、`add_element`、`update_element` (作業の起点のその他は `trigger_note`。空文字で消す。起点の作業・イベントは `add_relation` で結ぶ)、`remove_element`、`add_relation`、`remove_relation`、`move_activity`、`move_buc`、`set_context`。中身は既存のコマンドを呼ぶだけで、整合性の検査はコマンドに任せる。失敗は理由を AI に返し、AI が直してやり直す。
+- AI は道具 (`packages/ui/src/ai/tools.ts`) でモデルを読み書きする: `get_model` (要素と関係の一覧。既定 BUC は隠し、業務に直接属する作業は業務を示す)、`add_element`、`update_element` (作業の起点のその他は `trigger_note`。空文字で消す。起点の作業・イベントは `add_relation` で結ぶ)、`remove_element`、`add_relation`、`remove_relation`、`move_activity`、`move_buc`、`set_context`、設計のデータベース用の `list_databases` (id・名前・テーブルと表す情報・DSL の解析エラーの数・使っている設計)・`get_database_dsl` (DSL と解析エラー)・`set_database_dsl` (解析エラーがあっても保存し、結果の `parseErrors` に返す)・`set_table_information`。既存の DDL や Prisma スキーマは利用者に会話へ貼ってもらい、AI が DSL に組み立てる (専用のリバースエンジニアリングは無い)。中身は既存のコマンドを呼ぶだけで、整合性の検査はコマンドに任せる。失敗は理由を AI に返し、AI が直してやり直す。
 - 1 回の返答の間の編集は 1 件の履歴にまとめる (`beginAgentEdit` / `agentApply` / `endAgentEdit`)。元に戻す (Undo) で AI の変更をまとめて戻せる。
 - 発言には、開いているボードと選択中の要素を添える (「これを直して」が通じるように)。
 - 指示 (`packages/ui/src/ai/prompts.ts`) には、要素と画面での呼び名、つながりの決まり、書き方のヒントと同じ粒度の説明を入れる。
@@ -612,6 +626,9 @@ untie/
 │  │  │  ├ fixedBoards.ts      … 固定ボードの枠の組み立て・絞り込み・枠への追加と紐づけ
 │  │  │  ├ design.ts           … 設計ボード (サイトマップ・レイアウト・画面・データ) の id・順序・ラベル
 │  │  │  ├ sitemap.ts          … サイトマップ: 遷移の導出・入口と注記・左の木・チェックの状態
+│  │  │  ├ prisma.ts / prismaCache.ts … データベースの DSL (Prisma の一部) の解析器と 1 件のキャッシュ
+│  │  │  ├ designData.ts       … システムが使う情報・雛形・データベースの使われ方
+│  │  │  ├ designCheck.ts      … 設計の検証 (checkDesign)
 │  │  │  ├ commands.ts         … モデルを変える純粋関数
 │  │  │  ├ validate.ts         … スキーマ検証 + 参照整合性
 │  │  │  ├ repair.ts           … 壊れた参照を直す (同時編集の合流後)

@@ -682,3 +682,33 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .transition-row { display: flex; align-items: center; gap: 4px; }
 .transition-target { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sitemap-actions { display: flex; flex-direction: column; gap: 6px; }
+
+/* 設計モードのデータボード */
+.db-list, .table-list { list-style: none; margin: 0; padding: 0 8px; }
+.db-row, .table-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; }
+.db-row.is-selected, .table-row.is-selected { background: #e8eef7; }
+.db-name { border: none; background: none; padding: 0; text-align: left; cursor: pointer; overflow-wrap: anywhere; min-width: 0; }
+.db-row.is-selected .db-name, .table-row.is-selected .db-name { font-weight: 600; }
+.table-row.is-missing { opacity: 0.6; }
+.db-default-badge { flex: none; font-size: 10px; color: #fff; background: var(--muted); border-radius: 8px; padding: 0 6px; }
+.db-actions, .db-add { display: flex; gap: 6px; padding: 6px 12px; }
+.db-add input { flex: 1; min-width: 0; }
+.db-selected { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--border); margin-top: 8px; }
+.db-tables { border-top: 1px solid var(--border); margin-top: 8px; }
+.dsl-editor { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: #efece6; overflow: hidden; }
+.dsl-toolbar { display: flex; align-items: center; gap: 8px; }
+.dsl-title { flex: 1; margin: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsl-key-hint { margin: 0; }
+.dsl-textarea { flex: 1; min-height: 0; resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre; overflow: auto; }
+.dsl-status { max-height: 28%; overflow: auto; }
+.dsl-status .hint { margin: 2px 0; }
+.hint.is-error { color: #b3261e; }
+.dsl-errors { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.column-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.column-list li { display: flex; gap: 8px; align-items: baseline; }
+.column-name { font-weight: 600; flex: none; }
+.column-type { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.check-row { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.info-map li { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+.unmapped { color: #b3261e; font-weight: 600; }
+.other-infos { margin-top: 4px; }

@@ -1,6 +1,7 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
-import { addDesignScreens, updateTransition } from "../model/commands";
+import { addDesignScreens, setDatabaseDesign, updateTransition } from "../model/commands";
+import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
 import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type Relation, type UntieModel } from "../model/types";
@@ -601,6 +602,82 @@ const baseModel: UntieModel = {
   databases: [],
 };
 
+
+/** POSレジの画面が使う情報 (と POSレジが持つ情報) を表すデータベースの DSL (Prisma の一部) */
+const POS_DSL = `// POSレジのデータベース (架空)
+enum PaymentMethod {
+  CASH
+  CARD
+  QR
+}
+
+enum SaleKind {
+  SALE
+  RETURN
+}
+
+model Category {
+  id    String @id
+  name  String @unique
+  items Item[]
+}
+
+model Item {
+  id         String      @id
+  code       String      @unique
+  name       String
+  price      Int
+  category   Category    @relation(fields: [categoryId], references: [id])
+  categoryId String
+  stock      StockLevel?
+  lines      SaleLine[]
+  @@map("items")
+}
+
+model StockLevel {
+  itemId    String   @id
+  item      Item     @relation(fields: [itemId], references: [id])
+  quantity  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model Sale {
+  id       String     @id
+  kind     SaleKind   @default(SALE)
+  soldAt   DateTime   @default(now())
+  total    Int
+  lines    SaleLine[]
+  payments Payment[]
+}
+
+model SaleLine {
+  id       String @id
+  sale     Sale   @relation(fields: [saleId], references: [id])
+  saleId   String
+  item     Item   @relation(fields: [itemId], references: [id])
+  itemId   String
+  quantity Int
+  price    Int
+}
+
+model Payment {
+  id     String        @id
+  sale   Sale          @relation(fields: [saleId], references: [id])
+  saleId String
+  method PaymentMethod
+  amount Int
+  paidAt DateTime      @default(now())
+}
+
+model Stocktake {
+  id         String   @id
+  itemId     String
+  countedQty Int
+  countedAt  DateTime @default(now())
+  note       String?
+}
+`;
+
 /**
  * POSレジの設計 (サイトマップ): サインイン・トップページと、POSレジの画面に届く作業をすべてチェックしたのと同じ内容。
  * 遷移は deriveTransitions で導き、いくつかにはきっかけ (via) を入れる
@@ -630,7 +707,22 @@ function withPosDesign(model: UntieModel): UntieModel {
     if (!r.ok) throw new Error(`サンプルの遷移が直せません: ${r.reason}`);
     next = r.model;
   }
-  return next;
+  // 既定のデータベースに、POSレジが使う情報を表す DSL と、テーブルが表す情報の対応を入れる
+  next = { ...next, databases: [{ id: DEFAULT_DATABASE_ID, name: DEFAULT_DATABASE_NAME, dsl: "", tables: [] }] };
+  const db = setDatabaseDesign(next, {
+    id: DEFAULT_DATABASE_ID,
+    dsl: POS_DSL,
+    tables: [
+      { table: "Item", informationIds: ["info_item"] },
+      { table: "StockLevel", informationIds: ["info_stock"] },
+      { table: "Sale", informationIds: ["info_sale"] },
+      { table: "SaleLine", informationIds: ["info_sale"] },
+      { table: "Payment", informationIds: ["info_payment"] },
+      { table: "Stocktake", informationIds: ["info_stocktake"] },
+    ],
+  });
+  if (!db.ok) throw new Error(`サンプルのデータベースが作れません: ${db.reason}`);
+  return db.model;
 }
 
 export const retailSample: UntieModel = withPosDesign(baseModel);

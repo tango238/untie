@@ -3,6 +3,7 @@ import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { traceToActors, traceWarnings } from "@untie/core/model/trace";
+import { cachedCheckDesign } from "./design/checkCache";
 import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
@@ -36,8 +37,13 @@ export function Toolbar() {
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const model = useUntieStore((s) => s.model);
-  const traceCount = useMemo(() => traceToActors(model).problems.length, [model]);
-  const warningCount = useMemo(() => traceWarnings(model).length, [model]);
+  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const designSystemId = useUntieStore((s) => s.ui.designSystemId);
+  // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
+  const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
+  const traceCount = useMemo(() => (designResult ? designResult.problems.length : traceToActors(model).problems.length), [model, designResult]);
+  // 設計の検証のバッジはエラーだけ数える (警告はパネルの見出しの件数で見せる)
+  const warningCount = useMemo(() => (designResult ? 0 : traceWarnings(model).length), [model, designResult]);
   const file = useUntieStore((s) => s.file);
   const agentOpen = useAgentStore((s) => s.open);
   const setAgentOpen = useAgentStore((s) => s.setOpen);
@@ -50,8 +56,6 @@ export function Toolbar() {
   const canUndo = useUntieStore((s) => s.history.past.length > 0);
   const canRedo = useUntieStore((s) => s.history.future.length > 0);
   const setCurrentBoard = useUntieStore((s) => s.setCurrentBoard);
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
-  const designSystemId = useUntieStore((s) => s.ui.designSystemId);
   const designSystemName = useUntieStore((s) => (s.ui.designSystemId === undefined ? undefined : s.model.elements.find((e) => e.id === s.ui.designSystemId)?.name));
   const setMode = useUntieStore((s) => s.setMode);
   const dispatch = useUntieStore((s) => s.dispatch);
@@ -268,7 +272,7 @@ export function Toolbar() {
             type="button"
             aria-pressed={rightPanel === "trace"}
             className={rightPanel === "trace" ? "active" : ""}
-            title="すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる"
+            title={mode === "design" ? "設計 (データベースとの対応・サイトマップ・画面) を調べる" : "すべての要素が担い手 (アクター／外部アクター／システム) まで辿れるかを調べる"}
             onClick={() => setRightPanel(rightPanel === "trace" ? "properties" : "trace")}
           >
             検証

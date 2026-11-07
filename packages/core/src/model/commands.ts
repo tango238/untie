@@ -3,6 +3,7 @@
 import { produce } from "immer";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
 import { newUniqueId } from "./id";
+import { isPrismaIdent } from "./prisma";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
@@ -222,6 +223,8 @@ function sweepDesigns(draft: UntieModel, removed: ReadonlySet<string>): void {
   }
   for (const db of draft.databases) {
     for (const table of db.tables) table.informationIds = table.informationIds.filter((id) => !removed.has(id));
+    // 表す情報が無くなったテーブルの項目は消す (setTableInformation で空にしたのと同じ)
+    db.tables = db.tables.filter((t) => t.informationIds.length > 0);
   }
 }
 
@@ -259,6 +262,179 @@ export function removeDesign(model: UntieModel, payload: RemoveDesignPayload): C
   if (!model.designs.some((d) => d.systemId === payload.systemId)) return fail(`設計が存在しません: ${payload.systemId}`);
   const next = produce(model, (draft) => {
     draft.designs = draft.designs.filter((d) => d.systemId !== payload.systemId);
+  });
+  return { ok: true, model: next };
+}
+
+// ---------------------------------------------------------------- 設計: データ
+
+const databaseOf = (model: UntieModel, id: string) => model.databases.find((d) => d.id === id);
+
+/** 情報の id の一覧の検査 (重複を除いた一覧か、失敗の理由) */
+function checkInformationIds(model: UntieModel, ids: readonly string[]): string[] | Fail {
+  const unique = [...new Set(ids)];
+  for (const id of unique) {
+    const e = findElement(model, id);
+    if (!e || e.kind !== "information") return fail(`情報が存在しません: ${id}`);
+  }
+  return unique;
+}
+
+/** テーブル (model) の名前の検査。問題があれば理由 */
+function checkTableName(table: string): string | null {
+  if (table === "") return "テーブルの名前が必要です";
+  const tooLong = checkLength("name", table);
+  if (tooLong) return tooLong;
+  return isPrismaIdent(table) ? null : `テーブルの名前は英数字とアンダースコアで書いてください: ${table}`;
+}
+
+export interface AddDatabasePayload {
+  /** 省略すると作る (db_ で始まる) */
+  id?: string;
+  name: string;
+}
+
+/** データベースを足す (DSL は空)。設計をまたいで共有する */
+export function addDatabase(model: UntieModel, payload: AddDatabasePayload): CommandResult<{ id: string }> {
+  const name = payload.name.trim();
+  if (name === "") return fail("名前が必要です");
+  const tooLong = checkLength("name", name);
+  if (tooLong) return fail(tooLong);
+  const used = new Set(model.databases.map((d) => d.id));
+  if (payload.id !== undefined && used.has(payload.id)) return fail(`id がすでに使われています: ${payload.id}`);
+  const id = payload.id ?? newUniqueId("database", used);
+  const next = produce(model, (draft) => {
+    draft.databases.push({ id, name, dsl: "", tables: [] });
+  });
+  return { ok: true, model: next, id };
+}
+
+export interface RenameDatabasePayload {
+  id: string;
+  name: string;
+}
+
+export function renameDatabase(model: UntieModel, payload: RenameDatabasePayload): CommandResult {
+  if (!databaseOf(model, payload.id)) return fail(`データベースが存在しません: ${payload.id}`);
+  const name = payload.name.trim();
+  if (name === "") return fail("名前が必要です");
+  const tooLong = checkLength("name", name);
+  if (tooLong) return fail(tooLong);
+  const next = produce(model, (draft) => {
+    databaseOf(draft, payload.id)!.name = name;
+  });
+  return { ok: true, model: next };
+}
+
+export interface RemoveDatabasePayload {
+  id: string;
+}
+
+/** データベースを消す。全設計の使うデータベースから外し、そのデータベースを指す画面の項目の対応 (bindings) も消す */
+export function removeDatabase(model: UntieModel, payload: RemoveDatabasePayload): CommandResult {
+  if (!databaseOf(model, payload.id)) return fail(`データベースが存在しません: ${payload.id}`);
+  const next = produce(model, (draft) => {
+    draft.databases = draft.databases.filter((d) => d.id !== payload.id);
+    for (const design of draft.designs) {
+      design.databaseIds = design.databaseIds.filter((id) => id !== payload.id);
+      for (const screen of design.screens) {
+        if (!screen.bindings) continue;
+        screen.bindings = screen.bindings.filter((b) => b.databaseId !== payload.id);
+        if (screen.bindings.length === 0) delete screen.bindings;
+      }
+    }
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetDatabaseDslPayload {
+  id: string;
+  dsl: string;
+}
+
+/** データベースの DSL を置き換える (解析エラーがあっても保存する) */
+export function setDatabaseDsl(model: UntieModel, payload: SetDatabaseDslPayload): CommandResult {
+  if (!databaseOf(model, payload.id)) return fail(`データベースが存在しません: ${payload.id}`);
+  const tooLong = checkLength("dsl", payload.dsl);
+  if (tooLong) return fail(tooLong);
+  if (databaseOf(model, payload.id)!.dsl === payload.dsl) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    databaseOf(draft, payload.id)!.dsl = payload.dsl;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetTableInformationPayload {
+  /** データベースの id */
+  id: string;
+  table: string;
+  informationIds: string[];
+}
+
+/** テーブルが表す情報を置き換える。空にするとテーブルの項目を消す。重複は除く。存在しない情報は失敗 */
+export function setTableInformation(model: UntieModel, payload: SetTableInformationPayload): CommandResult {
+  if (!databaseOf(model, payload.id)) return fail(`データベースが存在しません: ${payload.id}`);
+  const table = payload.table.trim();
+  const badName = checkTableName(table);
+  if (badName) return fail(badName);
+  const ids = checkInformationIds(model, payload.informationIds);
+  if (!Array.isArray(ids)) return ids;
+  const next = produce(model, (draft) => {
+    const db = databaseOf(draft, payload.id)!;
+    const at = db.tables.findIndex((t) => t.table === table);
+    if (ids.length === 0) {
+      if (at >= 0) db.tables.splice(at, 1);
+    } else if (at >= 0) db.tables[at]!.informationIds = ids;
+    else db.tables.push({ table, informationIds: ids });
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetDatabaseDesignPayload {
+  id: string;
+  dsl: string;
+  tables: { table: string; informationIds: string[] }[];
+}
+
+/** DSL と、テーブルが表す情報の対応を、まとめて置き換える (雛形・AI の生成が 1 回の変更にするため) */
+export function setDatabaseDesign(model: UntieModel, payload: SetDatabaseDesignPayload): CommandResult {
+  if (!databaseOf(model, payload.id)) return fail(`データベースが存在しません: ${payload.id}`);
+  const tooLong = checkLength("dsl", payload.dsl);
+  if (tooLong) return fail(tooLong);
+  const tables: { table: string; informationIds: string[] }[] = [];
+  for (const t of payload.tables) {
+    const name = t.table.trim();
+    const badName = checkTableName(name);
+    if (badName) return fail(badName);
+    const ids = checkInformationIds(model, t.informationIds);
+    if (!Array.isArray(ids)) return ids;
+    const existing = tables.find((x) => x.table === name);
+    if (existing) existing.informationIds = [...new Set([...existing.informationIds, ...ids])];
+    else if (ids.length > 0) tables.push({ table: name, informationIds: ids });
+  }
+  const next = produce(model, (draft) => {
+    const db = databaseOf(draft, payload.id)!;
+    db.dsl = payload.dsl;
+    db.tables = tables;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetDesignDatabasesPayload {
+  systemId: string;
+  /** 空なら既定のデータベース */
+  databaseIds: string[];
+}
+
+/** 設計が使うデータベースを置き換える。設計が無ければ作る (ensureDesign)。存在しないデータベースは失敗 */
+export function setDesignDatabases(model: UntieModel, payload: SetDesignDatabasesPayload): CommandResult {
+  const ensured = ensureDesign(model, { systemId: payload.systemId });
+  if (!ensured.ok) return ensured;
+  const ids = [...new Set(payload.databaseIds)];
+  const missing = ids.find((id) => !databaseOf(ensured.model, id));
+  if (missing !== undefined) return fail(`データベースが存在しません: ${missing}`);
+  const next = produce(ensured.model, (draft) => {
+    draft.designs.find((d) => d.systemId === payload.systemId)!.databaseIds = ids;
   });
   return { ok: true, model: next };
 }

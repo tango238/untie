@@ -185,7 +185,7 @@ describe("設計モードのツールバー", () => {
     expect(screen.getByRole("button", { name: "設計: 会計システム" })).toBeDefined();
   });
 
-  it("サイトマップは案内を、ほかの設計ボードは仮置きの画面を出す。ボードを切り替えると名前が変わる", () => {
+  it("サイトマップは案内を、データは DSL のエディタを、レイアウトは仮置きの画面を出す。ボードを切り替えると名前が変わる", () => {
     render(<App />);
     act(() => st().enterDesign("sys_pms"));
     const board = screen.getByRole("region", { name: "設計ボード: サイトマップ" });
@@ -193,7 +193,8 @@ describe("設計モードのツールバー", () => {
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "design:layout" } });
     expect(within(screen.getByRole("region", { name: "設計ボード: レイアウト" })).getByText("この画面は次の段階で作ります")).toBeDefined();
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "design:data" } });
-    expect(screen.getByRole("region", { name: "設計ボード: データ" })).toBeDefined();
+    // データボードは DSL のエディタ (データベースがまだ無いので案内を出す)
+    expect(within(screen.getByRole("region", { name: "DSL の編集" })).getByText(/＋データベース/)).toBeDefined();
     // 設計ボードでは名前変更・ボード削除は押せない
     expect((screen.getByRole("button", { name: "名前変更" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -208,17 +209,17 @@ describe("設計モードのツールバー", () => {
     expect(st().ui.mode).toBe("analysis");
   });
 
-  it("設計モードでは「課題一覧」ボタンを出さず、課題一覧のペインを閉じる。「検証」は今のまま", () => {
+  it("設計モードでは「課題一覧」ボタンを出さず、課題一覧のペインをプロパティに替えて開く。「検証」は今のまま", () => {
     act(() => st().setRightPanel("issues"));
     render(<Toolbar />);
     expect(screen.getByRole("button", { name: "課題一覧" })).toBeDefined();
     act(() => st().enterDesign("sys_pms"));
     expect(screen.queryByRole("button", { name: "課題一覧" })).toBeNull();
     expect(screen.getByRole("button", { name: /^検証/ })).toBeDefined();
-    expect(st().ui.rightPanelOpen).toBe(false);
+    expect(st().ui.rightPanelOpen).toBe(true);
+    expect(st().ui.rightPanel).toBe("properties");
     act(() => st().setMode("analysis"));
     expect(screen.getByRole("button", { name: "課題一覧" })).toBeDefined();
-    expect(st().ui.rightPanelOpen).toBe(false);
   });
 
   it("閲覧専用でも設計は見られる (モードは移れる)", () => {

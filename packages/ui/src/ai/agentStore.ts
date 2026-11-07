@@ -68,6 +68,10 @@ const TOOL_LABELS: Record<string, string> = {
   move_activity: "作業の所属を変更",
   move_buc: "活動の所属を変更",
   set_context: "コンテキストを変更",
+  list_databases: "データベースを読む",
+  get_database_dsl: "DSL を読む",
+  set_database_dsl: "DSL を変更",
+  set_table_information: "テーブルの情報を変更",
   update_issue_analysis: "課題の分析を更新",
   set_issue_targets: "課題の対象を変更",
 };

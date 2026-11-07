@@ -208,9 +208,10 @@ describe("removeElement: 設計データの連鎖", () => {
     expect(validateModel(JSON.parse(JSON.stringify(m))).ok).toBe(true);
   });
 
-  it("情報を消すと、テーブルの対応から外れる。データベースとテーブルは残る", () => {
+  it("情報を消すと、テーブルの対応から外れ、表す情報が無くなったテーブルの項目は消える。データベースは残る", () => {
     const m = okModel(removeElement(designed(), { id: "info_1" }));
-    expect(m.databases[0]!.tables).toEqual([{ table: "Reservation", informationIds: [] }]);
+    expect(m.databases).toHaveLength(1);
+    expect(m.databases[0]!.tables).toEqual([]);
   });
 });
 

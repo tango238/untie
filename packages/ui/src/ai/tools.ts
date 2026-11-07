@@ -8,11 +8,15 @@ import {
   moveToContext,
   removeElement,
   removeRelation,
+  setDatabaseDsl,
   setIssueTargets,
+  setTableInformation,
   updateElement,
   type CommandResult,
   type ElementPatch,
 } from "@untie/core/model/commands";
+import { designsUsingDatabase } from "@untie/core/model/designData";
+import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
 import { ELEMENT_KINDS, type ElementKind, type UntieModel } from "@untie/core/model/types";
 
@@ -160,6 +164,38 @@ export const MODEL_TOOLS: ToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_databases",
+    description:
+      "設計のデータベースの一覧を返す。各データベースの id・名前・テーブル (DSL の model の名前、表す情報の id と名前、DSL にあるか)・DSL の解析エラーの数・使っている設計 (システム名)。データベースは設計をまたいで共有される。",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_database_dsl",
+    description: "データベースの DSL (Prisma のスキーマの一部) と、解析エラー (行・列・理由) を返す。DSL を直す前に呼ぶこと。",
+    parameters: { type: "object", properties: { database_id: str("データベースの id") }, required: ["database_id"], additionalProperties: false },
+  },
+  {
+    name: "set_database_dsl",
+    description:
+      "データベースの DSL を置き換える。使えるのは Prisma のスキーマの一部: model / enum、型 (String Int BigInt Float Boolean DateTime Decimal Json Bytes と model・enum の名前、? と [])、@id @unique @default @relation @map、@@id @@unique @@map、// コメント。解析エラーがあっても保存するが、結果に返すので直して出し直すこと。テーブルと情報の対応は set_table_information で付ける。",
+    parameters: {
+      type: "object",
+      properties: { database_id: str("データベースの id"), dsl: str("DSL の全文 (200000 文字まで)") },
+      required: ["database_id", "dsl"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_table_information",
+    description: "テーブル (DSL の model の名前) が表す情報を置き換える。information_ids を空にすると対応を消す。1 つの情報を複数のテーブルが表してもよい。",
+    parameters: {
+      type: "object",
+      properties: { database_id: str("データベースの id"), table: str("テーブル (model) の名前"), information_ids: strArray("表す情報の id (空で対応を消す)") },
+      required: ["database_id", "table", "information_ids"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** AI に渡すモデルの要約。保存形式から、AI に要らない配置 (ボード) を除く */
@@ -198,6 +234,14 @@ function run<T>(editor: ModelEditor, command: (m: UntieModel) => CommandResult<T
   if (!r.ok) return fail(r.reason);
   return okJson(extra(r), r.model !== before);
 }
+
+/** DSL の解析エラー (先頭 20 件と全体の件数) */
+const parseReport = (dsl: string, extra: object = {}) => {
+  const errors = parsePrismaDslCached(dsl).errors;
+  return { ...extra, parseErrorCount: errors.length, parseErrors: errors.slice(0, 20) };
+};
+
+const infoRefs = (ids: string[], name: (id: string) => string) => ids.map((id) => ({ id, name: name(id) }));
 
 /** 道具を 1 回実行する。入力はモデルの出力なので、型を確かめてからコマンドに渡す */
 export function executeTool(editor: ModelEditor, name: string, rawInput: unknown): ToolOutcome {
@@ -311,6 +355,53 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const elementId = s(input.element_id);
       if (!elementId) return fail("element_id が必要です");
       return run(editor, (m) => moveToContext(m, { elementId, contextId: s(input.context_id) ?? null }));
+    }
+
+    case "list_databases": {
+      const model = editor.getModel();
+      const name = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+      return okJson(
+        model.databases.map((db) => {
+          const schema = parsePrismaDslCached(db.dsl);
+          return {
+            id: db.id,
+            name: db.name,
+            parseErrors: schema.errors.length,
+            tables: [
+              ...schema.models.map((m) => ({ table: m.name, inDsl: true, informations: infoRefs(db.tables.find((t) => t.table === m.name)?.informationIds ?? [], name) })),
+              ...db.tables.filter((t) => !schema.models.some((m) => m.name === t.table)).map((t) => ({ table: t.table, inDsl: false, informations: infoRefs(t.informationIds, name) })),
+            ],
+            usedBy: designsUsingDatabase(model, db.id).map((u) => name(u.systemId)),
+          };
+        }),
+        false,
+      );
+    }
+
+    case "get_database_dsl": {
+      const id = s(input.database_id);
+      if (!id) return fail("database_id が必要です");
+      const db = editor.getModel().databases.find((d) => d.id === id);
+      if (!db) return fail(`データベースが存在しません: ${id}`);
+      return okJson({ id: db.id, name: db.name, dsl: db.dsl, ...parseReport(db.dsl) }, false);
+    }
+
+    case "set_database_dsl": {
+      const id = s(input.database_id);
+      if (!id) return fail("database_id が必要です");
+      if (typeof input.dsl !== "string") return fail("dsl が必要です");
+      const dsl = input.dsl;
+      // 解析エラーがあっても保存する。エラーは結果に返して、AI に直させる
+      return run(editor, (m) => setDatabaseDsl(m, { id, dsl }), () => parseReport(dsl, { ok: true }));
+    }
+
+    case "set_table_information": {
+      const id = s(input.database_id);
+      const table = s(input.table);
+      const informationIds = arr(input.information_ids);
+      if (!id || !table) return fail("database_id と table が必要です");
+      if (!informationIds) return fail("information_ids (配列) が必要です");
+      return run(editor, (m) => setTableInformation(m, { id, table, informationIds }));
     }
 
     default:

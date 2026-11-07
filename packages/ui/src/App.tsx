@@ -3,6 +3,9 @@ import { FixedBoard } from "./components/FixedBoard";
 import { LeftPane } from "./components/LeftPane";
 import { IssuePanel } from "./components/IssuePanel";
 import { TracePanel } from "./components/TracePanel";
+import { DesignCheckPanel } from "./components/design/DesignCheckPanel";
+import { DataLeftPane } from "./components/design/DataLeftPane";
+import { DataProperties } from "./components/design/DataProperties";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
@@ -39,6 +42,9 @@ export default function App() {
   const builtin = fixedLayer !== null || analysis !== null || design !== null;
   // 設計モードのサイトマップは、左に画面の追加の木、右にその画面のプロパティを出す
   const sitemap = design === "sitemap";
+  // データボードは、左にデータベースとテーブルの一覧、右に選んだテーブルのプロパティを出す
+  const data = design === "data";
+  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   return (
     <div className="app">
       {readOnly && role && (
@@ -57,10 +63,11 @@ export default function App() {
       <Toolbar />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
+        {data && <DataLeftPane />}
         <main className="canvas-area">
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
@@ -84,7 +91,21 @@ export default function App() {
             {rightPanelOpen ? "›" : "‹"}
           </button>
           {rightPanelOpen ? (
-            <div className="right-panel">{rightPanel === "issues" ? <IssuePanel /> : rightPanel === "trace" ? <TracePanel /> : sitemap ? <SitemapProperties /> : <PropertyPanel />}</div>
+            <div className="right-panel">{rightPanel === "issues" ? (
+                <IssuePanel />
+              ) : rightPanel === "trace" ? (
+                mode === "design" ? (
+                  <DesignCheckPanel />
+                ) : (
+                  <TracePanel />
+                )
+              ) : sitemap ? (
+                <SitemapProperties />
+              ) : data ? (
+                <DataProperties />
+              ) : (
+                <PropertyPanel />
+              )}</div>
           ) : (
             // 閉じているときは細い帯だけ残し、いま何のペインかを縦書きで出す
             <button type="button" className="pane-strip" onClick={() => setRightPanelOpen(true)}>
