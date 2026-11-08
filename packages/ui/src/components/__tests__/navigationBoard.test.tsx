@@ -7,9 +7,9 @@ import { okModel } from "@untie/core/testing";
 import type { ChatOptions } from "../../ai/chat";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
-import { LayoutBoard } from "../design/LayoutBoard";
-import { LayoutLeftPane } from "../design/LayoutLeftPane";
-import { LayoutProperties } from "../design/LayoutProperties";
+import { NavigationBoard } from "../design/NavigationBoard";
+import { NavigationLeftPane } from "../design/NavigationLeftPane";
+import { NavigationProperties } from "../design/NavigationProperties";
 import { cachedCheckDesign } from "../design/checkCache";
 
 vi.mock("../canvas/Canvas", () => ({ Canvas: () => <div data-testid="canvas" /> }));
@@ -106,9 +106,9 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("LayoutBoard: プレビュー", () => {
+describe("NavigationBoard: プレビュー", () => {
   it("画面の select に設計の画面が並び、既定はトップページ。iframe の srcdoc にその画面を描く", () => {
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     const select = screen.getByRole("combobox", { name: "プレビューする画面" }) as HTMLSelectElement;
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["サインイン", "トップページ", "予約検索", "予約登録", "請求一覧"]);
     expect(select.value).toBe("d_top");
@@ -119,7 +119,7 @@ describe("LayoutBoard: プレビュー", () => {
 
   it("選んでいる画面 (ui.designScreenId) があればその画面。select を変えると選択も変わり、プレビューも変わる", () => {
     act(() => st().selectDesignScreen("d2"));
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     const select = screen.getByRole("combobox", { name: "プレビューする画面" }) as HTMLSelectElement;
     expect(select.value).toBe("d2");
     fireEvent.change(select, { target: { value: "d1" } });
@@ -129,14 +129,14 @@ describe("LayoutBoard: プレビュー", () => {
 
   it("プレビュー中の画面がレイアウトを上書きしているときだけ、ツールバーに案内を出す", () => {
     act(() => st().selectDesignScreen("d1"));
-    const { unmount } = render(<LayoutBoard />);
+    const { unmount } = render(<NavigationBoard />);
     expect(screen.queryByText(/レイアウトを上書きしています/)).toBeNull();
     unmount();
     act(() => {
       const r = st().dispatch((m) => setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "plain" }));
       if (!r.ok) throw new Error(r.reason);
     });
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     expect(screen.getByText("この画面はレイアウトを上書きしています (ヘッダーのみ)。画面ボードで変えられます")).toBeDefined();
   });
 
@@ -144,14 +144,14 @@ describe("LayoutBoard: プレビュー", () => {
     const m = okModel(addDesignScreens(base(), { systemId: "sys_a", screens: [{ id: "d9", source: { kind: "screen", screenId: "scr_2" } }], transitions: [] }));
     act(() => resetStore(m));
     act(() => st().enterDesign("sys_a"));
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     expect((screen.getByRole("combobox", { name: "プレビューする画面" }) as HTMLSelectElement).value).toBe("d9");
   });
 
   it("画面が 1 つも無いときは案内を出す", () => {
     act(() => resetStore(base()));
     act(() => st().enterDesign("sys_a"));
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     expect(screen.getByText("サイトマップで画面を足すとプレビューできます")).toBeDefined();
     expect(screen.queryByTitle("画面のプレビュー")).toBeNull();
   });
@@ -165,7 +165,7 @@ describe("LayoutBoard: プレビュー", () => {
       }),
     );
     act(() => st().enterDesign("sys_a"));
-    render(<LayoutBoard />);
+    render(<NavigationBoard />);
     // 壊れた画面だけ仮の画面になり、理由はその画面にだけ出る。ほかの画面は理由なし
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(screen.getByRole("combobox", { name: "プレビューする画面" }), { target: { value: "d1" } });
@@ -174,9 +174,9 @@ describe("LayoutBoard: プレビュー", () => {
   });
 });
 
-describe("LayoutLeftPane", () => {
+describe("NavigationLeftPane", () => {
   it("レイアウトのラジオを選ぶと shell / plain が変わる (履歴は 1 件)", () => {
-    render(<LayoutLeftPane />);
+    render(<NavigationLeftPane />);
     expect((screen.getByRole("radio", { name: /shell/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("ヘッダー + グローバルナビ + パンくず")).toBeDefined();
     expect(screen.getByText("ヘッダーのみ")).toBeDefined();
@@ -186,7 +186,7 @@ describe("LayoutLeftPane", () => {
   });
 
   it("ヘッダーの項目を入れ、空にすると消える。システム名の placeholder は対象システムの名前", () => {
-    render(<LayoutLeftPane />);
+    render(<NavigationLeftPane />);
     const systemName = screen.getByRole("textbox", { name: "システム名" }) as HTMLInputElement;
     expect(systemName.placeholder).toBe("予約システム");
     fireEvent.change(systemName, { target: { value: "予約の画面" } });
@@ -205,17 +205,17 @@ describe("LayoutLeftPane", () => {
 
   it("閲覧専用では編集できない", () => {
     useUntieStore.setState({ cloud: { role: "viewer" } as never });
-    render(<LayoutLeftPane />);
+    render(<NavigationLeftPane />);
     expect((screen.getByRole("radio", { name: /plain/ }) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("textbox", { name: "利用者名" }) as HTMLInputElement).readOnly).toBe(true);
   });
 });
 
-describe("LayoutProperties: ナビゲーションメニュー", () => {
+describe("NavigationProperties: ナビゲーションメニュー", () => {
   const groupNames = () => layout().navigation.map((g) => g.group);
 
   it("＋グループ・＋項目で足し、名前・画面・表示名を編集し、並べ替え・削除ができる", () => {
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     fireEvent.click(screen.getByRole("button", { name: "＋グループ" }));
     fireEvent.click(screen.getByRole("button", { name: "＋グループ" }));
     expect(layout().navigation.map((g) => g.group)).toEqual(["新しいグループ", "新しいグループ"]);
@@ -261,7 +261,7 @@ describe("LayoutProperties: ナビゲーションメニュー", () => {
       st().dispatch((m) => setDesignNavigation(m, { systemId: "sys_a", navigation: [{ id: "nav_1", group: "予約", items: [{ screenId: "d1" }] }] }));
     });
     useUntieStore.setState({ cloud: { role: "viewer" } as never });
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     expect(screen.queryByRole("button", { name: "＋グループ" })).toBeNull();
     expect(screen.queryByRole("button", { name: /を削除/ })).toBeNull();
     expect((screen.getByRole("button", { name: "サイトマップから作る" }) as HTMLButtonElement).disabled).toBe(true);
@@ -269,7 +269,7 @@ describe("LayoutProperties: ナビゲーションメニュー", () => {
   });
 
   it("「サイトマップから作る」: ナビが無ければそのまま作る (業務ごと。ホームの先頭はトップ、サインインは入れない)", () => {
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     fireEvent.click(screen.getByRole("button", { name: "サイトマップから作る" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(layout().navigation.map((g) => [g.group, g.items.map((i) => i.screenId)])).toEqual([
@@ -286,7 +286,7 @@ describe("LayoutProperties: ナビゲーションメニュー", () => {
     act(() => {
       st().dispatch((m) => setDesignNavigation(m, { systemId: "sys_a", navigation: [{ id: "nav_1", group: "手で作った", items: [{ screenId: "d1" }] }] }));
     });
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     fireEvent.click(screen.getByRole("button", { name: "サイトマップから作る" }));
     const dialog = screen.getByRole("dialog", { name: "ナビゲーションを置き換える" });
     fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
@@ -297,11 +297,11 @@ describe("LayoutProperties: ナビゲーションメニュー", () => {
   });
 });
 
-describe("LayoutProperties: AI で考える", () => {
+describe("NavigationProperties: AI で考える", () => {
   const button = () => screen.getByRole("button", { name: /AI で考える|考えています/ }) as HTMLButtonElement;
 
   it("キーが無いと無効にし、「AI の設定」の案内を出す", async () => {
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     await waitFor(() => expect(screen.getByText(/API キーを入れてください/)).toBeDefined());
     expect(button().disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "AI の設定" }));
@@ -310,14 +310,14 @@ describe("LayoutProperties: AI で考える", () => {
   it("閲覧専用では、キーがあっても無効", async () => {
     ai.key = "k";
     useUntieStore.setState({ cloud: { role: "viewer" } as never });
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     await new Promise((r) => setTimeout(r, 20));
     expect(button().disabled).toBe(true);
   });
 
   it("依頼に画面の材料 (入口・使う操作と業務・遷移) を渡し、提出されたグループ分けを置く。存在しない画面は捨て、サインインは入れない", async () => {
     ai.key = "k";
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     await waitFor(() => expect(button().disabled).toBe(false));
     ai.submissions.push({
       groups: [
@@ -350,7 +350,7 @@ describe("LayoutProperties: AI で考える", () => {
     act(() => {
       st().dispatch((m) => setDesignNavigation(m, { systemId: "sys_a", navigation: [{ id: "nav_1", group: "手で作った", items: [{ screenId: "d1" }] }] }));
     });
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     await waitFor(() => expect(button().disabled).toBe(false));
     fireEvent.click(button());
     fireEvent.click(within(screen.getByRole("dialog", { name: "ナビゲーションを置き換える" })).getByRole("button", { name: "キャンセル" }));
@@ -363,7 +363,7 @@ describe("LayoutProperties: AI で考える", () => {
 
   it("道具を呼ばずに文章で JSON を返したときも読む。何も返さなければエラーのトースト", async () => {
     ai.key = "k";
-    render(<LayoutProperties />);
+    render(<NavigationProperties />);
     await waitFor(() => expect(button().disabled).toBe(false));
     ai.text = '```json\n{"groups":[{"group":"文章","items":[{"screenId":"d1","label":"探す"}]}]}\n```';
     fireEvent.click(button());

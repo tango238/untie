@@ -412,7 +412,7 @@ describe("データボード全体", () => {
       st().dispatch((m) => setDesignDatabases(m, { systemId: "sys_a", databaseIds: [] }));
       st().dispatch((m) => ({ ok: true, model: { ...m, databases: [], designs: m.designs.map((d) => ({ ...d, screens: [{ id: "ds_1", source: { kind: "screen", screenId: "scr_1" } }] })) } as UntieModel }));
       st().setRightPanel("trace");
-      st().setCurrentBoard("design:layout");
+      st().setCurrentBoard("design:navigation");
     });
     render(<Toolbar />);
     expect(within(screen.getByRole("button", { name: /^検証/ })).getByText("1")).toBeDefined();

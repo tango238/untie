@@ -7,10 +7,10 @@ import { TracePanel } from "./components/TracePanel";
 import { DesignCheckPanel } from "./components/design/DesignCheckPanel";
 import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
-import { LayoutLeftPane } from "./components/design/LayoutLeftPane";
+import { NavigationLeftPane } from "./components/design/NavigationLeftPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
-import { LayoutProperties } from "./components/design/LayoutProperties";
+import { NavigationProperties } from "./components/design/NavigationProperties";
 import { ScreenListPane } from "./components/design/ScreenListPane";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
@@ -53,8 +53,8 @@ export default function App() {
   const sitemap = design === "sitemap";
   // データボードは、左にデータベースとテーブルの一覧、右に選んだテーブルのプロパティを出す
   const data = design === "data";
-  // レイアウトボードは、左に枠とヘッダーの設定、右にナビゲーションメニューを出す
-  const layout = design === "layout";
+  // ナビゲーションボードは、左に枠とヘッダーの設定、右にナビゲーションメニューを出す
+  const navigation = design === "navigation";
   // 画面ボードは、左に画面の一覧、右に画面の組み立てを出す
   const screenBoard = design === "screen";
   // 関連ボードは、左に情報・テーブル・画面の一覧、右に選んだものの詳細を出す
@@ -78,12 +78,12 @@ export default function App() {
       <Toolbar />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap || data || layout || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data || navigation || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}
-        {layout && <LayoutLeftPane />}
+        {navigation && <NavigationLeftPane />}
         {screenBoard && <ScreenListPane />}
         {relation && <RelationLeftPane />}
         <main className="canvas-area">
@@ -123,8 +123,8 @@ export default function App() {
                 <DataProperties />
               ) : relation ? (
                 <RelationProperties />
-              ) : layout ? (
-                <LayoutProperties />
+              ) : navigation ? (
+                <NavigationProperties />
               ) : screenBoard ? (
                 <Suspense fallback={<p className="hint">読み込んでいます…</p>}>
                   <ScreenBuilder />

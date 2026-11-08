@@ -1,4 +1,4 @@
-// 設計モードのレイアウトボード「AI で考える」: サイトマップの画面から、利用者にとって自然なナビゲーションのグループ分けを一回きりで作らせる。
+// 設計モードのナビゲーションボード「AI で考える」: サイトマップの画面から、利用者にとって自然なナビゲーションのグループ分けを一回きりで作らせる。
 // AI は submit_navigation で結果を提出する (文章で JSON を返したときも読む)。存在しない画面の id は捨てる。
 import { entryScreenIds, designScreenName } from "@untie/core/model/sitemap";
 import { usedDesignIds } from "@untie/core/model/design";

@@ -4,20 +4,20 @@ import { DslEditor } from "./DslEditor";
 import { RelationCanvas } from "./RelationCanvas";
 import { SitemapCanvas } from "./SitemapCanvas";
 
-// レイアウトのプレビューは mokkun (約 750KB) を使うので、レイアウトを開くまで読み込まない
-const LayoutBoard = lazy(() => import("./LayoutBoard").then((m) => ({ default: m.LayoutBoard })));
+// ナビゲーションのプレビューは mokkun (約 750KB) を使うので、ナビゲーションを開くまで読み込まない
+const NavigationBoard = lazy(() => import("./NavigationBoard").then((m) => ({ default: m.NavigationBoard })));
 const ScreenBoard = lazy(() => import("./ScreenBoard").then((m) => ({ default: m.ScreenBoard })));
 
 /**
- * 設計ボード。サイトマップは SitemapCanvas。レイアウトは LayoutBoard。画面は ScreenBoard。関連は RelationCanvas。データは DslEditor
+ * 設計ボード。サイトマップは SitemapCanvas。レイアウトは NavigationBoard。画面は ScreenBoard。関連は RelationCanvas。データは DslEditor
  */
 export function DesignBoard({ kind }: { kind: DesignBoardKind }) {
   if (kind === "sitemap") return <SitemapCanvas />;
   if (kind === "relation") return <RelationCanvas />;
-  if (kind === "layout") {
+  if (kind === "navigation") {
     return (
       <Suspense fallback={<p className="hint layout-loading">プレビューを読み込んでいます…</p>}>
-        <LayoutBoard />
+        <NavigationBoard />
       </Suspense>
     );
   }

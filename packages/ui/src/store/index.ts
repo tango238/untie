@@ -21,7 +21,7 @@ export const HISTORY_LIMIT = 100;
 export type Selection = { type: "element"; id: string } | { type: "relation"; id: string } | null;
 export type RightPanel = "properties" | "issues" | "trace";
 
-/** モード。analysis は分析 (既定)、design は設計 (システムごとに、サイトマップ・レイアウト・画面・データを設計する) */
+/** モード。analysis は分析 (既定)、design は設計 (システムごとに、サイトマップ・ナビゲーション・画面・データを設計する) */
 export type Mode = "analysis" | "design";
 
 export interface UiState {

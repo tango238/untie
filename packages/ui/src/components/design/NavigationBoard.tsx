@@ -11,8 +11,8 @@ export function previewScreenId(design: SystemDesign | undefined, selectedId: st
   return builtinDesignScreen(design, "top")?.id ?? design.screens[0]!.id;
 }
 
-/** 設計モードのレイアウトボードの中央: 画面を選んで、mokkun で描いたプレビューを見る。プレビューの中の遷移で、選んだ画面も変わる */
-export function LayoutBoard() {
+/** 設計モードのナビゲーションボードの中央: 画面を選んで、mokkun で描いたプレビューを見る。プレビューの中の遷移で、選んだ画面も変わる */
+export function NavigationBoard() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const selectedId = useUntieStore((s) => s.ui.designScreenId);
@@ -22,14 +22,14 @@ export function LayoutBoard() {
 
   if (!design || !systemId || current === undefined) {
     return (
-      <section className="layout-board" aria-label="レイアウトのプレビュー">
+      <section className="layout-board" aria-label="画面のプレビュー">
         <p className="hint">サイトマップで画面を足すとプレビューできます</p>
       </section>
     );
   }
   const doc = cachedMokkunDoc(model, systemId, design);
   return (
-    <section className="layout-board" aria-label="レイアウトのプレビュー">
+    <section className="layout-board" aria-label="画面のプレビュー">
       <div className="layout-toolbar">
         <label className="layout-screen-select">
           <span>プレビューする画面</span>

@@ -16,8 +16,8 @@ const HEADER_FIELDS: { key: HeaderKey; label: string }[] = [
   { key: "tenantName", label: "テナント名" },
 ];
 
-/** 設計モードのレイアウトボードの左ペイン: 共通の枠 (shell / plain) の選択と、ヘッダーの項目 */
-export function LayoutLeftPane() {
+/** 設計モードのナビゲーションボードの左ペイン: 共通の枠 (shell / plain) の選択と、ヘッダーの項目 */
+export function NavigationLeftPane() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const readOnly = useUntieStore(selectReadOnly);
@@ -34,13 +34,13 @@ export function LayoutLeftPane() {
   };
 
   return (
-    <aside className="sitemap-tree layout-left" aria-label="レイアウトの設定">
+    <aside className="sitemap-tree navigation-left" aria-label="レイアウトの設定">
       <h2 className="panel-title">レイアウト</h2>
-      <fieldset className="layout-shells">
+      <fieldset className="navigation-shells">
         <legend className="visually-hidden">レイアウト</legend>
         {SHELLS.map((s) => (
-          <label key={s.value} className="layout-shell-option">
-            <input type="radio" name="layout-shell" value={s.value} checked={shell === s.value} disabled={readOnly || !systemId} onChange={() => run({ shell: s.value })} />
+          <label key={s.value} className="navigation-shell-option">
+            <input type="radio" name="navigation-shell" value={s.value} checked={shell === s.value} disabled={readOnly || !systemId} onChange={() => run({ shell: s.value })} />
             <span>
               <strong>{s.label}</strong>
               <small className="hint-inline">{s.description}</small>
@@ -49,7 +49,7 @@ export function LayoutLeftPane() {
         ))}
       </fieldset>
       <h2 className="panel-title">ヘッダー</h2>
-      <div className="layout-header-fields">
+      <div className="navigation-header-fields">
         {HEADER_FIELDS.map(({ key, label }) => (
           <CommitField
             key={`${systemId}:${key}`}

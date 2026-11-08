@@ -16,8 +16,8 @@ import { ConfirmDialog } from "../ConfirmDialog";
 
 type Navigation = SetDesignNavigationPayload["navigation"];
 
-/** 右のペイン (設計モードのレイアウトボード): ナビゲーションメニューのグループと項目 */
-export function LayoutProperties() {
+/** 右のペイン (設計モードのナビゲーションボード): ナビゲーションメニューのグループと項目 */
+export function NavigationProperties() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const design = model.designs.find((d) => d.systemId === systemId);
@@ -132,7 +132,7 @@ function NavEditor({ model, systemId, design }: { model: UntieModel; systemId: s
   const editable = !readOnly;
 
   return (
-    <div className="editor layout-nav" data-testid="layout-nav">
+    <div className="editor navigation-menu" data-testid="navigation-menu">
       <div className="nav-actions">
         <button type="button" disabled={readOnly || screens.length === 0 || generating} title="画面を、その画面を使う操作の業務ごとにグループにする" onClick={() => request("sitemap")}>
           サイトマップから作る

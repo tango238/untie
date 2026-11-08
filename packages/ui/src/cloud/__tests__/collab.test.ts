@@ -146,9 +146,9 @@ describe("attachPresence", () => {
     expect(awareness.getLocalState()?.boardId).toBe("design:sitemap");
     st().setCurrentBoard("design:data");
     expect(awareness.getLocalState()?.boardId).toBe("design:data");
-    other.setLocalState({ userId: "u2", name: "花子", color: "#aa3333", boardId: "design:layout", selection: null });
+    other.setLocalState({ userId: "u2", name: "花子", color: "#aa3333", boardId: "design:navigation", selection: null });
     receive(other);
-    expect(st().peers.map((p) => p.boardId)).toEqual(["design:layout"]);
+    expect(st().peers.map((p) => p.boardId)).toEqual(["design:navigation"]);
     stop();
     st().setMode("analysis");
   });

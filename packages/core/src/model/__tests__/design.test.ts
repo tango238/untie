@@ -45,9 +45,9 @@ const errorsOf = (m: unknown) => {
 
 describe("設計ボードの id", () => {
   it("順序・ラベル・id の往復", () => {
-    expect([...DESIGN_BOARD_KINDS]).toEqual(["sitemap", "layout", "screen", "data", "relation"]);
+    expect([...DESIGN_BOARD_KINDS]).toEqual(["sitemap", "navigation", "screen", "data", "relation"]);
     expect(DESIGN_BOARD_LABELS.sitemap).toBe("サイトマップ");
-    expect(designBoardId("layout")).toBe("design:layout");
+    expect(designBoardId("navigation")).toBe("design:navigation");
     for (const k of DESIGN_BOARD_KINDS) expect(parseDesignBoardId(designBoardId(k))).toBe(k);
     expect(parseDesignBoardId("design:unknown")).toBeNull();
     expect(parseDesignBoardId("fixed:business")).toBeNull();

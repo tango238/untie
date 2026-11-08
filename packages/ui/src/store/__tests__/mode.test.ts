@@ -50,10 +50,10 @@ describe("モード", () => {
   it("設計の対象を切り替えても、開いている設計ボードはそのまま", () => {
     const s = make();
     s.getState().enterDesign("sys_pms");
-    s.getState().setCurrentBoard("design:layout");
+    s.getState().setCurrentBoard("design:navigation");
     s.getState().enterDesign("sys_accounting");
     expect(s.getState().ui.designSystemId).toBe("sys_accounting");
-    expect(s.getState().ui.currentBoardId).toBe("design:layout");
+    expect(s.getState().ui.currentBoardId).toBe("design:navigation");
   });
 });
 
@@ -61,7 +61,7 @@ describe("ボードの切り替えとモード", () => {
   it("設計モードでは設計ボードと自由ボードを開ける", () => {
     const s = make();
     s.getState().enterDesign("sys_pms");
-    for (const id of ["design:layout", "design:screen", "design:data", "board_flow"]) {
+    for (const id of ["design:navigation", "design:screen", "design:data", "board_flow"]) {
       s.getState().setCurrentBoard(id);
       expect(s.getState().ui.currentBoardId).toBe(id);
       expect(s.getState().ui.mode).toBe("design");
@@ -189,7 +189,7 @@ describe("ファイルを開く・閉じると分析に戻る", () => {
     for (const reset of ["newDocument", "loadDocument"] as const) {
       const s = make();
       s.getState().enterDesign("sys_pms");
-      s.getState().setCurrentBoard("design:layout");
+      s.getState().setCurrentBoard("design:navigation");
       if (reset === "newDocument") s.getState().newDocument(createHotelSample());
       else s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
       expect(s.getState().ui.mode).toBe("analysis");
