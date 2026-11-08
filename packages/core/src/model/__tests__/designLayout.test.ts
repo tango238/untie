@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addDesignScreens, addTransition, setDesignLayout, setDesignNavigation } from "../commands";
 import { checkDesign } from "../designCheck";
 import { NAME_MAX_LENGTH } from "../limits";
-import { navigationFromSitemap } from "../sitemap";
+import { addSitemapScreens, navigationFromSitemap } from "../sitemap";
 import { emptyModel, type Element, type Relation, type UntieModel } from "../types";
 import { validateModel } from "../validate";
 import { retailSample } from "../../sample";
@@ -145,6 +145,17 @@ describe("navigationFromSitemap", () => {
     expect(setDesignNavigation(m, { systemId: "sys_a", navigation: nav }).ok).toBe(true);
   });
 
+  it("ホームがあれば「ホーム」の先頭はホーム。トップページ (未ログインの画面) とサインインは入れない", () => {
+    const m = okModel(addSitemapScreens(withScreens(), "sys_a", [{ kind: "builtin", builtin: "home" }]));
+    const home = m.designs[0]!.screens.find((s) => s.source.kind === "builtin" && s.source.builtin === "home")!;
+    const nav = navigationFromSitemap(m, "sys_a");
+    expect(nav[0]).toMatchObject({ group: "ホーム", items: [{ screenId: home.id }] });
+    const ids = nav.flatMap((g) => g.items.map((i) => i.screenId));
+    expect(ids).not.toContain("d_top");
+    expect(ids).not.toContain("d_in");
+    expect(ids).toContain("d1");
+  });
+
   it("トップページが無ければ「ホーム」を作らない。設計が無ければ空", () => {
     const m = okModel(addDesignScreens(base(), { systemId: "sys_a", screens: [{ id: "d1", source: { kind: "screen", screenId: "scr_1" } }], transitions: [] }));
     expect(navigationFromSitemap(m, "sys_a").map((g) => g.group)).toEqual(["予約"]);
@@ -155,8 +166,9 @@ describe("navigationFromSitemap", () => {
     const nav = navigationFromSitemap(retailSample, "sys_pos");
     const ids = nav.flatMap((g) => g.items.map((i) => i.screenId));
     const design = retailSample.designs[0]!;
-    expect(ids.sort()).toEqual(design.screens.filter((s) => s.id !== "ds_pos_signin").map((s) => s.id).sort());
+    expect(ids.sort()).toEqual(design.screens.filter((s) => s.id !== "ds_pos_signin" && s.id !== "ds_pos_top").map((s) => s.id).sort());
     expect(nav[0]!.group).toBe("ホーム");
+    expect(nav[0]!.items).toEqual([{ screenId: "ds_pos_home" }]);
   });
 });
 
@@ -172,6 +184,11 @@ describe("検証: メニューからも遷移からも辿れない画面", () =>
       { kind: "screen", id: "d4" },
     ]);
     expect(warns[0]!.message).toContain("検索");
+  });
+
+  it("ホームも除く。トップページ・サインイン・ホームは辿れる画面を数えない", () => {
+    const m = okModel(addSitemapScreens(withScreens(), "sys_a", [{ kind: "builtin", builtin: "home" }]));
+    expect(unreachable(m).map((w) => w.target!.id)).toEqual(["d1", "d2", "d3", "d4"]);
   });
 
   it("shell が plain のときはメニューを数えない。メニューの遷移は、行き先がメニューに載っているときだけ数える。自分自身への遷移は数えない", () => {

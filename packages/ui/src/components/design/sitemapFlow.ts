@@ -24,7 +24,7 @@ export interface SitemapNodeData extends Record<string, unknown> {
 export type SitemapFlowNode = Node<SitemapNodeData, "screen">;
 
 /**
- * 層 (左から右へ) を決める。入ってくる遷移が無い画面 (サインイン・トップページ・入口の画面) から幅優先で辿った距離を層にする。
+ * 層 (左から右へ) を決める。入ってくる遷移が無い画面 (組み込みの画面・入口の画面) から幅優先で辿った距離を層にする。
  * 輪だけでつながって入口の無い画面は、先にある画面から辿る。遷移が 1 本も無い孤立した画面は、最後の列
  */
 export function sitemapLayers(design: Pick<SystemDesign, "screens" | "transitions">, entryIds: readonly string[] = []): Map<string, number> {

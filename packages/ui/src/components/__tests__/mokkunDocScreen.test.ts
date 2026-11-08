@@ -152,7 +152,7 @@ describe("buildMokkunSchema: kind 省略の主の操作", () => {
 });
 
 describe("店舗サンプルは mokkun の検証に通る", () => {
-  it("POSレジの設計の文書を組み立てて、エラーも画面 UI の問題も無い。3 画面は画面 UI をそのまま使う", () => {
+  it("POSレジの設計の文書を組み立てて、エラーも画面 UI の問題も無い。トップページ・ホームも画面 UI をそのまま使う", () => {
     const design = retailSample.designs.find((d) => d.systemId === "sys_pos")!;
     const doc = buildMokkunSchema(retailSample, "sys_pos", design);
     expect(doc.error).toBeUndefined();
@@ -160,7 +160,8 @@ describe("店舗サンプルは mokkun の検証に通る", () => {
     expect(doc.schema.views.ds_pos_search!.sections.map((s) => s.kind)).toEqual(["form", "list"]);
     expect(doc.schema.views.ds_pos_search!.sections[1]!.list!.columns[0]!.to).toBe("ds_pos_disposal");
     expect(doc.schema.views.ds_pos_sale!.primaryAction?.kind).toBe("submit");
-    expect(doc.schema.views.ds_pos_top!.sections[0]!.kind).toBe("summary");
+    expect(doc.schema.views.ds_pos_home!.sections[0]!.kind).toBe("summary");
+    expect(doc.schema.views.ds_pos_top!.sections[0]!.kind).toBe("readonly");
     expect(doc.schema.app.roles).toBeUndefined();
   });
 });

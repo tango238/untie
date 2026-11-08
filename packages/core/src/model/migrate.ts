@@ -66,6 +66,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.5.1",
     migrate: (json) => json,
   },
+  {
+    // 0.5.2: 組み込みの画面にホーム (builtin: "home") を足す。列挙に値を足すだけなので変換は要らない
+    from: "0.5.1",
+    to: "0.5.2",
+    migrate: (json) => json,
+  },
 ];
 
 /**

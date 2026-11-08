@@ -4,11 +4,11 @@ import { useUntieStore } from "../../store";
 import { MokkunPreview } from "./MokkunPreview";
 import { cachedMokkunDoc } from "./mokkunDoc";
 
-/** プレビューする画面: 選んでいる画面 (ui.designScreenId)、無ければトップページ、それも無ければ最初の画面 */
+/** プレビューする画面: 選んでいる画面 (ui.designScreenId)、無ければホーム、トップページの順で、それも無ければ最初の画面 */
 export function previewScreenId(design: SystemDesign | undefined, selectedId: string | undefined): string | undefined {
   if (!design || design.screens.length === 0) return undefined;
   if (selectedId !== undefined && design.screens.some((s) => s.id === selectedId)) return selectedId;
-  return builtinDesignScreen(design, "top")?.id ?? design.screens[0]!.id;
+  return builtinDesignScreen(design, "home")?.id ?? builtinDesignScreen(design, "top")?.id ?? design.screens[0]!.id;
 }
 
 /** 設計モードのナビゲーションボードの中央: 画面を選んで、mokkun で描いたプレビューを見る。プレビューの中の遷移で、選んだ画面も変わる */

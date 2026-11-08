@@ -72,9 +72,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.5.1";
+  version: "0.5.2";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -473,7 +473,7 @@ export interface DesignScreen {
       }
     | {
         kind: "builtin";
-        builtin: "signIn" | "top" | "signUp" | "passwordReminder";
+        builtin: "signIn" | "home" | "top" | "signUp" | "passwordReminder";
       };
   /**
    * この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。

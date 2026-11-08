@@ -155,18 +155,24 @@ describe("店舗サンプル", () => {
     expect(retailSample.designs.map((d) => d.systemId)).toEqual(["sys_pos"]);
     const d = retailSample.designs[0]!;
     const builtins = d.screens.filter((s) => s.source.kind === "builtin").map((s) => s.source.kind === "builtin" && s.source.builtin);
-    expect(builtins).toEqual(["signIn", "top"]);
+    expect(builtins).toEqual(["top", "signIn", "home"]);
     const posScreens = retailSample.elements.filter((e) => e.kind === "screen" && e.systemId === "sys_pos").map((e) => e.id);
     expect(d.screens.filter((s) => s.source.kind === "screen").map((s) => s.source.kind === "screen" && s.source.screenId).sort()).toEqual([...posScreens].sort());
     expect(d.transitions.length).toBeGreaterThan(5);
     expect(d.transitions.some((t) => t.via === "button")).toBe(true);
     expect(d.transitions.some((t) => t.via === undefined)).toBe(true);
     expect(d.transitions.filter((t) => t.via === "afterSubmit")).toHaveLength(1);
-    // 起点の無い作業の最初の画面 (商品・在庫の検索) は入口で、トップページから nav が付く。id は固定
+    // 組み込みの画面の遷移: トップページ → サインイン (button)、サインイン → ホーム (afterSubmit)。トップページは入口へ nav を持たない
+    expect(d.transitions.find((t) => t.from === "ds_pos_top")).toMatchObject({ to: "ds_pos_signin", via: "button" });
+    expect(d.transitions.filter((t) => t.from === "ds_pos_top")).toHaveLength(1);
+    // 未ログインのトップページとサインインは枠なし (plain)、ほかはレイアウトに従う
+    expect(d.screens.filter((x) => x.shell === "plain").map((x) => x.id).sort()).toEqual(["ds_pos_signin", "ds_pos_top"]);
+    expect(d.transitions.find((t) => t.from === "ds_pos_signin")).toMatchObject({ to: "ds_pos_home", via: "afterSubmit" });
+    // 起点の無い作業の最初の画面 (商品・在庫の検索) は入口で、ホームから nav が付く。id は固定
     const search = d.screens.find((s) => s.source.kind === "screen" && s.source.screenId === "scr_pos_search")!;
     expect(search.id).toBe("ds_pos_search");
     expect(entryScreenIds(retailSample, "sys_pos", d)).toContain(search.id);
-    expect(d.transitions.some((t) => t.from === "ds_pos_top" && t.to === search.id && t.via === "nav")).toBe(true);
+    expect(d.transitions.some((t) => t.from === "ds_pos_home" && t.to === search.id && t.via === "nav")).toBe(true);
   });
 
   it("ホームのサンプルの一覧に「店舗の業務」があり、開くたびに新しいモデルを作る", () => {

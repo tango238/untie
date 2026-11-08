@@ -32,12 +32,13 @@ export function hasMenuScreen(design: Pick<SystemDesign, "layout" | "screens">):
 export const BUILTIN_SCREEN_LABELS: Record<Builtin, string> = {
   signIn: "サインイン",
   top: "トップページ",
+  home: "ホーム",
   signUp: "サインアップ",
   passwordReminder: "パスワードリマインダー",
 };
 
-/** 左の木のチェックボックスに出す組み込みの画面 (サインアップ・パスワードリマインダーは出さない) */
-export const SITEMAP_BUILTINS: readonly Builtin[] = ["signIn", "top"];
+/** 左の木のチェックボックスに出す組み込みの画面 (サインアップ・パスワードリマインダーは出さない)。トップページは未ログインの最初の画面、ホームはサインインしたあとの最初の画面 */
+export const SITEMAP_BUILTINS: readonly Builtin[] = ["top", "signIn", "home"];
 
 /** 遷移のきっかけの表示 (未定は via が無いとき) */
 export const TRANSITION_VIA_LABELS: Record<Via, string> = {
@@ -363,15 +364,15 @@ export function entryScreenIds(model: UntieModel, systemId: string, design: Pick
 export interface DerivedTransition {
   from: string;
   to: string;
-  /** トップページからの入口 (nav) とサインインのあと (afterSubmit) だけ。ほかは未定 */
-  via?: Extract<Via, "nav" | "afterSubmit">;
+  /** 組み込みの画面からのもの (入口へのメニュー nav・サインインのあと afterSubmit・トップページからサインインへのボタン button) だけ。ほかは未定 */
+  via?: Extract<Via, "nav" | "afterSubmit" | "button">;
 }
 
 /**
  * サイトマップの画面 (screens。設計の画面の全体) から、足すべき遷移を導く。from ≠ to、重複なし。
  * existing (設計にすでにある遷移) と同じ from / to は足さない。
  * 規則は docs/design.md 5.7: 作業の中の連鎖、作業の間 (起点)、担当・システムが違うものは遷移にしない、
- * 入口の画面へのトップページ (nav) とサインイン (afterSubmit)。
+ * 組み込みの画面からの遷移 (builtinTransitions)。
  */
 export function deriveTransitions(
   model: UntieModel,
@@ -393,11 +394,25 @@ export function deriveTransitions(
   return out;
 }
 
-/** 組み込みの画面からの遷移の、今の入口に合う形: トップページがあれば トップ → 入口 (nav)・サインイン → トップ、無ければ サインイン → 入口 (afterSubmit) */
+/**
+ * 組み込みの画面からの遷移の、今の入口に合う形 (docs/design.md 5.7):
+ * ホームがあれば: トップページ (未ログインの最初の画面) とサインインの両方があれば トップ → サインイン (button)、
+ * サインイン → ホーム (afterSubmit)・ホーム → 入口 (nav)、サインインが無くトップページがあれば トップ → ホーム (nav)。
+ * ホームが無ければトップページが起点: トップ → 入口 (nav)・サインイン → トップ (afterSubmit)。トップも無ければ サインイン → 入口 (afterSubmit)
+ */
 function builtinTransitions(screens: readonly DesignScreen[], entries: readonly string[]): (Required<Pick<DerivedTransition, "via">> & DerivedTransition)[] {
-  const top = screens.find((s) => s.source.kind === "builtin" && s.source.builtin === "top");
-  const signIn = screens.find((s) => s.source.kind === "builtin" && s.source.builtin === "signIn");
+  const find = (b: Builtin) => screens.find((s) => s.source.kind === "builtin" && s.source.builtin === b);
+  const top = find("top");
+  const signIn = find("signIn");
+  const home = find("home");
   const out: (Required<Pick<DerivedTransition, "via">> & DerivedTransition)[] = [];
+  if (home) {
+    if (top && signIn) out.push({ from: top.id, to: signIn.id, via: "button" });
+    if (top && !signIn) out.push({ from: top.id, to: home.id, via: "nav" });
+    if (signIn) out.push({ from: signIn.id, to: home.id, via: "afterSubmit" });
+    for (const e of entries) out.push({ from: home.id, to: e, via: "nav" });
+    return out;
+  }
   if (top) for (const e of entries) out.push({ from: top.id, to: e, via: "nav" });
   if (signIn) {
     if (top) out.push({ from: signIn.id, to: top.id, via: "afterSubmit" });
@@ -503,18 +518,22 @@ export function screensWithDesign(screens: readonly DesignScreen[]): DesignScree
 }
 
 /**
- * 組み込みの画面 (サインイン・トップページ) からの遷移を、今の入口とトップページの有無に合わせて付け直す。
- * 対象は via が nav / afterSubmit のままで label が無いもの: 足りないものを足し、入口でなくなった先のものを消す。
+ * 組み込みの画面 (トップページ・サインイン・ホーム) からの遷移を、今の入口と組み込みの画面の有無に合わせて付け直す。
+ * 対象は via が nav / afterSubmit のまま (トップページ → サインインの button も) で label が無いもの: 足りないものを足し、入口でなくなった先のものを消す。
  * label を付けるなど手を入れた遷移は残す
  */
 export function syncBuiltinTransitions(model: UntieModel, systemId: string): UntieModel {
   const design = model.designs.find((d) => d.systemId === systemId);
   if (!design) return model;
-  const builtinIds = new Set(design.screens.filter((s) => s.source.kind === "builtin" && (s.source.builtin === "top" || s.source.builtin === "signIn")).map((s) => s.id));
+  const builtinIds = new Set(design.screens.filter((s) => s.source.kind === "builtin" && SITEMAP_BUILTINS.includes(s.source.builtin)).map((s) => s.id));
   if (builtinIds.size === 0) return model;
   const wanted = builtinTransitions(design.screens, entryScreenIds(model, systemId, design));
   const wantedKeys = new Set(wanted.map((t) => `${t.from}\n${t.to}`));
-  const managed = (t: Transition) => builtinIds.has(t.from) && (t.via === "nav" || t.via === "afterSubmit") && !t.label;
+  // 自動で付けたもの: 組み込みの画面から、nav / afterSubmit のまま、または トップページ → サインインの button で、label が無い
+  const top = builtinDesignScreen(design, "top");
+  const signIn = builtinDesignScreen(design, "signIn");
+  const managed = (t: Transition) =>
+    builtinIds.has(t.from) && !t.label && (t.via === "nav" || t.via === "afterSubmit" || (t.via === "button" && top !== undefined && signIn !== undefined && t.from === top.id && t.to === signIn.id));
   const stale = design.transitions.filter((t) => managed(t) && !wantedKeys.has(`${t.from}\n${t.to}`));
   const have = new Set(design.transitions.map((t) => `${t.from}\n${t.to}`));
   const missing = wanted.filter((t) => !have.has(`${t.from}\n${t.to}`));
@@ -568,13 +587,13 @@ export function removeSitemapScreens(model: UntieModel, systemId: string, ids: r
 
 // ---------------------------------------------------------------- ナビゲーション
 
-/** 「サイトマップから作る」で「その他」に入れる画面のグループ名と、トップページのグループ名 */
+/** 「サイトマップから作る」で「その他」に入れる画面のグループ名と、ホーム (無ければトップページ) のグループ名 */
 export const NAV_HOME_GROUP = "ホーム";
 export const NAV_OTHER_GROUP = "その他";
 
 /**
  * サイトマップの画面から、ナビゲーションを作る (AI 不要)。画面を、その画面を使う操作の業務ごとにグループ化する (業務の並び順、画面は木の順)。
- * トップページは「ホーム」グループの先頭 (トップページが無ければ「ホーム」は作らない)。サインインは入れない。
+ * ホームは「ホーム」グループの先頭 (ホームが無ければトップページ。どちらも無ければ「ホーム」は作らない)。トップページ (ホームがあるとき) とサインインは入れない。
  * 業務に入らない画面 (使う操作が無い・活動に入っていない作業の操作) は最後の「その他」。グループの id は新しく作る (設計をまたいで一意)。
  * 設計が無ければ空
  */
@@ -591,12 +610,16 @@ export function navigationFromSitemap(model: UntieModel, systemId: string): { id
     into.push(id);
   };
 
+  // ホームがあればホームが「ホーム」グループの先頭。無ければトップページ。トップページ (未ログインの画面) がホームと並ぶときは入れない
   const top = builtinDesignScreen(design, "top");
   const signIn = builtinDesignScreen(design, "signIn");
+  const home = builtinDesignScreen(design, "home");
   if (signIn) placed.add(signIn.id);
-  if (top) {
+  if (home && top) placed.add(top.id);
+  const first = home ?? top;
+  if (first) {
     const into: string[] = [];
-    take(top.id, into);
+    take(first.id, into);
     groups.push({ group: NAV_HOME_GROUP, screenIds: into });
   }
   const walk = (node: SitemapTreeNode): string[] => [...node.screenIds, ...node.children.flatMap(walk)];

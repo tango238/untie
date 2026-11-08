@@ -443,7 +443,7 @@ export function setDesignDatabases(model: UntieModel, payload: SetDesignDatabase
 
 // ---------------------------------------------------------------- 設計: サイトマップ
 
-const BUILTIN_SCREENS: readonly string[] = ["signIn", "top", "signUp", "passwordReminder"];
+const BUILTIN_SCREENS: readonly string[] = ["signIn", "top", "home", "signUp", "passwordReminder"];
 const TRANSITION_VIAS: readonly string[] = ["button", "row", "nav", "afterSubmit"];
 
 /** 設計が無ければ失敗 (足す以外のコマンドは、設計を作らない) */

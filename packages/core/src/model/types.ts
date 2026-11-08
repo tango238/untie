@@ -228,7 +228,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.5.1";
+export const MODEL_VERSION = "0.5.2";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

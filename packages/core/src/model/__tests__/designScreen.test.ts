@@ -234,8 +234,8 @@ describe("店舗サンプルの画面 UI", () => {
   const design = retailSample.designs.find((d) => d.systemId === "sys_pos")!;
   const withView = design.screens.filter((s) => s.view !== undefined);
 
-  it("POSレジの 3 画面 (商品・在庫の検索、レジ打ち、トップページ) に view と bindings がある", () => {
-    expect(withView.map((s) => s.id).sort()).toEqual(["ds_pos_sale", "ds_pos_search", "ds_pos_top"]);
+  it("POSレジの 4 画面 (商品・在庫の検索、レジ打ち、トップページ、ホーム) に view と bindings がある", () => {
+    expect(withView.map((s) => s.id).sort()).toEqual(["ds_pos_home", "ds_pos_sale", "ds_pos_search", "ds_pos_top"]);
     for (const s of withView) {
       // 入力の項目と一覧の列はすべて対応が付いている (要約の値は計算した値なので結ばない)
       const bound = new Set((s.bindings ?? []).map((b) => b.item));
@@ -249,7 +249,7 @@ describe("店舗サンプルの画面 UI", () => {
     expect(r.warnings.filter((w) => w.type === "bindingUnmapped")).toEqual([]);
     const without = design.screens.filter((s) => s.view === undefined).length;
     expect(r.warnings.find((w) => w.type === "screenWithoutView")!.message).toContain(`${without} 件`);
-    expect(without).toBe(design.screens.length - 3);
+    expect(without).toBe(design.screens.length - 4);
   });
 
   it("検索の一覧の行 (最初の列) は、値引き・廃棄の入力へ遷移する", () => {

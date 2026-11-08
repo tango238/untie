@@ -51,6 +51,11 @@ describe("サイトマップの自動配置", () => {
     expect(pos.get("b")!.x).toBeGreaterThanOrEqual(SITEMAP_NODE_WIDTH);
   });
 
+  it("ホームが無い設計の層: サインイン 0、トップページ 1、入口の画面 2 (トップ → サインインの button は付かないので輪にならない)", () => {
+    const d = design(["si", "top", "d1"], [["si", "top"], ["top", "d1"]]);
+    expect(Object.fromEntries(sitemapLayers(d))).toEqual({ si: 0, top: 1, d1: 2 });
+  });
+
   it("遷移が 1 本も無い孤立した画面は最後の列。輪だけの画面も落ちない", () => {
     const d = design(["a", "b", "x", "p", "q"], [["a", "b"], ["p", "q"], ["q", "p"]]);
     const layers = sitemapLayers(d);

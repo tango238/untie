@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
+import { emptyModel } from "@untie/core/model/types";
 import type { SystemDesign } from "@untie/core/model/types";
-import { readNavigation, sanitizeNavigation } from "../designNav";
+import { navRequest, readNavigation, sanitizeNavigation } from "../designNav";
 
 const design: SystemDesign = {
   systemId: "s",
@@ -34,6 +35,24 @@ describe("sanitizeNavigation", () => {
     ]);
     expect(r.dropped).toBe(3);
     expect(r.groups).toEqual([{ group: "a", items: [{ screenId: "d1" }] }]);
+  });
+
+  it("ホームがあるときはトップページも捨てて数える。ホームが無ければトップページは残す", () => {
+    const withHome: SystemDesign = { ...design, screens: [...design.screens, { id: "d_home", source: { kind: "builtin", builtin: "home" } }] };
+    const r = sanitizeNavigation(withHome, [{ group: "a", items: [{ screenId: "d_home" }, { screenId: "d_top" }, { screenId: "d1" }] }]);
+    expect(r.dropped).toBe(1);
+    expect(r.groups).toEqual([{ group: "a", items: [{ screenId: "d_home" }, { screenId: "d1" }] }]);
+    const noHome = sanitizeNavigation(design, [{ group: "a", items: [{ screenId: "d_top" }] }]);
+    expect(noHome.dropped).toBe(0);
+    expect(noHome.groups).toEqual([{ group: "a", items: [{ screenId: "d_top" }] }]);
+  });
+
+  it("navRequest: ホームがあるときトップページは依頼文に出ない。ホームが無ければ出る", () => {
+    const model = emptyModel();
+    const withHome: SystemDesign = { ...design, screens: [...design.screens, { id: "d_home", source: { kind: "builtin", builtin: "home" } }] };
+    expect(navRequest(model, "s", withHome)).not.toContain("d_top");
+    expect(navRequest(model, "s", withHome)).toContain("d_home");
+    expect(navRequest(model, "s", design)).toContain("d_top");
   });
 
   it("readNavigation は形の違うものを null にする", () => {

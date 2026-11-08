@@ -1,6 +1,6 @@
 // 設計モードのナビゲーションボード「AI で考える」: サイトマップの画面から、利用者にとって自然なナビゲーションのグループ分けを一回きりで作らせる。
 // AI は submit_navigation で結果を提出する (文章で JSON を返したときも読む)。存在しない画面の id は捨てる。
-import { entryScreenIds, designScreenName } from "@untie/core/model/sitemap";
+import { builtinDesignScreen, entryScreenIds, designScreenName } from "@untie/core/model/sitemap";
 import { usedDesignIds } from "@untie/core/model/design";
 import { newUniqueId } from "@untie/core/model/id";
 import { NAME_MAX_LENGTH, truncateText } from "@untie/core/model/limits";
@@ -59,9 +59,15 @@ export function navSystemPrompt(): string {
 - グループは 3〜7 個、各グループの項目は 1〜6 個にする
 - 業務の分類をそのままメニューにせず、利用者がやりたいことの単位でまとめる。よく使う入口の画面を先に置く
 - グループ名と項目の表示名は短い日本語にする (画面の名前が長いときは言い換える)
-- サインインの画面はメニューに入れない。トップページがあれば、先頭の「ホーム」のグループに入れる
+- サインインの画面はメニューに入れない。ホーム (サインインしたあとの最初の画面) があれば、先頭の「ホーム」のグループに入れる。ホームが無いときは、トップページを入れる。ホームがあるときのトップページ (未ログインの画面) は入れない
 - 画面の id は一覧にあるものだけを使い、同じ画面を 2 回入れない。遷移だけで行く画面 (一覧の行から開く詳細など) は、メニューに入れなくてよい
 - 結果は submit_navigation で提出する`;
+}
+
+/** メニューに入れない画面: サインイン、ホームがあるときのトップページ (未ログインの画面) */
+function notInMenu(design: SystemDesign, s: SystemDesign["screens"][number]): boolean {
+  if (s.source.kind !== "builtin") return false;
+  return s.source.builtin === "signIn" || (s.source.builtin === "top" && builtinDesignScreen(design, "home") !== undefined);
 }
 
 const nameOf = (e: { name: string } | undefined): string => e?.name || "(名前なし)";
@@ -72,7 +78,7 @@ export function navRequest(model: UntieModel, systemId: string, design: SystemDe
   const entries = new Set(entryScreenIds(model, systemId, design));
   const names = new Map(design.screens.map((s) => [s.id, designScreenName(model, s)]));
   const screens = design.screens
-    .filter((s) => !(s.source.kind === "builtin" && s.source.builtin === "signIn"))
+    .filter((s) => !notInMenu(design, s))
     .map((s) => {
       const analysis = s.source.kind === "screen" ? byId.get(s.source.screenId) : undefined;
       const usecases = analysis
@@ -126,9 +132,9 @@ export function readNavigation(raw: unknown): NavProposal[] | null {
   });
 }
 
-/** 存在しない画面・サインイン・重複を捨て、項目の無いグループを捨てる。捨てた画面の数も返す */
+/** 存在しない画面・サインイン (とホームがあるときのトップページ)・重複を捨て、項目の無いグループを捨てる。捨てた画面の数も返す */
 export function sanitizeNavigation(design: SystemDesign, proposal: NavProposal[]): { groups: NavProposal[]; dropped: number } {
-  const valid = new Set(design.screens.filter((s) => !(s.source.kind === "builtin" && s.source.builtin === "signIn")).map((s) => s.id));
+  const valid = new Set(design.screens.filter((s) => !notInMenu(design, s)).map((s) => s.id));
   const seen = new Set<string>();
   let dropped = 0;
   const groups: NavProposal[] = [];

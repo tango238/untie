@@ -140,6 +140,14 @@ describe("NavigationBoard: プレビュー", () => {
     expect(screen.getByText("この画面はレイアウトを上書きしています (枠なし)。画面ボードで変えられます")).toBeDefined();
   });
 
+  it("ホームがあれば、何も選んでいないときの既定はホーム (トップページより先)", () => {
+    const m = okModel(addDesignScreens(withDesign(), { systemId: "sys_a", screens: [{ id: "d_home", source: { kind: "builtin", builtin: "home" } }], transitions: [] }));
+    act(() => resetStore(m));
+    act(() => st().enterDesign("sys_a"));
+    render(<NavigationBoard />);
+    expect((screen.getByRole("combobox", { name: "プレビューする画面" }) as HTMLSelectElement).value).toBe("d_home");
+  });
+
   it("トップページが無ければ最初の画面", () => {
     const m = okModel(addDesignScreens(base(), { systemId: "sys_a", screens: [{ id: "d9", source: { kind: "screen", screenId: "scr_2" } }], transitions: [] }));
     act(() => resetStore(m));
@@ -268,7 +276,7 @@ describe("NavigationMenuPane: ナビゲーションメニュー", () => {
     expect((screen.getByRole("textbox", { name: "グループ名 1" }) as HTMLInputElement).readOnly).toBe(true);
   });
 
-  it("「サイトマップから作る」: ナビが無ければそのまま作る (業務ごと。ホームの先頭はトップ、サインインは入れない)", () => {
+  it("「サイトマップから作る」: ナビが無ければそのまま作る (業務ごと。ホームの先頭はトップ (ホームがあればホーム)、サインインは入れない)", () => {
     render(<NavigationMenuPane />);
     fireEvent.click(screen.getByRole("button", { name: "サイトマップから作る" }));
     expect(screen.queryByRole("dialog")).toBeNull();

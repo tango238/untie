@@ -82,16 +82,16 @@ const design = () => st().model.designs.find((d) => d.systemId === "sys_a");
 const box = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement;
 const nameOfScreen = (id: string) => {
   const s = design()!.screens.find((x) => x.id === id)!;
-  if (s.source.kind === "builtin") return s.source.builtin === "top" ? "トップページ" : "サインイン";
+  if (s.source.kind === "builtin") return { top: "トップページ", signIn: "サインイン", home: "ホーム" }[s.source.builtin as string] ?? s.source.builtin;
   return st().model.elements.find((e) => e.id === (s.source as { screenId: string }).screenId)!.name;
 };
 const edges = () => design()?.transitions.map((t) => `${nameOfScreen(t.from)}>${nameOfScreen(t.to)}`) ?? [];
 
 describe("SitemapTree: 木とチェックの状態", () => {
-  it("組み込みの画面はサインインとトップページだけ。操作の行には対象の画面名を添える", () => {
+  it("組み込みの画面はトップページ・サインイン・ホームだけ。操作の行には対象の画面名を添える", () => {
     render(<SitemapTree />);
     const builtins = within(screen.getByRole("region", { name: "組み込みの画面" }));
-    expect(builtins.getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual(["サインイン", "トップページ"]);
+    expect(builtins.getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual(["トップページ", "サインイン", "ホーム"]);
     expect(within(document.querySelector('[data-tree-node="uc_1"]') as HTMLElement).getByText("予約検索")).toBeDefined();
     // 窓口 → 電話 (既定でない活動) → 電話を受ける
     expect(document.querySelector('[data-tree-node="biz_2"] [data-tree-node="buc_x"] [data-tree-node="act_3"]')).not.toBeNull();
@@ -179,6 +179,17 @@ describe("SitemapTree: チェックで画面と遷移を足す・外す", () => 
     fireEvent.click(box("予約を受ける"));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "外す" }));
     expect(design()!.screens).toHaveLength(0);
+  });
+
+  it("組み込みの画面: ホームを足すと、サインイン → ホーム・ホーム → 入口に付け直り、外すと戻る", () => {
+    render(<SitemapTree />);
+    fireEvent.click(box("予約を受ける"));
+    fireEvent.click(box("トップページ"));
+    fireEvent.click(box("サインイン"));
+    fireEvent.click(box("ホーム"));
+    expect(edges().sort()).toEqual(["サインイン>ホーム", "トップページ>サインイン", "ホーム>予約検索", "予約検索>予約登録"]);
+    fireEvent.click(box("ホーム"));
+    expect(edges().sort()).toEqual(["サインイン>トップページ", "トップページ>予約検索", "予約検索>予約登録"]);
   });
 
   it("組み込みの画面: サインイン・トップページを足すと遷移も付く。外すときの確認の規則は同じ", () => {

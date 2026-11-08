@@ -61,7 +61,7 @@ function base(extra: [string, string, Relation["kind"]][] = []): UntieModel {
 }
 
 const ds = (id: string, screenId: string): DesignScreen => ({ id, source: { kind: "screen", screenId } });
-const builtin = (id: string, b: "signIn" | "top"): DesignScreen => ({ id, source: { kind: "builtin", builtin: b } });
+const builtin = (id: string, b: "signIn" | "top" | "home"): DesignScreen => ({ id, source: { kind: "builtin", builtin: b } });
 const all = [ds("d1", "scr_1"), ds("d2", "scr_2"), ds("d3", "scr_3"), ds("d4", "scr_4"), ds("d5", "scr_5"), ds("d6", "scr_6")];
 const pairs = (r: { from: string; to: string }[]) => r.map((t) => `${t.from}>${t.to}`);
 
@@ -157,7 +157,7 @@ describe("入口と組み込みの画面", () => {
     expect(entryScreenIds(shared, "sys_a", { screens: all })).toContain("d3");
   });
 
-  it("トップページ → 入口の画面 (nav)、サインイン → トップページ (afterSubmit)", () => {
+  it("ホームが無いとき、トップページが起点 (トップページ → サインインの button は付けない): トップページ → 入口の画面 (nav)、サインイン → トップページ (afterSubmit)", () => {
     const screens = [builtin("si", "signIn"), builtin("top", "top"), all[0]!, all[1]!];
     const r = deriveTransitions(base(), "sys_a", screens);
     expect(r).toEqual([
@@ -165,6 +165,24 @@ describe("入口と組み込みの画面", () => {
       { from: "top", to: "d1", via: "nav" },
       { from: "si", to: "top", via: "afterSubmit" },
     ]);
+  });
+
+  it("ホームがあれば、トップページ → サインイン (button)、サインイン → ホーム (afterSubmit)、ホーム → 入口の画面 (nav)。トップページから入口へは付けない", () => {
+    const screens = [builtin("top", "top"), builtin("si", "signIn"), builtin("hm", "home"), all[0]!, all[1]!, all[2]!];
+    const r = deriveTransitions(base(), "sys_a", screens);
+    expect(r.filter((t) => t.via)).toEqual([
+      { from: "top", to: "si", via: "button" },
+      { from: "si", to: "hm", via: "afterSubmit" },
+      { from: "hm", to: "d1", via: "nav" },
+      { from: "hm", to: "d3", via: "nav" },
+    ]);
+  });
+
+  it("サインインが無くホームとトップページがあれば、トップページ → ホーム (nav)。ホームだけなら サインイン・トップからの遷移は無い", () => {
+    const withTop = deriveTransitions(base(), "sys_a", [builtin("top", "top"), builtin("hm", "home"), all[0]!, all[1]!]);
+    expect(withTop.filter((t) => t.via)).toEqual([{ from: "top", to: "hm", via: "nav" }, { from: "hm", to: "d1", via: "nav" }]);
+    const only = deriveTransitions(base(), "sys_a", [builtin("hm", "home"), all[0]!, all[1]!]);
+    expect(only.filter((t) => t.via)).toEqual([{ from: "hm", to: "d1", via: "nav" }]);
   });
 
   it("トップページが無ければ、サインイン → 入口の画面すべて (afterSubmit)", () => {
@@ -190,6 +208,34 @@ describe("入口と組み込みの画面", () => {
     const id1 = m.designs[0]!.screens.find((s) => s.source.kind === "screen" && s.source.screenId === "scr_3")!.id;
     m = okModel(removeSitemapScreens(m, "sys_a", [id1]));
     expect(names(m)).not.toContain("トップページ>確認[nav]");
+  });
+
+  it("ホームを足すと、トップページ → 入口とサインイン → トップページは外れ、ホームに付け直す。ホームを外すと元に戻る。手を入れた遷移は残す", () => {
+    const names = (x: UntieModel) => x.designs[0]!.transitions.map((t) => `${designScreenName(x, x.designs[0]!.screens.find((s) => s.id === t.from)!)}>${designScreenName(x, x.designs[0]!.screens.find((s) => s.id === t.to)!)}[${t.via ?? ""}]`).sort();
+    let m = okModel(addSitemapScreens(base(), "sys_a", [{ kind: "builtin", builtin: "top" }, { kind: "builtin", builtin: "signIn" }, { kind: "screen", screenId: "scr_1" }]));
+    expect(names(m)).toEqual(["サインイン>トップページ[afterSubmit]", "トップページ>検索[nav]"]);
+    m = okModel(addSitemapScreens(m, "sys_a", [{ kind: "builtin", builtin: "home" }]));
+    expect(names(m)).toEqual(["サインイン>ホーム[afterSubmit]", "トップページ>サインイン[button]", "ホーム>検索[nav]"]);
+    const home = m.designs[0]!.screens.find((s) => s.source.kind === "builtin" && s.source.builtin === "home")!;
+    m = okModel(removeSitemapScreens(m, "sys_a", [home.id]));
+    expect(names(m)).toEqual(["サインイン>トップページ[afterSubmit]", "トップページ>検索[nav]"]);
+    // label を付けたトップページ → サインインは、付け直しても残る
+    m = okModel(addSitemapScreens(m, "sys_a", [{ kind: "builtin", builtin: "home" }]));
+    const toSignIn = m.designs[0]!.transitions.find((t) => t.via === "button")!;
+    m = okModel(updateTransition(m, { systemId: "sys_a", id: toSignIn.id, patch: { label: "ログインする" } }));
+    m = okModel(addSitemapScreens(m, "sys_a", [{ kind: "screen", screenId: "scr_3" }]));
+    expect(m.designs[0]!.transitions.find((t) => t.id === toSignIn.id)?.label).toBe("ログインする");
+  });
+
+  it("手で足した ホーム → トップページ・サインイン → トップページ の button (label 無し) は、付け直しても消えない", () => {
+    let m = okModel(addSitemapScreens(base(), "sys_a", [{ kind: "builtin", builtin: "top" }, { kind: "builtin", builtin: "signIn" }, { kind: "builtin", builtin: "home" }, { kind: "screen", screenId: "scr_1" }]));
+    const id = (b: string) => m.designs[0]!.screens.find((s) => s.source.kind === "builtin" && s.source.builtin === b)!.id;
+    m = okModel(addTransition(m, { systemId: "sys_a", from: id("home"), to: id("top"), via: "button" }));
+    m = okModel(addTransition(m, { systemId: "sys_a", from: id("signIn"), to: id("top"), via: "button" }));
+    m = okModel(addSitemapScreens(m, "sys_a", [{ kind: "screen", screenId: "scr_3" }]));
+    const has = (from: string, to: string) => m.designs[0]!.transitions.some((t) => t.from === id(from) && t.to === id(to) && t.via === "button");
+    expect(has("home", "top")).toBe(true);
+    expect(has("signIn", "top")).toBe(true);
   });
 
   it("label を付けた組み込みの画面からの遷移は、付け直しても残る", () => {

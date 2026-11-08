@@ -1,6 +1,6 @@
 // 架空の日用品店 (駅前の 1 店舗。本部が発注の基準を出す) のサンプルモデル。実在の店・データは使わない。
 // 発注・入荷・陳列・レジ・レジ締め・棚卸の流れと、現場の困りごとを置く。
-import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigation, setDesignScreenView, updateTransition } from "../model/commands";
+import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigation, setDesignScreenShell, setDesignScreenView, updateTransition } from "../model/commands";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
@@ -768,7 +768,27 @@ const POS_VIEWS: { id: string; view: Record<string, unknown>; bindings: { item: 
     id: "ds_pos_top",
     view: {
       title: "トップページ",
-      goal: "店の今日の状況をひと目で確かめる",
+      goal: "サインインして業務を始める",
+      sections: [
+        {
+          id: "welcome",
+          title: "ようこそ",
+          kind: "readonly",
+          columns: 1,
+          fields: [
+            { item: "storeName", label: "店名", component: "text", readonly: true, example: "みどり商店 駅前店" },
+            { item: "guide", label: "ご案内", component: "text", readonly: true, example: "業務を始めるには「サインイン」を押してください" },
+          ],
+        },
+      ],
+    },
+    bindings: [],
+  },
+  {
+    id: "ds_pos_home",
+    view: {
+      title: "ホーム",
+      goal: "店の今日の状況をひと目で確かめ、業務を選ぶ",
       sections: [
         {
           id: "today",
@@ -788,7 +808,7 @@ const POS_VIEWS: { id: string; view: Record<string, unknown>; bindings: { item: 
 ];
 
 /**
- * POSレジの設計 (サイトマップ): サインイン・トップページと、POSレジの画面に届く作業をすべてチェックしたのと同じ内容。
+ * POSレジの設計 (サイトマップ): トップページ・サインイン・ホームと、POSレジの画面に届く作業をすべてチェックしたのと同じ内容。
  * 遷移は deriveTransitions で導き、いくつかにはきっかけ (via) を入れる
  */
 function withPosDesign(model: UntieModel): UntieModel {
@@ -796,8 +816,9 @@ function withPosDesign(model: UntieModel): UntieModel {
   const screenIds = [...new Set(walk(sitemapTree(model, "sys_pos")))];
   // 画面と遷移の id は固定にする (開くたびに変わらないように)
   const screens: DesignScreen[] = [
-    { id: "ds_pos_signin", source: { kind: "builtin", builtin: "signIn" } },
     { id: "ds_pos_top", source: { kind: "builtin", builtin: "top" } },
+    { id: "ds_pos_signin", source: { kind: "builtin", builtin: "signIn" } },
+    { id: "ds_pos_home", source: { kind: "builtin", builtin: "home" } },
     ...screenIds.map((screenId): DesignScreen => ({ id: `ds_${screenId.replace("scr_", "")}`, source: { kind: "screen", screenId } })),
   ];
   const transitions = deriveTransitions(model, "sys_pos", screens).map((t, i) => ({ id: `tr_pos_${i + 1}`, ...t }));
@@ -819,10 +840,17 @@ function withPosDesign(model: UntieModel): UntieModel {
   // レイアウト (共通の枠つき。ヘッダーのシステム名は空で、対象システムの名前を出す) と、ナビゲーションメニュー。画面はすべてメニューから辿れる
   const layout = setDesignLayout(next, { systemId: "sys_pos", shell: "shell" });
   if (!layout.ok) throw new Error(`サンプルのレイアウトが作れません: ${layout.reason}`);
-  const nav = setDesignNavigation(layout.model, {
+  // 未ログインのトップページとサインインは、メニュー付きの枠で出さない (画面ごとに枠なしへ上書きする)
+  let shelled = layout.model;
+  for (const screenId of ["ds_pos_top", "ds_pos_signin"]) {
+    const r = setDesignScreenShell(shelled, { systemId: "sys_pos", screenId, shell: "plain" });
+    if (!r.ok) throw new Error(`サンプルの画面のレイアウトが作れません: ${r.reason}`);
+    shelled = r.model;
+  }
+  const nav = setDesignNavigation(shelled, {
     systemId: "sys_pos",
     navigation: [
-      { id: "nav_pos_home", group: "ホーム", items: [{ screenId: "ds_pos_top" }] },
+      { id: "nav_pos_home", group: "ホーム", items: [{ screenId: "ds_pos_home" }] },
       { id: "nav_pos_register", group: "レジ", items: [{ screenId: "ds_pos_sale" }, { screenId: "ds_pos_return" }, { screenId: "ds_pos_cash" }] },
       {
         id: "nav_pos_stock",
@@ -849,7 +877,7 @@ function withPosDesign(model: UntieModel): UntieModel {
     ],
   });
   if (!db.ok) throw new Error(`サンプルのデータベースが作れません: ${db.reason}`);
-  // 画面 UI (3 画面) と、項目と既定のデータベースの列の対応
+  // 画面 UI (4 画面) と、項目と既定のデータベースの列の対応
   next = db.model;
   for (const v of POS_VIEWS) {
     const r = setDesignScreenView(next, { systemId: "sys_pos", id: v.id, view: v.view, bindings: v.bindings.map((b) => ({ ...b, databaseId: DEFAULT_DATABASE_ID })) });
