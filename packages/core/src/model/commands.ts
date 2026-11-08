@@ -713,6 +713,29 @@ export function clearDesignScreenView(model: UntieModel, payload: ClearDesignScr
   return { ok: true, model: next };
 }
 
+export interface SetDesignScreenShellPayload {
+  systemId: string;
+  screenId: string;
+  /** この画面のレイアウト。undefined で項目を消す (設計のレイアウトに従う) */
+  shell: "shell" | "plain" | undefined;
+}
+
+/** 画面ごとのレイアウト (枠) の上書きを置く。undefined で消す。設計と画面が無ければ失敗にし、設計は作らない */
+export function setDesignScreenShell(model: UntieModel, payload: SetDesignScreenShellPayload): CommandResult {
+  const design = existingDesign(model, payload.systemId);
+  if (isFail(design)) return design;
+  const screen = designScreenOf(design, payload.screenId);
+  if (isScreenFail(screen)) return screen;
+  if (payload.shell !== undefined && payload.shell !== "shell" && payload.shell !== "plain") return fail(`レイアウトが正しくありません: ${String(payload.shell)}`);
+  if (screen.shell === payload.shell) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const s = draft.designs.find((d) => d.systemId === payload.systemId)!.screens.find((x) => x.id === payload.screenId)!;
+    if (payload.shell === undefined) delete s.shell;
+    else s.shell = payload.shell;
+  });
+  return { ok: true, model: next };
+}
+
 export interface SetDesignScreenBindingsPayload {
   systemId: string;
   id: string;

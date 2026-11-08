@@ -197,7 +197,7 @@ describe("GET /api/links/export", () => {
     expect(response.headers.get("Content-Type")).toContain("application/json");
     expect(response.headers.get("Content-Disposition")).toContain(encodeURIComponent("宿泊の業務"));
     expect(body.meta.name).toBe("宿泊の業務");
-    expect(body.version).toBe("0.4.0");
+    expect(body.version).toBe("0.4.1");
   });
 });
 

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setDesignScreenView } from "@untie/core/model/commands";
+import { setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
 import { addSitemapScreens } from "@untie/core/model/sitemap";
 import { emptyModel, type Element, type Relation, type UntieModel } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
@@ -348,6 +348,21 @@ describe("SitemapProperties", () => {
     ui = screen.getByText("画面 UI").parentElement!;
     expect(within(ui).getByText("なし")).toBeDefined();
     expect(within(ui).getByText("画面ボードで作れます")).toBeDefined();
+  });
+
+  it("レイアウトを読み取りで 1 行出す: 設計に従う (shell)、上書きがあればその値", () => {
+    const idOf = setup();
+    const id = idOf("予約検索");
+    act(() => st().selectDesignScreen(id));
+    const { unmount } = render(<SitemapProperties />);
+    expect(within(screen.getByText("レイアウト").parentElement!).getByText("設計に従う (ヘッダー + グローバルナビ + パンくず)")).toBeDefined();
+    unmount();
+    act(() => {
+      const r = st().dispatch((m) => setDesignScreenShell(m, { systemId: "sys_a", screenId: id, shell: "plain" }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    render(<SitemapProperties />);
+    expect(within(screen.getByText("レイアウト").parentElement!).getByText("ヘッダーのみ (上書き)")).toBeDefined();
   });
 
   it("閲覧専用では画面 UI が無くても作れる案内を出さない", () => {

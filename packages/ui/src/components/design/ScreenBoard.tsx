@@ -45,6 +45,7 @@ export function ScreenBoard() {
           <MokkunPreview
             schema={doc.schema}
             viewName={doc.viewNameOf(screen.id)}
+            shell={doc.shellOf(doc.viewNameOf(screen.id))}
             onNavigate={(view) => {
               const target = design.screens.find((s) => doc.viewNameOf(s.id) === view);
               if (target) selectDesignScreen(target.id);

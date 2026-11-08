@@ -33,10 +33,10 @@ function v010(): Record<string, unknown> {
 }
 
 describe("モデルの形式のバージョン", () => {
-  it("現行は 0.4.0。新しいモデル・サンプルはこの版を持ち、スキーマもこの版だけを受ける", () => {
-    expect(MODEL_VERSION).toBe("0.4.0");
-    expect(emptyModel().version).toBe("0.4.0");
-    expect(createHotelSample().version).toBe("0.4.0");
+  it("現行は 0.4.1。新しいモデル・サンプルはこの版を持ち、スキーマもこの版だけを受ける", () => {
+    expect(MODEL_VERSION).toBe("0.4.1");
+    expect(emptyModel().version).toBe("0.4.1");
+    expect(createHotelSample().version).toBe("0.4.1");
     // スキーマは現行の版だけを受ける (古い版は loadModelJson で変換してから検査する)
     expect(validateModel(legacy()).ok).toBe(false);
     expect(validateModel({ ...createHotelSample(), version: "0.2.0" }).ok).toBe(false);
@@ -50,12 +50,13 @@ describe("モデルの形式のバージョン", () => {
     expect(compareVersions("0.1.0", "0.1.1")).toBeLessThan(0);
   });
 
-  it("変換は 0.1.0 → 0.2.0 → 0.3.0 → 0.3.1 → 0.4.0 の 4 つ", () => {
+  it("変換は 0.1.0 → 0.2.0 → 0.3.0 → 0.3.1 → 0.4.0 → 0.4.1 の 5 つ", () => {
     expect(MIGRATIONS.map((m) => [m.from, m.to])).toEqual([
       ["0.1.0", "0.2.0"],
       ["0.2.0", "0.3.0"],
       ["0.3.0", "0.3.1"],
       ["0.3.1", "0.4.0"],
+      ["0.4.0", "0.4.1"],
     ]);
   });
 });
@@ -64,7 +65,7 @@ describe("migrateModel", () => {
   it("現行の版はそのまま返す", () => {
     const m = createHotelSample();
     const r = migrateModel(m);
-    expect(r).toEqual({ ok: true, json: m, from: "0.4.0", migrated: false, notes: [] });
+    expect(r).toEqual({ ok: true, json: m, from: "0.4.1", migrated: false, notes: [] });
   });
 
   it("version が整数の 1 (0.1.0 より前の形式) は 0.1.0 と読み替えて、現行へ変換する。変換の要らない中身は変えず、受け取ったものも書き換えない", () => {
@@ -79,7 +80,7 @@ describe("migrateModel", () => {
   it("現行より新しい版は、古いアプリで開いて壊さないよう断る", () => {
     const r = migrateModel({ ...createHotelSample(), version: "9.0.0" });
     expect(r.ok).toBe(false);
-    expect(r.ok ? "" : r.reason).toMatch(/新しい版の Untie で作られたファイルです \(モデルの形式 9\.0\.0。この Untie は 0\.4\.0 まで\)/);
+    expect(r.ok ? "" : r.reason).toMatch(/新しい版の Untie で作られたファイルです \(モデルの形式 9\.0\.0。この Untie は 0\.4\.1 まで\)/);
   });
 
   it("古い版は MIGRATIONS を順に当てて現行にする。途中の変換が無ければ断る", () => {
@@ -115,7 +116,7 @@ describe("loadModelJson", () => {
   it("古い版のファイルを変換してから検査し、開ける", () => {
     const r = loadModelJson(JSON.parse(JSON.stringify(legacy())));
     expect(r.ok).toBe(true);
-    expect(r.ok && r.model.version).toBe("0.4.0");
+    expect(r.ok && r.model.version).toBe("0.4.1");
     expect(r.ok && r.migrated).toBe(true);
     expect(r.ok && r.from).toBe("1");
   });
@@ -136,7 +137,7 @@ describe("loadModelJson", () => {
     expect(r.ok).toBe(true);
     expect(r.ok && r.from).toBe("0.3.0");
     expect(r.ok && r.migrated).toBe(true);
-    expect(r.ok && r.model.version).toBe("0.4.0");
+    expect(r.ok && r.model.version).toBe("0.4.1");
     expect(r.ok && r.model.elements).toEqual(old.elements);
     expect(r.ok && r.model.relations).toEqual(old.relations);
     expect(r.ok && r.notes).toEqual([]);
@@ -152,7 +153,7 @@ describe("loadModelJson", () => {
     expect(r.ok).toBe(true);
     expect(r.ok && r.from).toBe("0.3.1");
     expect(r.ok && r.migrated).toBe(true);
-    expect(r.ok && r.model.version).toBe("0.4.0");
+    expect(r.ok && r.model.version).toBe("0.4.1");
     expect(r.ok && r.model.designs).toEqual([]);
     expect(r.ok && r.model.databases).toEqual([]);
     expect(r.ok && r.model.elements).toEqual(old.elements);
@@ -160,6 +161,28 @@ describe("loadModelJson", () => {
     expect(r.ok && r.notes).toEqual([]);
     // 受け取ったものは書き換えない
     expect("designs" in old).toBe(false);
+  });
+
+  it("0.4.0 → 0.4.1: 画面ごとのレイアウトの上書き (DesignScreen.shell) は省略できる項目を足すだけ。中身は変わらず、検証に通る", () => {
+    const base = createHotelSample();
+    const old = {
+      ...base,
+      version: "0.4.0",
+      designs: [{ systemId: "sys_x4", databaseIds: [], screens: [{ id: "ds_1", source: { kind: "builtin", builtin: "top" } }], transitions: [], layout: { shell: "shell", navigation: [] } }],
+    };
+    const withSystem = { ...old, elements: [...old.elements, { id: "sys_x4", kind: "system", name: "A" }] };
+    const ok = loadModelJson(JSON.parse(JSON.stringify(withSystem)));
+    expect(ok.ok && ok.from).toBe("0.4.0");
+    expect(ok.ok && ok.migrated).toBe(true);
+    expect(ok.ok && ok.model.version).toBe("0.4.1");
+    expect(ok.ok && ok.model.designs).toEqual(withSystem.designs);
+    expect(ok.ok && ok.notes).toEqual([]);
+    // 新しい項目を持つ画面は現行の版で検証に通る
+    const now = { ...JSON.parse(JSON.stringify(withSystem)), version: "0.4.1" };
+    now.designs[0].screens[0].shell = "plain";
+    expect(validateModel(now).ok).toBe(true);
+    now.designs[0].screens[0].shell = "bogus";
+    expect(validateModel(now).ok).toBe(false);
   });
 
   it("0.2.0 → 0.3.0: 操作の対象 (システム・帳票・画面) を 1 つにする。画面を優先し、同じ種類では先にあるものを残す。外した本数を知らせる", () => {
@@ -198,7 +221,7 @@ describe("loadModelJson", () => {
   it("0.1.0 → 0.2.0: システムの作業の担当を、その作業が使う操作の対象に移す。システムだけが担当の作業は担当が空になる", () => {
     const r = loadModelJson(v010());
     if (!r.ok) throw new Error(r.errors.join());
-    expect(r.model.version).toBe("0.4.0");
+    expect(r.model.version).toBe("0.4.1");
     expect(r.from).toBe("0.1.0");
     const rels = r.model.relations.map((x) => [x.kind, x.sourceId, x.targetId]);
     // システム → 作業 (担当) は無くなり、人の担当は残る

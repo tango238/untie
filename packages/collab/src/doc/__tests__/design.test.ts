@@ -260,6 +260,30 @@ describe("applyModelDiff: 設計", () => {
     expect(rebuildModel(doc)).toStrictEqual(cleared);
   });
 
+  it("画面ごとのレイアウトの上書き (shell) も画面の値に載って往復する。消すとキーも消え、列挙の外の値は落として画面を残す", () => {
+    const before = designed();
+    const doc = fresh(before);
+    const after = JSON.parse(JSON.stringify(before)) as UntieModel;
+    after.designs[0]!.screens[1]!.shell = "plain";
+    applyModelDiff(doc, before, after, "local");
+    expect((getRoots(doc).designScreens.get("ds_1") as { shell?: string }).shell).toBe("plain");
+    expect(rebuildModel(doc)).toStrictEqual(after);
+    expect(validateModel(JSON.parse(JSON.stringify(rebuildModel(doc)))).ok).toBe(true);
+    // 初めから shell を持つモデルを読み込んでも同じ
+    expect(rebuildModel(fresh(after))).toStrictEqual(after);
+    // 消す
+    const cleared = JSON.parse(JSON.stringify(after)) as UntieModel;
+    delete cleared.designs[0]!.screens[1]!.shell;
+    applyModelDiff(doc, after, cleared, "local");
+    expect("shell" in (getRoots(doc).designScreens.get("ds_1") as object)).toBe(false);
+    expect(rebuildModel(doc)).toStrictEqual(cleared);
+    // 列挙の外の値 (古い・壊れたクライアント) は shell だけを落とし、画面は残す
+    getRoots(doc).designScreens.set("ds_1", { ...(getRoots(doc).designScreens.get("ds_1") as object), shell: "bogus" } as never);
+    const rebuilt = rebuildModel(doc);
+    expect(rebuilt.designs[0]!.screens.map((s) => s.id)).toEqual(["ds_top", "ds_1", "ds_2"]);
+    expect("shell" in rebuilt.designs[0]!.screens[1]!).toBe(false);
+  });
+
   it("遷移・レイアウト・使うデータベースを変える", () => {
     const { doc, after } = apply(designed(), (m) => {
       const d: SystemDesign = m.designs[0]!;
@@ -400,6 +424,18 @@ describe("repairDoc: 設計", () => {
     roots.elements.delete("sys_a");
     repairDoc(doc, "repair");
     expect(rebuildModel(doc).designs).toEqual([]);
+  });
+
+  it("画面の shell が列挙の外の値なら、repairDoc が Y.Doc から消す。readModel も落とし、画面は残る", () => {
+    const doc = fresh(designed());
+    const roots = getRoots(doc);
+    roots.designScreens.set("ds_1", { ...(roots.designScreens.get("ds_1") as object), shell: "bogus" } as never);
+    expect(validateModel(JSON.parse(JSON.stringify(readModel(doc)))).ok).toBe(true);
+    expect("shell" in readModel(doc).designs[0]!.screens[1]!).toBe(false);
+    const changes = repairDoc(doc, "repair");
+    expect(changes.join()).toContain("レイアウトの指定を外した");
+    expect("shell" in (roots.designScreens.get("ds_1") as object)).toBe(false);
+    expect(rebuildModel(doc).designs[0]!.screens.map((s) => s.id)).toEqual(["ds_top", "ds_1", "ds_2"]);
   });
 
   it("コマンドで消した結果と、修復で直した結果は同じ", () => {

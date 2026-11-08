@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addDesignScreens, addTransition, setDesignLayout, setDesignNavigation } from "@untie/core/model/commands";
+import { addDesignScreens, addTransition, setDesignLayout, setDesignNavigation, setDesignScreenShell } from "@untie/core/model/commands";
 import { checkDesign } from "@untie/core/model/designCheck";
 import { emptyModel, type Element, type Relation, type UntieModel } from "@untie/core/model/types";
 import { okModel } from "@untie/core/testing";
@@ -125,6 +125,19 @@ describe("LayoutBoard: プレビュー", () => {
     fireEvent.change(select, { target: { value: "d1" } });
     expect(st().ui.designScreenId).toBe("d1");
     expect((screen.getByTitle("画面のプレビュー") as HTMLIFrameElement).getAttribute("srcdoc")).toContain('data-view="d1"');
+  });
+
+  it("プレビュー中の画面がレイアウトを上書きしているときだけ、ツールバーに案内を出す", () => {
+    act(() => st().selectDesignScreen("d1"));
+    const { unmount } = render(<LayoutBoard />);
+    expect(screen.queryByText(/レイアウトを上書きしています/)).toBeNull();
+    unmount();
+    act(() => {
+      const r = st().dispatch((m) => setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "plain" }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    render(<LayoutBoard />);
+    expect(screen.getByText("この画面はレイアウトを上書きしています (ヘッダーのみ)。画面ボードで変えられます")).toBeDefined();
   });
 
   it("トップページが無ければ最初の画面", () => {

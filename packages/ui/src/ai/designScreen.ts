@@ -4,7 +4,7 @@
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { viewBindingSlots } from "@untie/core/model/designView";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
-import { designScreenName, entryScreenIds } from "@untie/core/model/sitemap";
+import { designScreenName, effectiveShell, entryScreenIds } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
 import { validateView } from "../components/design/viewValidate";
 import { ChatError, createChatSession } from "./chat";
@@ -128,7 +128,7 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
   const transitions = design.transitions
     .filter((t) => t.from === screen.id)
     .map((t) => ({ to: t.to, toName: names.get(t.to) ?? t.to, ...(t.via ? { via: t.via } : {}), ...(t.label ? { label: t.label } : {}) }));
-  const hasNav = design.layout.shell !== "plain" && design.layout.navigation.length > 0;
+  const hasNav = effectiveShell(design, screen) === "shell" && design.layout.navigation.length > 0;
   return `システム「${nameOf(byId.get(systemId))}」の画面「${names.get(screen.id)}」の画面 UI を作ってください。
 
 <画面>

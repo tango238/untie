@@ -1,4 +1,4 @@
-import { builtinDesignScreen, designScreenName } from "@untie/core/model/sitemap";
+import { builtinDesignScreen, designScreenName, SHELL_SHORT_LABELS } from "@untie/core/model/sitemap";
 import type { SystemDesign } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
 import { MokkunPreview } from "./MokkunPreview";
@@ -41,6 +41,9 @@ export function LayoutBoard() {
             ))}
           </select>
         </label>
+        {design.screens.find((s) => s.id === current)?.shell !== undefined && (
+          <p className="hint">この画面はレイアウトを上書きしています ({SHELL_SHORT_LABELS[doc.shellOf(current)]})。画面ボードで変えられます</p>
+        )}
       </div>
       {doc.viewErrors[current] !== undefined && (
         <p className="hint mokkun-error" role="alert">
@@ -56,6 +59,7 @@ export function LayoutBoard() {
           <MokkunPreview
             schema={doc.schema}
             viewName={doc.viewNameOf(current)}
+            shell={doc.shellOf(doc.viewNameOf(current))}
             onNavigate={(view) => {
               // プレビューの中で画面が移ったら、選んでいる画面も移す (設計に無い view 名は無視)
               const target = design.screens.find((s) => doc.viewNameOf(s.id) === view);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderViewV2 } from "mokkun";
-import { addDesignScreens, addTransition, setDesignLayout, setDesignNavigation } from "@untie/core/model/commands";
+import { addDesignScreens, addTransition, setDesignLayout, setDesignNavigation, setDesignScreenShell } from "@untie/core/model/commands";
 import { emptyModel, type Element, type Relation, type UntieModel } from "@untie/core/model/types";
 import { okModel } from "@untie/core/testing";
 import { buildMokkunSchema, cachedMokkunDoc, PLACEHOLDER_SECTION_TITLE } from "../design/mokkunDoc";
@@ -228,6 +228,34 @@ describe("描画", () => {
     expect(src).toContain("<style>");
     expect(src).toContain(css.slice(0, 200));
     expect(src).toContain('class="mokkun-v2"');
+    // goal は画面に出さない (右のペインで編集する) ので、mokkun が見出しの上に描く shoulder を隠す CSS が入っている
+    expect(src).toContain(".mokkun-v2 .mk2-view-head .dads-heading__shoulder { display: none; }");
+  });
+
+  it("画面ごとのレイアウトの上書き: shellOf は画面の上書き、無ければ設計のレイアウト。プレビューはその画面を描くときだけ app.layout を差し替える", () => {
+    const nav = { systemId: "sys_a", navigation: [{ id: "nav_1", group: "予約", items: [{ screenId: "d1" }, { screenId: "d2" }] }] };
+    let m = okModel(setDesignNavigation(setup(), nav));
+    m = okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d_in", shell: "plain" }));
+    const doc = buildMokkunSchema(m, "sys_a", designOf(m));
+    expect(doc.shellOf("d_in")).toBe("plain");
+    expect(doc.shellOf("d1")).toBe("shell");
+    // 文書の app.layout は設計のまま
+    expect(doc.schema.app.layout).toBe("shell");
+    // CSS にも mk2-globalnav があるので、body だけを見る
+    const bodyOf = (src: string) => src.slice(src.indexOf("<body>"));
+    const plainHtml = bodyOf(previewSrcDoc(doc.schema, "d_in", doc.shellOf("d_in")));
+    const shellHtml = bodyOf(previewSrcDoc(doc.schema, "d1", doc.shellOf("d1")));
+    expect(plainHtml).not.toContain("mk2-globalnav");
+    expect(shellHtml).toContain("mk2-globalnav");
+    // 元の文書は書き換えない
+    expect(doc.schema.app.layout).toBe("shell");
+    // 設計が plain で、上書きで shell にする
+    let m2 = okModel(setDesignLayout(okModel(setDesignNavigation(setup(), nav)), { systemId: "sys_a", shell: "plain" }));
+    m2 = okModel(setDesignScreenShell(m2, { systemId: "sys_a", screenId: "d1", shell: "shell" }));
+    const doc2 = buildMokkunSchema(m2, "sys_a", designOf(m2));
+    expect(doc2.shellOf("d1")).toBe("shell");
+    expect(doc2.shellOf("d2")).toBe("plain");
+    expect(bodyOf(previewSrcDoc(doc2.schema, "d1", doc2.shellOf("d1")))).toContain("mk2-globalnav");
   });
 
   it("画面名・グループ名の <script> は srcdoc でエスケープされる", () => {

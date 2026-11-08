@@ -45,8 +45,6 @@ interface Props {
   screens: { id: string; name: string }[];
   databases: DbInfo[];
   readOnly: boolean;
-  /** goal が空のときに添える文 (分析の画面の説明) */
-  goalPlaceholder: string;
   edit: EditFn;
   /** 断った理由などをトーストで知らせる */
   notify: (message: string) => void;
@@ -150,7 +148,7 @@ function ActionEditor({ what, action, screens, readOnly, onPatch, buttons }: { w
 }
 
 /** 画面 UI のフォーム編集: 画面の基本・セクション (項目・一覧の列・列の対応)・操作。要素は添字ではなく id で探して書き換える */
-export function ScreenFormEditor({ view, bindings, screens, databases, readOnly, goalPlaceholder, edit, notify }: Props) {
+export function ScreenFormEditor({ view, bindings, screens, databases, readOnly, edit, notify }: Props) {
   const sections = items(view.sections);
   const secondary = items(view.secondaryActions);
   const primary = isObject(view.primaryAction) ? view.primaryAction : undefined;
@@ -189,7 +187,6 @@ export function ScreenFormEditor({ view, bindings, screens, databases, readOnly,
     <div className="screen-form" key={nonce}>
       <section className="screen-block" aria-label="画面の基本">
         <h3 className="screen-heading">画面の基本</h3>
-        <CommitField label="画面の目的 (goal)" value={str(view.goal)} placeholder={goalPlaceholder} maxLength={LIMITS.description.max} readOnly={readOnly} onCommit={(v) => edit((d) => setOrDelete(d, "goal", v.trim()))} />
         <Select
           label="セクションの並べ方 (layout)"
           value={str(view.layout)}
@@ -313,6 +310,7 @@ export function ScreenFormEditor({ view, bindings, screens, databases, readOnly,
                             />
                           </div>
                           <CommitField label={`${what} のラベル`} value={str(f.label)} maxLength={LIMITS.name.max} readOnly={readOnly} onCommit={(v) => patchField((x) => (x.label = v))} />
+                          <CommitField label={`${what} の例 (example)`} value={str(f.example)} maxLength={LIMITS.description.max} readOnly={readOnly} onCommit={(v) => patchField((x) => setOrDelete(x, "example", v.trim()))} />
                           <div className="screen-grid">
                             <Select
                               label={`${what} の部品`}

@@ -3,7 +3,7 @@ import { effectiveDatabaseIds } from "./design";
 import { unmappedInformationIds } from "./designData";
 import { unboundSlots } from "./designView";
 import { parsePrismaDslCached } from "./prismaCache";
-import { designScreenName } from "./sitemap";
+import { designScreenName, hasMenuScreen } from "./sitemap";
 import type { UntieModel } from "./types";
 
 export type DesignProblemType =
@@ -146,8 +146,8 @@ export function checkDesign(model: UntieModel, systemId: string): DesignCheckRes
     });
   }
   // (h) ナビゲーションからも、ほかの画面からの遷移からも辿れない画面 (サインイン・トップページは除く。画面ごとに 1 行、サイトマップでその画面を選ぶ)。
-  // shell が plain のときはメニューが出ないので数えない。きっかけがメニューの遷移は、行き先がメニューに載っているときだけ数える。自分自身への遷移は数えない
-  const inNav = new Set(design.layout.shell === "plain" ? [] : design.layout.navigation.flatMap((g) => g.items.map((i) => i.screenId)));
+  // メニューが出る画面 (レイアウトが shell の画面。設計のレイアウトと画面ごとの上書きで決まる) が 1 つも無ければ、メニューは数えない。きっかけがメニューの遷移は、行き先がメニューに載っているときだけ数える。自分自身への遷移は数えない
+  const inNav = new Set(!hasMenuScreen(design) ? [] : design.layout.navigation.flatMap((g) => g.items.map((i) => i.screenId)));
   const reached = new Set(design.transitions.filter((t) => t.from !== t.to && (t.via !== "nav" || inNav.has(t.to))).map((t) => t.to));
   for (const s of design.screens) {
     if (s.source.kind === "builtin" && (s.source.builtin === "signIn" || s.source.builtin === "top")) continue;

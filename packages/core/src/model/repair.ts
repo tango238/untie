@@ -280,6 +280,11 @@ export function repairModel(input: UntieModel): RepairResult {
         design.databaseIds = usable;
       }
       for (const s of design.screens) {
+        // 画面のレイアウトが列挙の外の値なら、項目を外す (設計のレイアウトに従う)
+        if (s.shell !== undefined && s.shell !== "shell" && s.shell !== "plain") {
+          changes.push(`${where}の画面 ${s.id} のレイアウトの指定を外した (値が正しくない)`);
+          delete s.shell;
+        }
         // 画面 UI が大きすぎる・深すぎる・使えないキーを含むときは、画面を残して画面 UI と対応を捨てる
         if (s.view !== undefined) {
           const problem = viewShapeProblem(s.view) ?? (isTooLong(JSON.stringify(s.view), VIEW_JSON_MAX_LENGTH) ? "大きすぎる" : null);

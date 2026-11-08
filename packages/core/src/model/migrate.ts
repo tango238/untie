@@ -53,6 +53,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.4.0",
     migrate: (json) => ({ ...json, designs: Array.isArray(json.designs) ? json.designs : [], databases: Array.isArray(json.databases) ? json.databases : [] }),
   },
+  {
+    // 0.4.1: 設計の画面ごとのレイアウトの上書き (DesignScreen.shell)。省略できる項目を足すだけなので変換は要らない
+    from: "0.4.0",
+    to: "0.4.1",
+    migrate: (json) => json,
+  },
 ];
 
 /** 0.2.0 → 0.3.0: 操作の対象 (システム・帳票・画面) を 1 本にする */

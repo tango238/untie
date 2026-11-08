@@ -208,18 +208,77 @@ describe("ScreenBuilder: フォームの編集", () => {
     setup(VIEW);
   });
 
-  it("画面の基本: goal と layout。goal を空にすると消え、placeholder は分析の説明", () => {
+  it("画面の目的 (goal) は右のペインのタイトルの下で編集する。空にすると消え、placeholder は分析の説明。フォームの「画面の基本」には出ない", () => {
     render(<ScreenBuilder />);
-    expect((screen.getByRole("textbox", { name: "画面の目的 (goal)" }) as HTMLInputElement).value).toBe("探す");
-    commit("画面の目的 (goal)", "予約を探して開く");
+    expect((screen.getByRole("textbox", { name: "画面の目的" }) as HTMLInputElement).value).toBe("探す");
+    expect(screen.queryByRole("textbox", { name: "画面の目的 (goal)" })).toBeNull();
+    commit("画面の目的", "予約を探して開く");
     expect(view().goal).toBe("予約を探して開く");
+    commit("画面の目的", "");
+    expect(view().goal).toBeUndefined();
+    expect((screen.getByRole("textbox", { name: "画面の目的" }) as HTMLInputElement).placeholder).toBe("予約を探す");
+    // YAML の表示でも出る
+    fireEvent.click(screen.getByRole("checkbox", { name: "YAML で編集" }));
+    expect(screen.getByRole("textbox", { name: "画面の目的" })).toBeDefined();
+  });
+
+  it("画面の基本: セクションの並べ方 (layout)", () => {
+    render(<ScreenBuilder />);
     pick("セクションの並べ方 (layout)", "tabs");
     expect(view().layout).toBe("tabs");
     pick("セクションの並べ方 (layout)", "");
     expect(view().layout).toBeUndefined();
-    commit("画面の目的 (goal)", "");
-    expect(view().goal).toBeUndefined();
-    expect((screen.getByRole("textbox", { name: "画面の目的 (goal)" }) as HTMLInputElement).placeholder).toBe("予約を探す");
+  });
+
+  it("画面のレイアウト (shell) の上書き: 設計に従う (shell) → plain → shell → 従う。画面 UI が無くても設定でき、view は変わらない", () => {
+    render(<ScreenBuilder />);
+    const sel = () => screen.getByRole("combobox", { name: "レイアウト" }) as HTMLSelectElement;
+    expect(sel().value).toBe("");
+    expect(Array.from(sel().options).map((o) => o.textContent)).toEqual(["設計のレイアウトに従う (shell)", "ヘッダー + グローバルナビ + パンくず (shell)", "ヘッダーのみ (plain)"]);
+    const viewBefore = screenOf().view;
+    pick("レイアウト", "plain");
+    expect(screenOf().shell).toBe("plain");
+    expect(screenOf().view).toBe(viewBefore);
+    pick("レイアウト", "shell");
+    expect(screenOf().shell).toBe("shell");
+    pick("レイアウト", "");
+    expect("shell" in screenOf()).toBe(false);
+  });
+});
+
+describe("ScreenBuilder: 画面 UI が無い画面の目的とレイアウト", () => {
+  it("画面 UI が無いと、目的の欄の代わりに分析の説明を読み取りで出す。レイアウトは設定できる", () => {
+    setup(undefined, "d1");
+    render(<ScreenBuilder />);
+    expect(screen.queryByRole("textbox", { name: "画面の目的" })).toBeNull();
+    expect(screen.getByText("予約を探す")).toBeDefined();
+    pick("レイアウト", "plain");
+    expect(screenOf().shell).toBe("plain");
+    expect(screenOf().view).toBeUndefined();
+  });
+
+  it("説明の無い画面 (d2) には何も出さない", () => {
+    setup(undefined, "d2");
+    render(<ScreenBuilder />);
+    expect(screen.queryByRole("textbox", { name: "画面の目的" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "レイアウト" })).toBeDefined();
+  });
+});
+
+describe("ScreenBuilder: フォームの編集 (続き)", () => {
+  beforeEach(() => {
+    setup(VIEW);
+  });
+
+  it("入力の項目に例 (example) を付けられる。空にすると消える", () => {
+    render(<ScreenBuilder />);
+    commit("項目 1-1 の例 (example)", "山田 太郎");
+    expect(view().sections[0].fields[0].example).toBe("山田 太郎");
+    commit("項目 1-1 の例 (example)", "");
+    expect(view().sections[0].fields[0].example).toBeUndefined();
+    expect("example" in view().sections[0].fields[0]).toBe(false);
+    // 一覧の列には出ない
+    expect(screen.queryByRole("textbox", { name: "列 2-1 の例 (example)" })).toBeNull();
   });
 
   it("セクション: 見出し・種類・列数・注記を変え、並べ替え・追加・削除ができる。1 回の操作が 1 件の履歴", () => {
@@ -662,7 +721,8 @@ describe("閲覧専用", () => {
     useUntieStore.setState({ cloud: { role: "viewer" } as never });
     render(<ScreenBuilder />);
     expect(screen.getByText("閲覧専用です。編集はできません。")).toBeDefined();
-    expect((screen.getByRole("textbox", { name: "画面の目的 (goal)" }) as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByRole("textbox", { name: "画面の目的" }) as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByRole("combobox", { name: "レイアウト" }) as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByRole("combobox", { name: "セクション 1 の種類" }) as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByRole("combobox", { name: "項目 1-1 の使うデータベース" }) as HTMLSelectElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "＋セクション" })).toBeNull();

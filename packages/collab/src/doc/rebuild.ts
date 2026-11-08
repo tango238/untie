@@ -142,6 +142,26 @@ function readParts<T>(map: Y.Map<unknown>, kind: "designScreen" | "transition" |
   return new Map([...grouped].map(([systemId, list]) => [systemId, sortedValues(list)]));
 }
 
+/** 画面の shell が列挙の外の値なら項目を落とす (設計のレイアウトに従う扱い。画面は残す)。問題が無ければ同じ参照を返す */
+function dropBadShell<T extends object>(screen: T): T {
+  const shell = (screen as { shell?: unknown }).shell;
+  if (shell === undefined || shell === "shell" || shell === "plain") return screen;
+  const { shell: _drop, ...rest } = screen as Record<string, unknown>;
+  return rest as T;
+}
+
+/** 表示・保存用に、不正な shell を設計の画面から落とす (同じ参照を保てるところは保つ) */
+function dropBadShells(model: UntieModel): UntieModel {
+  let changed = false;
+  const designs = model.designs.map((d) => {
+    const screens = d.screens.map(dropBadShell);
+    if (screens.every((s, i) => s === d.screens[i])) return d;
+    changed = true;
+    return { ...d, screens };
+  });
+  return changed ? { ...model, designs } : model;
+}
+
 function readDesigns(roots: ReturnType<typeof getRoots>): SystemDesign[] {
   const metas: Ordered<{ databaseIds: string[] }>[] = [];
   roots.designs.forEach((value, key) => {
@@ -150,7 +170,7 @@ function readDesigns(roots: ReturnType<typeof getRoots>): SystemDesign[] {
     metas.push({ order: orderOf(value.order), id: systemId, value: { databaseIds: cloneJson(value.databaseIds) } });
   });
   const systems = new Set(metas.map((m) => m.id));
-  const screens = readParts<DesignScreen>(roots.designScreens as Y.Map<unknown>, "designScreen", (v) => truncateDesignScreen(v).value, systems);
+  const screens = readParts<DesignScreen>(roots.designScreens as Y.Map<unknown>, "designScreen", (v) => dropBadShell(truncateDesignScreen(v).value), systems);
   const transitions = readParts<Transition>(roots.designTransitions as Y.Map<unknown>, "transition", (v) => truncateTransition(v).value, systems);
   const groups = readParts<NavGroup>(roots.designNav as Y.Map<unknown>, "navGroup", (v) => truncateNavGroup(v).value, systems);
   return metas.sort(compareByOrder).map((m) => {
@@ -252,7 +272,8 @@ export function readRawModel(doc: Y.Doc): UntieModel {
  * (外すと、上限を超えただけの要素が全員の画面から消え、関係もサーバーに消される)。
  */
 export function readModel(doc: Y.Doc): UntieModel {
-  return truncateModelStrings(readRawModel(doc)).model;
+  // 生の読み (readRawModel) には不正な shell が残る (repairDoc が Y.Doc から消せるよう)。表示用の読みでは落とす
+  return dropBadShells(truncateModelStrings(readRawModel(doc)).model);
 }
 
 /**

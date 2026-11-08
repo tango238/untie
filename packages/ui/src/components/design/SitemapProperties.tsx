@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { addTransition, removeTransition, updateTransition } from "@untie/core/model/commands";
 import { designBoardId } from "@untie/core/model/design";
-import { TRANSITION_VIAS, TRANSITION_VIA_LABELS, designScreenName } from "@untie/core/model/sitemap";
+import { TRANSITION_VIAS, TRANSITION_VIA_LABELS, designScreenName, effectiveShell, SHELL_SHORT_LABELS } from "@untie/core/model/sitemap";
 import { LIMITS } from "@untie/core/model/limits";
 import type { DesignScreen, SystemDesign, Transition, UntieModel } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../../store";
@@ -91,6 +91,10 @@ function ScreenEditor({ model, systemId, design, screen }: { model: UntieModel; 
         <span className="field-label">画面 UI</span>
         <div className="static-value">{screen.view !== undefined ? "あり" : "なし"}</div>
         {screen.view === undefined && !readOnly && <span className="hint-inline">画面ボードで作れます</span>}
+      </div>
+      <div className="field">
+        <span className="field-label">レイアウト</span>
+        <div className="static-value">{screen.shell === undefined ? `設計に従う (${SHELL_SHORT_LABELS[effectiveShell(design, screen)]})` : `${SHELL_SHORT_LABELS[screen.shell]} (上書き)`}</div>
       </div>
       {analysis?.kind === "screen" && analysis.description && (
         <div className="field">

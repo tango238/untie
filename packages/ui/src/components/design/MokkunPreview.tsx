@@ -66,14 +66,18 @@ export function attachFrameNavigation(doc: Document, onNavigate: (view: string) 
 }
 
 /** iframe の srcdoc: 必要な CSS と renderViewV2 の HTML。描画に失敗したら例外を投げる */
-export function previewSrcDoc(schema: MokkunV2Schema, viewName: string): string {
-  const body = renderViewV2(schema, viewName);
+export function previewSrcDoc(schema: MokkunV2Schema, viewName: string, shell?: "shell" | "plain"): string {
+  // app.layout は文書で 1 つなので、画面ごとの上書きがあるときは、その画面を描くときだけ app を差し替える (mokkun は変えない)
+  const doc: MokkunV2Schema = shell !== undefined && shell !== schema.app.layout ? { ...schema, app: { ...schema.app, layout: shell } } : schema;
+  const body = renderViewV2(doc, viewName);
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${mokkunCss()}</style></head><body>${body}</body></html>`;
 }
 
 interface Props {
   schema: MokkunV2Schema;
   viewName: string;
+  /** この画面のレイアウト。省略は文書の app.layout のまま */
+  shell?: "shell" | "plain";
   /** プレビューの中の操作で別の画面へ移るとき (view の名前) */
   onNavigate: (viewName: string) => void;
 }
@@ -82,7 +86,7 @@ interface Props {
  * mokkun v2 の画面を iframe でプレビューする。srcdoc に CSS と静的な HTML を入れ (iframe の中ではスクリプトを動かさない: sandbox は allow-same-origin だけ)、
  * 遷移は親から iframe の contentDocument に付けた listener で拾う。srcdoc は親の CSP を継承する (inline の `<style>` を許す style-src 'unsafe-inline' が要る)
  */
-export function MokkunPreview({ schema, viewName, onNavigate }: Props) {
+export function MokkunPreview({ schema, viewName, shell, onNavigate }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const navigate = useRef(onNavigate);
   navigate.current = onNavigate;
@@ -90,11 +94,11 @@ export function MokkunPreview({ schema, viewName, onNavigate }: Props) {
 
   const rendered = useMemo(() => {
     try {
-      return { srcDoc: previewSrcDoc(schema, viewName) };
+      return { srcDoc: previewSrcDoc(schema, viewName, shell) };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
-  }, [schema, viewName]);
+  }, [schema, viewName, shell]);
 
   const attach = () => {
     detach.current?.();

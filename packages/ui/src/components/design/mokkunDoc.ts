@@ -1,7 +1,7 @@
 // 設計 (サイトマップ・レイアウト・画面 UI) から、mokkun v2 の文書を組み立てる。純粋関数だけを置く。
 // プレビュー (MokkunPreview) は、この文書の画面を renderViewV2 で HTML にして iframe に入れる。
 import { parseV2Document, type MokkunV2Schema } from "mokkun";
-import { designScreenName } from "@untie/core/model/sitemap";
+import { designScreenName, effectiveShell } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
 
 type ViewV2 = MokkunV2Schema["views"][string];
@@ -12,6 +12,8 @@ export interface MokkunDoc {
   schema: MokkunV2Schema;
   /** 設計の画面の id → mokkun の view の名前 (いまは画面の id そのもの) */
   viewNameOf: (designScreenId: string) => string;
+  /** mokkun の view の名前 → その画面のレイアウト (画面ごとの上書き、無ければ設計のレイアウト)。mokkun の app.layout は文書で 1 つなので、プレビューが画面ごとに差し替える */
+  shellOf: (viewName: string) => "shell" | "plain";
   /** 画面 UI (view) が mokkun の検証に通らず、仮の view に替えた画面の id → 理由 */
   viewErrors: Record<string, string>;
   /** 画面の外の問題で、mokkun の検証に通らなかった理由 (通れば undefined)。通らないときも schema は組み立てたまま返す */
@@ -151,7 +153,7 @@ const describeErrors = (errors: { path?: string; message: string }[]): string =>
 
 /**
  * 設計の画面ごとに mokkun の view を作る文書を組み立てる。
- * - app: name はヘッダーに出すシステム名 (設計の layout.header.systemName、空なら対象システムの名前)、layout は設計のレイアウト、header は利用者名・テナント名 (mokkun の header.systemName は小さな補足なので使わない)、navigation は設計のナビゲーション (view は画面の id、label は省略時は画面名)
+ * - app: name はヘッダーに出すシステム名 (設計の layout.header.systemName、空なら対象システムの名前)、layout は設計のレイアウト (画面ごとの上書きは文書に入れず、`shellOf` で渡してプレビューが差し替える)、header は利用者名・テナント名 (mokkun の header.systemName は小さな補足なので使わない)、navigation は設計のナビゲーション (view は画面の id、label は省略時は画面名)
  * - views: キーは画面の id。画面 UI (view) があればその中身をそのまま使い (title は画面名を正にする。設計に無い画面を指す to は外す)、無ければ仮の 1 セクション。
  *   遷移 (きっかけがメニュー (nav) のものは足さない。メニューで行く): view 自身が同じ遷移先の to を持っていれば足さない。afterSubmit は主の操作が遷移先の無い submit (kind 省略も submit) ならその to に、row は kind が list のセクションの最初の列に遷移先が無ければその to に写す。同じ遷移先への遷移が複数あるときは最初の 1 つだけ写す。
  *   それ以外 (button・きっかけ未定・写せなかったもの) は secondaryActions に navigate として足す。操作の id が重なるときは `_2` のように付け直す
@@ -239,6 +241,7 @@ export function buildMokkunSchema(model: UntieModel, systemId: string, design: S
     return views;
   };
 
+  const shells = new Map(screens.map((s) => [s.id, effectiveShell(design, s)]));
   const viewErrors: Record<string, string> = {};
   let draft: MokkunV2Schema = { mokkun: 2, app, views: buildViews(new Set()) };
   let parsed = parseV2Document(draft);
@@ -251,7 +254,7 @@ export function buildMokkunSchema(model: UntieModel, systemId: string, design: S
       parsed = parseV2Document(draft);
     }
   }
-  const doc: MokkunDoc = { schema: parsed.success ? parsed.data : draft, viewNameOf: (id) => id, viewErrors };
+  const doc: MokkunDoc = { schema: parsed.success ? parsed.data : draft, viewNameOf: (id) => id, shellOf: (viewName) => shells.get(viewName) ?? design.layout.shell, viewErrors };
   if (!parsed.success) doc.error = describeErrors(parsed.errors);
   return doc;
 }

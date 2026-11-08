@@ -63,6 +63,7 @@ export interface DesignScreenRecord {
   systemId: string;
   id: string;
   source: unknown;
+  shell?: string;
   view?: unknown;
   bindings?: unknown;
   order: string;

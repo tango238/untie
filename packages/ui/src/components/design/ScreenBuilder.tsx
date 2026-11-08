@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { clearDesignScreenView, setDesignScreenView } from "@untie/core/model/commands";
+import { clearDesignScreenView, setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
+import { LIMITS } from "@untie/core/model/limits";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
-import { designScreenName } from "@untie/core/model/sitemap";
+import { designScreenName, SHELL_LABELS } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
 import { useAgentStore } from "../../ai/agentStore";
 import { describeChatError } from "../../ai/chat";
@@ -10,11 +11,12 @@ import { generateScreen } from "../../ai/designScreen";
 import { getApiKey } from "../../ai/keys";
 import { PROVIDERS } from "../../ai/providers";
 import { selectReadOnly, useUntieStore } from "../../store";
+import { CommitField } from "../CommitField";
 import { ConfirmDialog } from "../ConfirmDialog";
 import type { DbInfo } from "./BindingPicker";
 import { ScreenFormEditor } from "./ScreenFormEditor";
 import { ScreenYamlEditor } from "./ScreenYamlEditor";
-import { pruneBindings, type Binding, type Json } from "./screenForm";
+import { pruneBindings, setOrDelete, str, type Binding, type Json } from "./screenForm";
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
@@ -155,6 +157,40 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
   return (
     <div className="editor screen-builder-body" data-testid="screen-builder">
       <h3 className="screen-title">{name}</h3>
+      {view ? (
+        <CommitField
+          label="画面の目的"
+          value={str(view.goal)}
+          placeholder={description || name}
+          maxLength={LIMITS.description.max}
+          readOnly={readOnly}
+          onCommit={(v) => edit((d) => setOrDelete(d, "goal", v.trim()))}
+        />
+      ) : (
+        description && (
+          <div className="field">
+            <span className="field-label">画面の目的 (分析の説明)</span>
+            <div className="static-value">{description}</div>
+          </div>
+        )
+      )}
+      <label className="field">
+        <span className="field-label">レイアウト</span>
+        <select
+          aria-label="レイアウト"
+          value={screen.shell ?? ""}
+          disabled={readOnly}
+          onChange={(e) => {
+            const v = e.target.value;
+            const r = dispatch((m) => setDesignScreenShell(m, { systemId, screenId: screen.id, shell: v === "shell" || v === "plain" ? v : undefined }));
+            if (!r.ok) pushToast(r.reason, "error");
+          }}
+        >
+          <option value="">設計のレイアウトに従う ({design.layout.shell})</option>
+          <option value="shell">{SHELL_LABELS.shell}</option>
+          <option value="plain">{SHELL_LABELS.plain}</option>
+        </select>
+      </label>
       <div className="nav-actions">
         <button
           type="button"
@@ -206,7 +242,7 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
           }}
         />
       ) : (
-        <ScreenFormEditor view={view} bindings={bindings} screens={screens} databases={databases} readOnly={readOnly} goalPlaceholder={description || name} edit={edit} notify={(m) => pushToast(m, "error")} />
+        <ScreenFormEditor view={view} bindings={bindings} screens={screens} databases={databases} readOnly={readOnly} edit={edit} notify={(m) => pushToast(m, "error")} />
       )}
 
       {view && !readOnly && (

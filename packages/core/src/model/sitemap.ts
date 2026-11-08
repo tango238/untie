@@ -9,6 +9,25 @@ import type { DesignScreen, Element, SystemDesign, Transition, UntieModel } from
 type Builtin = Extract<DesignScreen["source"], { kind: "builtin" }>["builtin"];
 type Via = NonNullable<Transition["via"]>;
 
+/** 画面の実際のレイアウト (枠)。画面の上書きがあればそれ、無ければ設計のレイアウト */
+export function effectiveShell(design: Pick<SystemDesign, "layout">, screen: Pick<DesignScreen, "shell">): "shell" | "plain" {
+  return screen.shell ?? design.layout.shell;
+}
+
+/** 画面のレイアウトの説明 (画面ボードの select と、サイトマップのプロパティで共有する) */
+export const SHELL_LABELS: Record<"shell" | "plain", string> = {
+  shell: "ヘッダー + グローバルナビ + パンくず (shell)",
+  plain: "ヘッダーのみ (plain)",
+};
+
+/** 短い呼び名 (読み取りの表示用) */
+export const SHELL_SHORT_LABELS: Record<"shell" | "plain", string> = { shell: "ヘッダー + グローバルナビ + パンくず", plain: "ヘッダーのみ" };
+
+/** メニューが出る画面 (レイアウトが shell の画面) が 1 つでもあるか。設計のレイアウトと、画面ごとの上書きで決まる */
+export function hasMenuScreen(design: Pick<SystemDesign, "layout" | "screens">): boolean {
+  return design.screens.some((s) => effectiveShell(design, s) === "shell");
+}
+
 /** 組み込みの画面の名前 */
 export const BUILTIN_SCREEN_LABELS: Record<Builtin, string> = {
   signIn: "サインイン",

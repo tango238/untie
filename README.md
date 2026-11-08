@@ -194,7 +194,7 @@ pnpm cloud:deploy   # クラウド版の画面を作って Cloudflare Worker (un
 
 手元でアプリを作り直して使うときは `pnpm app:build` を使ってください。`pnpm tauri build` は簡易署名 (ad-hoc) になり、作り直すたびにアプリの識別が変わるので、キーチェーンに保存した AI の API キーが読み出せなくなります。`pnpm app:build` はログインキーチェーンにあるコード署名用の自己署名証明書 `Untie Local Code Signing` で署名するので、作り直してもキーを読めます。証明書が無い Mac では、キーチェーンアクセスの「証明書アシスタント」で同じ名前のコード署名用の自己署名証明書を作ってください。
 
-スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `packages/core/src/model/schema.d.ts` と検証関数 (`schemaValidator.gen.js`) を再生成してください。CI の `pnpm check:types` は、生成物が最新かを確かめます。保存する JSON の形が変わるときは、モデルの形式のバージョン (`version`。現行は `0.4.0`) を必ず上げ、古い版から変換するマイグレーションを足してください (手順は [AGENTS.md](AGENTS.md))。古い版のファイルは、開くときに自動で変換されます。
+スキーマ (`schema/untie.schema.json`) を変えたら `pnpm gen:types` で `packages/core/src/model/schema.d.ts` と検証関数 (`schemaValidator.gen.js`) を再生成してください。CI の `pnpm check:types` は、生成物が最新かを確かめます。保存する JSON の形が変わるときは、モデルの形式のバージョン (`version`。現行は `0.4.1`) を必ず上げ、古い版から変換するマイグレーションを足してください (手順は [AGENTS.md](AGENTS.md))。古い版のファイルは、開くときに自動で変換されます。
 
 アイコンを変えるときは `assets/icon.png` (1024px 四方、中央 824px に角丸の絵、外側は透明) を差し替え、`pnpm icon` で各サイズを再生成します。
 

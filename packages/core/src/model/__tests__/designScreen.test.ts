@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { addDatabase, addDesignScreens, clearDesignScreenView, removeDatabase, setDatabaseDsl, setDesignScreenBindings, setDesignScreenView } from "../commands";
+import { addDatabase, addDesignScreens, clearDesignScreenView, removeDatabase, setDatabaseDsl, setDesignScreenBindings, setDesignScreenShell, setDesignScreenView } from "../commands";
 import { checkDesign } from "../designCheck";
 import { columnBindingKey, viewBindingSlots, viewShapeProblem } from "../designView";
 import { VIEW_JSON_MAX_LENGTH, VIEW_MAX_DEPTH, VIEW_MAX_NODES } from "../limits";
 import { repairModel } from "../repair";
+import { effectiveShell, hasMenuScreen } from "../sitemap";
 import { emptyModel, type UntieModel } from "../types";
 import { validateModel } from "../validate";
 import { retailSample } from "../../sample";
@@ -256,5 +257,65 @@ describe("店舗サンプルの画面 UI", () => {
     const columns = ((search.view as { sections: { list?: { columns: { to?: string }[] } }[] }).sections.find((x) => x.list)!.list!.columns);
     expect(columns[0]!.to).toBe("ds_pos_disposal");
     expect(design.screens.some((s) => s.id === "ds_pos_disposal")).toBe(true);
+  });
+});
+
+describe("画面ごとのレイアウトの上書き (shell)", () => {
+  it("setDesignScreenShell: 置く・消す。同じ値なら何も変えない。設計と画面が無ければ失敗で、設計は作らない", () => {
+    let m = okModel(setDesignScreenShell(base(), { systemId: "sys_a", screenId: "d1", shell: "plain" }));
+    expect(screenOf(m).shell).toBe("plain");
+    expect(validateModel(JSON.parse(JSON.stringify(m))).ok).toBe(true);
+    const same = okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "plain" }));
+    expect(same).toBe(m);
+    m = okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: undefined }));
+    expect("shell" in screenOf(m)).toBe(false);
+    expectFail(setDesignScreenShell(m, { systemId: "sys_a", screenId: "nope", shell: "plain" }), /設計に無い画面/);
+    expectFail(setDesignScreenShell(m, { systemId: "sys_none", screenId: "d1", shell: "plain" }), /設計が存在しません/);
+    expectFail(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "bogus" as never }), /レイアウトが正しくありません/);
+  });
+
+  it("effectiveShell: 画面の上書きがあればそれ、無ければ設計のレイアウト", () => {
+    const m = okModel(setDesignScreenShell(base(), { systemId: "sys_a", screenId: "d1", shell: "plain" }));
+    const design = m.designs[0]!;
+    expect(effectiveShell(design, screenOf(m, "d1"))).toBe("plain");
+    expect(effectiveShell(design, screenOf(m, "d_top"))).toBe("shell");
+    expect(effectiveShell({ layout: { ...design.layout, shell: "plain" } }, screenOf(m, "d_top"))).toBe("plain");
+  });
+
+  it("hasMenuScreen: shell の画面が 1 つでもあれば true", () => {
+    let m = base();
+    expect(hasMenuScreen(m.designs[0]!)).toBe(true);
+    for (const id of ["d1", "d_top"]) m = okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: id, shell: "plain" }));
+    expect(hasMenuScreen(m.designs[0]!)).toBe(false);
+    m = okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "shell" }));
+    expect(hasMenuScreen(m.designs[0]!)).toBe(true);
+  });
+
+  it("repairModel: 列挙の外の shell は項目を外し、画面は残す", () => {
+    const m = base();
+    const broken = JSON.parse(JSON.stringify(m)) as UntieModel;
+    (broken.designs[0]!.screens[0] as { shell?: string }).shell = "bogus";
+    const r = repairModel(broken);
+    expect(r.model.designs[0]!.screens[0]!.id).toBe("d1");
+    expect("shell" in r.model.designs[0]!.screens[0]!).toBe(false);
+    expect(r.changes.join()).toContain("レイアウトの指定を外した");
+    expect(repairModel(okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "plain" }))).changes).toEqual([]);
+  });
+
+  it("検証 (h): メニューが出る画面が 1 つでもあれば、メニューを数える", () => {
+    let m: UntieModel = base();
+    // 設計は plain。d2 だけをナビに入れる (d_top は入口なので除外)
+    m = okModel(addDesignScreens(m, { systemId: "sys_a", screens: [{ id: "d2", source: { kind: "builtin", builtin: "signUp" } }], transitions: [] }));
+    m = { ...m, designs: [{ ...m.designs[0]!, layout: { shell: "plain", navigation: [{ id: "nav_1", group: "G", items: [{ screenId: "d2" }] }] } }] };
+    const unreachable = (x: UntieModel) => checkDesign(x, "sys_a").warnings.filter((w) => w.type === "screenUnreachable").map((w) => w.target?.id);
+    // すべて plain: メニューは数えない
+    expect(unreachable(m)).toContain("d2");
+    // 設計は plain でも、d1 が shell ならメニューが出るので d2 は辿れる
+    expect(unreachable(okModel(setDesignScreenShell(m, { systemId: "sys_a", screenId: "d1", shell: "shell" })))).not.toContain("d2");
+    // 設計は shell でも、すべての画面が plain なら数えない
+    let all: UntieModel = { ...m, designs: [{ ...m.designs[0]!, layout: { ...m.designs[0]!.layout, shell: "shell" as const } }] };
+    expect(unreachable(all)).not.toContain("d2");
+    for (const id of ["d1", "d_top", "d2"]) all = okModel(setDesignScreenShell(all, { systemId: "sys_a", screenId: id, shell: "plain" }));
+    expect(unreachable(all)).toContain("d2");
   });
 });

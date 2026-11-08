@@ -3,7 +3,7 @@ import { setDesignNavigation, type SetDesignNavigationPayload } from "@untie/cor
 import { usedDesignIds } from "@untie/core/model/design";
 import { newUniqueId } from "@untie/core/model/id";
 import { LIMITS } from "@untie/core/model/limits";
-import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitemap";
+import { designScreenName, hasMenuScreen, navigationFromSitemap } from "@untie/core/model/sitemap";
 import type { SystemDesign, UntieModel } from "@untie/core/model/types";
 import { useAgentStore } from "../../ai/agentStore";
 import { describeChatError } from "../../ai/chat";
@@ -152,7 +152,8 @@ function NavEditor({ model, systemId, design }: { model: UntieModel; systemId: s
         </p>
       )}
       {screens.length === 0 && <p className="hint">サイトマップで画面を足すと、メニューに並べられます。</p>}
-      {design?.layout.shell === "plain" && hasNav && <p className="hint">いまのレイアウトは「ヘッダーのみ」なので、メニューは出ません。</p>}
+      {design && hasNav && !hasMenuScreen(design) && <p className="hint">いまのレイアウトは「ヘッダーのみ」なので、メニューは出ません。</p>}
+      {design && hasNav && design.layout.shell === "plain" && hasMenuScreen(design) && <p className="hint">設計は「ヘッダーのみ」ですが、上書きで shell にした画面ではメニューが出ます。</p>}
       <ul className="nav-groups">
         {navigation.map((group, gi) => (
           <li key={group.id} className="nav-group" data-nav-group={group.id}>

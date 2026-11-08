@@ -84,6 +84,7 @@ export function designScreenFields(systemId: string, s: DesignScreen): Omit<Desi
     systemId,
     id: s.id,
     source: cloneJson(s.source),
+    ...(s.shell !== undefined ? { shell: s.shell } : {}),
     ...(s.view !== undefined ? { view: cloneJson(s.view) } : {}),
     ...(s.bindings !== undefined ? { bindings: cloneJson(s.bindings) } : {}),
   };
