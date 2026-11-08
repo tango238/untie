@@ -21,12 +21,12 @@ describe("店舗サンプル", () => {
 
   it("業務・登場人物・課題などの件数", () => {
     const count = (kind: string) => retailSample.elements.filter((e) => e.kind === kind).length;
-    expect(count("business")).toBe(7);
+    expect(count("business")).toBe(10);
     expect(count("actor")).toBe(6);
     expect(count("externalActor")).toBe(2);
     expect(count("system")).toBe(4);
     expect(count("ledger")).toBe(2);
-    expect(count("buc")).toBe(7 + 3);
+    expect(count("buc")).toBe(10 + 3);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
     expect(count("information")).toBe(11);

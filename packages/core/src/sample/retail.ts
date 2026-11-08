@@ -34,10 +34,13 @@ const systems: Element[] = [
 ];
 
 const businessDefs: [id: string, name: string][] = [
-  ["biz_purchase", "発注・入荷"],
-  ["biz_display", "陳列・在庫管理"],
+  ["biz_purchase", "発注"],
+  ["biz_receiving", "入荷"],
+  ["biz_display", "陳列"],
+  ["biz_inventory", "在庫管理"],
   ["biz_register", "レジ・接客"],
-  ["biz_closing", "レジ締め・売上報告"],
+  ["biz_closing", "レジ締め"],
+  ["biz_sales_report", "売上報告"],
   ["biz_stocktake", "棚卸"],
   ["biz_receivable", "売掛金・入金管理"],
   ["biz_monthly", "月次の数字の確認"],
@@ -65,12 +68,12 @@ const dflt = (bizId: string) => `buc_default_${bizId.replace("biz_", "")}`;
 const activities: Element[] = [
   { id: "act_decide_qty", kind: "activity", name: "発注数を決める", bucId: dflt("biz_purchase"), hours: 0.5, triggerNote: "毎週の発注日" },
   { id: "act_place_order", kind: "activity", name: "発注する", bucId: dflt("biz_purchase") },
-  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_purchase"), triggerNote: "仕入先からの納品" },
-  { id: "act_record_receiving", kind: "activity", name: "検品の結果を記録する", bucId: dflt("biz_purchase") },
+  { id: "act_receive", kind: "activity", name: "入荷を検品する", bucId: dflt("biz_receiving"), triggerNote: "仕入先からの納品" },
+  { id: "act_record_receiving", kind: "activity", name: "検品の結果を記録する", bucId: dflt("biz_receiving") },
   { id: "act_display", kind: "activity", name: "商品を陳列する", bucId: dflt("biz_display") },
   { id: "act_price", kind: "activity", name: "売価・値札を直す", bucId: dflt("biz_display"), triggerNote: "本部からの価格変更の通知" },
-  { id: "act_check_shelf", kind: "activity", name: "棚の在庫を確認する", bucId: dflt("biz_display"), triggerNote: "開店前・閉店後の巡回" },
-  { id: "act_markdown", kind: "activity", name: "売れ残りを値引き・廃棄する", bucId: dflt("biz_display") },
+  { id: "act_check_shelf", kind: "activity", name: "棚の在庫を確認する", bucId: dflt("biz_inventory"), triggerNote: "開店前・閉店後の巡回" },
+  { id: "act_markdown", kind: "activity", name: "売れ残りを値引き・廃棄する", bucId: dflt("biz_inventory") },
   { id: "act_scan", kind: "activity", name: "商品を読み取る", bucId: "buc_checkout", triggerNote: "レジに商品が出されたとき" },
   { id: "act_payment", kind: "activity", name: "代金を受け取る", bucId: "buc_checkout" },
   { id: "act_return", kind: "activity", name: "返品・交換に応じる", bucId: "buc_return", triggerNote: "お客さまからの申し出" },
@@ -81,7 +84,7 @@ const activities: Element[] = [
     id: "act_report_sales",
     kind: "activity",
     name: "売上を本部へ報告する",
-    bucId: dflt("biz_closing"),
+    bucId: dflt("biz_sales_report"),
     // 架空のマニュアル (example.com はリンクの例示用ドメイン)
     links: [
       { title: "日次報告の手順", url: "https://example.com/manual/daily-report" },
@@ -205,7 +208,7 @@ const issues: Element[] = [
     targetIds: ["biz_closing", "act_reconcile"],
     analysis: {
       phenomenon: "閉店後にレジ担当が現金を数え、POSレジの売上と合わせている。週に 3 日ほど数百円から数千円のずれが出て、原因を探すのに 30 分から 1 時間かかる。",
-      location: "レジ締め・売上報告の「売上と現金を突き合わせる」。返品や値引きの訂正が、POSレジではなく紙のレシートの裏に書かれている。",
+      location: "レジ締めの「売上と現金を突き合わせる」。返品や値引きの訂正が、POSレジではなく紙のレシートの裏に書かれている。",
       cause: "返品・値引き・釣り銭の出し入れの記録がレジの操作ごとに残らず、ずれたときに手がかりが無い。担当によって準備金の扱いも違う。",
       impact: "退勤が遅れて残業になる。原因が分からないまま「過不足」として処理する日があり、本部への報告も遅れる。",
     },
@@ -246,9 +249,12 @@ const issues: Element[] = [
 const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // actorBusiness
   ["actor_manager", "biz_purchase"],
+  ["actor_backyard", "biz_receiving"],
   ["actor_floor", "biz_display"],
+  ["actor_floor", "biz_inventory"],
   ["actor_cashier", "biz_register"],
   ["actor_cashier", "biz_closing"],
+  ["actor_manager", "biz_sales_report"],
   ["actor_floor", "biz_stocktake"],
   ["actor_manager", "biz_monthly"],
   ["actor_hq_accounting", "biz_receivable"],
@@ -485,36 +491,43 @@ function column(ids: string[], x: number, y0: number, dy: number): BoardNode[] {
 }
 
 // 「全体」: 業務の枠の中に、枠内の絶対座標でアクティビティを置く
-const FRAME_Y = 40;
-const FRAME_H = 460;
 const ACT_STEP = 96;
-// 横長になりすぎて文字が小さくならないよう、後半の業務は 2 段目に置く
-const FRAME_Y2 = FRAME_Y + FRAME_H + 60;
+const FRAME_W = 260;
+/** 作業を縦に並べる枠の高さ (作業の数に合わせる) */
+const frameHeight = (n: number) => 56 + n * ACT_STEP + 24;
+// 横長になりすぎて文字が小さくならないよう、3 段に分ける。1 段目: 発注から在庫管理まで、2 段目: レジ・接客から売上報告まで、3 段目: 棚卸以降
+const ROW1_Y = 40;
+const ROW2_Y = ROW1_Y + frameHeight(2) + 60;
+const REGISTER_H = 460;
+const ROW3_Y = ROW2_Y + REGISTER_H + 60;
 
-function frameWithActivities(bizId: string, x: number, actIds: string[], y = FRAME_Y): BoardNode[] {
+function frameWithActivities(bizId: string, x: number, actIds: string[], y: number): BoardNode[] {
   return [
-    { elementId: bizId, x, y, width: 260, height: FRAME_H },
+    { elementId: bizId, x, y, width: FRAME_W, height: frameHeight(actIds.length) },
     ...column(actIds, x + 40, y + 56, ACT_STEP),
   ];
 }
 
 // アクターは線ではなく枠・カードのラベルで見せるので、このボードには置かない
 const overviewNodes: BoardNode[] = [
-  ...frameWithActivities("biz_purchase", 40, ["act_decide_qty", "act_place_order", "act_receive", "act_record_receiving"]),
-  ...frameWithActivities("biz_display", 340, ["act_display", "act_price", "act_check_shelf", "act_markdown"]),
+  ...frameWithActivities("biz_purchase", 40, ["act_decide_qty", "act_place_order"], ROW1_Y),
+  ...frameWithActivities("biz_receiving", 340, ["act_receive", "act_record_receiving"], ROW1_Y),
+  ...frameWithActivities("biz_display", 640, ["act_display", "act_price"], ROW1_Y),
+  ...frameWithActivities("biz_inventory", 940, ["act_check_shelf", "act_markdown"], ROW1_Y),
   // レジ・接客: 活動の小枠 3 つ (活動のある業務の作業は、すべてどれかの活動に入れる)
-  { elementId: "biz_register", x: 640, y: FRAME_Y, width: 520, height: FRAME_H },
-  { elementId: "buc_checkout", x: 660, y: FRAME_Y + 56, width: 220, height: 260 },
-  { elementId: "act_scan", x: 680, y: FRAME_Y + 112 },
-  { elementId: "act_payment", x: 680, y: FRAME_Y + 208 },
-  { elementId: "buc_return", x: 900, y: FRAME_Y + 56, width: 220, height: 160 },
-  { elementId: "act_return", x: 920, y: FRAME_Y + 112 },
-  { elementId: "buc_special", x: 900, y: FRAME_Y + 236, width: 220, height: 160 },
-  { elementId: "act_special", x: 920, y: FRAME_Y + 292 },
-  ...frameWithActivities("biz_closing", 40, ["act_count_cash", "act_reconcile", "act_report_sales", "act_deposit"], FRAME_Y2),
-  ...frameWithActivities("biz_stocktake", 340, ["act_stocktake", "act_apply_count", "act_review_stock"], FRAME_Y2),
-  ...frameWithActivities("biz_receivable", 640, ["act_manage_settlement", "act_clear_receivable"], FRAME_Y2),
-  ...frameWithActivities("biz_monthly", 940, ["act_review_pl", "act_review_bs"], FRAME_Y2),
+  { elementId: "biz_register", x: 40, y: ROW2_Y, width: 520, height: REGISTER_H },
+  { elementId: "buc_checkout", x: 60, y: ROW2_Y + 56, width: 220, height: 260 },
+  { elementId: "act_scan", x: 80, y: ROW2_Y + 112 },
+  { elementId: "act_payment", x: 80, y: ROW2_Y + 208 },
+  { elementId: "buc_return", x: 300, y: ROW2_Y + 56, width: 220, height: 160 },
+  { elementId: "act_return", x: 320, y: ROW2_Y + 112 },
+  { elementId: "buc_special", x: 300, y: ROW2_Y + 236, width: 220, height: 160 },
+  { elementId: "act_special", x: 320, y: ROW2_Y + 292 },
+  ...frameWithActivities("biz_closing", 640, ["act_count_cash", "act_reconcile", "act_deposit"], ROW2_Y),
+  ...frameWithActivities("biz_sales_report", 940, ["act_report_sales"], ROW2_Y),
+  ...frameWithActivities("biz_stocktake", 40, ["act_stocktake", "act_apply_count", "act_review_stock"], ROW3_Y),
+  ...frameWithActivities("biz_receivable", 340, ["act_manage_settlement", "act_clear_receivable"], ROW3_Y),
+  ...frameWithActivities("biz_monthly", 640, ["act_review_pl", "act_review_bs"], ROW3_Y),
 ];
 
 const flowActivities = activities.map((e) => e.id);
