@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { screenInformations } from "@untie/core/model/placement";
 import { addTransition, removeTransition, updateTransition } from "@untie/core/model/commands";
 import { designBoardId } from "@untie/core/model/design";
 import { TRANSITION_VIAS, TRANSITION_VIA_LABELS, designScreenName, effectiveShell, SHELL_SHORT_LABELS } from "@untie/core/model/sitemap";
@@ -57,9 +58,8 @@ function ScreenEditor({ model, systemId, design, screen }: { model: UntieModel; 
           .map((a) => byId.get(a.sourceId)?.name || "(名前なし)");
         return { id: r.sourceId, name: byId.get(r.sourceId)?.name || "(名前なし)", activities: acts };
       });
-    const informations = model.relations
-      .filter((r) => r.kind === "screenInformation" && r.sourceId === analysis.id)
-      .map((r) => byId.get(r.targetId)?.name || "(名前なし)");
+    // 画面が扱う情報は、その画面を使う操作が扱う情報から導く
+    const informations = (screenInformations(model).get(analysis.id) ?? []).map((d) => byId.get(d.id)?.name || "(名前なし)");
     return { usecases, informations };
   }, [model, analysis]);
 

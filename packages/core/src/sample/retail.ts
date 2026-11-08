@@ -4,7 +4,7 @@ import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigati
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
-import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -31,7 +31,6 @@ const systems: Element[] = [
   { id: "sys_accounting", kind: "system", name: "会計システム" },
   { id: "ldg_receiving_slip", kind: "ledger", name: "納品書・検品票" },
   { id: "ldg_closing_sheet", kind: "ledger", name: "レジ締め表" },
-  { id: "ldg_stocktake_sheet", kind: "ledger", name: "棚卸表" },
 ];
 
 const businessDefs: [id: string, name: string][] = [
@@ -244,7 +243,7 @@ const issues: Element[] = [
 
 // ---------------------------------------------------------------- 関係
 
-const pairs: [source: string, target: string][] = [
+const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // actorBusiness
   ["actor_manager", "biz_purchase"],
   ["actor_floor", "biz_display"],
@@ -314,42 +313,43 @@ const pairs: [source: string, target: string][] = [
   ["act_clear_receivable", "uc_clear_receivable"],
   ["act_review_pl", "uc_view_pl"],
   ["act_review_bs", "uc_view_bs"],
-  // usecaseInformation
+  // usecaseInformation (操作 → 情報: 扱う)。3 つ目は取得・保存の区別 (read: 取得だけ、write: 保存だけ、無ければ両方)。
+  // 情報の置き場所 (取得元・保存先) と画面が扱う情報は、これと操作の対象から導く (0.4.0 から)
   ["uc_register_order", "info_order"],
-  ["uc_register_order", "info_item"],
+  ["uc_register_order", "info_item", "read"],
   ["uc_register_receiving", "info_receiving"],
-  ["uc_register_receiving", "info_order"],
-  ["uc_register_receiving", "info_stock"],
-  ["uc_search_item", "info_item"],
-  ["uc_search_item", "info_stock"],
+  ["uc_register_receiving", "info_order", "read"],
+  ["uc_register_receiving", "info_stock", "read"],
+  ["uc_search_item", "info_item", "read"],
+  ["uc_search_item", "info_stock", "read"],
   ["uc_change_price", "info_item"],
   ["uc_record_disposal", "info_stock"],
-  ["uc_record_disposal", "info_item"],
+  ["uc_record_disposal", "info_item", "read"],
   ["uc_register_sale", "info_sale"],
-  ["uc_register_sale", "info_item"],
+  ["uc_register_sale", "info_item", "read"],
   ["uc_register_sale", "info_stock"],
   ["uc_record_payment", "info_payment"],
-  ["uc_record_payment", "info_sale"],
+  ["uc_record_payment", "info_sale", "read"],
   ["uc_register_return", "info_sale"],
   ["uc_register_return", "info_stock"],
   ["uc_register_special", "info_order"],
-  ["uc_register_special", "info_item"],
+  ["uc_register_special", "info_item", "read"],
   ["uc_record_cash", "info_payment"],
-  ["uc_issue_daily_report", "info_sale"],
-  ["uc_issue_daily_report", "info_payment"],
-  ["uc_send_report", "info_sale"],
+  ["uc_issue_daily_report", "info_sale", "read"],
+  ["uc_issue_daily_report", "info_payment", "read"],
+  ["uc_send_report", "info_sale", "write"],
   ["uc_record_deposit", "info_payment"],
   ["uc_record_stocktake", "info_stocktake"],
-  ["uc_record_stocktake", "info_stock"],
+  ["uc_record_stocktake", "info_stock", "read"],
   ["uc_adjust_stock", "info_stock"],
-  ["uc_adjust_stock", "info_stocktake"],
+  ["uc_adjust_stock", "info_stocktake", "read"],
   ["uc_register_receivable", "info_receivable"],
-  ["uc_register_receivable", "info_sale"],
+  ["uc_register_receivable", "info_sale", "read"],
   ["uc_record_settlement", "info_settlement"],
   ["uc_clear_receivable", "info_receivable"],
-  ["uc_clear_receivable", "info_settlement"],
-  ["uc_view_pl", "info_pl"],
-  ["uc_view_bs", "info_bs"],
+  ["uc_clear_receivable", "info_settlement", "read"],
+  ["uc_view_pl", "info_pl", "read"],
+  ["uc_view_bs", "info_bs", "read"],
   // usecaseCondition
   ["uc_register_order", "cond_low_stock"],
   ["uc_register_return", "cond_receipt"],
@@ -367,30 +367,6 @@ const pairs: [source: string, target: string][] = [
   ["info_pl", "info_sale"],
   ["info_bs", "info_receivable"],
   ["info_pl", "info_bs"],
-  // systemInformation (システム → 情報: 取得元)
-  ["sys_pos", "info_item"],
-  ["sys_pos", "info_stock"],
-  ["sys_pos", "info_sale"],
-  ["sys_pos", "info_payment"],
-  ["sys_ordering", "info_order"],
-  ["sys_terminal", "info_payment"],
-  ["sys_accounting", "info_receivable"],
-  ["sys_accounting", "info_settlement"],
-  ["sys_terminal", "info_settlement"],
-  // 会計システムで PL と BS を見られる
-  ["sys_accounting", "info_pl"],
-  ["sys_accounting", "info_bs"],
-  // informationSystem (情報 → システム: 保存先)
-  ["info_item", "sys_pos"],
-  ["info_stock", "sys_pos"],
-  ["info_sale", "sys_pos"],
-  ["info_sale", "sys_accounting"],
-  ["info_order", "sys_ordering"],
-  ["info_receiving", "ldg_receiving_slip"],
-  ["info_payment", "ldg_closing_sheet"],
-  ["info_stocktake", "ldg_stocktake_sheet"],
-  ["info_receivable", "sys_accounting"],
-  ["info_settlement", "sys_accounting"],
   // informationVariation
   ["info_payment", "var_payment_method"],
   ["info_item", "var_category"],
@@ -431,11 +407,17 @@ const pairs: [source: string, target: string][] = [
   ["ev_card_paid", "uc_register_receivable"],
   ["uc_register_receivable", "sys_accounting"],
   // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする。POSレジの操作は画面で結ぶ (下)
+  ["uc_register_receiving", "ldg_receiving_slip"],
+  ["uc_register_special", "sys_ordering"],
+  ["uc_send_report", "sys_accounting"],
+  ["uc_record_deposit", "ldg_closing_sheet"],
+  ["uc_view_pl", "sys_accounting"],
+  ["uc_view_bs", "sys_accounting"],
   ["uc_register_order", "sys_ordering"],
   ["uc_record_payment", "sys_terminal"],
   ["uc_record_settlement", "sys_accounting"],
   ["uc_clear_receivable", "sys_accounting"],
-  // usecaseScreen / screenInformation (POSレジの画面。1 つの操作の対象は、システム・画面のどちらか 1 つだけ)
+  // usecaseScreen (POSレジの画面。1 つの操作の対象は、システム・画面のどちらか 1 つだけ)。画面が扱う情報は、画面を使う操作が扱う情報から導く
   ["uc_search_item", "scr_pos_search"],
   ["uc_change_price", "scr_pos_price"],
   ["uc_record_disposal", "scr_pos_disposal"],
@@ -445,18 +427,6 @@ const pairs: [source: string, target: string][] = [
   ["uc_issue_daily_report", "scr_pos_daily"],
   ["uc_record_stocktake", "scr_pos_stocktake"],
   ["uc_adjust_stock", "scr_pos_adjust"],
-  ["scr_pos_search", "info_item"],
-  ["scr_pos_search", "info_stock"],
-  ["scr_pos_price", "info_item"],
-  ["scr_pos_disposal", "info_stock"],
-  ["scr_pos_sale", "info_sale"],
-  ["scr_pos_sale", "info_item"],
-  ["scr_pos_return", "info_sale"],
-  ["scr_pos_cash", "info_payment"],
-  ["scr_pos_daily", "info_sale"],
-  ["scr_pos_daily", "info_payment"],
-  ["scr_pos_stocktake", "info_stocktake"],
-  ["scr_pos_adjust", "info_stock"],
   // 作業が使う操作 (activityUsecase) と操作の順 (usecaseNext)。値引き・廃棄と棚卸は、商品を探してから記録する
   ["act_markdown", "uc_search_item"],
   ["act_stocktake", "uc_search_item"],
@@ -499,12 +469,12 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-const relations: Relation[] = pairs.map(([sourceId, targetId]) => {
+const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId };
+  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

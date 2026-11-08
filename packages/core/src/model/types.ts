@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, IssueAnalysis, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, Element, IssueAnalysis, Relation, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -89,8 +89,6 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "usecaseCondition",
   "informationRelated",
   "informationVariation",
-  "systemInformation",
-  "informationSystem",
   "conditionVariation",
   "conditionState",
   "stateUsecase",
@@ -103,9 +101,18 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "activityTrigger",
   "eventActivity",
   "usecaseScreen",
-  "screenInformation",
   "actorNfr",
 ];
+
+/** 操作が情報をどう扱うか (usecaseInformation の access)。省略は取得も保存もする */
+export type InformationAccess = NonNullable<Relation["access"]>;
+
+export const INFORMATION_ACCESSES: readonly InformationAccess[] = ["read", "write"];
+
+export const INFORMATION_ACCESS_LABELS: Record<InformationAccess, string> = { read: "取得", write: "保存" };
+
+/** access を省略したときの表示 (取得も保存もする) */
+export const INFORMATION_ACCESS_BOTH_LABEL = "取得・保存";
 
 export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
   actor: "アクター",
@@ -221,7 +228,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.4.1";
+export const MODEL_VERSION = "0.5.1";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

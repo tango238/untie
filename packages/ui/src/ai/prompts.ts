@@ -31,7 +31,7 @@ const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言�
 - 操作の対象のシステム・帳票は usecase → system / ledger (対象) で結ぶ。対象は 1 つの操作に 1 つだけ
 - 業務には主担当のアクター (actor → business) を結ぶ
 - 作業は使う操作を結ぶ (activity → usecase)。操作は扱う情報 (usecase → information) と判断に使う条件 (usecase → condition) を結ぶ
-- 情報の取得元・保存先はシステム・帳票と結ぶ (system / ledger → information が取得元、information → system / ledger が保存先)
+- 情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は関係にしない。操作が扱う情報 (usecase → information) に取得・保存の区別 (access: read / write。省略は両方) を付け、操作の対象と合わせて導く。情報をシステム・帳票に置きたければ、その情報を扱う操作の対象をそのシステム・帳票 (またはその画面) にする
 - 状態の遷移は、実行できる状態 (state → usecase) と実行後の状態 (usecase → state) で表す
 
 種類ごとの書き方と粒度:

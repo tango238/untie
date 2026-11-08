@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { addElement, addRelation, moveActivity, removeRelation } from "../commands";
+import { addElement, addRelation, moveActivity, removeRelation, setUsecaseTarget } from "../commands";
 import { traceToActors, traceWarnings } from "../trace";
 import { emptyModel } from "../types";
-import { okModel, sample } from "./helpers";
+import { expectFail, okModel, sample } from "./helpers";
 
 describe("traceToActors", () => {
   it("サンプルはすべての要素がアクター / 外部アクターに辿り着く", () => {
@@ -57,20 +57,22 @@ describe("traceToActors", () => {
     expect(r.problems.every((p) => p.isBreak)).toBe(true);
     const reasonOf = (id: string) => r.problems.find((p) => p.elementId === id)?.reason;
     expect(reasonOf("x_context")).toBe("情報・状態・条件・バリエーションが入っていません");
-    expect(reasonOf("x_system")).toBe("どの操作の対象にも、情報の取得元・保存先にもなっておらず、画面もイベントもありません");
-    expect(reasonOf("x_ledger")).toBe("どの操作の対象にも、情報の取得元・保存先にもなっていません");
+    expect(reasonOf("x_system")).toBe("どの操作の対象にもなっておらず、画面もイベントもありません");
+    expect(reasonOf("x_ledger")).toBe("どの操作の対象にもなっていません");
     expect(reasonOf("x_variation")).toBe("どの情報・条件の種別にもなっていません");
     expect(reasonOf("x_state")).toBe("どの操作・条件ともつながっていません");
     expect(reasonOf("x_condition")).toBe("どの操作の判断にも使われていません");
   });
 
-  it("システムは辿り着く先。操作の対象・情報の置き場所・イベントの発生元のどれかか、画面を持っていれば途切れにしない", () => {
+  it("システムは辿り着く先。操作の対象・イベントの発生元のどちらかか、画面を持っていれば途切れにしない (情報の置き場所は対象から導くので別には数えない)", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "system", name: "新システム", id: "sys_x" }));
     expect(traceToActors(m).problems.map((p) => p.elementId)).toEqual(["sys_x"]);
-    const m1 = okModel(addRelation(m, { sourceId: "uc_update_cleaning", targetId: "sys_x" }));
+    const m1 = okModel(setUsecaseTarget(m, { usecaseId: "uc_search_reservation", targetId: "sys_x" }));
     expect(traceToActors(m1).problems).toEqual([]);
-    const m2 = okModel(addRelation(m, { sourceId: "info_bill", targetId: "sys_x" }));
+    // 情報とは直接結べない (置き場所は操作から導く)
+    expectFail(addRelation(m, { sourceId: "info_bill", targetId: "sys_x" }), /結べません/);
+    const m2 = okModel(addRelation(m, { sourceId: "sys_x", targetId: "ev_checkout_day" }));
     expect(traceToActors(m2).problems).toEqual([]);
     const m3 = okModel(addElement(m, { kind: "screen", name: "画面", id: "scr_x", init: { systemId: "sys_x" } }));
     expect(traceToActors(m3).problems.map((p) => p.elementId)).toEqual([]);
@@ -93,21 +95,22 @@ describe("traceToActors", () => {
     expect(traceToActors(m).problems).toEqual([]);
   });
 
-  it("画面と非機能要件は属するシステムから辿る。画面が扱う情報も辿り着く。帳票は対象にする操作からも辿る", () => {
+  it("画面と非機能要件は属するシステムから辿る。画面は情報と直接結べない (扱う情報は使う操作から導く)。帳票は対象にする操作から辿る", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "screen", name: "画面", id: "scr_x", init: { systemId: "sys_pms" } }));
     m = okModel(addElement(m, { kind: "nfr", name: "要件", id: "nfr_x", init: { systemId: "sys_pms" } }));
     m = okModel(addElement(m, { kind: "information", name: "画面だけの情報", id: "info_x" }));
-    m = okModel(addRelation(m, { sourceId: "scr_x", targetId: "info_x" }));
+    expectFail(addRelation(m, { sourceId: "scr_x", targetId: "info_x" }), /結べません/);
+    m = okModel(addRelation(m, { sourceId: "uc_record_checkin", targetId: "info_x" }));
     m = okModel(addElement(m, { kind: "ledger", name: "記入用紙", id: "ldg_x" }));
-    m = okModel(addRelation(m, { sourceId: "uc_record_checkin", targetId: "ldg_x" }));
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "ldg_x" }));
     expect(traceToActors(m).problems).toEqual([]);
   });
 
-  it("情報はシステム・帳票からは辿らない (操作に扱われていなければ途切れ)", () => {
+  it("情報は操作に扱われていなければ途切れ (システム・帳票とは直接結べない)", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "information", name: "台帳だけの情報", id: "info_x" }));
-    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "info_x" }));
+    expectFail(addRelation(m, { sourceId: "sys_pms", targetId: "info_x" }), /結べません/);
     expect(traceToActors(m).problems.map((p) => [p.elementId, p.isBreak])).toEqual([["info_x", true]]);
   });
 
@@ -212,7 +215,7 @@ describe("traceWarnings", () => {
   });
 });
 
-describe("traceToActors: 作業の起点 (0.3.1)", () => {
+describe("traceToActors: 作業の起点 (0.4.1)", () => {
   it("起点だけでつながった作業は、担当が無ければ途切れとして出る。起点が循環しても終わり、結果が変わらない", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "activity", name: "起点だけの作業", id: "act_t1" }));

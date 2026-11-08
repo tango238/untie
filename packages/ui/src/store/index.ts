@@ -14,6 +14,7 @@ import { saveLastDesignSystemId } from "./designPrefs";
 import { emptyModel } from "@untie/core/model/types";
 import type { GlobalFilter } from "@untie/core/model/lineage";
 import { createHotelSample } from "@untie/core/sample";
+import { isNarrowViewport } from "../viewport";
 
 /** 履歴の上限 */
 export const HISTORY_LIMIT = 100;
@@ -228,7 +229,26 @@ let toastSeq = 0;
  * 分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
  */
 export const START_BOARD_ID = analysisBoardId("issues");
-const START_UI = { currentBoardId: START_BOARD_ID, rightPanel: "issues" as const, rightPanelOpen: true, mode: "analysis" as const, designSystemId: undefined, designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined, designRelation: undefined };
+/**
+ * 狭い画面 (スマートフォン) では、ペインが画面の上に重なるので、最初は閉じておく
+ * (開くのはツールバーのボタン)。広い画面ではこれまでどおり、右のペインを開いておく
+ */
+function startUi() {
+  const narrow = isNarrowViewport();
+  return {
+    currentBoardId: START_BOARD_ID,
+    rightPanel: "issues" as const,
+    rightPanelOpen: !narrow,
+    mode: "analysis" as const,
+    designSystemId: undefined,
+    designScreenId: undefined,
+    designTransitionId: undefined,
+    designDatabaseId: undefined,
+    designTableName: undefined,
+    designRelation: undefined,
+    ...(narrow ? { elementListOpen: false } : {}),
+  };
+}
 
 /** 設計モードに入るとき、課題一覧のペインはプロパティに替え (設計では使わない)、右のペインを開く (設計ボードの選択はプロパティに出るため) */
 function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOpen"> {
@@ -369,7 +389,14 @@ export function createUntieStore(
     file: null,
     savedModel: null,
     history: { past: [], future: [] },
-    ui: { currentBoardId: startBoardId, selection: null, rightPanel: startPanel, nameFocusNonce: 0, mode: "analysis" },
+    ui: {
+      currentBoardId: startBoardId,
+      selection: null,
+      rightPanel: startPanel,
+      nameFocusNonce: 0,
+      mode: "analysis" as const,
+      ...(isNarrowViewport() ? { rightPanelOpen: false, elementListOpen: false } : {}),
+    },
     dragBase: null,
     agentBase: null,
     toasts: [],
@@ -539,7 +566,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
 
     loadDocument: (model, file) =>
@@ -553,7 +580,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
@@ -571,7 +598,7 @@ export function createUntieStore(
         docSeq: options?.keepUi ? s.docSeq : s.docSeq + 1,
         ui: {
           ...s.ui,
-          ...START_UI,
+          ...startUi(),
           // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析に戻す
           ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
           selection: options?.keepUi?.selection ?? null,
@@ -625,7 +652,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...START_UI, selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
       }));
     },
 

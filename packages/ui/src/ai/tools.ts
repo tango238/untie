@@ -1,5 +1,6 @@
 // AI エージェントがモデルを読み書きする道具。3 社のプロバイダーに同じ定義を渡す。
 // 道具の中身は既存のコマンド (@untie/core の model/commands.ts) を呼ぶだけにし、整合性の検査はコマンドに任せる。
+import { screenInformations } from "@untie/core/model/placement";
 import {
   addElement,
   addRelation,
@@ -11,6 +12,7 @@ import {
   setDatabaseDsl,
   setDesignScreenView,
   setIssueTargets,
+  setRelationAccess,
   setTableInformation,
   updateElement,
   type CommandResult,
@@ -119,11 +121,29 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "add_relation",
     description:
-      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor → activity は担当 (システムは担当にならない)、usecase → system / ledger / screen は対象 (1 つの操作に 1 つだけ)、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、system / ledger → information は取得元、information → system / ledger は保存先、activity → activity は作業の起点 (始点が起点になる作業、終点が起点を持つ作業)、event → activity も作業の起点)。表に無い組み合わせは失敗する。",
+      "2 つの要素を関係で結ぶ。関係の種類は両端の種類から決まる (例: actor → business は主担当、actor / externalActor → activity は担当 (システムは担当にならない)、usecase → system / ledger / screen は対象 (1 つの操作に 1 つだけ)、activity → usecase は使う、usecase → information は扱う、usecase → condition は判断、information ↔ information は関連、information → variation は種別、condition → variation は区分、condition → state は状態参照、state → usecase は実行可、usecase → state は次の状態、activity → activity は作業の起点 (始点が起点になる作業、終点が起点を持つ作業)、event → activity も作業の起点)。表に無い組み合わせは失敗する。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は関係にせず、操作が扱う情報 (usecase → information と access) と操作の対象から導く。",
     parameters: {
       type: "object",
-      properties: { source_id: str("始点の要素 id"), target_id: str("終点の要素 id") },
+      properties: {
+        source_id: str("始点の要素 id"),
+        target_id: str("終点の要素 id"),
+        access: { type: "string", enum: ["read", "write"], description: "usecase → information だけ。操作がその情報を read (取得だけ) するか write (保存だけ) するか。省略は取得も保存もする" },
+      },
       required: ["source_id", "target_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_information_access",
+    description: "操作が情報をどう扱うか (取得・保存の区別) を変える。usecase → information の関係だけ。access を省くと区別なし (取得も保存も) に戻す。",
+    parameters: {
+      type: "object",
+      properties: {
+        usecase_id: str("操作の id"),
+        information_id: str("情報の id"),
+        access: { type: "string", enum: ["read", "write"], description: "read: 取得だけ、write: 保存だけ。省略で取得も保存も" },
+      },
+      required: ["usecase_id", "information_id"],
       additionalProperties: false,
     },
   },
@@ -257,7 +277,7 @@ export function modelForAi(model: UntieModel): unknown {
         }
         return { id, kind, name, ...rest };
       }),
-    relations: model.relations.map((r) => [r.kind, r.sourceId, r.targetId]),
+    relations: model.relations.map((r) => (r.access ? [r.kind, r.sourceId, r.targetId, r.access] : [r.kind, r.sourceId, r.targetId])),
   };
 }
 
@@ -357,7 +377,20 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const sourceId = s(input.source_id);
       const targetId = s(input.target_id);
       if (!sourceId || !targetId) return fail("source_id と target_id が必要です");
-      return run(editor, (m) => addRelation(m, { sourceId, targetId }), (r) => ({ id: (r as { id?: string }).id }));
+      const access = s(input.access);
+      if (access !== undefined && access !== "read" && access !== "write") return fail("access は read か write です");
+      return run(editor, (m) => addRelation(m, { sourceId, targetId, ...(access ? { access } : {}) }), (r) => ({ id: (r as { id?: string }).id }));
+    }
+
+    case "set_information_access": {
+      const usecaseId = s(input.usecase_id);
+      const informationId = s(input.information_id);
+      if (!usecaseId || !informationId) return fail("usecase_id と information_id が必要です");
+      const access = s(input.access);
+      if (access !== undefined && access !== "read" && access !== "write") return fail("access は read か write です");
+      const rel = editor.getModel().relations.find((r) => r.kind === "usecaseInformation" && r.sourceId === usecaseId && r.targetId === informationId);
+      if (!rel) return fail("その操作はその情報を扱っていません (先に add_relation で結んでください)");
+      return run(editor, (m) => setRelationAccess(m, { id: rel.id, access: access ?? null }));
     }
 
     case "remove_relation": {
@@ -503,7 +536,7 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
           hasView: screen.view !== undefined,
           ...(screen.view !== undefined ? { view: screen.view } : {}),
           bindings: (screen.bindings ?? []).map((b) => ({ item: b.item, database_id: b.databaseId, table: b.table, column: b.column })),
-          informations: analysisId ? model.relations.filter((r) => r.kind === "screenInformation" && r.sourceId === analysisId).map((r) => ({ id: r.targetId, name: name(r.targetId) })) : [],
+          informations: analysisId ? (screenInformations(model).get(analysisId) ?? []).map((d) => ({ id: d.id, name: name(d.id) })) : [],
           transitions: design.transitions
             .filter((t) => t.from === id)
             .map((t) => ({ to: t.to, toName: design.screens.find((x) => x.id === t.to) ? designScreenName(model, design.screens.find((x) => x.id === t.to)!) : t.to, ...(t.via ? { via: t.via } : {}), ...(t.label ? { label: t.label } : {}) })),

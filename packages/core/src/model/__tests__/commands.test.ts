@@ -7,8 +7,9 @@ import {
   DEFAULT_FRAME_SIZE,
   moveActivity,
   moveBuc,
-  moveToContext,
   moveNode,
+  moveToContext,
+  moveToSystem,
   placeOnBoard,
   removeBoard,
   removeElement,
@@ -17,9 +18,9 @@ import {
   renameBoard,
   setEdgeSides,
   setIssueTargets,
-  updateElement,
-  moveToSystem,
+  setRelationAccess,
   setUsecaseTarget,
+  updateElement,
 } from "../commands";
 import { repairModel } from "../repair";
 import { validateModel } from "../validate";
@@ -344,6 +345,22 @@ describe("関係", () => {
     expect(m.relations.map((r) => r.kind)).toEqual(["stateUsecase", "usecaseState"]);
   });
 
+  it("操作が扱う情報には取得・保存の区別 (access) を付けられ、setRelationAccess で変えられる。ほかの関係には付けられない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "information", name: "x", id: "info_x" }));
+    m = okModel(addRelation(m, { sourceId: "uc_search_reservation", targetId: "info_x", access: "read", id: "rel_x" }));
+    expect(m.relations.find((r) => r.id === "rel_x")).toMatchObject({ kind: "usecaseInformation", access: "read" });
+    m = okModel(setRelationAccess(m, { id: "rel_x", access: "write" }));
+    expect(m.relations.find((r) => r.id === "rel_x")!.access).toBe("write");
+    // null で区別を外す (取得も保存も)
+    m = okModel(setRelationAccess(m, { id: "rel_x", access: null }));
+    expect("access" in m.relations.find((r) => r.id === "rel_x")!).toBe(false);
+    expectValid(m);
+    expectFail(setRelationAccess(m, { id: "nope", access: "read" }), /存在しません/);
+    expectFail(setRelationAccess(m, { id: "rel_act_clean__uc_update_cleaning", access: "read" }), /操作が扱う情報/);
+    expectFail(addRelation(m, { sourceId: "actor_front", targetId: "act_clean", access: "read" }), /操作が扱う情報/);
+  });
+
   it("removeRelation", () => {
     const m0 = sample();
     const id = m0.relations[0].id;
@@ -594,7 +611,7 @@ describe("操作の対象は 1 つだけ (0.3.0)", () => {
   });
 });
 
-describe("作業の起点 (0.3.1)", () => {
+describe("作業の起点 (0.4.1)", () => {
   it("作業 → 作業 (activityTrigger)・イベント → 作業 (eventActivity) を結べる。自分自身・種類違いは結べず、循環は許す", () => {
     let m = sample();
     const a = "act_clean";

@@ -18,7 +18,7 @@ import { validateModel } from "../validate";
 import { retailSample } from "../../sample";
 import { expectFail, okModel } from "./helpers";
 
-/** システム 2 つ。A: 画面 2 (情報 b, c を扱う)、取得元 d、保存先 a。B: 保存先 e */
+/** システム 2 つ。A: 画面 2 (を使う操作が情報 b, c を扱う)、システムを対象にした操作が情報 a, d を扱う。B: 操作が情報 e を扱う */
 function base(): UntieModel {
   const m = emptyModel();
   m.elements = [
@@ -31,15 +31,23 @@ function base(): UntieModel {
     { id: "info_c", kind: "information", name: "部屋", contextId: null },
     { id: "info_d", kind: "information", name: "あ取得元", contextId: null },
     { id: "info_e", kind: "information", name: "請求", contextId: null },
+    { id: "uc_1", kind: "usecase", name: "一覧を見る" },
+    { id: "uc_2", kind: "usecase", name: "詳細を見る" },
+    { id: "uc_3", kind: "usecase", name: "予約を保存する" },
+    { id: "uc_4", kind: "usecase", name: "請求を保存する" },
   ] as UntieModel["elements"];
   const rel = (kind: string, sourceId: string, targetId: string) => ({ id: `rel_${sourceId}_${targetId}`, kind, sourceId, targetId });
   m.relations = [
-    rel("informationSystem", "info_a", "sys_a"),
-    rel("systemInformation", "sys_a", "info_d"),
-    rel("screenInformation", "scr_1", "info_b"),
-    rel("screenInformation", "scr_2", "info_c"),
-    rel("screenInformation", "scr_2", "info_b"),
-    rel("informationSystem", "info_e", "sys_b"),
+    rel("usecaseScreen", "uc_1", "scr_1"),
+    rel("usecaseInformation", "uc_1", "info_b"),
+    rel("usecaseScreen", "uc_2", "scr_2"),
+    rel("usecaseInformation", "uc_2", "info_c"),
+    rel("usecaseInformation", "uc_2", "info_b"),
+    rel("usecaseSystem", "uc_3", "sys_a"),
+    rel("usecaseInformation", "uc_3", "info_a"),
+    rel("usecaseInformation", "uc_3", "info_d"),
+    rel("usecaseSystem", "uc_4", "sys_b"),
+    rel("usecaseInformation", "uc_4", "info_e"),
   ] as UntieModel["relations"];
   return m;
 }
@@ -48,7 +56,7 @@ const withDb = (m: UntieModel): UntieModel => okModel(setDesignDatabases(m, { sy
 const dbs = (m: UntieModel) => m.databases;
 
 describe("systemInformationIds", () => {
-  it("取得元・保存先・画面が使う情報の和集合を、名前順で返す", () => {
+  it("システムを対象にした操作と、そのシステムの画面を使う操作が扱う情報を、名前順で返す", () => {
     expect(systemInformationIds(base(), "sys_a")).toEqual(["info_d", "info_b", "info_c", "info_a"]);
     expect(systemInformationIds(base(), "sys_b")).toEqual(["info_e"]);
   });

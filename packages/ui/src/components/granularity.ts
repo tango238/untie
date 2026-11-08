@@ -56,13 +56,13 @@ export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
     nameHint: "システム名・サービス名で書きます (例: 宿泊管理システム、予約サイト)",
   },
   ledger: {
-    what: "紙の台帳・伝票など、情報を書き残す・読み取る紙",
+    what: "紙の台帳・伝票など、情報を書き残す・読み取る紙。操作の対象になる",
     size: "1 冊の台帳・1 種類の伝票の単位",
     naming: "台帳・伝票の名前",
     examples: "宿泊者名簿、清掃チェック表",
     tooBig: "紙の書類 → 台帳・伝票ごとに分ける",
     tooSmall: "名簿の 1 ページ → 帳票の中身",
-    question: "紙で、情報を書き残したり読み取ったりするか (作業は受け持たない)",
+    question: "紙で、情報を書き残したり読み取ったりするか (作業は受け持たない。どの情報があるかは、記入・参照する操作から決まる)",
     nameHint: "台帳・伝票の名前で書きます (例: 宿泊者名簿)",
   },
   business: {
@@ -166,7 +166,7 @@ export const GRANULARITY: Record<GuideKind, GranularityGuide> = {
     nameHint: "起きたことを過去の形で書きます (例: 予約が確定した)",
   },
   screen: {
-    what: "システムの画面。操作で使い、情報を表示・入力する",
+    what: "システムの画面。操作で使う (扱う情報は、使う操作から決まる)",
     size: "1 枚の画面 (またはダイアログ) の単位",
     naming: "画面名",
     examples: "予約登録画面、チェックイン画面、在庫一覧",

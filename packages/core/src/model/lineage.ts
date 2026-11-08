@@ -1,6 +1,7 @@
 // トレース: 要素から上 (担い手の側) と下 (詳細の側) へ、直接つながっていない要素まで辿ってレイヤーごとに並べる。
 // 純粋関数だけを置く。
 import { FIXED_LAYERS, fixedLayerOf, type FixedLayer } from "./fixedBoards";
+import { usecasePlaces } from "./placement";
 import { isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /**
@@ -8,11 +9,11 @@ import { isContextMemberKind, type Element, type ElementKind, type UntieModel } 
  * - 業務 → 主担当のアクター
  * - 活動 → 業務
  * - 作業 → 活動 (業務に直接なら業務)、担当 (アクター・外部アクター)
- * - 操作 → 使う作業、きっかけのイベント、対象 (システム・帳票)
+ * - 操作 → 使う作業、きっかけのイベント、対象 (システム・帳票。画面を使うならその画面)
  * - イベント → 発生させる操作・システム、コンテキスト
  * - 画面 → 属するシステム、使う操作
  * - 非機能要件 → 属するシステム、求めるアクター・外部アクター
- * - 情報 → 扱う操作・画面、コンテキスト、取得元・保存先 (システム・帳票)
+ * - 情報 → 扱う操作、コンテキスト (置き場所・画面へは操作を通って届く。0.4.0 から置き場所は操作から導く)
  * - 条件 → 判断に使う操作、コンテキスト
  * - 状態 → 結んだ操作・状態を参照する条件、コンテキスト
  * - バリエーション → 種別にしている情報・条件、コンテキスト
@@ -48,19 +49,23 @@ function upEdges(model: UntieModel): Map<string, string[]> {
       case "conditionVariation":
       case "conditionState":
       case "usecaseState":
-      case "systemInformation":
       case "eventUsecase":
       case "usecaseEvent":
       case "systemEvent":
-      case "usecaseScreen":
-      case "screenInformation":
       case "actorNfr":
         add(r.targetId, r.sourceId);
         break;
+      case "usecaseScreen": {
+        add(r.targetId, r.sourceId);
+        // 画面を使う操作は、その画面のシステムを対象とみなす (usecaseSystem と同じ向き)。
+        // これで、システムから下へ辿ると画面を使う操作とその情報にも届く
+        const screen = byId.get(r.targetId);
+        if (screen?.kind === "screen") add(r.sourceId, screen.systemId);
+        break;
+      }
       case "stateUsecase":
-      case "informationSystem":
       case "usecaseSystem":
-        // 始点が下位 (状態 → 操作、情報 → 保存先、操作 → 対象) なので向きを逆にする
+        // 始点が下位 (状態 → 操作、操作 → 対象) なので向きを逆にする
         add(r.sourceId, r.targetId);
         break;
       case "informationRelated":
@@ -77,7 +82,7 @@ function upEdges(model: UntieModel): Map<string, string[]> {
 /**
  * 種類どうしの上下 (upEdges を種類にまとめたもの)。要素の種類から、上下に来うるレイヤーを決めるのに使う。
  * 登場人物は種類ごとに違う: アクターは業務の主担当と作業の担当、外部アクターは作業の担当、
- * システムは操作の対象・情報の置き場所・イベントの発生元と、画面・非機能要件の持ち主、帳票は操作の対象と情報の置き場所になる。
+ * システムは操作の対象・イベントの発生元と、画面・非機能要件の持ち主、帳票は操作の対象になる (情報の置き場所は操作を通って届く)。
  * コンテキストは分類なので上を持たない (上へは属する要素から辿る)
  */
 const KIND_UP: Partial<Record<ElementKind, readonly ElementKind[]>> = {
@@ -88,7 +93,7 @@ const KIND_UP: Partial<Record<ElementKind, readonly ElementKind[]>> = {
   event: ["usecase", "system"],
   screen: ["system", "usecase"],
   nfr: ["system", "actor", "externalActor"],
-  information: ["usecase", "screen", "context", "system", "ledger"],
+  information: ["usecase", "context"],
   condition: ["usecase", "context"],
   state: ["usecase", "condition", "context"],
   variation: ["information", "condition", "context"],
@@ -234,7 +239,7 @@ export function globalFilterCount(model: UntieModel, filter: GlobalFilter | unde
  * グローバルフィルターに合う要素。フィルターが空なら null (絞り込まない)。
  * レイヤーの中では「どれかにつながる」(OR)、レイヤーどうしは「すべてにつながる」(AND)。
  * つながるかはトレースと同じく上下へ辿って決める。そのうえで、合う要素が属するコンテキストと、
- * 合う情報の置き場所 (システム・帳票) も含める (これらは情報より上に辿るので、下へ辿っても届かないため)
+ * 合う操作の対象 (システム・帳票。情報の置き場所) も含める (これらは上に辿るので、下へ辿っても届かないため)
  */
 export function globalFilterScope(model: UntieModel, filter: GlobalFilter | undefined): Set<string> | null {
   if (!filter) return null;
@@ -254,10 +259,8 @@ export function globalFilterScope(model: UntieModel, filter: GlobalFilter | unde
     if (!scope.has(e.id)) continue;
     if (isContextMemberKind(e.kind) && "contextId" in e && e.contextId) extra.add(e.contextId);
   }
-  for (const r of model.relations) {
-    if (r.kind === "systemInformation" && scope.has(r.targetId)) extra.add(r.sourceId);
-    if (r.kind === "informationSystem" && scope.has(r.sourceId)) extra.add(r.targetId);
-  }
+  const places = usecasePlaces(model);
+  for (const [usecaseId, placeId] of places) if (scope.has(usecaseId)) extra.add(placeId);
   for (const id of extra) scope.add(id);
   return scope;
 }

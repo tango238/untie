@@ -57,7 +57,7 @@ const PAIRS: [string, string, Relation["kind"]][] = [
   ["uc_4", "scr_4", "usecaseScreen"],
   ["uc_5", "scr_5", "usecaseScreen"],
   ["uc_1", "uc_2", "usecaseNext"],
-  ["scr_1", "info_1", "screenInformation"],
+  ["uc_1", "info_1", "usecaseInformation"],
 ];
 
 function model(): UntieModel {

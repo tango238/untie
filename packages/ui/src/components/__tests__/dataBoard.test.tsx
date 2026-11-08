@@ -45,12 +45,17 @@ const ELEMENTS: Element[] = [
   { id: "info_b", kind: "information", name: "客", description: "宿泊客", contextId: null },
   { id: "info_c", kind: "information", name: "部屋", contextId: null },
   { id: "info_x", kind: "information", name: "他システムの情報", contextId: null },
+  { id: "uc_sys", kind: "usecase", name: "予約を保存する" },
+  { id: "uc_scr", kind: "usecase", name: "予約一覧を見る" },
 ] as Element[];
 
 const RELATIONS: [string, string, Relation["kind"]][] = [
-  ["info_a", "sys_a", "informationSystem"],
-  ["scr_1", "info_b", "screenInformation"],
-  ["scr_1", "info_c", "screenInformation"],
+  // 情報の置き場所と画面が扱う情報は、操作が扱う情報と操作の対象から導く
+  ["uc_sys", "sys_a", "usecaseSystem"],
+  ["uc_sys", "info_a", "usecaseInformation"],
+  ["uc_scr", "scr_1", "usecaseScreen"],
+  ["uc_scr", "info_b", "usecaseInformation"],
+  ["uc_scr", "info_c", "usecaseInformation"],
 ];
 
 function model(): UntieModel {

@@ -13,7 +13,7 @@ const spec: ModelSpec = {
   contexts: [{ name: "予約" }],
   variations: [{ name: "予約経路", values: ["電話", "予約サイト"], context: "予約" }],
   state_groups: [{ name: "予約の状態", context: "予約", states: [{ name: "仮予約" }, { name: "確定" }] }],
-  informations: [{ name: "予約", context: "予約", variations: ["予約経路"], sources: ["予約サイト"], stores: ["予約台帳"] }],
+  informations: [{ name: "予約", context: "予約", variations: ["予約経路"] }],
   conditions: [{ name: "満室である", context: "予約", states: ["確定"] }],
   businesses: [
     {
@@ -23,13 +23,13 @@ const spec: ModelSpec = {
         {
           name: "予約を受け付ける",
           performers: ["フロント係", "宿泊客"],
-          usecases: [{ name: "予約を登録する", informations: ["予約"], conditions: ["満室である"], to_states: ["仮予約"] }],
+          usecases: [{ name: "予約を登録する", writes: ["予約"], conditions: ["満室である"], to_states: ["仮予約"], targets: ["予約サイト"] }],
         },
       ],
       bucs: [
         {
           name: "予約確定",
-          activities: [{ name: "予約を確定する", performers: ["フロント係"], usecases: [{ name: "予約を確定する", informations: ["予約"], from_states: ["仮予約"], to_states: ["確定"] }] }],
+          activities: [{ name: "予約を確定する", performers: ["フロント係"], usecases: [{ name: "予約を確定する", informations: ["予約"], from_states: ["仮予約"], to_states: ["確定"], targets: ["予約台帳"] }] }],
         },
       ],
     },
@@ -46,9 +46,12 @@ describe("buildModelFromSpec", () => {
     expect(r.model.meta).toMatchObject({ name: "小さな旅館", description: "予約から精算まで" });
     expect(r.counts).toMatchObject({ business: 1, buc: 1, activity: 2, usecase: 2, actor: 1, externalActor: 1, system: 1, ledger: 1, information: 1, state: 2, issue: 1 });
     const kinds = new Set(r.model.relations.map((x) => x.kind));
-    for (const k of ["actorBusiness", "actorActivity", "activityUsecase", "usecaseInformation", "usecaseCondition", "stateUsecase", "usecaseState", "systemInformation", "informationSystem", "informationVariation", "conditionState"]) {
+    for (const k of ["actorBusiness", "actorActivity", "activityUsecase", "usecaseInformation", "usecaseCondition", "stateUsecase", "usecaseState", "informationVariation", "conditionState"]) {
       expect(kinds.has(k as never)).toBe(true);
     }
+    // 取得・保存の区別は usecase → information の access に付く
+    const accesses = r.model.relations.filter((x) => x.kind === "usecaseInformation").map((x) => x.access);
+    expect(accesses.sort()).toEqual(["write", undefined]);
     const issue = r.model.elements.find((e) => e.kind === "issue");
     expect(issue && issue.kind === "issue" && issue.targetIds).toHaveLength(1);
   });

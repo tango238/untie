@@ -18,11 +18,13 @@ export const ROOT_NAMES = {
 /** 順序キーを入れる項目名 (要素・ボードは Y.Map のキー、関係・ノード・線は値の項目) */
 export const ORDER_KEY = "order";
 
-/** 関係の値。作ったあと変えないので JSON の値ごと置く。order は配列の順 */
+/** 関係の値。JSON の値ごと置く (access を変えるときも値ごと置き直す)。order は配列の順 */
 export interface RelationRecord {
   kind: string;
   sourceId: string;
   targetId: string;
+  /** 操作が情報をどう扱うか (usecaseInformation だけ。read / write。無ければ取得も保存も) */
+  access?: string;
   order: string;
 }
 
@@ -42,7 +44,7 @@ export interface EdgeRecord {
   order: string;
 }
 
-// 設計データ (0.4.0) は、入れ子の Y.Map を使わず、ルートごとに平らな「キー → JSON の値」で置く。
+// 設計データ (0.5.0) は、入れ子の Y.Map を使わず、ルートごとに平らな「キー → JSON の値」で置く。
 // 決まったキーに Y.Map を新しく set する作りだと、2 人が同時に作ったときに片方が丸ごと消える (後から作った Y.Map ごと負ける)。
 // 値だけなら、別々のキーに足したものは両方残り、同じキーへの同時の書き込みは後勝ちで 1 つになる。
 

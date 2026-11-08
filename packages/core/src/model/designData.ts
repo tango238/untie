@@ -2,26 +2,20 @@
 import type { CommandResult } from "./commands";
 import { setDatabaseDesign } from "./commands";
 import { effectiveDatabaseIds } from "./design";
+import { placeInformations } from "./placement";
 import { parsePrismaDslCached } from "./prismaCache";
 import type { Database, Element, UntieModel } from "./types";
 
 const nameOf = (e: Element | undefined): string => e?.name || "(名前なし)";
 
 /**
- * システムが使う情報の id (名前順)。次の和集合:
- * - システムに取得元 (system → information) か保存先 (information → system) として結んだ情報
- * - そのシステムの画面が扱う (screen → information) 情報
+ * システムが使う情報の id (名前順)。対象がそのシステム (直接か、そのシステムの画面を使う) の操作が扱う情報 (placement.ts の placeInformations)。
+ * 取得元・保存先・画面が扱う情報は保存せず操作から導くので、この 1 つの導出にそろう
  */
 export function systemInformationIds(model: UntieModel, systemId: string): string[] {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
-  const screenIds = new Set(model.elements.filter((e) => e.kind === "screen" && e.systemId === systemId).map((e) => e.id));
-  const ids = new Set<string>();
-  for (const r of model.relations) {
-    if (r.kind === "systemInformation" && r.sourceId === systemId) ids.add(r.targetId);
-    else if (r.kind === "informationSystem" && r.targetId === systemId) ids.add(r.sourceId);
-    else if (r.kind === "screenInformation" && screenIds.has(r.sourceId)) ids.add(r.targetId);
-  }
-  return [...ids]
+  const ids = (placeInformations(model).get(systemId) ?? []).map((d) => d.id);
+  return ids
     .filter((id) => byId.get(id)?.kind === "information")
     .sort((a, b) => nameOf(byId.get(a)).localeCompare(nameOf(byId.get(b)), "ja") || a.localeCompare(b));
 }

@@ -60,6 +60,14 @@ export default function App() {
   // 関連ボードは、左に情報・テーブル・画面の一覧、右に選んだものの詳細を出す
   const relation = design === "relation";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
+  // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
+  // (広い画面では CSS で隠れる)
+  const listDrawerOpen = !builtin && elementListOpen;
+  const closeDrawers = () => {
+    setRightPanelOpen(false);
+    setElementListOpen(false);
+  };
   return (
     <div className="app">
       {readOnly && role && (
@@ -80,6 +88,9 @@ export default function App() {
       <div
         className={`main${sitemap || data || navigation || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
       >
+        {(listDrawerOpen || rightPanelOpen) && (
+          <div className="pane-backdrop" data-testid="pane-backdrop" onClick={closeDrawers} />
+        )}
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}

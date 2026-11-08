@@ -1,3 +1,4 @@
+import { informationPlaces } from "../../model/placement";
 import { describe, expect, it } from "vitest";
 import { createRetailSample, retailSample, SAMPLES } from "..";
 import { traceToActors, traceWarnings } from "../../model/trace";
@@ -23,7 +24,7 @@ describe("店舗サンプル", () => {
     expect(count("actor")).toBe(6);
     expect(count("externalActor")).toBe(2);
     expect(count("system")).toBe(4);
-    expect(count("ledger")).toBe(3);
+    expect(count("ledger")).toBe(2);
     expect(count("buc")).toBe(7 + 3);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
@@ -130,18 +131,21 @@ describe("店舗サンプル", () => {
     for (const act of ["act_manage_settlement", "act_clear_receivable"]) {
       expect(usecasesOf(act).some((uc) => rels.some((r) => r.kind === "usecaseSystem" && r.sourceId === uc && r.targetId === "sys_accounting")), act).toBe(true);
     }
+    // 置き場所は操作から導く: 売掛金・入金は会計システムに保存される
+    const places = informationPlaces(retailSample);
     for (const info of ["info_receivable", "info_settlement"]) {
-      expect(rels.some((r) => r.kind === "informationSystem" && r.sourceId === info && r.targetId === "sys_accounting"), info).toBe(true);
+      expect(places.get(info)?.find((p) => p.id === "sys_accounting")?.roles, info).toContain("store");
     }
     expect(rels.some((r) => r.kind === "usecaseState" && r.sourceId === "uc_clear_receivable" && r.targetId === "st_rec_cleared")).toBe(true);
   });
 
   it("会計システムで損益計算書 (PL) と貸借対照表 (BS) を見られ、売掛金は BS に、売上は PL につながる", () => {
     const rels = retailSample.relations;
+    const places = informationPlaces(retailSample);
     for (const info of ["info_pl", "info_bs"]) {
-      expect(rels.some((r) => r.kind === "systemInformation" && r.sourceId === "sys_accounting" && r.targetId === info), info).toBe(true);
+      expect(places.get(info)?.find((p) => p.id === "sys_accounting")?.roles, info).toEqual(["source"]);
     }
-    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_pl" && r.targetId === "info_pl")).toBe(true);
+    expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_pl" && r.targetId === "info_pl" && r.access === "read")).toBe(true);
     expect(rels.some((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_view_bs" && r.targetId === "info_bs")).toBe(true);
     expect(rels.some((r) => r.kind === "informationRelated" && [r.sourceId, r.targetId].sort().join() === ["info_bs", "info_receivable"].join())).toBe(true);
   });

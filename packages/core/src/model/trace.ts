@@ -21,8 +21,8 @@ const NO_PARENT_REASONS: Partial<Record<ElementKind, string>> = {
   nfr: "属するシステムがありません",
   context: "情報・状態・条件・バリエーションが入っていません",
   information: "どの操作にも扱われておらず、扱われている情報とも関連していません",
-  system: "どの操作の対象にも、情報の取得元・保存先にもなっておらず、画面もイベントもありません",
-  ledger: "どの操作の対象にも、情報の取得元・保存先にもなっていません",
+  system: "どの操作の対象にもなっておらず、画面もイベントもありません",
+  ledger: "どの操作の対象にもなっていません",
   condition: "どの操作の判断にも使われていません",
   variation: "どの情報・条件の種別にもなっていません",
   state: "どの操作・条件ともつながっていません",
@@ -39,8 +39,8 @@ export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
   nfr: "プロパティ欄で、属するシステムを選んでください。",
   context: "情報・状態・条件・バリエーションのプロパティ欄で、このコンテキストを選んでください。",
   information: "情報のボードのプロパティ欄の「関係を追加」で、扱う操作を結んでください。",
-  system: "プロパティ欄の「関係を追加」で、対象にする操作か、取得元・保存先として情報を結んでください。",
-  ledger: "プロパティ欄の「関係を追加」で、対象にする操作か、取得元・保存先として情報を結んでください。",
+  system: "プロパティ欄の「関係を追加」で対象にする操作を結ぶか、操作のプロパティ欄の「対象」でこのシステム (か、その画面) を選んでください。",
+  ledger: "プロパティ欄の「関係を追加」で対象にする操作を結ぶか、操作のプロパティ欄の「対象」でこの帳票を選んでください。",
   condition: "プロパティ欄の「関係を追加」で、判断に使う操作を結んでください。",
   variation: "プロパティ欄の「関係を追加」で、種別にする情報か条件を結んでください。",
   state: "プロパティ欄の「関係を追加」で、操作か条件を結んでください。",
@@ -54,9 +54,9 @@ export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
  * - 操作 ← 使う作業、きっかけのイベント
  * - イベント ← 発生させる操作・システム
  * - 画面・非機能要件 ← 属するシステム
- * - 情報 ← 扱う操作・画面、関連する情報
+ * - 情報 ← 扱う操作、関連する情報 (置き場所からは辿らない。置き場所は扱う操作から導くので)
  * - コンテキスト ← 入っている情報・状態・条件・バリエーション
- * - 帳票 ← 取得元・保存先として結んだ情報、対象にする操作
+ * - 帳票 ← 対象にする操作
  * システムは担い手なので辿り着く先になる。何とも結ばれていないシステムは別に知らせる。
  * - 条件 ← 判断に使う操作
  * - バリエーション ← 種別にしている情報・条件
@@ -85,11 +85,9 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
       case "conditionVariation":
       case "conditionState":
       case "usecaseState":
-      case "informationSystem":
       case "usecaseEvent":
       case "systemEvent":
       case "eventUsecase":
-      case "screenInformation":
         add(r.targetId, r.sourceId);
         break;
       case "usecaseSystem":
@@ -97,8 +95,7 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
         add(r.targetId, r.sourceId);
         break;
       case "stateUsecase":
-      case "systemInformation":
-        // 始点が下位 (状態 → 操作、システム・帳票 → 情報) なので向きを逆にする
+        // 始点が下位 (状態 → 操作) なので向きを逆にする
         add(r.sourceId, r.targetId);
         break;
       case "informationRelated":
@@ -163,11 +160,11 @@ export function traceToActors(model: UntieModel): TraceResult {
   }
 
   const targets = model.elements.filter(isTraceTarget);
-  // システムは辿り着く先だが、操作の対象・情報の置き場所・イベントの発生元のどれでもなく、画面も無ければ途切れとする
+  // システムは辿り着く先だが、操作の対象・イベントの発生元のどちらでもなく、画面も無ければ途切れとする (情報の置き場所は対象から導くので、別には数えない)
   const linkedSystems = new Set<string>();
   for (const r of model.relations) {
-    if (r.kind === "systemInformation" || r.kind === "systemEvent") linkedSystems.add(r.sourceId);
-    if (r.kind === "informationSystem" || r.kind === "usecaseSystem") linkedSystems.add(r.targetId);
+    if (r.kind === "systemEvent") linkedSystems.add(r.sourceId);
+    if (r.kind === "usecaseSystem") linkedSystems.add(r.targetId);
   }
   for (const e of model.elements) if (e.kind === "screen") linkedSystems.add(e.systemId);
   const unreached = targets.filter((e) => !reached.has(e.id) || (e.kind === "system" && !linkedSystems.has(e.id)));

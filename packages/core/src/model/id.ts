@@ -22,7 +22,7 @@ export const ID_PREFIXES: Record<IdKind, string> = {
   nfr: "nfr",
   relation: "rel",
   board: "board",
-  // 設計データ (0.4.0): サイトマップの画面と遷移
+  // 設計データ (0.5.0): サイトマップの画面と遷移
   designScreen: "ds",
   transition: "tr",
   database: "db",

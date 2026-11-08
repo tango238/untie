@@ -42,24 +42,80 @@ export const MIGRATIONS: readonly Migration[] = [
     migrate: migrateSingleUsecaseTarget,
   },
   {
-    // 0.3.1: 作業の起点。新しい関係 (activityTrigger・eventActivity) と、作業の項目 triggerNote を足すだけなので変換は要らない
+    // 0.4.0: 情報の置き場所 (取得元 systemInformation・保存先 informationSystem) と画面が扱う情報 (screenInformation) は保存せず、
+    // 操作が扱う情報 (usecaseInformation) と操作の対象から導く。取得・保存の区別は usecaseInformation の access に移す
     from: "0.3.0",
-    to: "0.3.1",
-    migrate: (json) => json,
-  },
-  {
-    // 0.4.0: 設計モードの入れ物 (designs・databases)。どちらも必須なので、空配列を足す
-    from: "0.3.1",
     to: "0.4.0",
-    migrate: (json) => ({ ...json, designs: Array.isArray(json.designs) ? json.designs : [], databases: Array.isArray(json.databases) ? json.databases : [] }),
+    migrate: migrateDerivedPlacement,
   },
   {
-    // 0.4.1: 設計の画面ごとのレイアウトの上書き (DesignScreen.shell)。省略できる項目を足すだけなので変換は要らない
+    // 0.4.1: 作業の起点。新しい関係 (activityTrigger・eventActivity) と、作業の項目 triggerNote を足すだけなので変換は要らない
     from: "0.4.0",
     to: "0.4.1",
     migrate: (json) => json,
   },
+  {
+    // 0.5.0: 設計モードの入れ物 (designs・databases)。どちらも必須なので、空配列を足す
+    from: "0.4.1",
+    to: "0.5.0",
+    migrate: (json) => ({ ...json, designs: Array.isArray(json.designs) ? json.designs : [], databases: Array.isArray(json.databases) ? json.databases : [] }),
+  },
+  {
+    // 0.5.1: 設計の画面ごとのレイアウトの上書き (DesignScreen.shell)。省略できる項目を足すだけなので変換は要らない
+    from: "0.5.0",
+    to: "0.5.1",
+    migrate: (json) => json,
+  },
 ];
+
+/**
+ * 0.3.0 → 0.4.0: 置き場所と画面の情報の関係を外し、取得・保存の区別を操作が扱う情報の access に移す。
+ * 操作 → 情報 ごとに、その操作の対象 (システム・帳票。画面ならその画面のシステム) に、旧データで取得元だけがあれば read、保存先だけがあれば write、両方 (またはどちらも無い) なら省略 (取得も保存も)。
+ * どの操作にも扱われていない情報の置き場所と、操作で扱わない画面の情報は導けないので消える (件数を知らせる)
+ */
+export function migrateDerivedPlacement(json: Record<string, unknown>, notes: string[]): Record<string, unknown> {
+  const elements = Array.isArray(json.elements) ? (json.elements as { id?: unknown; kind?: unknown; systemId?: unknown }[]) : [];
+  const relations = Array.isArray(json.relations) ? (json.relations as (RelationJson & { access?: unknown })[]) : [];
+  const dropped = relations.filter((r) => r && (r.kind === "systemInformation" || r.kind === "informationSystem" || r.kind === "screenInformation"));
+  if (dropped.length === 0) return json;
+
+  const systemOfScreen = new Map<string, string>();
+  for (const e of elements) if (e && e.kind === "screen" && typeof e.id === "string" && typeof e.systemId === "string") systemOfScreen.set(e.id, e.systemId);
+  const placeOf = new Map<string, string>();
+  for (const r of relations) {
+    if (!r) continue;
+    if (r.kind === "usecaseSystem") placeOf.set(r.sourceId, r.targetId);
+    if (r.kind === "usecaseScreen") {
+      const sys = systemOfScreen.get(r.targetId);
+      if (sys) placeOf.set(r.sourceId, sys);
+    }
+  }
+  const sources = new Set(dropped.filter((r) => r.kind === "systemInformation").map((r) => `${r.sourceId}\0${r.targetId}`));
+  const stores = new Set(dropped.filter((r) => r.kind === "informationSystem").map((r) => `${r.targetId}\0${r.sourceId}`));
+
+  // 導けるようになった置き場所 (置き場所\0情報)
+  const derived = new Set<string>();
+  const kept = relations
+    .filter((r) => !dropped.includes(r))
+    .map((r) => {
+      if (!r || r.kind !== "usecaseInformation") return r;
+      const place = placeOf.get(r.sourceId);
+      if (!place) return r;
+      const key = `${place}\0${r.targetId}`;
+      derived.add(key);
+      const read = sources.has(key);
+      const write = stores.has(key);
+      const { access: _old, ...rest } = r;
+      if (read && !write) return { ...rest, access: "read" };
+      if (write && !read) return { ...rest, access: "write" };
+      return rest;
+    });
+  const lostPlaces = new Set([...sources, ...stores].filter((key) => !derived.has(key)));
+  const placeNote = lostPlaces.size > 0 ? `。うち ${lostPlaces.size} 件の置き場所は、その情報を扱う操作の対象になっていないので、導けず消えます` : "";
+  notes.push(`情報の取得元・保存先と画面が扱う情報は、操作が扱う情報 (取得・保存) と操作の対象から導くようになったので、${dropped.length} 本の関係を外しました${placeNote}`);
+  const removedIds = new Set(dropped.map((r) => r.id));
+  return { ...json, relations: kept, boards: dropEdges(json.boards, removedIds) };
+}
 
 /** 0.2.0 → 0.3.0: 操作の対象 (システム・帳票・画面) を 1 本にする */
 function migrateSingleUsecaseTarget(json: Json, notes: string[]): Json {

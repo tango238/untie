@@ -13,10 +13,13 @@ const ELEMENTS: Element[] = [
   { id: "scr_2", kind: "screen", name: "予約登録", systemId: "sys_a" },
   { id: "info_1", kind: "information", name: "予約", contextId: null },
   { id: "info_2", kind: "information", name: "客", contextId: null },
+  { id: "uc_1", kind: "usecase", name: "予約を探す" },
 ] as Element[];
 const PAIRS: [string, string, Relation["kind"]][] = [
-  ["scr_1", "info_1", "screenInformation"],
-  ["scr_1", "info_2", "screenInformation"],
+  // 画面が使う情報は、その画面を使う操作が扱う情報から導く
+  ["uc_1", "scr_1", "usecaseScreen"],
+  ["uc_1", "info_1", "usecaseInformation"],
+  ["uc_1", "info_2", "usecaseInformation"],
 ];
 
 function base(): UntieModel {

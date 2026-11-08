@@ -54,7 +54,7 @@ describe("設計ボードの id", () => {
   });
 });
 
-describe("validateModel: 設計データ (0.4.0)", () => {
+describe("validateModel: 設計データ (0.5.0)", () => {
   it("正しい設計は通る", () => {
     expect(errorsOf(designed())).toEqual([]);
     expect(validateModel(JSON.parse(JSON.stringify(designed()))).ok).toBe(true);

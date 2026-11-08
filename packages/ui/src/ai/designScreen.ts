@@ -1,6 +1,7 @@
 // 設計モードの画面ボード「AI で作る」: 画面の材料 (使う操作・情報・遷移)、使うデータベースのテーブルと列から、
 // 画面 UI (mokkun v2 の view) と、項目と列の対応 (bindings) を一回きりで作らせる。AI は submit_screen で結果を提出する。
 // view は mokkun の検証 (parseV2Document) に通し、エラーがあれば 1 回だけ出し直させる。存在しないデータベース・テーブル・列の対応は捨てる。
+import { screenInformations } from "@untie/core/model/placement";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { viewBindingSlots } from "@untie/core/model/designView";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
@@ -93,12 +94,10 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
         })
     : [];
   const informations = analysis
-    ? model.relations
-        .filter((r) => r.kind === "screenInformation" && r.sourceId === analysis.id)
-        .map((r) => {
-          const info = byId.get(r.targetId);
-          return { id: r.targetId, name: nameOf(info), ...(info?.description ? { description: info.description } : {}) };
-        })
+    ? (screenInformations(model).get(analysis.id) ?? []).map((d) => {
+        const info = byId.get(d.id);
+        return { id: d.id, name: nameOf(info), ...(info?.description ? { description: info.description } : {}) };
+      })
     : [];
   const screenInfo = {
     id: screen.id,

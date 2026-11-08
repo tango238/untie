@@ -1,6 +1,6 @@
 // 架空の宿泊施設のサンプルモデル (設計書 7 章)。実在の施設・データは使わない。
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -95,11 +95,13 @@ const usecases: Element[] = [
     hours: 0.2,
     links: [{ title: "宿泊管理システム操作手順 (チェックイン)", url: "https://example.com/manual/pms-checkin" }],
   },
+  { id: "uc_fill_register", kind: "usecase", name: "宿泊者名簿に記入する" },
   { id: "uc_assign_room", kind: "usecase", name: "部屋の割り当てを記録する", hours: 0.1 },
   { id: "uc_calc_charge", kind: "usecase", name: "請求金額を計算する" },
   { id: "uc_register_extra", kind: "usecase", name: "追加料金を登録する" },
   { id: "uc_issue_invoice", kind: "usecase", name: "請求書を発行する" },
   { id: "uc_record_payment", kind: "usecase", name: "決済を記録する" },
+  { id: "uc_record_sales", kind: "usecase", name: "売上を計上する" },
   { id: "uc_record_checkout", kind: "usecase", name: "チェックアウトを記録する" },
   { id: "uc_update_cleaning", kind: "usecase", name: "清掃状況を更新する" },
 ];
@@ -198,7 +200,7 @@ const issues: Element[] = [
 
 // ---------------------------------------------------------------- 関係
 
-const pairs: [source: string, target: string][] = [
+const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // actorBusiness
   ["actor_reservation", "biz_reservation"],
   ["actor_front", "biz_checkin"],
@@ -233,35 +235,40 @@ const pairs: [source: string, target: string][] = [
   ["act_change_cancel", "uc_cancel_reservation"],
   ["act_confirm_arrival", "uc_search_reservation"],
   ["act_verify_identity", "uc_record_checkin"],
+  ["act_verify_identity", "uc_fill_register"],
   ["act_assign_room", "uc_assign_room"],
   ["act_record_extra", "uc_register_extra"],
   ["act_create_bill", "uc_issue_invoice"],
   ["act_settle", "uc_record_payment"],
+  ["act_settle", "uc_record_sales"],
   ["act_collect_key", "uc_record_checkout"],
   ["act_instruct_cleaning", "uc_update_cleaning"],
   ["act_clean", "uc_update_cleaning"],
   ["act_inspect_room", "uc_update_cleaning"],
-  // usecaseInformation
+  // usecaseInformation (操作 → 情報: 扱う)。3 つ目は取得・保存の区別 (read: 取得だけ、write: 保存だけ、無ければ両方)。
+  // 情報の置き場所 (取得元・保存先) と画面が扱う情報は、これと操作の対象から導く (0.4.0 から)
   ["uc_register_reservation", "info_reservation"],
   ["uc_register_reservation", "info_guest"],
-  ["uc_search_reservation", "info_reservation"],
+  ["uc_search_reservation", "info_reservation", "read"],
   ["uc_confirm_reservation", "info_reservation"],
   ["uc_change_reservation", "info_reservation"],
   ["uc_cancel_reservation", "info_reservation"],
   ["uc_record_checkin", "info_reservation"],
   ["uc_record_checkin", "info_guest"],
+  ["uc_fill_register", "info_guest", "write"],
   ["uc_assign_room", "info_room"],
-  ["uc_assign_room", "info_reservation"],
+  ["uc_assign_room", "info_reservation", "read"],
   ["uc_register_extra", "info_bill"],
   ["uc_calc_charge", "info_bill"],
-  ["uc_calc_charge", "info_plan"],
-  ["uc_issue_invoice", "info_bill"],
-  ["uc_issue_invoice", "info_plan"],
+  ["uc_calc_charge", "info_plan", "read"],
+  ["uc_issue_invoice", "info_bill", "read"],
+  ["uc_issue_invoice", "info_plan", "read"],
   ["uc_record_payment", "info_bill"],
+  ["uc_record_sales", "info_bill", "write"],
   ["uc_record_checkout", "info_reservation"],
   ["uc_record_checkout", "info_room"],
   ["uc_update_cleaning", "info_cleaning_record"],
-  ["uc_update_cleaning", "info_room"],
+  ["uc_update_cleaning", "info_room", "read"],
   // usecaseCondition
   ["uc_register_reservation", "cond_full"],
   ["uc_assign_room", "cond_full"],
@@ -273,21 +280,6 @@ const pairs: [source: string, target: string][] = [
   ["info_reservation", "info_plan"],
   ["info_bill", "info_reservation"],
   ["info_cleaning_record", "info_room"],
-  // systemInformation (システム → 情報: 取得元)
-  ["sys_pms", "info_reservation"],
-  ["sys_pms", "info_guest"],
-  ["sys_pms", "info_room"],
-  ["sys_pms", "info_plan"],
-  ["sys_pms", "info_bill"],
-  ["sys_booking_site", "info_reservation"],
-  ["sys_payment", "info_bill"],
-  // informationSystem (情報 → システム: 保存先)
-  ["info_reservation", "sys_pms"],
-  ["info_guest", "sys_pms"],
-  ["info_guest", "ldg_guest_register"],
-  ["info_room", "sys_pms"],
-  ["info_bill", "sys_accounting"],
-  ["info_cleaning_record", "ldg_cleaning_sheet"],
   // informationVariation
   ["info_room", "var_room_type"],
   ["info_reservation", "var_channel"],
@@ -327,6 +319,18 @@ const pairs: [source: string, target: string][] = [
   ["uc_calc_charge", "ev_charge_calculated"],
   ["ev_charge_calculated", "uc_issue_invoice"],
   // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
+  ["uc_confirm_reservation", "sys_pms"],
+  ["uc_search_reservation", "sys_pms"],
+  ["uc_change_reservation", "sys_pms"],
+  ["uc_cancel_reservation", "sys_pms"],
+  ["uc_record_checkin", "sys_pms"],
+  ["uc_fill_register", "ldg_guest_register"],
+  ["uc_assign_room", "sys_pms"],
+  ["uc_register_extra", "sys_pms"],
+  ["uc_issue_invoice", "sys_pms"],
+  ["uc_record_sales", "sys_accounting"],
+  ["uc_record_checkout", "sys_pms"],
+  ["uc_update_cleaning", "ldg_cleaning_sheet"],
   ["uc_register_reservation", "sys_booking_site"],
   ["uc_record_payment", "sys_payment"],
   // activityTrigger / eventActivity (作業の起点)
@@ -364,12 +368,12 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-const relations: Relation[] = pairs.map(([sourceId, targetId]) => {
+const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId };
+  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

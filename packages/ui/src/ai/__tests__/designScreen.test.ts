@@ -50,7 +50,7 @@ function setup(): UntieModel {
     { id: "uc_1", kind: "usecase", name: "検索する" },
   ] as UntieModel["elements"];
   const rel = (kind: string, sourceId: string, targetId: string) => ({ id: `rel_${sourceId}_${targetId}`, kind, sourceId, targetId });
-  m0.relations = [rel("activityUsecase", "act_1", "uc_1"), rel("usecaseScreen", "uc_1", "scr_1"), rel("screenInformation", "scr_1", "info_1")] as UntieModel["relations"];
+  m0.relations = [rel("activityUsecase", "act_1", "uc_1"), rel("usecaseScreen", "uc_1", "scr_1"), rel("usecaseInformation", "uc_1", "info_1")] as UntieModel["relations"];
   let m = okModel(
     addDesignScreens(m0, {
       systemId: "sys_a",

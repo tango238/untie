@@ -59,7 +59,7 @@ export function truncateElementStrings<T extends object>(element: T): TruncatedE
   return { element: out as T, fields };
 }
 
-// ---------------------------------------------------------------- 設計データ (0.4.0)
+// ---------------------------------------------------------------- 設計データ (0.5.0)
 // 設計の name 型の文字列 (ナビの group / label、遷移の label、header.*、bindings の item / table / column、テーブル名、データベース名) と DSL。
 // 形がまだ検査されていない値 (Y.Doc から読んだもの) も受けるので、文字列でない項目には触れない。何も切らなければ同じ参照を返す
 
@@ -162,7 +162,7 @@ export function truncateModelStrings(model: UntieModel): { model: UntieModel; ch
     return { ...b, name };
   }) as UntieModel["boards"];
 
-  // 設計データ (0.4.0)
+  // 設計データ (0.5.0)
   let designsChanged = false;
   const designs = model.designs.map((d) => {
     const fields: string[] = [];

@@ -8,6 +8,7 @@ export * from "./selectors";
 export * from "./fixedBoards";
 export * from "./trace";
 export * from "./contexts";
+export * from "./placement";
 export * from "./analysis";
 export * from "./repair";
 export * from "./limits";

@@ -15,6 +15,7 @@
     "test": "vitest run",
     "typecheck": "tsc -b",
     "gen:types": "pnpm --filter @untie/core gen:types",
+    "gen:schema-viewer": "node scripts/gen-schema-viewer.mjs",
     "check:types": "pnpm gen:types && git diff --exit-code packages/core/src/model/schema.d.ts packages/core/src/model/schemaValidator.gen.js"
   },
   "devDependencies": {

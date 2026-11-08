@@ -33,7 +33,7 @@ export function elementToYMap(element: Element, order: string): Y.Map<unknown> {
 }
 
 export function relationToRecord(r: Relation, order: string): RelationRecord {
-  return { kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, order };
+  return { ...relationFields(r), order };
 }
 
 /** order を除いた値 (比較用) */
@@ -54,7 +54,7 @@ export function edgeFields(e: BoardEdge): Omit<EdgeRecord, "order"> {
 }
 
 export function relationFields(r: Relation): Omit<RelationRecord, "order"> {
-  return { kind: r.kind, sourceId: r.sourceId, targetId: r.targetId };
+  return { kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...(r.access !== undefined ? { access: r.access } : {}) };
 }
 
 /** ボードを Y.Map にする。nodes と edges は空でも必ず作る (別々に足した 2 人が同じ Y.Map に入るように) */
@@ -76,7 +76,7 @@ export function boardToYMap(
   return map;
 }
 
-// ---------------------------------------------------------------- 設計 (0.4.0)
+// ---------------------------------------------------------------- 設計 (0.5.0)
 
 /** order を除いた値 (比較用)。systemId を値に持たせる (設計が消えたら一緒に読み飛ばすため) */
 export function designScreenFields(systemId: string, s: DesignScreen): Omit<DesignScreenRecord, "order"> {

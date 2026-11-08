@@ -15,9 +15,9 @@ export const LINK_URL_MAX_LENGTH = 2000;
 export const VERIFICATION_MAX_LENGTH = 4000;
 /** 作業の起点 (その他) */
 export const TRIGGER_NOTE_MAX_LENGTH = 4000;
-/** データベースの DSL (Prisma 風。0.4.0) */
+/** データベースの DSL (Prisma 風。0.5.0) */
 export const DSL_MAX_LENGTH = 200000;
-/** 画面 UI (view) を JSON にしたときの大きさ (設計の画面 UI。0.4.0) */
+/** 画面 UI (view) を JSON にしたときの大きさ (設計の画面 UI。0.5.0) */
 export const VIEW_JSON_MAX_LENGTH = 200000;
 /** 画面 UI (view) の入れ子の深さと、節 (オブジェクト・配列・値) の数の上限。YAML のエイリアスなどで小さな入力が巨大に膨らむのを防ぐ */
 export const VIEW_MAX_DEPTH = 64;

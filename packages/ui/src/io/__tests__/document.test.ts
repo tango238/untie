@@ -17,14 +17,14 @@ describe("保存・読み込み", () => {
     expect(parsed.ok && parsed.model).toEqual(m);
   });
 
-  it("古い形式 (version が整数の 1) のファイルは、現行の版 (0.4.1) に変換して読む", () => {
+  it("古い形式 (version が整数の 1) のファイルは、現行の版 (0.5.1) に変換して読む", () => {
     const old = { ...createHotelSample(), version: 1 };
     const parsed = parseModel(JSON.stringify(old));
     expect(parsed.ok).toBe(true);
-    expect(parsed.ok && parsed.model.version).toBe("0.4.1");
+    expect(parsed.ok && parsed.model.version).toBe("0.5.1");
     expect(parsed.ok && parsed.migrated).toBe(true);
     // 書き出すと現行の版になる
-    expect(parsed.ok && JSON.parse(serializeModel(parsed.model)).version).toBe("0.4.1");
+    expect(parsed.ok && JSON.parse(serializeModel(parsed.model)).version).toBe("0.5.1");
   });
 
   it("新しい版の Untie で作られたファイルは、更新を促して開かない", () => {

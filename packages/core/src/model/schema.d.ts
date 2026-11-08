@@ -49,8 +49,6 @@ export type RelationKind =
   | "usecaseCondition"
   | "informationRelated"
   | "informationVariation"
-  | "systemInformation"
-  | "informationSystem"
   | "conditionVariation"
   | "conditionState"
   | "stateUsecase"
@@ -63,7 +61,6 @@ export type RelationKind =
   | "activityTrigger"
   | "eventActivity"
   | "usecaseScreen"
-  | "screenInformation"
   | "actorNfr";
 
 /**
@@ -75,9 +72,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.4.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.4.1";
+  version: "0.5.1";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -94,11 +91,11 @@ export interface UntieModel {
    */
   boards: [Board, ...Board[]];
   /**
-   * システムごとの設計 (設計モード。0.4.0 から)。systemId は一意。参照整合性は validateModel() で検査する。
+   * システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。
    */
   designs: SystemDesign[];
   /**
-   * 設計をまたいで共有するデータベース (0.4.0 から)。id は一意。
+   * 設計をまたいで共有するデータベース (0.5.0 から)。id は一意。
    */
   databases: Database[];
 }
@@ -128,7 +125,7 @@ export interface ExternalActor {
   description?: Description;
 }
 /**
- * システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させ、情報の取得元・保存先 (置き場所) になる。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。
+ * システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。
  */
 export interface System {
   id: Id;
@@ -137,7 +134,7 @@ export interface System {
   description?: Description;
 }
 /**
- * 帳票。紙の台帳・伝票など。操作の対象と、情報の取得元・保存先 (置き場所) になる。作業の担当にはならない。
+ * 帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。
  */
 export interface Ledger {
   id: Id;
@@ -192,7 +189,7 @@ export interface Activity {
    */
   hours?: number;
   /**
-   * 起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.3.1 から)。
+   * 起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。
    */
   triggerNote?: string;
 }
@@ -342,7 +339,7 @@ export interface Event {
   contextId: Id | null;
 }
 /**
- * 画面。1 つのシステムに属する (systemId)。操作が使い、情報を扱う。
+ * 画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。
  */
 export interface Screen {
   id: Id;
@@ -376,7 +373,7 @@ export interface Nfr {
   verification?: string;
 }
 /**
- * 型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.3.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。
+ * 型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。
  */
 export interface Relation {
   id: Id;
@@ -389,6 +386,10 @@ export interface Relation {
    * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
    */
   targetId: string;
+  /**
+   * 操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。
+   */
+  access?: "read" | "write";
 }
 /**
  * ボード。要素をどこに置くかだけを持ち、業務データは持たない。

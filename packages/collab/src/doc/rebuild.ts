@@ -50,7 +50,8 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
   const items: Ordered<Relation>[] = [];
   map.forEach((r, id) => {
     if (typeof r !== "object" || r === null || !isString(r.kind) || !isString(r.sourceId) || !isString(r.targetId)) return;
-    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId } as Relation });
+    const access = r.access === "read" || r.access === "write" ? { access: r.access } : {};
+    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access } as Relation });
   });
   return sortedValues(items);
 }
@@ -113,7 +114,7 @@ function readBoards(map: Y.Map<Y.Map<unknown>>): Board[] {
   return sortedValues(items);
 }
 
-// ---------------------------------------------------------------- 設計 (0.4.0)
+// ---------------------------------------------------------------- 設計 (0.5.0)
 // 設計データは平らなキーに置いてある (roots.ts)。形の壊れた項目は、スキーマの検証関数で読む時点で読み飛ばす
 // (isValidElementShape と同じ流儀。長すぎる文字列は切り詰めた写しで検査し、値は切り詰めずに返す)。
 // 設計があるかは `${systemId}/meta` の有無で決め、systemId の設計が無い (消えた) 画面・遷移・ナビは読み飛ばす。

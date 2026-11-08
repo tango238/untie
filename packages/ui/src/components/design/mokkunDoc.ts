@@ -1,5 +1,6 @@
 // 設計 (サイトマップ・レイアウト・画面 UI) から、mokkun v2 の文書を組み立てる。純粋関数だけを置く。
 // プレビュー (MokkunPreview) は、この文書の画面を renderViewV2 で HTML にして iframe に入れる。
+import { screenInformations } from "@untie/core/model/placement";
 import { parseV2Document, type MokkunV2Schema } from "mokkun";
 import { designScreenName, effectiveShell } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
@@ -29,14 +30,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** 分析の画面が使う情報 (screenInformation の関係の並び順) */
+/** 分析の画面が使う情報 (その画面を使う操作が扱う情報。placement.ts の screenInformations) */
 function screenInformation(model: UntieModel, screen: DesignScreen): { id: string; name: string }[] {
   if (screen.source.kind !== "screen") return [];
   const screenId = screen.source.screenId;
   const byId = new Map(model.elements.map((e) => [e.id, e]));
-  return model.relations
-    .filter((r) => r.kind === "screenInformation" && r.sourceId === screenId)
-    .map((r) => ({ id: r.targetId, name: nameOf(byId.get(r.targetId)) }));
+  return (screenInformations(model).get(screenId) ?? []).map((d) => ({ id: d.id, name: nameOf(byId.get(d.id)) }));
 }
 
 /** 画面 UI (view) が無い画面の仮の view: 画面が使う情報を readonly の text で 1 つずつ並べる。情報が無ければ note だけ */
