@@ -234,7 +234,7 @@ describe("ScreenBuilder: フォームの編集", () => {
     render(<ScreenBuilder />);
     const sel = () => screen.getByRole("combobox", { name: "レイアウト" }) as HTMLSelectElement;
     expect(sel().value).toBe("");
-    expect(Array.from(sel().options).map((o) => o.textContent)).toEqual(["設計のレイアウトに従う (shell)", "ヘッダー + グローバルナビ + パンくず (shell)", "ヘッダーのみ (plain)"]);
+    expect(Array.from(sel().options).map((o) => o.textContent)).toEqual(["設計のレイアウトに従う (shell)", "ヘッダー + グローバルナビ + パンくず (shell)", "枠なし (plain)"]);
     const viewBefore = screenOf().view;
     pick("レイアウト", "plain");
     expect(screenOf().shell).toBe("plain");

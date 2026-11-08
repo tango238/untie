@@ -152,8 +152,8 @@ function NavEditor({ model, systemId, design }: { model: UntieModel; systemId: s
         </p>
       )}
       {screens.length === 0 && <p className="hint">サイトマップで画面を足すと、メニューに並べられます。</p>}
-      {design && hasNav && !hasMenuScreen(design) && <p className="hint">いまのレイアウトは「ヘッダーのみ」なので、メニューは出ません。</p>}
-      {design && hasNav && design.layout.shell === "plain" && hasMenuScreen(design) && <p className="hint">設計は「ヘッダーのみ」ですが、上書きで shell にした画面ではメニューが出ます。</p>}
+      {design && hasNav && !hasMenuScreen(design) && <p className="hint">いまのレイアウトは「枠なし」なので、メニューは出ません。</p>}
+      {design && hasNav && design.layout.shell === "plain" && hasMenuScreen(design) && <p className="hint">設計は「枠なし」ですが、上書きで shell にした画面ではメニューが出ます。</p>}
       <ul className="nav-groups">
         {navigation.map((group, gi) => (
           <li key={group.id} className="nav-group" data-nav-group={group.id}>

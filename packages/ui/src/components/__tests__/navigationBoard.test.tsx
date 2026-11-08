@@ -137,7 +137,7 @@ describe("NavigationBoard: プレビュー", () => {
       if (!r.ok) throw new Error(r.reason);
     });
     render(<NavigationBoard />);
-    expect(screen.getByText("この画面はレイアウトを上書きしています (ヘッダーのみ)。画面ボードで変えられます")).toBeDefined();
+    expect(screen.getByText("この画面はレイアウトを上書きしています (枠なし)。画面ボードで変えられます")).toBeDefined();
   });
 
   it("トップページが無ければ最初の画面", () => {
@@ -179,7 +179,7 @@ describe("NavigationLeftPane", () => {
     render(<NavigationLeftPane />);
     expect((screen.getByRole("radio", { name: /shell/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("ヘッダー + グローバルナビ + パンくず")).toBeDefined();
-    expect(screen.getByText("ヘッダーのみ")).toBeDefined();
+    expect(screen.getByText("枠なし")).toBeDefined();
     fireEvent.click(screen.getByRole("radio", { name: /plain/ }));
     expect(layout().shell).toBe("plain");
     expect(st().history.past).toHaveLength(1);

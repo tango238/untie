@@ -362,7 +362,7 @@ describe("SitemapProperties", () => {
       if (!r.ok) throw new Error(r.reason);
     });
     render(<SitemapProperties />);
-    expect(within(screen.getByText("レイアウト").parentElement!).getByText("ヘッダーのみ (上書き)")).toBeDefined();
+    expect(within(screen.getByText("レイアウト").parentElement!).getByText("枠なし (上書き)")).toBeDefined();
   });
 
   it("閲覧専用では画面 UI が無くても作れる案内を出さない", () => {

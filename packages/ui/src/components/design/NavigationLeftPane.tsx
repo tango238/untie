@@ -6,7 +6,7 @@ import { CommitField } from "../CommitField";
 
 const SHELLS = [
   { value: "shell", label: "shell", description: "ヘッダー + グローバルナビ + パンくず" },
-  { value: "plain", label: "plain", description: "ヘッダーのみ" },
+  { value: "plain", label: "plain", description: "枠なし" },
 ] as const;
 
 type HeaderKey = "systemName" | "userName" | "tenantName";

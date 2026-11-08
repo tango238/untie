@@ -17,11 +17,11 @@ export function effectiveShell(design: Pick<SystemDesign, "layout">, screen: Pic
 /** 画面のレイアウトの説明 (画面ボードの select と、サイトマップのプロパティで共有する) */
 export const SHELL_LABELS: Record<"shell" | "plain", string> = {
   shell: "ヘッダー + グローバルナビ + パンくず (shell)",
-  plain: "ヘッダーのみ (plain)",
+  plain: "枠なし (plain)",
 };
 
 /** 短い呼び名 (読み取りの表示用) */
-export const SHELL_SHORT_LABELS: Record<"shell" | "plain", string> = { shell: "ヘッダー + グローバルナビ + パンくず", plain: "ヘッダーのみ" };
+export const SHELL_SHORT_LABELS: Record<"shell" | "plain", string> = { shell: "ヘッダー + グローバルナビ + パンくず", plain: "枠なし" };
 
 /** メニューが出る画面 (レイアウトが shell の画面) が 1 つでもあるか。設計のレイアウトと、画面ごとの上書きで決まる */
 export function hasMenuScreen(design: Pick<SystemDesign, "layout" | "screens">): boolean {
