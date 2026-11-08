@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addElement, addRelation, moveToContext } from "@untie/core/model/commands";
+import { addElement, addRelation, moveToContext, setUsecaseTarget } from "@untie/core/model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { TracePanel } from "../TracePanel";
@@ -75,5 +75,38 @@ describe("TracePanel の情報", () => {
     fireEvent.click(within(row).getByRole("button", { name: "「客室」に移す" }));
     expect(st().model.elements.find((e) => e.id === "cond_full")).toMatchObject({ contextId: "ctx_room" });
     expect(screen.queryByTestId("notice-cond_full")).toBeNull();
+  });
+});
+
+describe("TracePanel のエラー: 1 つの画面を複数の操作が使う", () => {
+  it("画面と操作をリンクにして出す。画面を押すとその画面を選ぶ", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "screen", name: "共用の画面", id: "scr_shared", init: { systemId: "sys_pms" } }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_shared" }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_shared" }));
+    });
+    render(<TracePanel />);
+    const row = screen.getByTestId("error-screenSharedByUsecases-scr_shared");
+    expect(within(row).getByText(/^画面「共用の画面」を複数の操作が使っています \(/)).toBeDefined();
+    expect(within(row).getByText(/操作ごとに画面を分けてください/)).toBeDefined();
+    expect(within(row).getAllByRole("button")).toHaveLength(3);
+    fireEvent.click(within(row).getByRole("button", { name: "共用の画面" }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "scr_shared" });
+  });
+
+  it("全部辿れてエラーだけがあるときは、辿れる旨と見出し付きのエラーを出す。操作のリンクを押すとその操作を選ぶ", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "screen", name: "共用の画面", id: "scr_shared", init: { systemId: "sys_pms" } }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_shared" }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_shared" }));
+    });
+    render(<TracePanel />);
+    expect(screen.getByText(/が担い手 \(アクター／外部アクター／システム\) に辿り着けます/)).toBeDefined();
+    const region = screen.getByRole("region", { name: "エラー" });
+    expect(within(region).getByText("エラー: 1 つの画面を複数の操作が使っている (1)")).toBeDefined();
+    const row = screen.getByTestId("error-screenSharedByUsecases-scr_shared");
+    const uc = st().model.elements.find((e) => e.id === "uc_cancel_reservation")!;
+    fireEvent.click(within(row).getByRole("button", { name: uc.name }));
+    expect(st().ui.selection).toEqual({ type: "element", id: "uc_cancel_reservation" });
   });
 });

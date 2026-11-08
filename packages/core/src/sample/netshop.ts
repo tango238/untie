@@ -208,16 +208,28 @@ const events: Element[] = [
 
 /** 画面 (システムに属する) */
 const screens: Element[] = [
+  // 1 つの画面は 1 つの操作だけが使う。同じ画面で済ませていた操作は、操作ごとの画面に分ける
   { id: "scr_order_entry", kind: "screen", name: "受注入力画面", systemId: "sys_oms" },
   { id: "scr_order_list", kind: "screen", name: "受注一覧", systemId: "sys_oms" },
+  { id: "scr_order_confirm", kind: "screen", name: "注文の確定画面", systemId: "sys_oms" },
+  { id: "scr_order_cancel", kind: "screen", name: "注文の取消画面", systemId: "sys_oms" },
   { id: "scr_stock", kind: "screen", name: "在庫一覧", systemId: "sys_oms" },
+  { id: "scr_receiving", kind: "screen", name: "入荷の登録画面", systemId: "sys_oms" },
+  { id: "scr_stock_count", kind: "screen", name: "棚卸の入力画面", systemId: "sys_oms" },
   { id: "scr_shipping", kind: "screen", name: "出荷指示画面", systemId: "sys_oms" },
+  { id: "scr_label", kind: "screen", name: "送り状の発行画面", systemId: "sys_oms" },
+  { id: "scr_shipment_record", kind: "screen", name: "出荷の記録画面", systemId: "sys_oms" },
   { id: "scr_return", kind: "screen", name: "返品登録画面", systemId: "sys_oms" },
+  { id: "scr_return_inspection", kind: "screen", name: "返品の検品画面", systemId: "sys_oms" },
   { id: "scr_inquiry", kind: "screen", name: "問い合わせ履歴", systemId: "sys_oms" },
   { id: "scr_mall_orders", kind: "screen", name: "モールの注文一覧", systemId: "sys_mall" },
   { id: "scr_payment_admin", kind: "screen", name: "決済の管理画面", systemId: "sys_payment" },
+  { id: "scr_refund", kind: "screen", name: "返金の管理画面", systemId: "sys_payment" },
+  { id: "scr_payout", kind: "screen", name: "入金の登録画面", systemId: "sys_accounting" },
   { id: "scr_receivable", kind: "screen", name: "売掛金の消込画面", systemId: "sys_accounting" },
   { id: "scr_monthly_report", kind: "screen", name: "月次レポート", systemId: "sys_accounting" },
+  { id: "scr_pl", kind: "screen", name: "損益計算書の画面", systemId: "sys_accounting" },
+  { id: "scr_balance_sheet", kind: "screen", name: "貸借対照表の画面", systemId: "sys_accounting" },
 ];
 
 /** 非機能要件 (システムに属する) */
@@ -253,7 +265,7 @@ const nfrs: Element[] = [
     name: "会計の画面は経理担当と店長だけが開ける",
     systemId: "sys_accounting",
     category: "security",
-    verification: "ほかの担当の ID で売掛金の消込画面と月次レポートを開けないことを確かめる。",
+    verification: "会計システムの画面をほかの担当の ID で開けないことを確かめる。",
   },
 ];
 
@@ -520,27 +532,27 @@ const pairs: [source: string, target: string, access?: InformationAccess][] = [
   ["uc_fill_return_slip", "ldg_return_slip"],
   ["uc_allocate_stock", "sys_oms"],
   ["uc_register_receivable", "sys_accounting"],
-  // usecaseScreen (操作 → 画面)
+  // usecaseScreen (操作 → 画面。1 つの画面を使う操作は 1 つだけ)
   ["uc_check_mall_order", "scr_mall_orders"],
   ["uc_register_order", "scr_order_entry"],
   ["uc_search_order", "scr_order_list"],
-  ["uc_confirm_order", "scr_order_list"],
-  ["uc_cancel_order", "scr_order_list"],
-  ["uc_register_receiving", "scr_stock"],
+  ["uc_confirm_order", "scr_order_confirm"],
+  ["uc_cancel_order", "scr_order_cancel"],
+  ["uc_register_receiving", "scr_receiving"],
   ["uc_update_stock", "scr_stock"],
-  ["uc_record_count", "scr_stock"],
+  ["uc_record_count", "scr_stock_count"],
   ["uc_record_payment", "scr_payment_admin"],
   ["uc_issue_pick_list", "scr_shipping"],
-  ["uc_issue_label", "scr_shipping"],
-  ["uc_record_shipment", "scr_shipping"],
+  ["uc_issue_label", "scr_label"],
+  ["uc_record_shipment", "scr_shipment_record"],
   ["uc_register_return", "scr_return"],
-  ["uc_record_inspection", "scr_return"],
-  ["uc_record_refund", "scr_payment_admin"],
+  ["uc_record_inspection", "scr_return_inspection"],
+  ["uc_record_refund", "scr_refund"],
   ["uc_record_inquiry", "scr_inquiry"],
-  ["uc_record_payout", "scr_receivable"],
+  ["uc_record_payout", "scr_payout"],
   ["uc_clear_receivable", "scr_receivable"],
-  ["uc_view_pl", "scr_monthly_report"],
-  ["uc_view_bs", "scr_monthly_report"],
+  ["uc_view_pl", "scr_pl"],
+  ["uc_view_bs", "scr_balance_sheet"],
   ["uc_report_month", "scr_monthly_report"],
   // actorNfr (アクター・外部アクター → 非機能要件: 求める)
   ["actor_order", "nfr_sale_peak"],

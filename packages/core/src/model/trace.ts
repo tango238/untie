@@ -2,7 +2,8 @@
 // つながりは必須にしない (上から順に書き出していく途中の状態を許す) ので、
 // 辿り着けない要素と、どこで途切れているかを一覧にして知らせる。
 // 作業は担当 (担い手) を必ず持つ。業務を通って辿れても、担当が無ければ途切れとする。
-// 辿れるかのエラーとは別に、警告 (traceWarnings) を知らせる: 1 つの業務に複数のアクター。
+// 辿れるかのエラーとは別に、エラー (TraceResult.errors: 1 つの画面を複数の操作が使っている) と、
+// 警告 (traceWarnings: 1 つの業務に複数のアクター) を知らせる。
 import { ELEMENT_KIND_LABELS, isContextMemberKind, type Element, type ElementKind, type UntieModel } from "./types";
 
 /** 検証の対象にしない要素 (課題は対象要素に付くもの、既定 BUC は業務と一体) */
@@ -123,6 +124,20 @@ export interface TraceProblem {
   breakIds: string[];
 }
 
+/** 辿れるかとは別のエラーの種類 */
+export type TraceErrorType = "screenSharedByUsecases";
+
+/** 辿れるかとは別のエラー。直すまで検証に残るが、入力は止めない */
+export interface TraceError {
+  type: TraceErrorType;
+  /** エラーの対象の要素 (画面) */
+  elementId: string;
+  /** 関わる要素の id。screenSharedByUsecases: その画面を対象にしている操作 (関係を結んだ順) */
+  relatedIds: string[];
+  reason: string;
+  fix: string;
+}
+
 export interface TraceResult {
   /** 検証した要素の数 (課題と既定 BUC を除く) */
   total: number;
@@ -130,6 +145,8 @@ export interface TraceResult {
   reached: Set<string>;
   /** 辿り着けない要素。途切れ箇所 → それ以外の順、同じなら要素の並び順 */
   problems: TraceProblem[];
+  /** 辿れるかとは別のエラー (1 つの画面を複数の操作が使っている)。要素の並び順 */
+  errors: TraceError[];
 }
 
 const label = (e: Element | undefined) => (e ? `${ELEMENT_KIND_LABELS[e.kind]}「${e.name || "(名前なし)"}」` : "");
@@ -222,7 +239,36 @@ export function traceToActors(model: UntieModel): TraceResult {
   });
   problems.sort((a, b) => Number(b.isBreak) - Number(a.isBreak));
 
-  return { total: targets.length, reached, problems };
+  return { total: targets.length, reached, problems, errors: screenSharedErrors(model, byId) };
+}
+
+export const TRACE_ERROR_TITLES: Record<TraceErrorType, string> = {
+  screenSharedByUsecases: "1 つの画面を複数の操作が使っている",
+};
+
+/** 1 つの画面を 2 つ以上の操作が使っている (「1 操作 = 1 画面」の約束。操作ごとに画面を分ける) */
+function screenSharedErrors(model: UntieModel, byId: Map<string, Element>): TraceError[] {
+  const usecasesOf = new Map<string, string[]>();
+  for (const r of model.relations) {
+    if (r.kind !== "usecaseScreen") continue;
+    if (byId.get(r.targetId)?.kind !== "screen" || byId.get(r.sourceId)?.kind !== "usecase") continue;
+    const list = usecasesOf.get(r.targetId) ?? [];
+    if (!list.includes(r.sourceId)) list.push(r.sourceId);
+    usecasesOf.set(r.targetId, list);
+  }
+  const errors: TraceError[] = [];
+  for (const e of model.elements) {
+    const ids = usecasesOf.get(e.id);
+    if (e.kind !== "screen" || !ids || ids.length < 2) continue;
+    errors.push({
+      type: "screenSharedByUsecases",
+      elementId: e.id,
+      relatedIds: ids,
+      reason: `画面「${e.name || "(名前なし)"}」を複数の操作が使っています (${ids.map((id) => byId.get(id)?.name || "(名前なし)").join("、")})`,
+      fix: "1 つの画面は 1 つの操作だけが使います。操作ごとに画面を分けてください。",
+    });
+  }
+  return errors;
 }
 
 /** 警告の種類 */

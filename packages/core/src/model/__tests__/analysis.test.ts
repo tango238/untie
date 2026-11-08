@@ -96,7 +96,7 @@ describe("画面と情報", () => {
     expect(tables.map((t) => t.system.name)).toEqual(["モールの管理画面", "販売管理システム", "決済サービス", "会計システム"]);
     expect(systemsWithoutScreens.map((s) => s.name)).toEqual(["自社サイトのカート"]);
     const accounting = tables.find((t) => t.system.id === "sys_accounting")!;
-    expect(accounting.rows.map((r) => r.screen.name)).toEqual(["売掛金の消込画面", "月次レポート"]);
+    expect(accounting.rows.map((r) => r.screen.name)).toEqual(["入金の登録画面", "売掛金の消込画面", "月次レポート", "損益計算書の画面", "貸借対照表の画面"]);
     expect(accounting.informations.map((i) => i.name)).toEqual(["売掛金", "入金", "損益計算書 (PL)", "貸借対照表 (BS)"]);
     const report = accounting.rows.find((r) => r.screen.id === "scr_monthly_report")!;
     // 画面が扱う情報は、画面を使う操作が扱う情報 (取得・保存) から導く
@@ -105,7 +105,7 @@ describe("画面と情報", () => {
       ["info_bs", ["source"]],
     ]);
     // 画面を使う操作を添える
-    expect(report.usecases.map((u) => u.name)).toEqual(["損益計算書を見る", "貸借対照表を見る", "月次の数字を報告する"]);
+    expect(report.usecases.map((u) => u.name)).toEqual(["月次の数字を報告する"]);
   });
 
   it("画面が扱う情報は使う操作から導く (画面と情報は直接結べない)。情報を扱わない画面は noInformation", () => {

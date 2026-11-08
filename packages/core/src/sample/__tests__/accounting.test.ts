@@ -14,6 +14,7 @@ describe("経理業務サンプル", () => {
 
   it("すべての要素が担い手まで辿れて、警告も出ない", () => {
     expect(traceToActors(accountingSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
+    expect(traceToActors(accountingSample).errors.map((e) => e.reason)).toEqual([]);
     // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
     expect(traceWarnings(accountingSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
   });

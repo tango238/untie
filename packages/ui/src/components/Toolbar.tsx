@@ -41,7 +41,11 @@ export function Toolbar() {
   const designSystemId = useUntieStore((s) => s.ui.designSystemId);
   // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
-  const traceCount = useMemo(() => (designResult ? designResult.problems.length : traceToActors(model).problems.length), [model, designResult]);
+  const traceCount = useMemo(() => {
+    if (designResult) return designResult.problems.length;
+    const r = traceToActors(model);
+    return r.problems.length + r.errors.length;
+  }, [model, designResult]);
   // 設計の検証のバッジはエラーだけ数える (警告はパネルの見出しの件数で見せる)
   const warningCount = useMemo(() => (designResult ? 0 : traceWarnings(model).length), [model, designResult]);
   const file = useUntieStore((s) => s.file);

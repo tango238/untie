@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addElement, addRelation, removeBoard } from "@untie/core/model/commands";
-import { traceWarnings } from "@untie/core/model/trace";
+import { addElement, addRelation, removeBoard, setUsecaseTarget } from "@untie/core/model/commands";
+import { traceToActors, traceWarnings } from "@untie/core/model/trace";
 import type { Platform } from "../../platform";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
@@ -319,6 +319,20 @@ describe("キーボードショートカット", () => {
     expect(st().ui.rightPanel).toBe("trace");
     fireEvent.click(btn);
     expect(st().ui.rightPanel).toBe("properties");
+  });
+  it("「検証」のボタンの件数は、辿り着けない要素の数と、画面を複数の操作が使うエラーの数の合計", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "context", name: "空のコンテキスト" }));
+      st().dispatch((m) => addElement(m, { kind: "screen", name: "共用の画面", id: "scr_shared", init: { systemId: "sys_pms" } }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_shared" }));
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_shared" }));
+    });
+    const r = traceToActors(st().model);
+    expect(r.problems).toHaveLength(1);
+    expect(r.errors).toHaveLength(1);
+    render(<Toolbar />);
+    const btn = screen.getByRole("button", { name: /^検証/ });
+    expect(btn.querySelector(".toolbar-count:not(.is-warning)")!.textContent).toBe("2");
   });
   it("「検証」のボタンに、警告 (1 つの業務に複数のアクター) の数をエラーとは別の印で出す", () => {
     act(() => {

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { moveToContext } from "@untie/core/model/commands";
 import { contextNotices, type ContextNotice } from "@untie/core/model/contexts";
 import { issuesByScope } from "@untie/core/model/selectors";
-import { TRACE_WARNING_HINTS, TRACE_WARNING_TITLES, traceToActors, traceWarnings, type TraceProblem, type TraceWarning, type TraceWarningType } from "@untie/core/model/trace";
+import { TRACE_ERROR_TITLES, TRACE_WARNING_HINTS, TRACE_WARNING_TITLES, traceToActors, traceWarnings, type TraceError, type TraceProblem, type TraceWarning, type TraceWarningType } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../store";
 import { revealOnFixedBoard } from "./actions";
@@ -31,6 +31,23 @@ export function TracePanel() {
         <p className="trace-summary">
           {result.total} 件中 {result.problems.length} 件が担い手 (アクター／外部アクター／システム) に辿り着けません。途切れている箇所は {breaks.length} 件です。
         </p>
+      )}
+      {result.errors.length > 0 && (
+        <section className="trace-errors" aria-label="エラー">
+          <h3 className="trace-error-title">
+            エラー: {TRACE_ERROR_TITLES.screenSharedByUsecases} ({result.errors.length})
+          </h3>
+          <ul className="trace-rows">
+            {result.errors.map((er) => (
+              <ErrorRow
+                key={`${er.type}:${er.elementId}`}
+                error={er}
+                element={byId.get(er.elementId)!}
+                related={er.relatedIds.map((id) => byId.get(id)).filter((e): e is Element => !!e)}
+              />
+            ))}
+          </ul>
+        </section>
       )}
       <ul className="trace-rows">
         {breaks.map((p) => (
@@ -109,6 +126,7 @@ export function TracePanel() {
         <p className="hint">
           警告 (辿れるかには数えません): 1 つの業務に結ぶアクターは主担当の 1 人です。複数いると警告を出します。作業の操作を「次に」でつないだ並びの最後の操作がイベントを発生させないとき (作業に属さない自動の処理も同じ) も警告を出します。
         </p>
+        <p className="hint">エラー (辿れるかとは別): 1 つの画面は 1 つの操作だけが使います。複数の操作が同じ画面を使っていると、エラーを出します (操作ごとに画面を分けます)。</p>
         <p className="hint">課題は対象の要素に付くものなので、検証の対象にしません。</p>
       </details>
     </aside>
@@ -117,6 +135,26 @@ export function TracePanel() {
 
 /** 警告の種類を並べる順 */
 const WARNING_ORDER: readonly TraceWarningType[] = ["businessActors"];
+
+function ErrorRow({ error, element, related }: { error: TraceError; element: Element; related: Element[] }) {
+  return (
+    <li className="trace-row" data-testid={`error-${error.type}-${element.id}`}>
+      <div className="trace-head">
+        <span className="relation-kind">{ELEMENT_KIND_LABELS[element.kind]}</span>
+        <ElementLink element={element} />
+      </div>
+      <div className="trace-reason">{error.reason}</div>
+      {related.length > 0 && (
+        <div className="trace-actors">
+          {related.map((u) => (
+            <ElementLink key={u.id} element={u} />
+          ))}
+        </div>
+      )}
+      <div className="trace-fix">{error.fix}</div>
+    </li>
+  );
+}
 
 function WarningRow({ warning, element, related }: { warning: TraceWarning; element: Element; related: Element[] }) {
   return (

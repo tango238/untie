@@ -29,6 +29,7 @@ const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言�
 つながりの決まり:
 - 作業には必ず担当 (actor / externalActor → activity) を結ぶ。システムは担当にしない
 - 操作の対象のシステム・帳票は usecase → system / ledger (対象) で結ぶ。対象は 1 つの操作に 1 つだけ
+- 操作の対象の画面は usecase → screen で結ぶ。1 つの画面は 1 つの操作だけが使う。同じ画面を別の操作でも使うなら、画面を分ける (複数の操作が使うと検証がエラーを出す)
 - 業務には主担当のアクター (actor → business) を結ぶ
 - 作業は使う操作を結ぶ (activity → usecase)。操作は扱う情報 (usecase → information) と判断に使う条件 (usecase → condition) を結ぶ
 - 情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は関係にしない。操作が扱う情報 (usecase → information) に取得・保存の区別 (access: read / write。省略は両方) を付け、操作の対象と合わせて導く。情報をシステム・帳票に置きたければ、その情報を扱う操作の対象をそのシステム・帳票 (またはその画面) にする

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addElement, addRelation, moveActivity, removeRelation, setUsecaseTarget } from "../commands";
 import { traceToActors, traceWarnings } from "../trace";
-import { emptyModel } from "../types";
+import { emptyModel, type UntieModel } from "../types";
 import { expectFail, okModel, sample } from "./helpers";
 
 describe("traceToActors", () => {
@@ -230,5 +230,56 @@ describe("traceToActors: 作業の起点 (0.4.1)", () => {
     // 起点を外しても、サンプルの結果は変わらない
     expect(traceToActors(sample()).problems).toEqual([]);
     expect(traceWarnings(m)).toEqual(traceWarnings(sample()));
+  });
+});
+
+describe("traceToActors: 1 つの画面を複数の操作が使う (エラー)", () => {
+  const withScreen = () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "screen", name: "チェックイン画面", id: "scr_a", init: { systemId: "sys_pms" } }));
+    return okModel(setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_a" }));
+  };
+
+  it("サンプルと、操作が 1 つだけの画面ではエラーにならない", () => {
+    expect(traceToActors(sample()).errors).toEqual([]);
+    expect(traceToActors(withScreen()).errors).toEqual([]);
+  });
+
+  it("2 つ以上の操作が同じ画面を使うとエラー。辿れるかの途切れには数えない", () => {
+    let m = withScreen();
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    const r = traceToActors(m);
+    expect(r.problems).toEqual([]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]!.type).toBe("screenSharedByUsecases");
+    expect(r.errors[0]!.elementId).toBe("scr_a");
+    expect(r.errors[0]!.relatedIds).toEqual(["uc_record_checkin", "uc_cancel_reservation"]);
+    expect(r.errors[0]!.reason).toMatch(/^画面「チェックイン画面」を複数の操作が使っています \(/);
+  });
+
+  it("操作の対象を別の画面へ替えるとエラーが消える", () => {
+    let m = withScreen();
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    m = okModel(addElement(m, { kind: "screen", name: "取消画面", id: "scr_b", init: { systemId: "sys_pms" } }));
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_b" }));
+    expect(traceToActors(m).errors).toEqual([]);
+  });
+
+  it("3 つ以上の操作が使っても、画面ごとに 1 件で、操作は結んだ順に並ぶ", () => {
+    let m = withScreen();
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    m = okModel(addElement(m, { kind: "usecase", name: "三つ目の操作", id: "uc_third" }));
+    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_third", targetId: "scr_a" }));
+    const errors = traceToActors(m).errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.relatedIds).toEqual(["uc_record_checkin", "uc_cancel_reservation", "uc_third"]);
+  });
+
+  it("画面でも操作でもない要素や、消えた要素を指す関係は数えない", () => {
+    let m = withScreen();
+    // 画面に属するはずのない関係と、存在しない操作からの関係 (壊れたファイルを想定して直接足す)
+    const bad = (id: string, sourceId: string) => ({ id, kind: "usecaseScreen", sourceId, targetId: "scr_a" }) as UntieModel["relations"][number];
+    m = { ...m, relations: [...m.relations, bad("rel_bad1", "actor_reservation"), bad("rel_bad2", "uc_gone")] };
+    expect(traceToActors(m).errors).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@ describe("ネットショップサンプル", () => {
 
   it("すべての要素が担い手まで辿れて、警告も出ない (画面の「検証」が空)", () => {
     expect(traceToActors(netshopSample).problems.map((p) => `${p.elementId}: ${p.reason}`)).toEqual([]);
+    expect(traceToActors(netshopSample).errors.map((e) => e.reason)).toEqual([]);
     // 1 つの業務に付くアクターは主担当の 1 人 (警告も出ない)
     expect(traceWarnings(netshopSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
   });
@@ -34,7 +35,7 @@ describe("ネットショップサンプル", () => {
     expect(count("condition")).toBe(3);
     expect(count("issue")).toBe(5);
     expect(count("event")).toBe(20);
-    expect(count("screen")).toBe(10);
+    expect(count("screen")).toBe(21);
     expect(count("nfr")).toBe(4);
     expect(netshopSample.boards.map((b) => b.name)).toEqual(["全体", "入荷から返品・問い合わせまで", "情報と状態"]);
   });
