@@ -53,7 +53,7 @@ export default function App() {
   const sitemap = design === "sitemap";
   // データボードは、左にデータベースとテーブルの一覧、右に選んだテーブルのプロパティを出す
   const data = design === "data";
-  // ナビゲーションボードは、左に枠とヘッダーの設定、右にナビゲーションメニューを出す
+  // ナビゲーションボードは、左にナビゲーションメニュー、右に枠とヘッダーの設定を出す
   const navigation = design === "navigation";
   // 画面ボードは、左に画面の一覧、右に画面の組み立てを出す
   const screenBoard = design === "screen";
