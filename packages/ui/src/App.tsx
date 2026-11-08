@@ -16,6 +16,7 @@ import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./components/useKeyboard";
+import { ShortcutsHost } from "./components/ShortcutsDialog";
 import { parseAnalysisBoardId } from "@untie/core/model/analysis";
 import { parseDesignBoardId } from "@untie/core/model/design";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
@@ -84,6 +85,7 @@ export default function App() {
         </div>
       )}
       <Toolbar />
+      <ShortcutsHost />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
         className={`main${sitemap || data || navigation || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}

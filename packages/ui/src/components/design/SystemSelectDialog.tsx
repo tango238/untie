@@ -5,9 +5,9 @@ import { useUntieStore } from "../../store";
 /**
  * 設計の対象のシステムを選ぶダイアログ。モデルのすべてのシステムを名前順に並べ、設計データがあるものには「設計あり」を付ける。
  * 選ぶと設計モードにする。モデルには書かない (設計と既定のデータベースは、最初の編集が ensureDesign で作る)。キャンセルしたら何も変えない。
- * 初期選択は、最後に設計したシステム (モデルにあるときだけ)。切り替えのときは、いまのシステム
+ * boardId を渡すと (ショートカットから)、選んだあとにそのボードへ移る。初期選択は、最後に設計したシステム (モデルにあるときだけ)。切り替えのときは、いまのシステム
  */
-export function SystemSelectDialog({ onClose }: { onClose: () => void }) {
+export function SystemSelectDialog({ onClose, boardId }: { onClose: () => void; boardId?: string }) {
   const model = useUntieStore((s) => s.model);
   const currentId = useUntieStore((s) => s.ui.designSystemId);
   const enterDesign = useUntieStore((s) => s.enterDesign);
@@ -32,7 +32,7 @@ export function SystemSelectDialog({ onClose }: { onClose: () => void }) {
 
   const confirm = () => {
     if (selected === null) return;
-    enterDesign(selected);
+    enterDesign(selected, boardId);
     onClose();
   };
 

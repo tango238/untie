@@ -20,6 +20,8 @@ import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
 import { AboutDialog } from "./AboutDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SystemSelectDialog } from "./design/SystemSelectDialog";
+import { comboLabel, modLabel } from "../shortcuts";
+import { useShortcutsUi } from "../store/shortcutsUi";
 import { ShareDialog } from "./share/ShareDialog";
 
 type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | "selectSystem" | null;
@@ -603,9 +605,10 @@ function FileMenu({
       {open && cloud && (
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("ホーム", "", onHome)}
-          {item("JSON に書き出す…", "⌘S", () => void exportModelToFile())}
+          {item("JSON に書き出す…", comboLabel("S"), () => void exportModelToFile())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
           {modeMenu}
+          {item("ショートカット一覧", `${modLabel()}/`, () => useShortcutsUi.getState().show())}
           {!readOnly && (
             <>
               <div className="menu-sep" role="separator" />
@@ -617,7 +620,7 @@ function FileMenu({
       {open && !cloud && (
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("新規作成", "", onNew)}
-          {item("開く…", "⌘O", () => void openDocument())}
+          {item("開く…", comboLabel("O"), () => void openDocument())}
           <div className="menu-sub">
             <button
               ref={recentRef}
@@ -697,8 +700,9 @@ function FileMenu({
             )}
           </div>
           {modeMenu}
-          {item("保存", "⌘S", () => void saveDocument())}
-          {item("別名で保存…", "⇧⌘S", () => void saveDocument(true))}
+          {item("ショートカット一覧", `${modLabel()}/`, () => useShortcutsUi.getState().show())}
+          {item("保存", comboLabel("S"), () => void saveDocument())}
+          {item("別名で保存…", comboLabel("S", { shift: true }), () => void saveDocument(true))}
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}

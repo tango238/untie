@@ -296,6 +296,24 @@ textarea { resize: vertical; width: 100%; }
 .dialog-actions button { white-space: nowrap; }
 /* 選択肢が 3 つあるときはボタンが並ぶ幅を取る */
 .dialog:has(.dialog-actions > :nth-child(3)) { width: 440px; }
+/* ショートカットの一覧 (Cmd/Ctrl+/ とコード Cmd/Ctrl+B) */
+.shortcuts-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 110; padding: 12px; }
+.shortcuts-panel { background: rgba(20,20,20,0.9); color: #fff; border-radius: 12px; padding: 18px 22px; width: 720px; max-width: 100%; max-height: calc(100dvh - 24px); overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); outline: none; }
+.shortcuts-panel h2 { margin: 0 0 8px; font-size: 16px; }
+.shortcuts-panel h3 { margin: 0 0 4px; font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; }
+.shortcuts-waiting:empty { display: none; }
+.shortcuts-panel .dialog-actions button:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+.shortcuts-waiting { margin: 0 0 12px; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); }
+.shortcuts-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 24px; margin-bottom: 14px; }
+.shortcuts-group ul { list-style: none; margin: 0; padding: 0; }
+.shortcuts-empty { margin: 0; color: rgba(255,255,255,0.6); font-size: 13px; }
+.shortcuts-group button, .shortcuts-static { display: flex; align-items: center; gap: 10px; width: 100%; padding: 3px 6px; border-radius: 4px; border: none; background: none; color: inherit; font-size: 13px; text-align: left; }
+.shortcuts-group button:hover:not(:disabled) { background: rgba(255,255,255,0.15); }
+.shortcuts-group button.current, .shortcuts-group button.current:hover:not(:disabled) { background: rgba(255,255,255,0.25); font-weight: 600; }
+.shortcuts-keys { min-width: 74px; white-space: nowrap; }
+.shortcuts-panel kbd { font-family: inherit; font-size: 11px; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; padding: 0 5px; background: rgba(255,255,255,0.1); }
+.shortcuts-panel .dialog-actions button { background: rgba(255,255,255,0.15); color: #fff; border-color: rgba(255,255,255,0.3); }
+
 .toast-host { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 120; }
 .toast { display: flex; align-items: center; gap: 10px; background: #2c2a26; color: #fff; padding: 8px 12px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
 .toast.tone-error { background: var(--danger); }

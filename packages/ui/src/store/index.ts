@@ -198,8 +198,8 @@ export interface UntieState {
   setCurrentBoard: (boardId: string) => void;
   /** モードを切り替える。設計へは、対象のシステムが決まっているときだけ移れる (未定なら何もしない。enterDesign で選ぶ) */
   setMode: (mode: Mode) => void;
-  /** system を設計の対象にして設計モードにする。すでに設計モードならボードはそのまま。システムが無ければ何もしない */
-  enterDesign: (systemId: string) => void;
+  /** system を設計の対象にして設計モードにする。すでに設計モードならボードはそのまま (boardId があればそのボードへ)。システムが無ければ何もしない */
+  enterDesign: (systemId: string, boardId?: string) => void;
   /** サイトマップで画面を選ぶ (設計の画面の id。undefined で選択を外す)。右のペインを開いてプロパティを出す */
   selectDesignScreen: (id: string | undefined, transitionId?: string) => void;
   /** データボードでデータベースを選ぶ (テーブルの選択は外す)。table も渡すとそのテーブルも選ぶ */
@@ -676,9 +676,11 @@ export function createUntieStore(
       if (mode === "design" && ui.designSystemId === undefined) return;
       set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined, designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined, designRelation: undefined } }));
     },
-    enterDesign: (systemId) => {
+    enterDesign: (systemId, boardId) => {
       const { model, ui } = get();
       if (!model.elements.some((e) => e.id === systemId && e.kind === "system")) return;
+      // ボードの指定 (ショートカットから) は設計ボードだけ受ける。それ以外は従来どおり
+      const target = boardId !== undefined && isDesignBoard(boardId) ? boardId : undefined;
       saveLastDesignSystemId(systemId);
       const inDesign = (ui.mode ?? "analysis") === "design";
       set((s) => ({
@@ -687,9 +689,9 @@ export function createUntieStore(
           ...(inDesign ? {} : closeIssuePane(s.ui)),
           mode: "design",
           designSystemId: systemId,
-          ...(inDesign ? {} : { currentBoardId: DESIGN_START_BOARD_ID }),
+          ...(target !== undefined ? { currentBoardId: target } : inDesign ? {} : { currentBoardId: DESIGN_START_BOARD_ID }),
           // 別のシステムへ切り替えても、選択は引き継がない
-          selection: inDesign && s.ui.designSystemId === systemId ? s.ui.selection : null,
+          selection: inDesign && s.ui.designSystemId === systemId && target === undefined ? s.ui.selection : null,
           designScreenId: inDesign && s.ui.designSystemId === systemId ? s.ui.designScreenId : undefined,
           designTransitionId: undefined,
           designDatabaseId: inDesign && s.ui.designSystemId === systemId ? s.ui.designDatabaseId : undefined,

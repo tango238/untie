@@ -370,7 +370,7 @@ describe("キーボードショートカット", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
     const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
-    expect(items).toEqual(["新規作成", "開く…⌘O", "最近開いたファイル▸", "モード▸", "保存⌘S", "別名で保存…⇧⌘S", "プロンプトから作成…", "AI の設定…"]);
+    expect(items).toEqual(["新規作成", "開く…Ctrl+O", "最近開いたファイル▸", "モード▸", "ショートカット一覧Ctrl+/", "保存Ctrl+S", "別名で保存…Ctrl+Shift+S", "プロンプトから作成…", "AI の設定…"]);
     fireEvent.click(screen.getByRole("menuitem", { name: /プロンプトから作成/ }));
     expect(screen.getByRole("dialog", { name: "プロンプトから作成" })).toBeDefined();
     expect(screen.queryByRole("menu")).toBeNull();
@@ -405,7 +405,7 @@ describe("キーボードショートカット", () => {
       fireEvent.focus(trigger);
       const sub = screen.getByRole("menu", { name: "最近開いたファイル" });
       expect(within(sub).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["a.jsonx", "b.jsony", "一覧を消去"]);
-      fireEvent.focus(screen.getByRole("menuitem", { name: /保存⌘S/ }));
+      fireEvent.focus(screen.getByRole("menuitem", { name: /^保存/ }));
       expect(screen.queryByRole("menu", { name: "最近開いたファイル" })).toBeNull();
       fireEvent.mouseEnter(trigger);
       fireEvent.click(within(screen.getByRole("menu", { name: "最近開いたファイル" })).getByRole("menuitem", { name: /b\.json/ }));

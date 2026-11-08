@@ -14,6 +14,8 @@ function isEditable(target: EventTarget | null): boolean {
  * クラウドファイルでは、保存は「JSON に書き出す」になり、開く・Undo・Redo は使えない。閲覧専用では Delete も効かない
  */
 export function handleKeyDown(e: KeyboardEvent) {
+  // ショートカットの一覧 (キー待ち) が処理したキーは扱わない
+  if (e.defaultPrevented) return;
   // モーダルなダイアログ (共有・確認など) が出ている間は何もしない。背後のエディタが Delete などに反応しないように
   if (document.querySelector('[aria-modal="true"]')) return;
   const cloud = useUntieStore.getState().cloud !== null;
