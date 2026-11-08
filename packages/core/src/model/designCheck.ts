@@ -1,7 +1,7 @@
 // 設計モードの検証 (5.7)。設計のあるシステムを、データベースとの対応・サイトマップ・画面の面から調べる。純粋関数だけを置く。
-import { systemInformationIds } from "./designData";
 import { effectiveDatabaseIds } from "./design";
-import { viewBindingSlots } from "./designView";
+import { unmappedInformationIds } from "./designData";
+import { unboundSlots } from "./designView";
 import { parsePrismaDslCached } from "./prismaCache";
 import { designScreenName } from "./sitemap";
 import type { UntieModel } from "./types";
@@ -80,9 +80,7 @@ export function checkDesign(model: UntieModel, systemId: string): DesignCheckRes
     problems.push({ type: "noDatabase", message: "使うデータベースがありません。データボードでデータベースを足してください", target: { kind: "board", id: "data" } });
   } else {
     // (a) システムが使う情報が、どのテーブルにも対応していない
-    const mapped = new Set(databases.flatMap((d) => d.tables.flatMap((t) => t.informationIds)));
-    for (const id of systemInformationIds(model, systemId)) {
-      if (mapped.has(id)) continue;
+    for (const id of unmappedInformationIds(model, systemId)) {
       problems.push({
         type: "informationUnmapped",
         message: `情報「${nameOf(byId.get(id))}」が、使うデータベースのどのテーブルにも対応していません`,
@@ -171,10 +169,7 @@ export function checkDesign(model: UntieModel, systemId: string): DesignCheckRes
   }
   // (i) 画面 UI の入力の項目 (form の fields[].item) と一覧の列のうち、列の対応 (bindings) が無いもの。画面ごとに 1 行にまとめ、画面ボードでその画面を選ぶ
   for (const s of design.screens) {
-    if (s.view === undefined) continue;
-    const bound = new Set((s.bindings ?? []).map((b) => b.item));
-    // 入力の項目 (form) と一覧の列だけを数える。readonly / summary の計算した値は、列に結ばなくてよい
-    const missing = viewBindingSlots(s.view).filter((slot) => !bound.has(slot.key) && (slot.kind === "column" || slot.sectionKind === "form"));
+    const missing = unboundSlots(s);
     if (missing.length === 0) continue;
     warnings.push({
       type: "bindingUnmapped",

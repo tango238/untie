@@ -8,6 +8,8 @@ import { DesignCheckPanel } from "./components/design/DesignCheckPanel";
 import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
 import { LayoutLeftPane } from "./components/design/LayoutLeftPane";
+import { RelationLeftPane } from "./components/design/RelationLeftPane";
+import { RelationProperties } from "./components/design/RelationProperties";
 import { LayoutProperties } from "./components/design/LayoutProperties";
 import { ScreenListPane } from "./components/design/ScreenListPane";
 import { PropertyPanel } from "./components/PropertyPanel";
@@ -55,6 +57,8 @@ export default function App() {
   const layout = design === "layout";
   // 画面ボードは、左に画面の一覧、右に画面の組み立てを出す
   const screenBoard = design === "screen";
+  // 関連ボードは、左に情報・テーブル・画面の一覧、右に選んだものの詳細を出す
+  const relation = design === "relation";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   return (
     <div className="app">
@@ -74,13 +78,14 @@ export default function App() {
       <Toolbar />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap || data || layout || screenBoard ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data || layout || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}
         {layout && <LayoutLeftPane />}
         {screenBoard && <ScreenListPane />}
+        {relation && <RelationLeftPane />}
         <main className="canvas-area">
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
@@ -116,6 +121,8 @@ export default function App() {
                 <SitemapProperties />
               ) : data ? (
                 <DataProperties />
+              ) : relation ? (
+                <RelationProperties />
               ) : layout ? (
                 <LayoutProperties />
               ) : screenBoard ? (

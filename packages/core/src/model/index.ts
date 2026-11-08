@@ -19,3 +19,4 @@ export * from "./prismaCache";
 export * from "./designData";
 export * from "./designCheck";
 export * from "./designView";
+export * from "./designRelation";

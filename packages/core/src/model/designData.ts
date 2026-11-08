@@ -26,6 +26,21 @@ export function systemInformationIds(model: UntieModel, systemId: string): strin
     .sort((a, b) => nameOf(byId.get(a)).localeCompare(nameOf(byId.get(b)), "ja") || a.localeCompare(b));
 }
 
+/**
+ * システムが使う情報のうち、使うデータベースのどのテーブルにも対応していないものの id (検証の informationUnmapped と関連ボードの「未対応」の判定)。
+ * 設計が無いときと、使うデータベースが無いときは空 (後者は noDatabase が知らせる)。infoIds を渡すと systemInformationIds を走らせ直さない
+ */
+export function unmappedInformationIds(model: UntieModel, systemId: string, infoIds?: readonly string[]): string[] {
+  const design = model.designs.find((d) => d.systemId === systemId);
+  if (!design) return [];
+  const databases = effectiveDatabaseIds(model, design)
+    .map((id) => model.databases.find((d) => d.id === id))
+    .filter((d): d is NonNullable<typeof d> => !!d);
+  if (databases.length === 0) return [];
+  const mapped = new Set(databases.flatMap((d) => d.tables.flatMap((t) => t.informationIds)));
+  return (infoIds ?? systemInformationIds(model, systemId)).filter((id) => !mapped.has(id));
+}
+
 /** データベースを使っている設計 (使っているシステムの id と、databaseIds で選んだのか既定の規則によるのか) */
 export function designsUsingDatabase(model: UntieModel, databaseId: string): { systemId: string; explicit: boolean }[] {
   return model.designs

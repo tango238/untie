@@ -2,6 +2,7 @@
 // view の形は検証しないので、壊れた形でも落ちないよう、読めるところだけを拾う。
 
 import { VIEW_MAX_DEPTH, VIEW_MAX_NODES } from "./limits";
+import type { DesignScreen } from "./types";
 
 /** 画面の項目と列の対応の 1 つ分の口。key が bindings の item になる */
 export interface ViewBindingSlot {
@@ -49,6 +50,15 @@ export function viewBindingSlots(view: unknown): ViewBindingSlot[] {
   return slots;
 }
 
+/**
+ * 画面 UI の入力の項目 (form) と一覧の列のうち、列の対応 (bindings) が無いもの (検証の警告 bindingUnmapped と関連ボードの「未対応」の判定)。
+ * readonly / summary の計算した値は、列に結ばなくてよいので数えない。画面 UI (view) が無ければ空
+ */
+export function unboundSlots(screen: Pick<DesignScreen, "view" | "bindings">): ViewBindingSlot[] {
+  if (screen.view === undefined) return [];
+  const bound = new Set((screen.bindings ?? []).map((b) => b.item));
+  return viewBindingSlots(screen.view).filter((slot) => !bound.has(slot.key) && (slot.kind === "column" || slot.sectionKind === "form"));
+}
 
 /** 画面 UI に使えないキー (オブジェクトの原型を書き換える恐れがある) */
 const DANGEROUS_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
