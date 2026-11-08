@@ -16,13 +16,13 @@ import { ConfirmDialog } from "../ConfirmDialog";
 
 type Navigation = SetDesignNavigationPayload["navigation"];
 
-/** 右のペイン (設計モードのナビゲーションボード): ナビゲーションメニューのグループと項目 */
-export function NavigationProperties() {
+/** 左のペイン (設計モードのナビゲーションボード): ナビゲーションメニューのグループと項目 */
+export function NavigationMenuPane() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const design = model.designs.find((d) => d.systemId === systemId);
   return (
-    <aside className="property-panel" aria-label="プロパティ">
+    <aside className="sitemap-tree navigation-menu-pane" aria-label="ナビゲーションメニュー">
       <h2 className="panel-title">ナビゲーションメニュー</h2>
       {systemId ? <NavEditor model={model} systemId={systemId} design={design} /> : <p className="hint">設計の対象のシステムを選ぶと、ここに出ます</p>}
     </aside>

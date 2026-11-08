@@ -742,7 +742,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .other-infos { margin-top: 4px; }
 
 /* 設計モードのナビゲーションボード */
-.navigation-left { padding: 0 0 16px; }
+.navigation-layout-pane { padding: 0 0 16px; }
 .navigation-shells { border: none; margin: 0; padding: 0 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .navigation-shell-option { display: flex; align-items: flex-start; gap: 6px; cursor: pointer; }
 .navigation-shell-option span { display: flex; flex-direction: column; }
@@ -759,8 +759,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .nav-group { border: 1px solid var(--border); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
 .nav-items { padding-left: 10px; gap: 6px; }
 .nav-item { display: flex; flex-direction: column; gap: 4px; }
-.nav-row { display: flex; align-items: flex-end; gap: 6px; }
-.nav-row > .field { flex: 1; min-width: 0; }
+.nav-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; }
+.nav-row > .field { flex: 1 1 60px; min-width: 0; }
+.nav-row > .field select, .nav-row > .field input { width: 100%; min-width: 0; box-sizing: border-box; }
 .nav-buttons { display: flex; gap: 2px; flex: none; }
 .nav-add-item, .nav-add-group { align-self: flex-start; }
 

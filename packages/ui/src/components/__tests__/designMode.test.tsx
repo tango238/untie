@@ -191,7 +191,7 @@ describe("設計モードのツールバー", () => {
     const board = screen.getByRole("region", { name: "設計ボード: サイトマップ" });
     expect(within(board).getByText("左の一覧で活動や作業を選ぶと、関連する画面が遷移と一緒に加わります")).toBeDefined();
     fireEvent.change(screen.getByLabelText("ボード"), { target: { value: "design:navigation" } });
-    // ナビゲーションは、左に枠とヘッダー、中央にプレビュー (画面がまだ無いので案内)、右にナビゲーションメニュー
+    // ナビゲーションは、左にナビゲーションメニュー、中央にプレビュー (画面がまだ無いので案内)、右に枠とヘッダー
     expect(screen.getByRole("complementary", { name: "レイアウトの設定" })).toBeDefined();
     // プレビューは mokkun を遅延読み込みするので、出るまで待つ
     expect(within(await screen.findByRole("region", { name: "画面のプレビュー" })).getByText("サイトマップで画面を足すとプレビューできます")).toBeDefined();

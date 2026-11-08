@@ -16,8 +16,8 @@ const HEADER_FIELDS: { key: HeaderKey; label: string }[] = [
   { key: "tenantName", label: "テナント名" },
 ];
 
-/** 設計モードのナビゲーションボードの左ペイン: 共通の枠 (shell / plain) の選択と、ヘッダーの項目 */
-export function NavigationLeftPane() {
+/** 設計モードのナビゲーションボードの右ペイン: 共通の枠 (shell / plain) の選択と、ヘッダーの項目 */
+export function NavigationLayoutPane() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const readOnly = useUntieStore(selectReadOnly);
@@ -34,7 +34,7 @@ export function NavigationLeftPane() {
   };
 
   return (
-    <aside className="sitemap-tree navigation-left" aria-label="レイアウトの設定">
+    <aside className="property-panel navigation-layout-pane" aria-label="レイアウトの設定">
       <h2 className="panel-title">レイアウト</h2>
       <fieldset className="navigation-shells">
         <legend className="visually-hidden">レイアウト</legend>

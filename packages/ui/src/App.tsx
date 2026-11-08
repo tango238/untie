@@ -7,10 +7,10 @@ import { TracePanel } from "./components/TracePanel";
 import { DesignCheckPanel } from "./components/design/DesignCheckPanel";
 import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
-import { NavigationLeftPane } from "./components/design/NavigationLeftPane";
+import { NavigationLayoutPane } from "./components/design/NavigationLayoutPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
-import { NavigationProperties } from "./components/design/NavigationProperties";
+import { NavigationMenuPane } from "./components/design/NavigationMenuPane";
 import { ScreenListPane } from "./components/design/ScreenListPane";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ToastHost } from "./components/Toast";
@@ -83,7 +83,7 @@ export default function App() {
         {!builtin && <LeftPane />}
         {sitemap && <SitemapTree />}
         {data && <DataLeftPane />}
-        {navigation && <NavigationLeftPane />}
+        {navigation && <NavigationMenuPane />}
         {screenBoard && <ScreenListPane />}
         {relation && <RelationLeftPane />}
         <main className="canvas-area">
@@ -124,7 +124,7 @@ export default function App() {
               ) : relation ? (
                 <RelationProperties />
               ) : navigation ? (
-                <NavigationProperties />
+                <NavigationLayoutPane />
               ) : screenBoard ? (
                 <Suspense fallback={<p className="hint">読み込んでいます…</p>}>
                   <ScreenBuilder />
