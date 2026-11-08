@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
 import { addSitemapScreens } from "@untie/core/model/sitemap";
@@ -39,6 +39,7 @@ const ELEMENTS: Element[] = [
   { id: "scr_4", kind: "screen", name: "電話メモ", systemId: "sys_a" },
   { id: "scr_5", kind: "screen", name: "請求書", systemId: "sys_b" },
   { id: "info_1", kind: "information", name: "予約", contextId: null },
+  { id: "cond_1", kind: "condition", name: "会員かどうか", description: "会員なら割引する" },
 ] as Element[];
 
 const PAIRS: [string, string, Relation["kind"]][] = [
@@ -58,6 +59,8 @@ const PAIRS: [string, string, Relation["kind"]][] = [
   ["uc_5", "scr_5", "usecaseScreen"],
   ["uc_1", "uc_2", "usecaseNext"],
   ["uc_1", "info_1", "usecaseInformation"],
+  ["uc_1", "cond_1", "usecaseCondition"],
+  ["uc_2", "cond_1", "usecaseCondition"],
 ];
 
 function model(): UntieModel {
@@ -245,6 +248,26 @@ describe("SitemapProperties", () => {
     expect(panel.getByText("(予約を受ける)")).toBeDefined();
     expect(panel.getByText("予約")).toBeDefined();
     expect(panel.getByTestId("sitemap-entry-notes")).toBeDefined();
+  });
+
+  it("この画面が判断する条件を、根拠の操作つきで出す。無い画面は「なし」、組み込みの画面には出さない", () => {
+    const idOf = setup();
+    act(() => st().selectDesignScreen(idOf("予約検索")));
+    const { unmount } = render(<SitemapProperties />);
+    const panel = within(screen.getByTestId("sitemap-properties"));
+    expect(panel.getByText("この画面が判断する条件")).toBeDefined();
+    const row = within(panel.getByTestId("screen-conditions")).getByText("会員かどうか", { exact: false }).closest("li")!;
+    expect(row.getAttribute("title")).toBe("会員なら割引する");
+    expect(row.textContent).toContain("予約を探す");
+    unmount();
+    act(() => st().selectDesignScreen(idOf("予約詳細")));
+    render(<SitemapProperties />);
+    expect(screen.queryByTestId("screen-conditions")).toBeNull();
+    expect(screen.getByText("この画面が判断する条件").parentElement!.textContent).toContain("なし");
+    cleanup();
+    act(() => st().selectDesignScreen(idOf("トップページ")));
+    render(<SitemapProperties />);
+    expect(screen.queryByText("この画面が判断する条件")).toBeNull();
   });
 
   it("「分析の画面ボードで見る」で分析モードの画面ボードへ移り、その画面を選ぶ", () => {

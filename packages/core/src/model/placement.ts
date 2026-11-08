@@ -91,3 +91,30 @@ export function screenInformations(model: UntieModel): Map<string, Derived[]> {
   }
   return result;
 }
+
+/** 画面が判断する条件 1 件: 条件と、それを決めた操作 (関係の並び順、重複なし) */
+export interface DerivedCondition {
+  id: string;
+  usecaseIds: string[];
+}
+
+/** 画面 id → その画面を使う操作が判断する条件 (usecaseCondition)。情報と違って役割は無い */
+export function screenConditions(model: UntieModel): Map<string, DerivedCondition[]> {
+  const screenOf = new Map<string, string[]>();
+  for (const r of model.relations) if (r.kind === "usecaseScreen") screenOf.set(r.sourceId, [...(screenOf.get(r.sourceId) ?? []), r.targetId]);
+  const result = new Map<string, DerivedCondition[]>();
+  for (const r of model.relations) {
+    if (r.kind !== "usecaseCondition") continue;
+    for (const screenId of screenOf.get(r.sourceId) ?? []) {
+      const list = result.get(screenId) ?? [];
+      let entry = list.find((d) => d.id === r.targetId);
+      if (!entry) {
+        entry = { id: r.targetId, usecaseIds: [] };
+        list.push(entry);
+        result.set(screenId, list);
+      }
+      if (!entry.usecaseIds.includes(r.sourceId)) entry.usecaseIds.push(r.sourceId);
+    }
+  }
+  return result;
+}

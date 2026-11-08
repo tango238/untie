@@ -1,6 +1,6 @@
 // AI エージェントがモデルを読み書きする道具。3 社のプロバイダーに同じ定義を渡す。
 // 道具の中身は既存のコマンド (@untie/core の model/commands.ts) を呼ぶだけにし、整合性の検査はコマンドに任せる。
-import { screenInformations } from "@untie/core/model/placement";
+import { screenConditions, screenInformations } from "@untie/core/model/placement";
 import {
   addElement,
   addRelation,
@@ -229,7 +229,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "get_design_screen",
     description:
-      "設計の画面 1 つの画面 UI (mokkun v2 の view)、項目と列の対応 (bindings)、画面が使う情報、この画面からの遷移、使うデータベースのテーブルと列を返す。画面 UI を直す前に呼ぶこと。",
+      "設計の画面 1 つの画面 UI (mokkun v2 の view)、項目と列の対応 (bindings)、画面が使う情報、画面が判断する条件 (conditions)、この画面からの遷移、使うデータベースのテーブルと列を返す。画面 UI を直す前に呼ぶこと。",
     parameters: { type: "object", properties: { screen_id: str("設計の画面の id (list_design_screens の id)") }, required: ["screen_id"], additionalProperties: false },
   },
   {
@@ -537,6 +537,7 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
           ...(screen.view !== undefined ? { view: screen.view } : {}),
           bindings: (screen.bindings ?? []).map((b) => ({ item: b.item, database_id: b.databaseId, table: b.table, column: b.column })),
           informations: analysisId ? (screenInformations(model).get(analysisId) ?? []).map((d) => ({ id: d.id, name: name(d.id) })) : [],
+          conditions: analysisId ? (screenConditions(model).get(analysisId) ?? []).map((d) => ({ id: d.id, name: name(d.id), ...(byId.get(d.id)?.description ? { description: byId.get(d.id)!.description } : {}) })) : [],
           transitions: design.transitions
             .filter((t) => t.from === id)
             .map((t) => ({ to: t.to, toName: design.screens.find((x) => x.id === t.to) ? designScreenName(model, design.screens.find((x) => x.id === t.to)!) : t.to, ...(t.via ? { via: t.via } : {}), ...(t.label ? { label: t.label } : {}) })),

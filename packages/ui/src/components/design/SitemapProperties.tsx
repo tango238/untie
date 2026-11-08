@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { screenInformations } from "@untie/core/model/placement";
+import { ScreenConditionList, useScreenConditions } from "./ScreenConditionList";
 import { addTransition, removeTransition, updateTransition } from "@untie/core/model/commands";
 import { designBoardId } from "@untie/core/model/design";
 import { TRANSITION_VIAS, TRANSITION_VIA_LABELS, designScreenName, effectiveShell, SHELL_SHORT_LABELS } from "@untie/core/model/sitemap";
@@ -62,6 +63,8 @@ function ScreenEditor({ model, systemId, design, screen }: { model: UntieModel; 
     const informations = (screenInformations(model).get(analysis.id) ?? []).map((d) => byId.get(d.id)?.name || "(名前なし)");
     return { usecases, informations };
   }, [model, analysis]);
+
+  const conditions = useScreenConditions(model, analysis?.id);
 
   const notes = cachedEntryNotes(model, systemId, design).get(screen.id);
   const outgoing = design.transitions.filter((t) => t.from === screen.id);
@@ -131,6 +134,12 @@ function ScreenEditor({ model, systemId, design, screen }: { model: UntieModel; 
               ))}
             </ul>
           )}
+        </div>
+      )}
+      {analysis && (
+        <div className="field">
+          <span className="field-label">この画面が判断する条件</span>
+          {conditions.length === 0 ? <div className="hint-inline">なし</div> : <ScreenConditionList conditions={conditions} />}
         </div>
       )}
       {notes && (

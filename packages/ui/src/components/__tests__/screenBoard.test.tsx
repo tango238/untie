@@ -59,6 +59,7 @@ const ELEMENTS: Element[] = [
   { id: "act_1", kind: "activity", name: "受ける", bucId: "buc_1" },
   { id: "uc_1", kind: "usecase", name: "検索する" },
   { id: "uc_2", kind: "usecase", name: "登録する" },
+  { id: "cond_1", kind: "condition", name: "会員かどうか", description: "会員なら割引する" },
   { id: "scr_1", kind: "screen", name: "予約検索", description: "予約を探す", systemId: "sys_a" },
   { id: "scr_2", kind: "screen", name: "予約登録", systemId: "sys_a" },
 ] as Element[];
@@ -68,6 +69,7 @@ const PAIRS: [string, string, Relation["kind"]][] = [
   ["act_1", "uc_2", "activityUsecase"],
   ["uc_1", "scr_1", "usecaseScreen"],
   ["uc_2", "scr_2", "usecaseScreen"],
+  ["uc_1", "cond_1", "usecaseCondition"],
 ];
 
 const VIEW = {
@@ -200,6 +202,25 @@ describe("ScreenBuilder: 画面 UI の無い画面", () => {
     fireEvent.click(screen.getByRole("button", { name: "画面 UI を作る" }));
     expect(view()).toMatchObject({ title: "予約検索", goal: "予約を探す", sections: [{ id: "main", kind: "form", fields: [] }] });
     expect(pastLength()).toBe(1);
+  });
+});
+
+describe("ScreenBuilder: この画面が判断する条件", () => {
+  it("画面を使う操作が判断する条件を、根拠の操作つきで読み取りで出す。条件の無い画面・組み込みの画面には出さない", () => {
+    render(<ScreenBuilder />);
+    const list = screen.getByTestId("screen-conditions");
+    expect(screen.getByText("この画面が判断する条件")).toBeDefined();
+    expect(list.textContent).toContain("会員かどうか");
+    expect(list.textContent).toContain("検索する");
+    expect(list.querySelector("li")!.getAttribute("title")).toBe("会員なら割引する");
+    cleanup();
+    act(() => st().selectDesignScreen("d2"));
+    render(<ScreenBuilder />);
+    expect(screen.queryByText("この画面が判断する条件")).toBeNull();
+    cleanup();
+    act(() => st().selectDesignScreen("d_top"));
+    render(<ScreenBuilder />);
+    expect(screen.queryByText("この画面が判断する条件")).toBeNull();
   });
 });
 

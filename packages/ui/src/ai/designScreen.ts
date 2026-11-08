@@ -1,7 +1,7 @@
 // 設計モードの画面ボード「AI で作る」: 画面の材料 (使う操作・情報・遷移)、使うデータベースのテーブルと列から、
 // 画面 UI (mokkun v2 の view) と、項目と列の対応 (bindings) を一回きりで作らせる。AI は submit_screen で結果を提出する。
 // view は mokkun の検証 (parseV2Document) に通し、エラーがあれば 1 回だけ出し直させる。存在しないデータベース・テーブル・列の対応は捨てる。
-import { screenInformations } from "@untie/core/model/placement";
+import { screenConditions, screenInformations } from "@untie/core/model/placement";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { viewBindingSlots } from "@untie/core/model/designView";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
@@ -64,6 +64,7 @@ view の形式 (要点):
 - 遷移: 別の画面へ行く操作は navigate の action に to (遷移先の画面の id) を書く。送信のあとに行く画面は submit の to。一覧の行から開く画面は list.columns[0].to。to には「この画面からの遷移」の遷移先の画面の id だけを使う
 
 決まり:
+- 画面が判断する条件 (conditions) は、条件で変わる表示 (visibleWhen など) の材料にする
 - 画面が使う情報を、項目や一覧の列にする。項目名は業務の言葉 (label)、item は英語の識別子にする
 - 入力の項目 (form) と一覧の列は、使うデータベースの列に結ぶ (bindings)。検索語は、検索する列に結ぶ。readonly / summary の計算した値 (合計・件数など) は結ばなくてよい。databaseId・table・column は「使うデータベース」にあるものだけを使う
 - 一覧の列の対応の item は \`<セクションの id>.<列の id>\`
@@ -99,6 +100,12 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
         return { id: d.id, name: nameOf(info), ...(info?.description ? { description: info.description } : {}) };
       })
     : [];
+  const conditions = analysis
+    ? (screenConditions(model).get(analysis.id) ?? []).map((d) => {
+        const c = byId.get(d.id);
+        return { name: nameOf(c), ...(c?.description ? { description: c.description } : {}) };
+      })
+    : [];
   const screenInfo = {
     id: screen.id,
     name: names.get(screen.id)!,
@@ -107,6 +114,7 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
     ...(screen.source.kind === "builtin" ? { builtin: screen.source.builtin } : {}),
     ...(usecases.length > 0 ? { usecases } : {}),
     ...(informations.length > 0 ? { informations } : {}),
+    ...(conditions.length > 0 ? { conditions } : {}),
   };
   const databases = effectiveDatabaseIds(model, design).flatMap((id) => {
     const db = model.databases.find((d) => d.id === id);

@@ -14,6 +14,7 @@ import { selectReadOnly, useUntieStore } from "../../store";
 import { CommitField } from "../CommitField";
 import { ConfirmDialog } from "../ConfirmDialog";
 import type { DbInfo } from "./BindingPicker";
+import { ScreenConditionList, useScreenConditions } from "./ScreenConditionList";
 import { ScreenFormEditor } from "./ScreenFormEditor";
 import { ScreenYamlEditor } from "./ScreenYamlEditor";
 import { pruneBindings, setOrDelete, str, type Binding, type Json } from "./screenForm";
@@ -152,6 +153,7 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
     if (!r.ok) pushToast(r.reason, "error");
   };
 
+  const conditions = useScreenConditions(model, analysis?.id);
   const aiDisabled = readOnly || generating || hasKey !== true;
 
   return (
@@ -191,6 +193,12 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
           <option value="plain">{SHELL_LABELS.plain}</option>
         </select>
       </label>
+      {conditions.length > 0 && (
+        <div className="field">
+          <span className="field-label">この画面が判断する条件</span>
+          <ScreenConditionList conditions={conditions} />
+        </div>
+      )}
       <div className="nav-actions">
         <button
           type="button"
