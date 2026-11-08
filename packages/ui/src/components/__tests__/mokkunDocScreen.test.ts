@@ -67,18 +67,41 @@ describe("buildMokkunSchema: 送信のあとの遷移 (afterSubmit)", () => {
     expect(v.secondaryActions).toBeUndefined();
   });
 
-  it("主の操作が無い・submit でない・to がもうあるときは、これまでどおり補助の操作の navigate にする", () => {
+  it("画面 UI はあるが主の操作が無い・submit でない・to がもうあるときは、何も足さない (ボタンにしない)", () => {
     const withTransition = (view: unknown) => okModel(addTransition(setup({ d2: view }), { systemId: "sys_a", from: "d2", to: "d3", via: "afterSubmit", label: "確認へ" }));
     for (const view of [LIST, { ...FORM, primaryAction: { id: "send", label: "送信", kind: "custom" } }, { ...FORM, primaryAction: { id: "send", label: "送信", kind: "submit", to: "d1" } }]) {
       const v = build(withTransition(view)).schema.views.d2!;
-      expect(v.secondaryActions).toEqual([expect.objectContaining({ kind: "navigate", to: "d3", label: "確認へ" })]);
+      expect(v.secondaryActions).toBeUndefined();
       expect(v.primaryAction?.to).not.toBe("d3");
     }
   });
 
-  it("画面 UI の無い画面 (仮の view) は補助の操作", () => {
-    const m = okModel(addTransition(setup(), { systemId: "sys_a", from: "d2", to: "d3", via: "afterSubmit" }));
-    expect(build(m).schema.views.d2!.secondaryActions).toEqual([expect.objectContaining({ kind: "navigate", to: "d3" })]);
+  it("画面 UI の無い画面 (仮の view) は、submit の主の操作に写す。label は遷移の文言、無ければ「送信」。ボタンにはしない", () => {
+    const plain = build(okModel(addTransition(setup(), { systemId: "sys_a", from: "d2", to: "d3", via: "afterSubmit" }))).schema.views.d2!;
+    expect(plain.primaryAction).toMatchObject({ label: "送信", kind: "submit", to: "d3" });
+    expect(plain.secondaryActions).toBeUndefined();
+    const labeled = build(okModel(addTransition(setup(), { systemId: "sys_a", from: "d2", to: "d3", via: "afterSubmit", label: "確認へ" }))).schema.views.d2!;
+    expect(labeled.primaryAction).toMatchObject({ label: "確認へ", kind: "submit", to: "d3" });
+  });
+
+  it("仮のサインインは、ID・パスワードの form と submit「サインイン」を持ち、to がホーム。navigate のボタンは無い", () => {
+    let m = okModel(addDesignScreens(setup(), { systemId: "sys_a", screens: [{ id: "d_in", source: { kind: "builtin", builtin: "signIn" } }], transitions: [] }));
+    m = okModel(addTransition(m, { systemId: "sys_a", from: "d_in", to: "d_top", via: "afterSubmit" }));
+    const doc = build(m);
+    expect(doc.error).toBeUndefined();
+    const v = doc.schema.views.d_in!;
+    expect(v.primaryAction).toMatchObject({ label: "サインイン", kind: "submit", to: "d_top" });
+    expect(v.secondaryActions).toBeUndefined();
+    expect(v.sections[0]).toMatchObject({ id: "signin", title: "サインイン", kind: "form" });
+    expect(v.sections[0]!.fields!.map((f) => f.item)).toEqual(["loginId", "password"]);
+  });
+
+  it("afterSubmit が 2 つ以上あれば最初の 1 つだけ写し、残りは捨てる", () => {
+    let m = okModel(addTransition(setup(), { systemId: "sys_a", from: "d2", to: "d3", via: "afterSubmit" }));
+    m = okModel(addTransition(m, { systemId: "sys_a", from: "d2", to: "d1", via: "afterSubmit" }));
+    const v = build(m).schema.views.d2!;
+    expect(v.primaryAction?.to).toBe("d3");
+    expect(v.secondaryActions).toBeUndefined();
   });
 });
 

@@ -40,6 +40,23 @@ function screenInformation(model: UntieModel, screen: DesignScreen): { id: strin
 
 /** 画面 UI (view) が無い画面の仮の view: 画面が使う情報を readonly の text で 1 つずつ並べる。情報が無ければ note だけ */
 function placeholderView(model: UntieModel, screen: DesignScreen, title: string, goal: string): ViewV2 {
+  if (screen.source.kind === "builtin" && screen.source.builtin === "signIn") {
+    return {
+      title,
+      goal,
+      sections: [
+        {
+          id: "signin",
+          title: "サインイン",
+          kind: "form",
+          fields: [
+            { item: "loginId", label: "ID", component: "text", required: true },
+            { item: "password", label: "パスワード", component: "text", required: true },
+          ],
+        },
+      ],
+    };
+  }
   const infos = screenInformation(model, screen);
   const section: ViewV2["sections"][number] = {
     id: "placeholder",
@@ -154,7 +171,7 @@ const describeErrors = (errors: { path?: string; message: string }[]): string =>
  * 設計の画面ごとに mokkun の view を作る文書を組み立てる。
  * - app: name はヘッダーに出すシステム名 (設計の layout.header.systemName、空なら対象システムの名前)、layout は設計のレイアウト (画面ごとの上書きは文書に入れず、`shellOf` で渡してプレビューが差し替える)、header は利用者名・テナント名 (mokkun の header.systemName は小さな補足なので使わない)、navigation は設計のナビゲーション (view は画面の id、label は省略時は画面名)
  * - views: キーは画面の id。画面 UI (view) があればその中身をそのまま使い (title は画面名を正にする。設計に無い画面を指す to は外す)、無ければ仮の 1 セクション。
- *   遷移 (きっかけがメニュー (nav) のものは足さない。メニューで行く): view 自身が同じ遷移先の to を持っていれば足さない。afterSubmit は主の操作が遷移先の無い submit (kind 省略も submit) ならその to に、row は kind が list のセクションの最初の列に遷移先が無ければその to に写す。同じ遷移先への遷移が複数あるときは最初の 1 つだけ写す。
+ *   遷移 (きっかけがメニュー (nav) のものは足さない。メニューで行く): view 自身が同じ遷移先の to を持っていれば足さない。afterSubmit は主の操作が遷移先の無い submit (kind 省略も submit) ならその to に (仮の画面は submit の主の操作を持たせる。ほかは何も足さず、ボタンにしない。2 つ目以降は捨てる)、row は kind が list のセクションの最初の列に遷移先が無ければその to に写す。同じ遷移先への遷移が複数あるときは最初の 1 つだけ写す。
  *   それ以外 (button・きっかけ未定・写せなかったもの) は secondaryActions に navigate として足す。操作の id が重なるときは `_2` のように付け直す
  * 組み立てた文書は mokkun の検証 (parseV2Document) に通す。画面 UI が壊れている画面は、その画面だけ仮の view に替えてもう一度検証し、理由は viewErrors (画面の id → 理由) に入れる。
  * それでも通らない (画面の外の問題) ときは理由を error に入れる
@@ -208,10 +225,22 @@ export function buildMokkunSchema(model: UntieModel, systemId: string, design: S
         // 画面 UI が同じ遷移先を決めていれば足さない
         if (targets.has(t.to)) continue;
         targets.add(t.to);
-        // 送信のあと: 画面 UI の主の操作が遷移先の無い submit なら、その to にする
-        if (t.via === "afterSubmit" && !submitDone && view.primaryAction !== undefined && (view.primaryAction.kind ?? "submit") === "submit" && view.primaryAction.to === undefined) {
-          submitDone = true;
-          view = { ...view, primaryAction: { ...view.primaryAction, to: t.to } };
+        // 送信のあと: ボタン (navigate) にはしない。最初の 1 つだけ写し、残りは捨てる
+        if (t.via === "afterSubmit") {
+          if (submitDone) continue;
+          const primary = view.primaryAction;
+          if (primary !== undefined) {
+            // 画面 UI の主の操作が遷移先の無い submit なら、その to にする。そうでなければ何も足さない
+            if ((primary.kind ?? "submit") === "submit" && primary.to === undefined) {
+              submitDone = true;
+              view = { ...view, primaryAction: { ...primary, to: t.to } };
+            }
+          } else if (!given) {
+            // 仮の画面は、送信の操作を主の操作として持たせる
+            submitDone = true;
+            const label = t.label || (screen.source.kind === "builtin" && screen.source.builtin === "signIn" ? "サインイン" : "送信");
+            view = { ...view, primaryAction: { id: t.id, label, kind: "submit", to: t.to } };
+          }
           continue;
         }
         // 一覧の行: 画面 UI の一覧の最初の列が遷移先を持たなければ、その to にする
