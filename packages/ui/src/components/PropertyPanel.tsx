@@ -11,6 +11,7 @@ import {
   setEdgeSides,
   setIssueTargets,
   setRelationAccess,
+  setScreenUsecase,
   setUsecaseTarget,
   isUsecaseTargetKind,
   updateElement,
@@ -301,6 +302,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
         {isContextMemberKind(element.kind) && <ContextField element={element} model={model} />}
         {isSystemMemberKind(element.kind) && <SystemField element={element} model={model} />}
+        {element.kind === "screen" && <ScreenUsecaseField screenId={element.id} model={model} />}
         {element.kind === "usecase" && <UsecaseTargetField usecaseId={element.id} model={model} />}
         {element.kind === "nfr" && (
           <>
@@ -958,11 +960,18 @@ function UsecaseTargetField({ usecaseId, model }: { usecaseId: string; model: Un
   const current = model.relations.find((r) => isUsecaseTargetKind(r.kind) && r.sourceId === usecaseId)?.targetId ?? "";
   const nameOf = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
   const groups = [
-    { label: "システム", items: model.elements.filter((e) => e.kind === "system").map((e) => ({ id: e.id, label: e.name || "(名前なし)" })) },
-    { label: "帳票", items: model.elements.filter((e) => e.kind === "ledger").map((e) => ({ id: e.id, label: e.name || "(名前なし)" })) },
+    { label: "システム", items: model.elements.filter((e) => e.kind === "system").map((e) => ({ id: e.id, label: e.name || "(名前なし)", disabled: false })) },
+    { label: "帳票", items: model.elements.filter((e) => e.kind === "ledger").map((e) => ({ id: e.id, label: e.name || "(名前なし)", disabled: false })) },
     {
       label: "画面",
-      items: model.elements.flatMap((e) => (e.kind === "screen" ? [{ id: e.id, label: `${e.name || "(名前なし)"} (${nameOf(e.systemId)})` }] : [])),
+      items: model.elements.flatMap((e) => {
+        if (e.kind !== "screen") return [];
+        const base = `${e.name || "(名前なし)"} (${nameOf(e.systemId)})`;
+        const user = screenUserId(model, e.id);
+        // 別の操作が使っている画面は選べない (自分が使っている画面はそのまま選べる)
+        if (user && user !== usecaseId) return [{ id: e.id, label: `${base} — 使用中: ${nameOf(user)}`, disabled: true }];
+        return [{ id: e.id, label: base, disabled: false }];
+      }),
     },
   ].filter((g) => g.items.length > 0);
   return (
@@ -980,14 +989,75 @@ function UsecaseTargetField({ usecaseId, model }: { usecaseId: string; model: Un
         {groups.map((g) => (
           <optgroup key={g.label} label={g.label}>
             {g.items.map((o) => (
-              <option key={o.id} value={o.id}>
+              <option key={o.id} value={o.id} disabled={o.disabled}>
                 {o.label}
               </option>
             ))}
           </optgroup>
         ))}
       </select>
-      <span className="hint">システム・帳票・画面のどれか 1 つ。画面を選ぶと、その画面のシステムが対象になります。</span>
+      <span className="hint">システム・帳票・画面のどれか 1 つ。画面を選ぶと、その画面のシステムが対象になります。別の操作が使っている画面は選べません。</span>
+    </label>
+  );
+}
+
+/** 画面を対象にしている操作の id (なければ undefined) */
+function screenUserId(model: UntieModel, screenId: string): string | undefined {
+  return model.relations.find((r) => r.kind === "usecaseScreen" && r.targetId === screenId)?.sourceId;
+}
+
+/** 画面を使う操作。選ぶと、操作の対象をこの画面に入れ替える (前にこの画面を使っていた操作の対象は外れる) */
+function ScreenUsecaseField({ screenId, model }: { screenId: string; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const readOnly = useUntieStore(selectReadOnly);
+  const current = screenUserId(model, screenId) ?? "";
+  const name = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+  const usecases = model.elements.filter((e) => e.kind === "usecase");
+  // 操作を使う作業ごとにまとめる。作業に属さない操作は「作業なし」
+  const byActivity = new Map<string, string[]>();
+  const noActivity: string[] = [];
+  for (const u of usecases) {
+    const acts = model.relations.filter((r) => r.kind === "activityUsecase" && r.targetId === u.id).map((r) => r.sourceId);
+    if (acts.length === 0) noActivity.push(u.id);
+    for (const a of acts) byActivity.set(a, [...(byActivity.get(a) ?? []), u.id]);
+  }
+  const label = (uId: string, activityId?: string) => (activityId ? `${name(uId)} (${name(activityId)})` : name(uId));
+  const groups: { label: string; items: { key: string; id: string; label: string }[] }[] = [];
+  for (const b of model.elements.filter((e) => e.kind === "buc")) {
+    const items = model.elements
+      .filter((e) => e.kind === "activity" && e.bucId === b.id)
+      .flatMap((a) => (byActivity.get(a.id) ?? []).map((uId) => ({ key: `${a.id}/${uId}`, id: uId, label: label(uId, a.id) })));
+    if (items.length > 0) groups.push({ label: `活動 (BUC): ${b.name || "(名前なし)"}`, items });
+  }
+  const placed = new Set(groups.flatMap((g) => g.items.map((i) => i.id)));
+  const rest = [...byActivity.entries()].flatMap(([a, ids]) => ids.filter((uId) => !placed.has(uId)).map((uId) => ({ key: `${a}/${uId}`, id: uId, label: label(uId, a) })));
+  if (rest.length > 0) groups.push({ label: "作業", items: rest });
+  if (noActivity.length > 0) groups.push({ label: "作業なし", items: noActivity.map((uId) => ({ key: uId, id: uId, label: name(uId) })) });
+  return (
+    <label className="field">
+      <span className="field-label">使う操作</span>
+      <select
+        aria-label="使う操作"
+        value={current}
+        disabled={readOnly}
+        onChange={(e) => {
+          const r = dispatch((m) => setScreenUsecase(m, { screenId, usecaseId: e.target.value || null }));
+          if (!r.ok) pushToast(r.reason, "error");
+        }}
+      >
+        <option value="">なし</option>
+        {groups.map((g) => (
+          <optgroup key={g.label} label={g.label}>
+            {g.items.map((o) => (
+              <option key={o.key} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <span className="hint">操作の対象をこの画面にします。前にこの画面を使っていた操作の対象は外れます。</span>
     </label>
   );
 }

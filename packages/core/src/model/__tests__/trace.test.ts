@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addElement, addRelation, moveActivity, removeRelation, setUsecaseTarget } from "../commands";
 import { traceToActors, traceWarnings } from "../trace";
 import { emptyModel, type UntieModel } from "../types";
-import { expectFail, okModel, sample } from "./helpers";
+import { expectFail, okModel, sample, shareScreen } from "./helpers";
 
 describe("traceToActors", () => {
   it("サンプルはすべての要素がアクター / 外部アクターに辿り着く", () => {
@@ -247,7 +247,7 @@ describe("traceToActors: 1 つの画面を複数の操作が使う (エラー)",
 
   it("2 つ以上の操作が同じ画面を使うとエラー。辿れるかの途切れには数えない", () => {
     let m = withScreen();
-    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    m = shareScreen(m, "uc_cancel_reservation", "scr_a");
     const r = traceToActors(m);
     expect(r.problems).toEqual([]);
     expect(r.errors).toHaveLength(1);
@@ -259,7 +259,7 @@ describe("traceToActors: 1 つの画面を複数の操作が使う (エラー)",
 
   it("操作の対象を別の画面へ替えるとエラーが消える", () => {
     let m = withScreen();
-    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    m = shareScreen(m, "uc_cancel_reservation", "scr_a");
     m = okModel(addElement(m, { kind: "screen", name: "取消画面", id: "scr_b", init: { systemId: "sys_pms" } }));
     m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_b" }));
     expect(traceToActors(m).errors).toEqual([]);
@@ -267,9 +267,9 @@ describe("traceToActors: 1 つの画面を複数の操作が使う (エラー)",
 
   it("3 つ以上の操作が使っても、画面ごとに 1 件で、操作は結んだ順に並ぶ", () => {
     let m = withScreen();
-    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }));
+    m = shareScreen(m, "uc_cancel_reservation", "scr_a");
     m = okModel(addElement(m, { kind: "usecase", name: "三つ目の操作", id: "uc_third" }));
-    m = okModel(setUsecaseTarget(m, { usecaseId: "uc_third", targetId: "scr_a" }));
+    m = shareScreen(m, "uc_third", "scr_a");
     const errors = traceToActors(m).errors;
     expect(errors).toHaveLength(1);
     expect(errors[0]!.relatedIds).toEqual(["uc_record_checkin", "uc_cancel_reservation", "uc_third"]);

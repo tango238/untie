@@ -265,7 +265,7 @@ function screenSharedErrors(model: UntieModel, byId: Map<string, Element>): Trac
       elementId: e.id,
       relatedIds: ids,
       reason: `画面「${e.name || "(名前なし)"}」を複数の操作が使っています (${ids.map((id) => byId.get(id)?.name || "(名前なし)").join("、")})`,
-      fix: "1 つの画面は 1 つの操作だけが使います。操作ごとに画面を分けてください。",
+      fix: "1 つの画面は 1 つの操作だけが使います。操作ごとに画面を分けてください (画面のプロパティ欄の「使う操作」で付け替えられます)。",
     });
   }
   return errors;

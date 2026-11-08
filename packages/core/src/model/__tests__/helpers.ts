@@ -17,3 +17,9 @@ export function expectFail<T>(r: CommandResult<T>, pattern?: RegExp) {
   expect(r.ok).toBe(false);
   if (!r.ok && pattern) expect(r.reason).toMatch(pattern);
 }
+
+/** 古いファイル・同時編集で重なった状態を作る (コマンドは断るので関係を直接足す) */
+export function shareScreen(model: UntieModel, usecaseId: string, screenId: string): UntieModel {
+  const rels = model.relations.filter((r) => !(r.sourceId === usecaseId && (r.kind === "usecaseSystem" || r.kind === "usecaseScreen")));
+  return { ...model, relations: [...rels, { id: `rel_share_${usecaseId}_${screenId}`, kind: "usecaseScreen", sourceId: usecaseId, targetId: screenId } as UntieModel["relations"][number]] };
+}

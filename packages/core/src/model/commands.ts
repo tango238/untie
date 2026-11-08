@@ -1283,6 +1283,10 @@ export function addRelation(model: UntieModel, payload: AddRelationPayload): Com
 
   const candidate = { kind, sourceId, targetId };
   if (model.relations.some((r) => sameRelation(r, candidate))) return fail("同じ関係がすでにあります");
+  if (kind === "usecaseScreen") {
+    const other = screenUser(model, targetId, sourceId);
+    if (other) return fail(SCREEN_IN_USE_REASON(target.name, other.name));
+  }
   if (isUsecaseTargetKind(kind) && model.relations.some((r) => isUsecaseTargetKind(r.kind) && r.sourceId === sourceId)) {
     return fail(USECASE_TARGET_LIMIT_REASON);
   }
@@ -1325,6 +1329,17 @@ export function isUsecaseTargetKind(kind: string): kind is "usecaseSystem" | "us
 
 export const USECASE_TARGET_LIMIT_REASON = "操作の対象は 1 つだけです。今の対象を外してから結んでください";
 
+export const SCREEN_IN_USE_REASON = (screen: string, usecase: string) =>
+  `画面「${screen}」は操作「${usecase}」が使っています。先にその操作の対象を外してください`;
+
+/** 画面を対象にしている操作 (except を除く最初の 1 つ) */
+function screenUser(model: UntieModel, screenId: string, except?: string) {
+  const rel = model.relations.find((r) => r.kind === "usecaseScreen" && r.targetId === screenId && r.sourceId !== except);
+  if (!rel) return undefined;
+  const uc = findElement(model, rel.sourceId);
+  return uc && uc.kind === "usecase" ? uc : undefined;
+}
+
 export interface SetUsecaseTargetPayload {
   usecaseId: string;
   /** システム・帳票・画面の id。null で対象を外す */
@@ -1352,6 +1367,35 @@ export function setUsecaseTarget(model: UntieModel, payload: SetUsecaseTargetPay
   if (payload.targetId === null) return { ok: true, model: next };
   const added = addRelation(next, { sourceId: uc.id, targetId: payload.targetId });
   return added.ok ? { ok: true, model: added.model } : added;
+}
+
+export interface SetScreenUsecasePayload {
+  screenId: string;
+  /** この画面を使う操作の id。null でどの操作も使わない状態にする */
+  usecaseId: string | null;
+}
+
+/** 画面を使う操作を入れ替える。今の操作の対象は外し、新しい操作の前の対象も消す (1 件の履歴) */
+export function setScreenUsecase(model: UntieModel, payload: SetScreenUsecasePayload): CommandResult {
+  const screen = findElement(model, payload.screenId);
+  if (!screen || screen.kind !== "screen") return fail(`画面が存在しません: ${payload.screenId}`);
+  if (payload.usecaseId !== null) {
+    const uc = findElement(model, payload.usecaseId);
+    if (!uc || uc.kind !== "usecase") return fail(`操作が存在しません: ${payload.usecaseId}`);
+  }
+  const users = model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === screen.id);
+  if (payload.usecaseId === null) {
+    if (users.length === 0) return { ok: true, model };
+  } else if (users.length === 1 && users[0]!.sourceId === payload.usecaseId) return { ok: true, model };
+  let next = model;
+  for (const r of users) {
+    const removed = removeRelation(next, { id: r.id });
+    if (!removed.ok) return removed;
+    next = removed.model;
+  }
+  if (payload.usecaseId === null) return { ok: true, model: next };
+  const set = setUsecaseTarget(next, { usecaseId: payload.usecaseId, targetId: screen.id });
+  return set.ok ? { ok: true, model: set.model } : set;
 }
 
 export interface RemoveRelationPayload {

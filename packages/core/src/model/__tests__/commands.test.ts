@@ -19,10 +19,12 @@ import {
   setEdgeSides,
   setIssueTargets,
   setRelationAccess,
+  setScreenUsecase,
   setUsecaseTarget,
   updateElement,
 } from "../commands";
 import { repairModel } from "../repair";
+import { traceToActors } from "../trace";
 import { validateModel } from "../validate";
 import { emptyModel, type Buc, type UntieModel } from "../types";
 import { expectFail, okModel, sample } from "./helpers";
@@ -654,3 +656,44 @@ function removeRelationBetween(m: UntieModel, s: string, t: string) {
   const r = m.relations.find((x) => x.sourceId === s && x.targetId === t);
   return r ? removeRelation(m, { id: r.id }) : { ok: true as const, model: m };
 }
+
+describe("画面を使う操作は 1 つだけ", () => {
+  const withScreens = () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "screen", name: "精算画面", id: "scr_a", init: { systemId: "sys_pms" } }));
+    m = okModel(addElement(m, { kind: "screen", name: "取消画面", id: "scr_b", init: { systemId: "sys_pms" } }));
+    return okModel(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: "scr_a" }));
+  };
+  const targets = (m: UntieModel, uc: string) => m.relations.filter((r) => (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") && r.sourceId === uc).map((r) => [r.kind, r.targetId]);
+
+  it("別の操作が使う画面は、addRelation と setUsecaseTarget が断る。自分が使う画面は同じなら変わらない", () => {
+    const m = withScreens();
+    expectFail(addRelation(m, { sourceId: "uc_cancel_reservation", targetId: "scr_a" }), /画面「精算画面」は操作「.+」が使っています。先にその操作の対象を外してください/);
+    expectFail(setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_a" }), /が使っています/);
+    expect(setUsecaseTarget(m, { usecaseId: "uc_record_payment", targetId: "scr_a" })).toEqual({ ok: true, model: m });
+  });
+
+  it("setScreenUsecase で使う操作を入れ替える。前の操作の対象は外れ、新しい操作の前の対象は画面に置き換わる", () => {
+    let m = withScreens();
+    const before = targets(m, "uc_cancel_reservation");
+    expect(before).toHaveLength(1);
+    const r = setScreenUsecase(m, { screenId: "scr_a", usecaseId: "uc_cancel_reservation" });
+    m = okModel(r);
+    expect(targets(m, "uc_record_payment")).toEqual([]);
+    expect(targets(m, "uc_cancel_reservation")).toEqual([["usecaseScreen", "scr_a"]]);
+    expect(traceToActors(m).errors).toEqual([]);
+    expect(validateModel(m).ok).toBe(true);
+  });
+
+  it("使う操作をなくせる。同じ状態なら model をそのまま返す。存在しない・種類違いは失敗", () => {
+    let m = withScreens();
+    expect(setScreenUsecase(m, { screenId: "scr_a", usecaseId: "uc_record_payment" })).toEqual({ ok: true, model: m });
+    expect(setScreenUsecase(m, { screenId: "scr_b", usecaseId: null })).toEqual({ ok: true, model: m });
+    m = okModel(setScreenUsecase(m, { screenId: "scr_a", usecaseId: null }));
+    expect(targets(m, "uc_record_payment")).toEqual([]);
+    expectFail(setScreenUsecase(m, { screenId: "nope", usecaseId: null }), /画面が存在しません/);
+    expectFail(setScreenUsecase(m, { screenId: "sys_pms", usecaseId: null }), /画面が存在しません/);
+    expectFail(setScreenUsecase(m, { screenId: "scr_a", usecaseId: "act_clean" }), /操作が存在しません/);
+    expectFail(setScreenUsecase(m, { screenId: "scr_a", usecaseId: "nope" }), /操作が存在しません/);
+  });
+});

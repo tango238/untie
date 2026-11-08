@@ -5,6 +5,19 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { TracePanel } from "../TracePanel";
 
+/** 古いファイル・同時編集で画面が重なった状態を作る (コマンドは断るので関係を直接足す) */
+const share = (m: ReturnType<typeof useUntieStore.getState>["model"], usecaseId: string, screenId: string) => ({
+  ok: true as const,
+  model: {
+    ...m,
+    relations: [
+      ...m.relations.filter((r) => !(r.sourceId === usecaseId && (r.kind === "usecaseSystem" || r.kind === "usecaseScreen"))),
+      { id: `rel_share_${usecaseId}`, kind: "usecaseScreen", sourceId: usecaseId, targetId: screenId } as (typeof m.relations)[number],
+    ],
+  },
+});
+
+
 const st = () => useUntieStore.getState();
 
 beforeEach(() => resetStore());
@@ -83,7 +96,7 @@ describe("TracePanel のエラー: 1 つの画面を複数の操作が使う", (
     act(() => {
       st().dispatch((m) => addElement(m, { kind: "screen", name: "共用の画面", id: "scr_shared", init: { systemId: "sys_pms" } }));
       st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_shared" }));
-      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_shared" }));
+      st().dispatch((m) => share(m, "uc_cancel_reservation", "scr_shared"));
     });
     render(<TracePanel />);
     const row = screen.getByTestId("error-screenSharedByUsecases-scr_shared");
@@ -98,7 +111,7 @@ describe("TracePanel のエラー: 1 つの画面を複数の操作が使う", (
     act(() => {
       st().dispatch((m) => addElement(m, { kind: "screen", name: "共用の画面", id: "scr_shared", init: { systemId: "sys_pms" } }));
       st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_shared" }));
-      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_cancel_reservation", targetId: "scr_shared" }));
+      st().dispatch((m) => share(m, "uc_cancel_reservation", "scr_shared"));
     });
     render(<TracePanel />);
     expect(screen.getByText(/が担い手 \(アクター／外部アクター／システム\) に辿り着けます/)).toBeDefined();

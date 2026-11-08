@@ -13,6 +13,7 @@ import {
   setDesignScreenView,
   setIssueTargets,
   setRelationAccess,
+  setScreenUsecase,
   setTableInformation,
   updateElement,
   type CommandResult,
@@ -144,6 +145,17 @@ export const MODEL_TOOLS: ToolDef[] = [
         access: { type: "string", enum: ["read", "write"], description: "read: 取得だけ、write: 保存だけ。省略で取得も保存も" },
       },
       required: ["usecase_id", "information_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_screen_usecase",
+    description:
+      "画面を使う操作を入れ替える (操作の対象をその画面にする)。1 つの画面を使う操作は 1 つだけなので、今その画面を使っている操作の対象は外れ、指定した操作の前の対象 (システム・帳票・画面) は画面に置き換わる。usecase_id を省くと、その画面を使う操作をなくす。別の操作が使っている画面へ add_relation で結ぼうとすると失敗するので、こちらを使う。",
+    parameters: {
+      type: "object",
+      properties: { screen_id: str("画面の id"), usecase_id: str("この画面を使う操作の id。省くと使う操作をなくす") },
+      required: ["screen_id"],
       additionalProperties: false,
     },
   },
@@ -391,6 +403,13 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const rel = editor.getModel().relations.find((r) => r.kind === "usecaseInformation" && r.sourceId === usecaseId && r.targetId === informationId);
       if (!rel) return fail("その操作はその情報を扱っていません (先に add_relation で結んでください)");
       return run(editor, (m) => setRelationAccess(m, { id: rel.id, access: access ?? null }));
+    }
+
+    case "set_screen_usecase": {
+      const screenId = s(input.screen_id);
+      if (!screenId) return fail("screen_id が必要です");
+      const usecaseId = s(input.usecase_id) ?? null;
+      return run(editor, (m) => setScreenUsecase(m, { screenId, usecaseId }));
     }
 
     case "remove_relation": {

@@ -873,3 +873,48 @@ describe("PropertyPanel: 設計データを巻き込む削除", () => {
   });
 });
 
+
+describe("画面と操作の 1 対 1", () => {
+  const targetOf = (uc: string) => st().model.relations.find((r) => (r.kind === "usecaseSystem" || r.kind === "usecaseScreen") && r.sourceId === uc)?.targetId;
+  const addScreen = (id: string, name: string) =>
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "screen", name, id, init: { systemId: "sys_pms" } }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+
+  it("画面の「使う操作」で操作を選ぶと対象が入れ替わり、前の操作の対象は外れる", () => {
+    addScreen("scr_pay", "精算画面");
+    act(() => {
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_pay" }));
+    });
+    onFixedBoard();
+    selectEl("scr_pay");
+    render(<PropertyPanel />);
+    const select = screen.getByLabelText("使う操作") as HTMLSelectElement;
+    expect(select.value).toBe("uc_record_checkin");
+    expect(within(select).getByRole("option", { name: /^チェックインを記録する \(.+\)$/ })).toBeDefined();
+    fireEvent.change(select, { target: { value: "uc_cancel_reservation" } });
+    expect(targetOf("uc_cancel_reservation")).toBe("scr_pay");
+    expect(targetOf("uc_record_checkin")).toBeUndefined();
+    expect((screen.getByLabelText("使う操作") as HTMLSelectElement).value).toBe("uc_cancel_reservation");
+    fireEvent.change(screen.getByLabelText("使う操作"), { target: { value: "" } });
+    expect(targetOf("uc_cancel_reservation")).toBeUndefined();
+  });
+
+  it("操作の「対象」では、別の操作が使っている画面を選べず、使用中の操作名を添える", () => {
+    addScreen("scr_pay", "精算画面");
+    act(() => {
+      st().dispatch((m) => setUsecaseTarget(m, { usecaseId: "uc_record_checkin", targetId: "scr_pay" }));
+    });
+    onFixedBoard();
+    selectEl("uc_cancel_reservation");
+    render(<PropertyPanel />);
+    const used = screen.getByRole("option", { name: /^精算画面 \(.+\) — 使用中: チェックインを記録する$/ }) as HTMLOptionElement;
+    expect(used.disabled).toBe(true);
+    // 自分が使っている画面は選択中のまま選べる
+    act(() => st().select({ type: "element", id: "uc_record_checkin" }));
+    const own = screen.getByRole("option", { name: /^精算画面 \(.+\)$/ }) as HTMLOptionElement;
+    expect(own.disabled).toBe(false);
+    expect((screen.getByLabelText("対象") as HTMLSelectElement).value).toBe("scr_pay");
+  });
+});
