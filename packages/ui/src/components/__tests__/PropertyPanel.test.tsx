@@ -919,6 +919,45 @@ describe("画面と操作の 1 対 1", () => {
   });
 });
 
+describe("PropertyPanel: イベントの発生タイミング", () => {
+  const timing = () => (el("ev_charge_calculated") as { timing?: unknown }).timing;
+
+  it("種類を定期にすると周期と日・時・分が出て、周期に合う項目だけを持つ。不定期は補足だけ。「決めていない」で消える", () => {
+    selectEl("ev_charge_calculated");
+    render(<PropertyPanel />);
+    const section = screen.getByRole("region", { name: "発生タイミング" });
+    expect(within(screen.getByLabelText("発生タイミングの種類")).getAllByRole("option").map((o) => o.textContent)).toEqual(["決めていない", "定期", "不定期 (随時)"]);
+    fireEvent.change(screen.getByLabelText("発生タイミングの種類"), { target: { value: "scheduled" } });
+    expect(timing()).toEqual({ type: "scheduled", every: "day" });
+    expect(screen.queryByLabelText("発生タイミングの日")).toBeNull();
+    fireEvent.change(screen.getByLabelText("発生タイミングの周期"), { target: { value: "month" } });
+    fireEvent.change(screen.getByLabelText("発生タイミングの日"), { target: { value: "25" } });
+    fireEvent.change(screen.getByLabelText("発生タイミングの時"), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("発生タイミングの分"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("補足"), { target: { value: "営業日だけ" } });
+    fireEvent.blur(screen.getByLabelText("補足"));
+    expect(timing()).toEqual({ type: "scheduled", every: "month", day: 25, hour: 9, minute: 0, note: "営業日だけ" });
+    expect(within(section).getByText("定期: 毎月 25日 9:00 (営業日だけ)")).toBeDefined();
+    // 毎時にすると日と時は外れる
+    fireEvent.change(screen.getByLabelText("発生タイミングの周期"), { target: { value: "hour" } });
+    expect(timing()).toEqual({ type: "scheduled", every: "hour", minute: 0, note: "営業日だけ" });
+    expect(screen.queryByLabelText("発生タイミングの時")).toBeNull();
+    // 不定期にすると時刻は外れ、補足は残る
+    fireEvent.change(screen.getByLabelText("発生タイミングの種類"), { target: { value: "adhoc" } });
+    expect(timing()).toEqual({ type: "adhoc", note: "営業日だけ" });
+    expect(screen.queryByLabelText("発生タイミングの周期")).toBeNull();
+    expect(screen.getByLabelText("いつ起きるか")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("発生タイミングの種類"), { target: { value: "" } });
+    expect(el("ev_charge_calculated")).not.toHaveProperty("timing");
+  });
+
+  it("イベント以外には出ない", () => {
+    selectEl("act_hand_key");
+    render(<PropertyPanel />);
+    expect(screen.queryByRole("region", { name: "発生タイミング" })).toBeNull();
+  });
+});
+
 describe("PropertyPanel: ペルソナとヒアリング", () => {
   it("アクターの「ペルソナ」の節で 6 項目を編集でき、空にすると persona ごと消える", () => {
     selectEl("actor_front");

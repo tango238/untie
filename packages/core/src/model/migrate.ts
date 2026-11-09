@@ -78,6 +78,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.5.3",
     migrate: (json) => json,
   },
+  {
+    // 0.5.4: イベントに任意の発生タイミング (timing) を足す。省略できる項目を足すだけなので変換は要らない
+    from: "0.5.3",
+    to: "0.5.4",
+    migrate: (json) => json,
+  },
 ];
 
 /**

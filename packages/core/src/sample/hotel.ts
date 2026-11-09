@@ -163,7 +163,7 @@ const conditions: Element[] = [
 
 /** イベント (操作やシステムが発生させる出来事)。宿泊料金の計算は、人の作業ではなくイベントをきっかけにした自動の処理 */
 const events: Element[] = [
-  { id: "ev_checkout_day", kind: "event", name: "チェックアウトの日になった", contextId: "ctx_charge" },
+  { id: "ev_checkout_day", kind: "event", name: "チェックアウトの日になった", contextId: "ctx_charge", timing: { type: "scheduled", every: "day", hour: 0, minute: 5, note: "日付が変わったら、その日にチェックアウトする予約をまとめて拾う" } },
   { id: "ev_charge_calculated", kind: "event", name: "請求金額が計算された", contextId: "ctx_charge" },
 ];
 

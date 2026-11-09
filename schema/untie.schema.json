@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.5.3"
+      "const": "0.5.4"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -390,7 +390,22 @@
         "contextId": {
           "description": "所属するコンテキストの id。未分類なら null。",
           "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
-        }
+        },
+        "timing": { "$ref": "#/$defs/eventTiming" }
+      }
+    },
+    "eventTiming": {
+      "description": "イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "description": "種類。scheduled は定期、adhoc は不定期 (随時)。", "enum": ["scheduled", "adhoc"] },
+        "every": { "description": "定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。", "enum": ["month", "day", "hour"] },
+        "day": { "description": "毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。", "type": "integer", "minimum": 1, "maximum": 31 },
+        "hour": { "description": "何時に起きるか (0〜23)。every が month か day のときだけ持つ。", "type": "integer", "minimum": 0, "maximum": 23 },
+        "minute": { "description": "何分に起きるか (0〜59)。type が scheduled のときだけ持つ。", "type": "integer", "minimum": 0, "maximum": 59 },
+        "note": { "description": "補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。", "type": "string", "maxLength": 4000 }
       }
     },
     "screen": {

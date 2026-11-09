@@ -65,6 +65,7 @@ export const LIMITS = {
   personaBackground: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの背景と役割" },
   personaGoals: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの目標" },
   personaNotes: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの備考" },
+  eventTimingNote: { max: DESCRIPTION_MAX_LENGTH, label: "発生タイミングの補足" },
   transitionLabel: { max: NAME_MAX_LENGTH, label: "遷移の文言" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;

@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, Element, EventTiming, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -16,6 +16,7 @@ export type {
   Information,
   Issue,
   IssueAnalysis,
+  EventTiming,
   Persona,
   Meta,
   Relation,
@@ -236,6 +237,73 @@ export function normalizePersona(persona: unknown): Persona | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** イベントの発生タイミングの種類の表示名 */
+export const EVENT_TIMING_TYPE_LABELS: Record<EventTiming["type"], string> = {
+  scheduled: "定期",
+  adhoc: "不定期 (随時)",
+};
+
+/** 発生タイミングの種類 (EVENT_TIMING_TYPE_LABELS のキー。列挙の定義はここ 1 か所) */
+export const EVENT_TIMING_TYPES = Object.keys(EVENT_TIMING_TYPE_LABELS) as EventTiming["type"][];
+
+/** 定期の周期の表示名 */
+export const EVENT_TIMING_EVERY_LABELS: Record<NonNullable<EventTiming["every"]>, string> = {
+  month: "毎月",
+  day: "毎日",
+  hour: "毎時",
+};
+
+/** 定期の周期 (EVENT_TIMING_EVERY_LABELS のキー) */
+export const EVENT_TIMING_EVERIES = Object.keys(EVENT_TIMING_EVERY_LABELS) as NonNullable<EventTiming["every"]>[];
+
+export function isEventTimingType(value: unknown): value is EventTiming["type"] {
+  return typeof value === "string" && (EVENT_TIMING_TYPES as string[]).includes(value);
+}
+
+export function isEventTimingEvery(value: unknown): value is NonNullable<EventTiming["every"]> {
+  return typeof value === "string" && (EVENT_TIMING_EVERIES as string[]).includes(value);
+}
+
+const intIn = (v: unknown, min: number, max: number): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : undefined);
+
+/**
+ * 発生タイミングを正規化する。種類が分からなければ null (timing ごと持たない)。
+ * 定期は、周期 (無ければ毎日) と、周期に合う項目だけを残す (日は毎月だけ、時は毎月・毎日だけ、分は定期だけ。範囲外の数は外す)。
+ * 不定期は、周期と時刻を持たない。補足は前後の空白を除き、空なら持たない
+ */
+export function normalizeEventTiming(timing: unknown): EventTiming | null {
+  if (typeof timing !== "object" || timing === null || Array.isArray(timing)) return null;
+  const src = timing as Record<string, unknown>;
+  if (!isEventTimingType(src.type)) return null;
+  const out: EventTiming = { type: src.type };
+  if (src.type === "scheduled") {
+    const every = isEventTimingEvery(src.every) ? src.every : "day";
+    out.every = every;
+    const day = every === "month" ? intIn(src.day, 1, 31) : undefined;
+    const hour = every !== "hour" ? intIn(src.hour, 0, 23) : undefined;
+    const minute = intIn(src.minute, 0, 59);
+    if (day !== undefined) out.day = day;
+    if (hour !== undefined) out.hour = hour;
+    if (minute !== undefined) out.minute = minute;
+  }
+  if (typeof src.note === "string" && src.note.trim() !== "") out.note = src.note.trim();
+  return out;
+}
+
+/**
+ * 発生タイミングの短い表記。例: 「定期: 毎月 25日 9:00」「定期: 毎日 2:30」「定期: 毎時 15分」「不定期: 入金の Webhook を受けたとき」。
+ * 決まっていない時刻は「--」にする (例: 毎日 --:--)
+ */
+export function describeEventTiming(timing: EventTiming): string {
+  if (timing.type === "adhoc") return `不定期${timing.note ? `: ${timing.note}` : ""}`;
+  const every = timing.every ?? "day";
+  const mm = timing.minute === undefined ? "--" : String(timing.minute).padStart(2, "0");
+  const hh = timing.hour === undefined ? "--" : String(timing.hour);
+  const when = every === "hour" ? `${timing.minute === undefined ? "--" : timing.minute}分` : `${hh}:${mm}`;
+  const day = every === "month" ? `${timing.day === undefined ? "--" : timing.day}日 ` : "";
+  return `定期: ${EVENT_TIMING_EVERY_LABELS[every]} ${day}${when}${timing.note ? ` (${timing.note})` : ""}`;
+}
+
 export function isFrameKind(kind: ElementKind): kind is FrameKind {
   return kind === "business" || kind === "buc";
 }
@@ -279,7 +347,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.5.3";
+export const MODEL_VERSION = "0.5.4";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

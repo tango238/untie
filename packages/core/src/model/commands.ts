@@ -5,6 +5,7 @@ import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDe
 import { newUniqueId } from "./id";
 import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
+import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
@@ -16,6 +17,10 @@ import {
   isPersonaItSkill,
   isPersonaOwnerKind,
   normalizePersona,
+  normalizeEventTiming,
+  isEventTimingType,
+  isEventTimingEvery,
+  type EventTiming,
   type Persona,
   isSystemMemberKind,
   NFR_CATEGORIES,
@@ -422,6 +427,67 @@ export function setDatabaseDesign(model: UntieModel, payload: SetDatabaseDesignP
     const db = databaseOf(draft, payload.id)!;
     db.dsl = payload.dsl;
     db.tables = tables;
+  });
+  return { ok: true, model: next };
+}
+
+export interface EditDatabaseDslPayload {
+  /** データベースの id */
+  id: string;
+  edit: PrismaEdit;
+}
+
+/**
+ * データボードの図の操作 1 つを、データベースの DSL に当てる (applyPrismaEdit)。テーブルや列の名前を変えたら、
+ * テーブルが表す情報の対応 (tables[]) と、画面の項目の対応 (bindings) の名前も合わせる。テーブルを消したら、その情報の対応も消す
+ * (画面の項目の対応は残し、検証が知らせる)。DSL に解析エラーがあれば失敗
+ */
+export function editDatabaseDsl(model: UntieModel, payload: EditDatabaseDslPayload): CommandResult {
+  const db = databaseOf(model, payload.id);
+  if (!db) return fail(`データベースが存在しません: ${payload.id}`);
+  const r = applyPrismaEdit(db.dsl, payload.edit);
+  if (!r.ok) return r;
+  const tooLong = checkLength("dsl", r.dsl);
+  if (tooLong) return fail(tooLong);
+  const edit = payload.edit;
+  if (edit.type === "renameModel" || edit.type === "addModel") {
+    const name = edit.type === "renameModel" ? edit.to : edit.name;
+    const badName = checkTableName(name);
+    if (badName) return fail(badName);
+  }
+  if (r.dsl === db.dsl) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const d = databaseOf(draft, payload.id)!;
+    d.dsl = r.dsl;
+    const renameBindings = (match: (b: ScreenBinding) => boolean, change: (b: ScreenBinding) => void) => {
+      for (const design of draft.designs) for (const s of design.screens) for (const b of s.bindings ?? []) if (b.databaseId === payload.id && match(b)) change(b);
+    };
+    if (edit.type === "renameModel") {
+      const from = d.tables.find((t) => t.table === edit.from);
+      if (from) {
+        const into = d.tables.find((t) => t.table === edit.to);
+        if (into) {
+          into.informationIds = [...new Set([...into.informationIds, ...from.informationIds])];
+          d.tables = d.tables.filter((t) => t !== from);
+        } else from.table = edit.to;
+      }
+      renameBindings(
+        (b) => b.table === edit.from,
+        (b) => {
+          b.table = edit.to;
+        },
+      );
+    } else if (edit.type === "removeModel") {
+      d.tables = d.tables.filter((t) => t.table !== edit.name);
+    } else if (edit.type === "updateField" && edit.patch.name !== undefined && edit.patch.name !== edit.field) {
+      const to = edit.patch.name;
+      renameBindings(
+        (b) => b.table === edit.model && b.column === edit.field,
+        (b) => {
+          b.column = to;
+        },
+      );
+    }
   });
   return { ok: true, model: next };
 }
@@ -1627,6 +1693,46 @@ export function setPersona(model: UntieModel, payload: SetPersonaPayload): Comma
     if (!el || !isPersonaOwnerKind(el.kind)) return;
     if (persona) (el as { persona?: Persona }).persona = persona;
     else delete (el as { persona?: Persona }).persona;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetEventTimingPayload {
+  /** イベントの id */
+  id: string;
+  /** 新しい発生タイミング。null で消す */
+  timing: EventTiming | null;
+}
+
+/**
+ * イベントの発生タイミングを置き換える (normalizeEventTiming で正規化する: 定期は周期に合う項目だけ、不定期は時刻を持たない)。
+ * 種類・周期が列挙の外、日・時・分が範囲外の整数でないときは失敗。同じなら model をそのまま返す
+ */
+export function setEventTiming(model: UntieModel, payload: SetEventTimingPayload): CommandResult {
+  const target = findElement(model, payload.id);
+  if (!target) return fail(`要素が存在しません: ${payload.id}`);
+  if (target.kind !== "event") return fail("発生タイミングを持てるのはイベントだけです");
+  const input = payload.timing;
+  if (input !== null) {
+    if (typeof input !== "object" || Array.isArray(input)) return fail("発生タイミングの形が不正です");
+    if (!isEventTimingType(input.type)) return fail(`発生タイミングの種類が不正です: ${String(input.type)} (scheduled か adhoc)`);
+    if (input.every !== undefined && !isEventTimingEvery(input.every)) return fail(`定期の周期が不正です: ${String(input.every)} (month / day / hour)`);
+    const range = (v: unknown, min: number, max: number, label: string) =>
+      v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max) ? null : `${label}は ${min}〜${max} の整数です: ${String(v)}`;
+    const bad = range(input.day, 1, 31, "日") ?? range(input.hour, 0, 23, "時") ?? range(input.minute, 0, 59, "分");
+    if (bad) return fail(bad);
+  }
+  const timing = normalizeEventTiming(input);
+  if (timing?.note !== undefined) {
+    const reason = checkLength("eventTimingNote", timing.note);
+    if (reason) return fail(reason);
+  }
+  if (JSON.stringify(timing) === JSON.stringify(target.timing === undefined ? null : normalizeEventTiming(target.timing))) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const el = draft.elements.find((e) => e.id === payload.id);
+    if (!el || el.kind !== "event") return;
+    if (timing) el.timing = timing;
+    else delete el.timing;
   });
   return { ok: true, model: next };
 }

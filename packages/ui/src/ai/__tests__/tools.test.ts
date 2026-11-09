@@ -27,6 +27,22 @@ describe("AI の道具", () => {
     expect(executeTool(e, "nope", {}).ok).toBe(false);
   });
 
+  it("set_event_timing でイベントの発生タイミングを置き換え・消す。get_model にも出る。イベント以外や不正な値は失敗", () => {
+    const e = editorOf(sample());
+    const id = "ev_charge_calculated";
+    expect(executeTool(e, "set_event_timing", { id, type: "scheduled", every: "month", day: 25, hour: 9, minute: 0, note: "営業日だけ" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === id)).toMatchObject({ timing: { type: "scheduled", every: "month", day: 25, hour: 9, minute: 0, note: "営業日だけ" } });
+    expect((modelForAi(e.model) as { elements: Record<string, unknown>[] }).elements.find((x) => x.id === id)).toMatchObject({ timing: { type: "scheduled" } });
+    expect(executeTool(e, "set_event_timing", { id, type: "adhoc", note: "Webhook を受けたとき" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === id)).toMatchObject({ timing: { type: "adhoc", note: "Webhook を受けたとき" } });
+    expect(executeTool(e, "set_event_timing", { id, type: "" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === id)).not.toHaveProperty("timing");
+    expect(executeTool(e, "set_event_timing", { id, type: "weekly" }).ok).toBe(false);
+    expect(executeTool(e, "set_event_timing", { id, type: "scheduled", hour: 24 }).ok).toBe(false);
+    expect(executeTool(e, "set_event_timing", { id: "act_hand_key", type: "adhoc" }).ok).toBe(false);
+    expect(validateModel(JSON.parse(JSON.stringify(e.model))).ok).toBe(true);
+  });
+
   it("get_model は既定 BUC を隠し、業務に直接属する作業は業務を示す", () => {
     const m = modelForAi(sample()) as { elements: Record<string, unknown>[]; relations: unknown[] };
     expect(m.elements.some((x) => x.kind === "buc" && x.isDefault)).toBe(false);

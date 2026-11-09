@@ -59,6 +59,9 @@ export function truncateElementStrings<T extends object>(element: T): TruncatedE
     for (const [key, max] of Object.entries(personaMax)) if (key in persona) persona[key] = cut(persona[key], max, `ペルソナの${PERSONA_FIELD_LABELS[key as keyof typeof personaMax]}`, fields);
     out.persona = persona;
   }
+  if (typeof src.timing === "object" && src.timing !== null && !Array.isArray(src.timing) && "note" in src.timing) {
+    out.timing = { ...(src.timing as Record<string, unknown>), note: cut((src.timing as Record<string, unknown>).note, DESCRIPTION_MAX_LENGTH, "発生タイミングの補足", fields) };
+  }
   if (fields.length === 0) return { element, fields };
   // 元に無かった項目 (undefined) は足さない
   for (const key of Object.keys(out)) if (out[key] === undefined && !(key in src)) delete out[key];

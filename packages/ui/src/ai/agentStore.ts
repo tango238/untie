@@ -82,6 +82,7 @@ const TOOL_LABELS: Record<string, string> = {
   set_database_dsl: "DSL を変更",
   set_table_information: "テーブルの情報を変更",
   set_persona: "ペルソナを変更",
+  set_event_timing: "発生タイミングを変更",
   add_issue: "課題を登録",
   update_issue_analysis: "課題の分析を更新",
   set_issue_targets: "課題の対象を変更",

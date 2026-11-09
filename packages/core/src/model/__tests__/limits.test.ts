@@ -86,6 +86,7 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "persona.background",
         "persona.goals",
         "persona.notes",
+        "eventTiming.note",
       ].sort(),
     );
   });

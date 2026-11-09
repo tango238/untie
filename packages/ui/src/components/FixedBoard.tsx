@@ -14,7 +14,7 @@ import {
   type FixedSection,
 } from "@untie/core/model/fixedBoards";
 import { issueSummaries, triggerSummaries } from "@untie/core/model/selectors";
-import { ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
+import { describeEventTiming, ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { addElement, updateElement } from "@untie/core/model/commands";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { selectReadOnly, useUntieStore } from "../store";
@@ -475,9 +475,12 @@ function FixedCard({
     element.kind === "actor" || element.kind === "externalActor"
       ? [element.persona?.handle, element.persona?.attributes].filter((x): x is string => !!x).join(" / ")
       : "";
+  // イベントは、発生タイミングを 1 行で薄く出す (無ければ出さない)
+  const timingLine = element.kind === "event" && element.timing ? describeEventTiming(element.timing) : "";
   const rest = (
     <>
       {personaLine && <span className="fixed-card-sub fixed-card-ellipsis" title={personaLine}>{personaLine}</span>}
+      {timingLine && <span className="fixed-card-sub fixed-card-ellipsis" title={timingLine}>{timingLine}</span>}
       {showStateGroup && element.kind === "state" && element.group && <span className="fixed-card-sub">状態グループ: {element.group}</span>}
       <HoursLabel element={element} model={model} />
       {trigger && <span className="fixed-card-sub fixed-card-ellipsis" title={trigger}>{trigger}</span>}

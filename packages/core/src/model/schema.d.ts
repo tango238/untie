@@ -72,9 +72,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.5.3";
+  version: "0.5.4";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -368,6 +368,36 @@ export interface Event {
    * 所属するコンテキストの id。未分類なら null。
    */
   contextId: Id | null;
+  timing?: EventTiming;
+}
+/**
+ * イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。
+ */
+export interface EventTiming {
+  /**
+   * 種類。scheduled は定期、adhoc は不定期 (随時)。
+   */
+  type: "scheduled" | "adhoc";
+  /**
+   * 定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。
+   */
+  every?: "month" | "day" | "hour";
+  /**
+   * 毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。
+   */
+  day?: number;
+  /**
+   * 何時に起きるか (0〜23)。every が month か day のときだけ持つ。
+   */
+  hour?: number;
+  /**
+   * 何分に起きるか (0〜59)。type が scheduled のときだけ持つ。
+   */
+  minute?: number;
+  /**
+   * 補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。
+   */
+  note?: string;
 }
 /**
  * 画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。
