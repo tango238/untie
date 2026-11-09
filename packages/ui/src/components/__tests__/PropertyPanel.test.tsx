@@ -959,12 +959,12 @@ describe("PropertyPanel: ペルソナとヒアリング", () => {
     expect(screen.queryByRole("button", { name: /ヒアリング/ })).toBeNull();
   });
 
-  it("「困りごとをヒアリングする」は既定でペルソナが答える。答え方を選んで始められ、ヒアリング中は無効", async () => {
+  it("「困りごとをヒアリングする」は既定で人間が聞いて、AI が答える。答え方を選んで始められ、ヒアリング中は無効", async () => {
     selectEl("actor_front");
     render(<PropertyPanel />);
     const select = screen.getByLabelText("ヒアリングの答え方") as HTMLSelectElement;
     expect(select.value).toBe("persona");
-    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["ペルソナが答える (既定)", "本人に聞く"]);
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["人間が聞いて、AI が答える (既定)", "AI が聞いて、人間が答える"]);
     fireEvent.change(select, { target: { value: "self" } });
     const button = await screen.findByRole("button", { name: "困りごとをヒアリングする" });
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));

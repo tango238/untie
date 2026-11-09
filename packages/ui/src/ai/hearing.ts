@@ -24,8 +24,8 @@ import { executeTool, MODEL_TOOLS, PERSONA_TOOL_PROPERTIES, setPersonaFromInput,
 export type HearingAnswerer = "persona" | "self";
 
 export const HEARING_ANSWERER_LABELS: Record<HearingAnswerer, string> = {
-  persona: "ペルソナが答える",
-  self: "本人に聞く",
+  persona: "人間が聞いて、AI が答える",
+  self: "AI が聞いて、人間が答える",
 };
 
 /** 「まとめる」ボタンが送る固定の発話 */

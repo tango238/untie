@@ -37,16 +37,16 @@ describe("AgentPane: ヒアリング", () => {
   it("ヘッダーに「ヒアリング: 「アクター名」(答え方)」を出し、「まとめる」「ヒアリングを終える」を置く", async () => {
     await startHearing("actor_front", "persona");
     render(<AgentPane />);
-    expect(screen.getByRole("heading").textContent).toBe("ヒアリング: 「フロント担当」(ペルソナが答える)");
+    expect(screen.getByRole("heading").textContent).toBe("ヒアリング: 「フロント担当」(人間が聞いて、AI が答える)");
     expect(screen.getByRole("button", { name: "まとめる" })).toBeDefined();
     expect(screen.getByRole("button", { name: "ヒアリングを終える" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "新しい会話" })).toBeNull();
   });
 
-  it("本人に聞くときのヘッダーと placeholder。ペルソナが答えるときの placeholder は質問を促す", async () => {
+  it("AI が聞いて、人間が答えるときのヘッダーと placeholder。人間が聞いて、AI が答えるときの placeholder は質問を促す", async () => {
     await startHearing("actor_front", "self");
     const { unmount } = render(<AgentPane />);
-    expect(screen.getByRole("heading").textContent).toBe("ヒアリング: 「フロント担当」(本人に聞く)");
+    expect(screen.getByRole("heading").textContent).toBe("ヒアリング: 「フロント担当」(AI が聞いて、人間が答える)");
     expect(screen.getByLabelText("AI への依頼").getAttribute("placeholder")).toMatch(/^質問に答えて Enter で送信.*「はい」で推奨を採ります/);
     unmount();
     useAgentStore.getState().endHearing();

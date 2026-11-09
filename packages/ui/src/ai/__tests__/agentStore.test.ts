@@ -188,7 +188,7 @@ describe("AI エージェント", () => {
     expect(fake.systems.slice(-1)[0]).not.toContain("気になるところを聞いてください");
   });
 
-  it("ヒアリング(本人に聞く): 指示と最初の依頼が本人向きになる。外部アクターでも始められ、アクター以外では始めない", async () => {
+  it("ヒアリング(AI が聞いて、人間が答える): 指示と最初の依頼が本人向きになる。外部アクターでも始められ、アクター以外では始めない", async () => {
     await useAgentStore.getState().startHearing("ext_guest", "self");
     expect(useAgentStore.getState().mode).toEqual({ kind: "hearing", actorId: "ext_guest", answerer: "self" });
     expect(fake.systems[0]).toContain("Q1");

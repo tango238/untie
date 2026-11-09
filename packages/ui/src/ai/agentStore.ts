@@ -26,7 +26,7 @@ export interface ChatItem {
  * - edit: 編集中のモデルを会話で直す (通常)
  * - grill: 1 つの課題を深掘りする。AI はその課題の分析・重要度・対象だけを変えられる
  * - hearing: 1 人のアクター・外部アクターに困りごとをヒアリングする。AI はそのペルソナと、課題の登録・追記だけを変えられる。
- *   answerer が persona なら AI がペルソナになりきって答え、self なら AI が本人に聞く
+ *   answerer が persona なら AI がペルソナになりきって答え、self なら AI がAI が聞いて、人間が答える
  */
 export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string } | { kind: "hearing"; actorId: string; answerer: HearingAnswerer };
 
