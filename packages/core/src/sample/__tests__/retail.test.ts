@@ -19,6 +19,16 @@ describe("店舗サンプル", () => {
     expect(traceWarnings(retailSample).map((w) => `${w.elementId}: ${w.reason}`)).toEqual([]);
   });
 
+  it("アクター 6 人と外部アクター 2 つにペルソナがある (呼び名と習熟を持つ)", () => {
+    const owners = retailSample.elements.filter((e) => e.kind === "actor" || e.kind === "externalActor");
+    expect(owners).toHaveLength(8);
+    for (const e of owners) {
+      const persona = (e as { persona?: { handle?: string; itSkill?: string } }).persona;
+      expect(persona?.handle, e.name).toBeTruthy();
+      expect(persona?.itSkill, e.name).toBeTruthy();
+    }
+  });
+
   it("業務・登場人物・課題などの件数", () => {
     const count = (kind: string) => retailSample.elements.filter((e) => e.kind === kind).length;
     expect(count("business")).toBe(10);

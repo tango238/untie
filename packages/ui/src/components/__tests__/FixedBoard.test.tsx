@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
+import { setPersona } from "@untie/core/model/commands";
 import { FIXED_LAYERS } from "@untie/core/model/fixedBoards";
 import { FixedBoard } from "../FixedBoard";
 
@@ -49,6 +50,19 @@ describe("FixedBoard", () => {
     const guide = screen.getByText(/書き方のヒント/).closest("details")!;
     expect(guide.querySelector("summary")!.textContent).toContain("アクター・外部アクター・システム");
     expect(guide.querySelectorAll(".is-current")).toHaveLength(0);
+  });
+
+  it("登場人物のボード: アクターのカードにペルソナの呼び名と属性を 1 行で出す。無ければ何も出さない", () => {
+    act(() => {
+      st().dispatch((m) => setPersona(m, { id: "actor_front", persona: { handle: "田中さん", attributes: "経験 8 年", goals: "待たせない" } }));
+      st().dispatch((m) => setPersona(m, { id: "actor_reservation", persona: { goals: "目標だけ" } }));
+    });
+    act(() => st().setCurrentBoard("fixed:actor"));
+    const { container } = render(<FixedBoard layer="actor" />);
+    const line = (id: string) => container.querySelector(`[data-fixed-card="${id}"] .fixed-card-ellipsis`);
+    expect(line("actor_front")!.textContent).toBe("田中さん / 経験 8 年");
+    expect(line("actor_reservation")).toBeNull();
+    expect(line("actor_housekeeping")).toBeNull();
   });
 
   it("絞り込みで一致する要素だけを出す", () => {

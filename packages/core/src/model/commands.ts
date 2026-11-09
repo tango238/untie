@@ -13,6 +13,10 @@ import {
   isFrameKind,
   isContextMemberKind,
   isIssueTargetKind,
+  isPersonaItSkill,
+  isPersonaOwnerKind,
+  normalizePersona,
+  type Persona,
   isSystemMemberKind,
   NFR_CATEGORIES,
   ISSUE_ANALYSIS_KEYS,
@@ -1585,6 +1589,44 @@ export function setIssueTargets(model: UntieModel, payload: SetIssueTargetsPaylo
   const next = produce(model, (draft) => {
     const i = draft.elements.find((e) => e.id === payload.issueId);
     if (i && i.kind === "issue") i.targetIds = [...new Set(payload.targetIds)];
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetPersonaPayload {
+  /** アクターまたは外部アクターの id */
+  id: string;
+  /** 新しいペルソナ。null (または全項目が空) で消す */
+  persona: Persona | null;
+}
+
+/** アクター・外部アクターのペルソナを置き換える。文字列は前後の空白を除き、空の項目は持たない。同じなら model をそのまま返す */
+export function setPersona(model: UntieModel, payload: SetPersonaPayload): CommandResult {
+  const target = findElement(model, payload.id);
+  if (!target) return fail(`要素が存在しません: ${payload.id}`);
+  if (!isPersonaOwnerKind(target.kind)) return fail("ペルソナを持てるのはアクターと外部アクターだけです");
+  const input = payload.persona;
+  if (input !== null) {
+    if (typeof input !== "object" || Array.isArray(input)) return fail("ペルソナの形が不正です");
+    if (input.itSkill !== undefined && !isPersonaItSkill(input.itSkill)) return fail(`IT の習熟が不正です: ${String(input.itSkill)}`);
+  }
+  const persona = normalizePersona(input);
+  if (persona) {
+    const reason = firstLengthProblem(
+      persona.handle === undefined ? null : checkLength("personaHandle", persona.handle),
+      persona.attributes === undefined ? null : checkLength("personaAttributes", persona.attributes),
+      persona.background === undefined ? null : checkLength("personaBackground", persona.background),
+      persona.goals === undefined ? null : checkLength("personaGoals", persona.goals),
+      persona.notes === undefined ? null : checkLength("personaNotes", persona.notes),
+    );
+    if (reason) return fail(reason);
+  }
+  if (JSON.stringify(persona) === JSON.stringify(normalizePersona((target as { persona?: Persona }).persona))) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const el = draft.elements.find((e) => e.id === payload.id);
+    if (!el || !isPersonaOwnerKind(el.kind)) return;
+    if (persona) (el as { persona?: Persona }).persona = persona;
+    else delete (el as { persona?: Persona }).persona;
   });
   return { ok: true, model: next };
 }

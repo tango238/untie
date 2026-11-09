@@ -9,18 +9,18 @@ import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type In
 // ---------------------------------------------------------------- 要素
 
 const actors: Element[] = [
-  { id: "actor_manager", kind: "actor", name: "店長" },
-  { id: "actor_cashier", kind: "actor", name: "レジ担当" },
-  { id: "actor_floor", kind: "actor", name: "売場担当" },
-  { id: "actor_backyard", kind: "actor", name: "バックヤード担当" },
+  { id: "actor_manager", kind: "actor", name: "店長", persona: { handle: "田中さん (店長・45歳)", attributes: "店長歴 8 年・正社員・早番と遅番の交代", background: "売上と人の配置を任され、欠品と人手不足を一番気にしている", goals: "閉店後の残業を減らし、売場を欠品なく保つ", itSkill: "normal" } },
+  { id: "actor_cashier", kind: "actor", name: "レジ担当", persona: { handle: "佐藤さん (レジ担当・28歳)", attributes: "勤続 4 年・パート (週 4 日)", background: "レジの正確さと待たせないことを任されている", goals: "混む時間でも列を短くする", itSkill: "comfortable" } },
+  { id: "actor_floor", kind: "actor", name: "売場担当", persona: { handle: "鈴木さん (売場担当・52歳)", attributes: "勤続 15 年・パート (午前中心)", background: "棚の補充と値札の付け替えを任され、品出しの手戻りを嫌う", goals: "棚をいつも整えておく", itSkill: "uncomfortable" } },
+  { id: "actor_backyard", kind: "actor", name: "バックヤード担当", persona: { handle: "高橋さん (バックヤード・35歳)", attributes: "勤続 6 年・正社員", background: "納品の検品と在庫の置き場を任され、納品の遅れに振り回されがち", goals: "検品を早く終えて売場へ回す", itSkill: "normal" } },
   // 本部の担当者。店の外にいるが、同じ会社の人 (外部アクターではない)
-  { id: "actor_hq_purchase", kind: "actor", name: "本部の仕入担当" },
-  { id: "actor_hq_accounting", kind: "actor", name: "本部の経理担当" },
+  { id: "actor_hq_purchase", kind: "actor", name: "本部の仕入担当", persona: { handle: "伊藤さん (本部の仕入・40歳)", attributes: "仕入歴 12 年・本部勤務", background: "全店の発注と仕入先との調整を任され、数字の見間違いを避けたい", goals: "発注の漏れと過剰をなくす", itSkill: "comfortable" } },
+  { id: "actor_hq_accounting", kind: "actor", name: "本部の経理担当", persona: { handle: "渡辺さん (本部の経理・33歳)", attributes: "経理歴 9 年・本部勤務", background: "各店の売上と支払の締めを任され、月末に作業が集中する", goals: "締めの手作業を減らす", itSkill: "comfortable" } },
 ];
 
 const externalActors: Element[] = [
-  { id: "ext_shopper", kind: "externalActor", name: "来店客" },
-  { id: "ext_supplier", kind: "externalActor", name: "仕入先" },
+  { id: "ext_shopper", kind: "externalActor", name: "来店客", persona: { handle: "近所の会社員 (30 代)", attributes: "週 3 回・仕事帰りの夕方に来店", background: "短い時間で買い物を済ませたい。欠品と会計待ちが不満", goals: "待たずに必要なものを買う", itSkill: "normal" } },
+  { id: "ext_supplier", kind: "externalActor", name: "仕入先", persona: { handle: "地元の青果卸の営業 (50 代)", attributes: "付き合い 10 年・電話と FAX が中心", background: "毎朝の注文を受けて納品する。注文の変更が直前になるのを嫌う", goals: "注文を間違いなく受けて納める", itSkill: "uncomfortable" } },
 ];
 
 /** システム (自社・社外を問わない。作業の担当にも、情報の置き場所にもなる) と、紙の帳票 (情報の置き場所) */

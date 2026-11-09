@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { memory } from "../../test/platform";
@@ -916,5 +916,63 @@ describe("画面と操作の 1 対 1", () => {
     const own = screen.getByRole("option", { name: /^精算画面 \(.+\)$/ }) as HTMLOptionElement;
     expect(own.disabled).toBe(false);
     expect((screen.getByLabelText("対象") as HTMLSelectElement).value).toBe("scr_pay");
+  });
+});
+
+describe("PropertyPanel: ペルソナとヒアリング", () => {
+  it("アクターの「ペルソナ」の節で 6 項目を編集でき、空にすると persona ごと消える", () => {
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    expect(screen.getByRole("region", { name: "ペルソナ" })).toBeDefined();
+    const commit = (label: string, value: string) => {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+      fireEvent.blur(screen.getByLabelText(label));
+    };
+    commit("呼び名", "田中さん (店長・45歳)");
+    commit("属性", "経験 8 年");
+    commit("背景と役割", "受付を任されている");
+    commit("目標", "待たせない");
+    commit("備考", "午前のみ");
+    fireEvent.change(screen.getByLabelText("IT の習熟"), { target: { value: "uncomfortable" } });
+    expect(el("actor_front")).toMatchObject({
+      persona: { handle: "田中さん (店長・45歳)", attributes: "経験 8 年", background: "受付を任されている", goals: "待たせない", itSkill: "uncomfortable", notes: "午前のみ" },
+    });
+    expect(screen.getByLabelText("呼び名").getAttribute("maxlength")).toBe("200");
+    expect(screen.getByLabelText("背景と役割").getAttribute("maxlength")).toBe("4000");
+    expect((screen.getByLabelText("背景と役割") as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
+    expect(within(screen.getByLabelText("IT の習熟")).getAllByRole("option").map((o) => o.textContent)).toEqual(["未設定", "慣れている", "普通", "苦手"]);
+    // 1 項目の変更が 1 件の履歴
+    expect(st().history.past).toHaveLength(6);
+    fireEvent.change(screen.getByLabelText("IT の習熟"), { target: { value: "" } });
+    for (const label of ["呼び名", "属性", "背景と役割", "目標", "備考"]) commit(label, "");
+    expect(el("actor_front")).not.toHaveProperty("persona");
+  });
+
+  it("外部アクターにも出るが、業務や作業には出ない", () => {
+    selectEl("ext_guest");
+    const r = render(<PropertyPanel />);
+    expect(screen.getByRole("region", { name: "ペルソナ" })).toBeDefined();
+    r.unmount();
+    selectEl("act_hand_key");
+    render(<PropertyPanel />);
+    expect(screen.queryByRole("region", { name: "ペルソナ" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /ヒアリング/ })).toBeNull();
+  });
+
+  it("「困りごとをヒアリングする」は既定でペルソナが答える。答え方を選んで始められ、ヒアリング中は無効", async () => {
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    const select = screen.getByLabelText("ヒアリングの答え方") as HTMLSelectElement;
+    expect(select.value).toBe("persona");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["ペルソナが答える (既定)", "本人に聞く"]);
+    fireEvent.change(select, { target: { value: "self" } });
+    const button = await screen.findByRole("button", { name: "困りごとをヒアリングする" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(useAgentStore.getState().mode).toEqual({ kind: "hearing", actorId: "actor_front", answerer: "self" });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect((screen.getByRole("button", { name: "ヒアリング中…" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

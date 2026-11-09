@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidDesignShape, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
+import { EDGE_SIDES, isValidDesignShape, isPersonaItSkill, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
 import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
@@ -40,7 +40,7 @@ function readElements(map: Y.Map<Y.Map<unknown>>): Element[] {
     // 形の検査は、長すぎる文字列を切り詰めた写しで行う。上限を超えただけの要素を外すと、その要素と関係が全員の画面から消える。
     // 値は切り詰めずに返す (readRawModel。サーバーの repairDoc が Y.Doc に切り詰めを書けるよう、「直す前」はそのまま)
     // 種類が分からない要素や、形の壊れた要素 (項目が欠けた課題など。壊れた update) は組み立てない。1 つで全員が落ちるのを防ぐ
-    if (!isValidElementShape(truncateElementStrings(element).element)) return;
+    if (!isValidElementShape(dropBadPersonaSkill(truncateElementStrings(element).element))) return;
     items.push({ order, id, value: element as Element });
   });
   return sortedValues(items);
@@ -143,12 +143,26 @@ function readParts<T>(map: Y.Map<unknown>, kind: "designScreen" | "transition" |
   return new Map([...grouped].map(([systemId, list]) => [systemId, sortedValues(list)]));
 }
 
+/** ペルソナの IT の習熟が列挙の外の値なら項目を落とす (要素は残す)。問題が無ければ同じ参照を返す */
+export function dropBadPersonaSkill<T extends object>(element: T): T {
+  const persona = (element as { persona?: unknown }).persona;
+  if (typeof persona !== "object" || persona === null || Array.isArray(persona) || !("itSkill" in persona) || isPersonaItSkill((persona as { itSkill?: unknown }).itSkill)) return element;
+  const { itSkill: _drop, ...rest } = persona as Record<string, unknown>;
+  return { ...element, persona: rest };
+}
+
 /** 画面の shell が列挙の外の値なら項目を落とす (設計のレイアウトに従う扱い。画面は残す)。問題が無ければ同じ参照を返す */
 function dropBadShell<T extends object>(screen: T): T {
   const shell = (screen as { shell?: unknown }).shell;
   if (shell === undefined || shell === "shell" || shell === "plain") return screen;
   const { shell: _drop, ...rest } = screen as Record<string, unknown>;
   return rest as T;
+}
+
+/** 表示用に、不正な IT の習熟をペルソナから落とす (同じ参照を保てるところは保つ) */
+function dropBadPersonaSkills(model: UntieModel): UntieModel {
+  const elements = model.elements.map(dropBadPersonaSkill);
+  return elements.every((e, i) => e === model.elements[i]) ? model : { ...model, elements };
 }
 
 /** 表示・保存用に、不正な shell を設計の画面から落とす (同じ参照を保てるところは保つ) */
@@ -274,7 +288,7 @@ export function readRawModel(doc: Y.Doc): UntieModel {
  */
 export function readModel(doc: Y.Doc): UntieModel {
   // 生の読み (readRawModel) には不正な shell が残る (repairDoc が Y.Doc から消せるよう)。表示用の読みでは落とす
-  return dropBadShells(truncateModelStrings(readRawModel(doc)).model);
+  return dropBadPersonaSkills(dropBadShells(truncateModelStrings(readRawModel(doc)).model));
 }
 
 /**

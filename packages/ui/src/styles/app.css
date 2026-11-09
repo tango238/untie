@@ -373,7 +373,8 @@ textarea { resize: vertical; width: 100%; }
 .fixed-add select { flex: 1; min-width: 0; }
 .fixed-add select.fixed-move { flex-basis: 100%; }
 .fixed-card-sub { font-size: 11px; color: var(--muted); }
-.fixed-card-trigger { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fixed-card-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.hearing-start { align-self: flex-start; white-space: nowrap; }
 .plain-fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .plain-fieldset:disabled select, .plain-fieldset:disabled input, .plain-fieldset:disabled textarea, .plain-fieldset:disabled button {
   opacity: 0.55; cursor: not-allowed;

@@ -470,11 +470,17 @@ function FixedCard({
       </span>
     </span>
   );
+  // アクター・外部アクターは、ペルソナの呼び名と属性を 1 行で薄く出す (無ければ出さない)
+  const personaLine =
+    element.kind === "actor" || element.kind === "externalActor"
+      ? [element.persona?.handle, element.persona?.attributes].filter((x): x is string => !!x).join(" / ")
+      : "";
   const rest = (
     <>
+      {personaLine && <span className="fixed-card-sub fixed-card-ellipsis" title={personaLine}>{personaLine}</span>}
       {showStateGroup && element.kind === "state" && element.group && <span className="fixed-card-sub">状態グループ: {element.group}</span>}
       <HoursLabel element={element} model={model} />
-      {trigger && <span className="fixed-card-sub fixed-card-trigger" title={trigger}>{trigger}</span>}
+      {trigger && <span className="fixed-card-sub fixed-card-ellipsis" title={trigger}>{trigger}</span>}
       {actors && <ActorChips actors={actors} />}
       {systems && <SystemChips systems={systems} />}
     </>

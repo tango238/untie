@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, IssueAnalysis, Relation, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, Element, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -16,6 +16,7 @@ export type {
   Information,
   Issue,
   IssueAnalysis,
+  Persona,
   Meta,
   Relation,
   RelationKind,
@@ -185,6 +186,56 @@ export const ISSUE_ANALYSIS_QUESTIONS: Record<keyof IssueAnalysis, string> = {
   impact: "誰にどう響くか",
 };
 
+/** ペルソナの IT の習熟の表示名 */
+export const PERSONA_IT_SKILL_LABELS: Record<NonNullable<Persona["itSkill"]>, string> = {
+  comfortable: "慣れている",
+  normal: "普通",
+  uncomfortable: "苦手",
+};
+
+/** IT の習熟の値 (PERSONA_IT_SKILL_LABELS のキー。列挙の定義はここ 1 か所) */
+export const PERSONA_IT_SKILLS = Object.keys(PERSONA_IT_SKILL_LABELS) as NonNullable<Persona["itSkill"]>[];
+
+export function isPersonaItSkill(value: unknown): value is NonNullable<Persona["itSkill"]> {
+  return typeof value === "string" && (PERSONA_IT_SKILLS as string[]).includes(value);
+}
+
+/** ペルソナの項目 (表示と AI の指示で使う順) */
+export const PERSONA_FIELD_KEYS: readonly (keyof Persona)[] = ["handle", "attributes", "background", "goals", "itSkill", "notes"];
+
+/** ペルソナの項目の表示名 */
+export const PERSONA_FIELD_LABELS: Record<keyof Persona, string> = {
+  handle: "呼び名",
+  attributes: "属性",
+  background: "背景と役割",
+  goals: "目標",
+  itSkill: "IT の習熟",
+  notes: "備考",
+};
+
+/** ペルソナを持てる種類 */
+export type PersonaOwnerKind = "actor" | "externalActor";
+
+export function isPersonaOwnerKind(kind: ElementKind): kind is PersonaOwnerKind {
+  return kind === "actor" || kind === "externalActor";
+}
+
+/**
+ * ペルソナを正規化する。文字列は前後の空白を除き、空の項目と不正な itSkill を外す。
+ * 何も残らなければ null (persona ごと持たない)
+ */
+export function normalizePersona(persona: unknown): Persona | null {
+  if (typeof persona !== "object" || persona === null || Array.isArray(persona)) return null;
+  const src = persona as Record<string, unknown>;
+  const out: Persona = {};
+  for (const key of ["handle", "attributes", "background", "goals", "notes"] as const) {
+    const v = src[key];
+    if (typeof v === "string" && v.trim() !== "") out[key] = v.trim();
+  }
+  if (isPersonaItSkill(src.itSkill)) out.itSkill = src.itSkill;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export function isFrameKind(kind: ElementKind): kind is FrameKind {
   return kind === "business" || kind === "buc";
 }
@@ -228,7 +279,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.5.2";
+export const MODEL_VERSION = "0.5.3";
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {

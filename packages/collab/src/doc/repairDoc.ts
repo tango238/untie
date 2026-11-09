@@ -14,7 +14,8 @@ export function repairDoc(doc: Y.Doc, origin: unknown): string[] {
   // 切り詰める前の中身から直す (切り詰めた結果との差分が Y.Doc に書かれる)
   const before = readRawModel(doc);
   const { model, changes } = repairModel(before);
-  if (changes.length === 0) return [];
+  // 知らせなしで直すもの (全項目が空のペルソナ) もあるので、changes ではなくモデルが変わったかで見る
+  if (model === before) return [];
   applyModelDiff(doc, before, model, origin);
   return changes;
 }

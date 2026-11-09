@@ -60,6 +60,11 @@ export const LIMITS = {
   triggerNote: { max: TRIGGER_NOTE_MAX_LENGTH, label: "起点 (その他)" },
   dsl: { max: DSL_MAX_LENGTH, label: "DSL" },
   viewJson: { max: VIEW_JSON_MAX_LENGTH, label: "画面 UI (JSON にしたもの)" },
+  personaHandle: { max: NAME_MAX_LENGTH, label: "ペルソナの呼び名" },
+  personaAttributes: { max: NAME_MAX_LENGTH, label: "ペルソナの属性" },
+  personaBackground: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの背景と役割" },
+  personaGoals: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの目標" },
+  personaNotes: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの備考" },
   transitionLabel: { max: NAME_MAX_LENGTH, label: "遷移の文言" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;

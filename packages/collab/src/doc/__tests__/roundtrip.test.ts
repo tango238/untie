@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addElement, addRelation, emptyModel, removeElement, updateElement, validateModel } from "@untie/core";
+import { addElement, addRelation, emptyModel, removeElement, setPersona, updateElement, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { createHotelSample } from "@untie/core/sample";
 import { applyModelDiff, getRoots, loadModel, rebuildModel } from "..";
@@ -116,6 +116,43 @@ describe("applyModelDiff", () => {
     expect((ymap.get("analysis") as Y.Map<unknown>).size).toBe(0);
     expect(ymap.has("description")).toBe(false);
     expect(rebuildModel(doc)).toStrictEqual(clear.model);
+  });
+
+  it("ペルソナ (アクター・外部アクター) は Y.Doc を往復し、更新・削除も反映される", () => {
+    let m = createHotelSample();
+    const actor = m.elements.find((e) => e.kind === "actor")!;
+    const added = addElement(m, { kind: "externalActor", name: "宿泊客" });
+    if (!added.ok) throw new Error(added.reason);
+    m = added.model;
+    const ext = m.elements.find((e) => e.kind === "externalActor")!;
+    const doc = fresh(m);
+    const steps = [
+      setPersona(m, { id: actor.id, persona: { handle: "田中さん", itSkill: "uncomfortable", goals: "待たせない" } }),
+    ];
+    for (const r of steps) {
+      if (!r.ok) throw new Error(r.reason);
+      applyModelDiff(doc, m, r.model, "local");
+      m = r.model;
+    }
+    const second = setPersona(m, { id: ext.id, persona: { background: "出張が多い" } });
+    if (!second.ok) throw new Error(second.reason);
+    applyModelDiff(doc, m, second.model, "local");
+    m = second.model;
+    expect(rebuildModel(doc)).toStrictEqual(m);
+    expect(rebuildModel(doc).elements.find((e) => e.id === actor.id)).toMatchObject({ persona: { handle: "田中さん", itSkill: "uncomfortable", goals: "待たせない" } });
+    expectValid(rebuildModel(doc));
+    // 項目を変える・消す
+    const changed = setPersona(m, { id: actor.id, persona: { handle: "田中さん", itSkill: "comfortable" } });
+    if (!changed.ok) throw new Error(changed.reason);
+    applyModelDiff(doc, m, changed.model, "local");
+    expect(rebuildModel(doc)).toStrictEqual(changed.model);
+    const cleared = setPersona(changed.model, { id: actor.id, persona: null });
+    if (!cleared.ok) throw new Error(cleared.reason);
+    applyModelDiff(doc, changed.model, cleared.model, "local");
+    expect(getRoots(doc).elements.get(actor.id)!.has("persona")).toBe(false);
+    expect(rebuildModel(doc)).toStrictEqual(cleared.model);
+    // 読み込み (loadModel) でも往復する
+    expect(rebuildModel(fresh(changed.model))).toStrictEqual(changed.model);
   });
 
   it("分析は項目ごとの Y.Map で、別の項目は別々に書ける", () => {

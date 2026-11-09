@@ -12,6 +12,7 @@ import {
   setDatabaseDsl,
   setDesignScreenView,
   setIssueTargets,
+  setPersona,
   setRelationAccess,
   setScreenUsecase,
   setTableInformation,
@@ -25,7 +26,7 @@ import { viewBindingSlots, viewShapeProblem } from "@untie/core/model/designView
 import { designScreenName } from "@untie/core/model/sitemap";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
-import { ELEMENT_KINDS, type ElementKind, type UntieModel } from "@untie/core/model/types";
+import { ELEMENT_KINDS, isPersonaItSkill, isPersonaOwnerKind, PERSONA_IT_SKILLS, PERSONA_FIELD_LABELS, PERSONA_IT_SKILL_LABELS, type ElementKind, type Persona, type UntieModel } from "@untie/core/model/types";
 
 /** プロバイダーに渡す道具の定義 (JSON Schema) */
 export interface ToolDef {
@@ -60,6 +61,41 @@ const linkSchema = {
     additionalProperties: false,
   },
 };
+
+/** ペルソナの入力の項目 (set_persona の引数。ヒアリングの道具と共有する) */
+export const PERSONA_TOOL_PROPERTIES = {
+  handle: str(`${PERSONA_FIELD_LABELS.handle} (例: 田中さん (店長・45歳)。200 文字まで。空文字で消す)`),
+  attributes: str(`${PERSONA_FIELD_LABELS.attributes} (年代・経験年数・勤務形態などを 1 行で。200 文字まで。空文字で消す)`),
+  background: str(`${PERSONA_FIELD_LABELS.background} (何を任され、何を気にしているか。4000 文字まで。空文字で消す)`),
+  goals: str(`${PERSONA_FIELD_LABELS.goals} (この人が達成したいこと。4000 文字まで。空文字で消す)`),
+  it_skill: {
+    type: "string",
+    enum: [...PERSONA_IT_SKILLS, ""],
+    description: `${PERSONA_FIELD_LABELS.itSkill}: ${PERSONA_IT_SKILLS.map((k) => `${k} (${PERSONA_IT_SKILL_LABELS[k]})`).join(" / ")}。空文字で消す`,
+  },
+  notes: str(`${PERSONA_FIELD_LABELS.notes} (4000 文字まで。空文字で消す)`),
+};
+
+/** 指定した項目だけ変えたペルソナを作る (空文字で消す)。入力が不正なら理由を返す */
+export function mergePersonaInput(current: Persona | undefined, input: Record<string, unknown>): { persona: Persona } | { error: string } {
+  const next: Record<string, unknown> = { ...current };
+  let touched = false;
+  for (const key of ["handle", "attributes", "background", "goals", "notes"] as const) {
+    if (typeof input[key] === "string") {
+      next[key] = input[key];
+      touched = true;
+    }
+  }
+  if (input.it_skill !== undefined) {
+    if (input.it_skill !== "" && !isPersonaItSkill(input.it_skill)) {
+      return { error: `it_skill は ${PERSONA_IT_SKILLS.join(" / ")} のどれか (空文字で消す) です` };
+    }
+    next.itSkill = input.it_skill === "" ? undefined : input.it_skill;
+    touched = true;
+  }
+  if (!touched) return { error: "変える項目がありません" };
+  return { persona: next as Persona };
+}
 
 export const MODEL_TOOLS: ToolDef[] = [
   {
@@ -109,6 +145,17 @@ export const MODEL_TOOLS: ToolDef[] = [
         severity: { type: "integer", minimum: 1, maximum: 5, description: "issue の重要度" },
         target_ids: strArray("issue の対象 (全部を置き換える。登場人物だけ、または業務・作業・操作だけ)"),
       },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_persona",
+    description:
+      "アクターまたは外部アクターのペルソナ (人物像) を書く。指定した項目だけ変わる (空文字で消す)。全項目が空になるとペルソナごと消える。ペルソナはその人の呼び名・属性・背景・目標・IT の習熟・備考。",
+    parameters: {
+      type: "object",
+      properties: { id: str("アクターまたは外部アクターの id"), ...PERSONA_TOOL_PROPERTIES },
       required: ["id"],
       additionalProperties: false,
     },
@@ -315,6 +362,16 @@ const parseReport = (dsl: string, extra: object = {}) => {
 
 const infoRefs = (ids: string[], name: (id: string) => string) => ids.map((id) => ({ id, name: name(id) }));
 
+/** set_persona の実行。id はアクター・外部アクターでなければ失敗にする (コマンドが検査する) */
+export function setPersonaFromInput(editor: ModelEditor, id: string, input: Input): ToolOutcome {
+  const target = editor.getModel().elements.find((e) => e.id === id);
+  if (!target) return fail(`要素が存在しません: ${id}`);
+  if (!isPersonaOwnerKind(target.kind)) return fail("ペルソナを持てるのはアクターと外部アクターだけです");
+  const merged = mergePersonaInput((target as { persona?: Persona }).persona, input);
+  if ("error" in merged) return fail(merged.error);
+  return run(editor, (m) => setPersona(m, { id, persona: merged.persona }));
+}
+
 /** 道具を 1 回実行する。入力はモデルの出力なので、型を確かめてからコマンドに渡す */
 export function executeTool(editor: ModelEditor, name: string, rawInput: unknown): ToolOutcome {
   const input = (rawInput && typeof rawInput === "object" ? rawInput : {}) as Input;
@@ -375,6 +432,12 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       }
       if (Object.keys(patch).length === 0) return fail("変える項目がありません");
       return run(editor, (m) => updateElement(m, { id, patch }));
+    }
+
+    case "set_persona": {
+      const id = s(input.id);
+      if (!id) return fail("id が必要です");
+      return setPersonaFromInput(editor, id, input);
     }
 
     case "remove_element": {

@@ -72,9 +72,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.5.2";
+  version: "0.5.3";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -114,6 +114,36 @@ export interface Actor {
   kind: "actor";
   name: Name;
   description?: Description;
+  persona?: Persona;
+}
+/**
+ * ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。
+ */
+export interface Persona {
+  /**
+   * 呼び名。例: 田中さん (店長・45歳)。
+   */
+  handle?: string;
+  /**
+   * 属性。年代・経験年数・勤務形態などを 1 行で。
+   */
+  attributes?: string;
+  /**
+   * 背景と役割。何を任され、何を気にしているか。
+   */
+  background?: string;
+  /**
+   * 目標。この人が達成したいこと。
+   */
+  goals?: string;
+  /**
+   * IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。
+   */
+  itSkill?: "comfortable" | "normal" | "uncomfortable";
+  /**
+   * 備考。
+   */
+  notes?: string;
 }
 /**
  * 外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。
@@ -123,6 +153,7 @@ export interface ExternalActor {
   kind: "externalActor";
   name: Name;
   description?: Description;
+  persona?: Persona;
 }
 /**
  * システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。

@@ -451,6 +451,16 @@ describe("プロパティ欄", () => {
     expect(rebuildModel(doc)).toEqual(before);
   });
 
+  it("閲覧者はペルソナを読み取りだけで、ヒアリングのボタンも出ない", () => {
+    openCloud("viewer", "fixed:actor");
+    selectEl("actor_front");
+    render(<PropertyPanel />);
+    expect((screen.getByLabelText("呼び名") as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByLabelText("背景と役割") as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((screen.getByLabelText("IT の習熟") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "困りごとをヒアリングする" })).toBeNull();
+  });
+
   it("閲覧者の課題の欄: 重要度・対象は無効、分析は読み取り専用、AI での深掘りは出ない。関係の線の付け根も無効", () => {
     openCloud("viewer", "board_overview");
     selectEl("issue_manual_entry");

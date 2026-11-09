@@ -30,7 +30,7 @@ CI (`.github/workflows/ci.yml`) も同じものを走らせます。
 
 ## JSON Schema を変えるときは、必ずモデルの形式のバージョンを上げる
 
-保存する JSON は `version` にモデルの形式のバージョン (semver の文字列。現行は `0.5.2`) を持ちます。ファイルを開く・取り込むときは `loadModelJson()` (`packages/core/src/model/migrate.ts`) が、古い版の JSON をマイグレーションで現行の版へ自動で変換してから検証します。新しい版の JSON は、古いアプリで開いて壊さないよう断ります。
+保存する JSON は `version` にモデルの形式のバージョン (semver の文字列。現行は `0.5.3`) を持ちます。ファイルを開く・取り込むときは `loadModelJson()` (`packages/core/src/model/migrate.ts`) が、古い版の JSON をマイグレーションで現行の版へ自動で変換してから検証します。新しい版の JSON は、古いアプリで開いて壊さないよう断ります。
 
 そのため、`schema/untie.schema.json` を変えるとき (項目を足す・消す・名前や型を変える・必須にする・値の範囲を変える、など保存する JSON の形が変わるすべての変更) は、**必ず**次をまとめて 1 つの変更で行ってください。説明 (`description`) だけを直すときは不要です。
 

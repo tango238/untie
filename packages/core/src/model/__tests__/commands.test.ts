@@ -18,6 +18,7 @@ import {
   renameBoard,
   setEdgeSides,
   setIssueTargets,
+  setPersona,
   setRelationAccess,
   setScreenUsecase,
   setUsecaseTarget,
@@ -174,6 +175,39 @@ describe("updateElement", () => {
     expectFail(updateElement(m, { id: "issue_manual_entry", patch: { targetIds: ["info_reservation"] } }), /対象/);
     expectFail(updateElement(m, { id: "nope", patch: { name: "x" } }), /存在しません/);
     expectFail(updateElement(m, { id: "act_clean", patch: { bucId: "x" } as never }), /変更できません/);
+  });
+});
+
+describe("setPersona", () => {
+  it("アクターのペルソナを置ける。文字列は前後の空白を除き、空の項目は持たない", () => {
+    const m = okModel(setPersona(sample(), { id: "actor_front", persona: { handle: " 田中さん ", attributes: "", itSkill: "uncomfortable", goals: "待たせない" } }));
+    expect(el(m, "actor_front")).toMatchObject({ persona: { handle: "田中さん", itSkill: "uncomfortable", goals: "待たせない" } });
+    expect((el(m, "actor_front") as { persona: object }).persona).not.toHaveProperty("attributes");
+    expectValid(m);
+  });
+
+  it("null か全項目が空なら persona ごと消える。同じなら model をそのまま返す", () => {
+    const m = okModel(setPersona(sample(), { id: "actor_front", persona: { handle: "田中さん" } }));
+    expect(okModel(setPersona(m, { id: "actor_front", persona: { handle: "田中さん" } }))).toBe(m);
+    expect(okModel(setPersona(m, { id: "actor_front", persona: { handle: "  " } }))).not.toHaveProperty("elements.0.persona");
+    const cleared = okModel(setPersona(m, { id: "actor_front", persona: { handle: " ", notes: "" } }));
+    expect(el(cleared, "actor_front")).not.toHaveProperty("persona");
+    expect(okModel(setPersona(cleared, { id: "actor_front", persona: null }))).toBe(cleared);
+    expect(el(okModel(setPersona(m, { id: "actor_front", persona: null })), "actor_front")).not.toHaveProperty("persona");
+    expect(okModel(setPersona(sample(), { id: "actor_front", persona: {} }))).toStrictEqual(sample());
+  });
+
+  it("外部アクターにも置ける。ほかの種類・無い id・不正な習熟・長すぎる文字列は失敗", () => {
+    let m = okModel(addElement(sample(), { kind: "externalActor", name: "宿泊客" }));
+    const ext = m.elements.find((e) => e.kind === "externalActor")!;
+    m = okModel(setPersona(m, { id: ext.id, persona: { background: "出張が多い" } }));
+    expect(el(m, ext.id)).toMatchObject({ persona: { background: "出張が多い" } });
+    expectFail(setPersona(sample(), { id: "buc_x", persona: { handle: "x" } }), /要素が存在しません/);
+    const sys = m.elements.find((e) => e.kind === "business")!;
+    expectFail(setPersona(m, { id: sys.id, persona: { handle: "x" } }), /アクターと外部アクターだけ/);
+    expectFail(setPersona(m, { id: ext.id, persona: { itSkill: "bogus" as never } }), /IT の習熟が不正/);
+    expectFail(setPersona(m, { id: ext.id, persona: { handle: "あ".repeat(201) } }), /呼び名は 200 文字まで/);
+    expectFail(setPersona(m, { id: ext.id, persona: { goals: "あ".repeat(4001) } }), /目標は 4000 文字まで/);
   });
 });
 

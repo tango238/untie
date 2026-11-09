@@ -1,14 +1,28 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { addElement, addRelation, setPersona, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { defaultBucOf } from "@untie/core/model/selectors";
-import { emptyModel, isIssueTargetKind, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
-import type { ToolDef } from "./tools";
+import { emptyModel, isIssueTargetKind, isPersonaItSkill, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
+import { mergePersonaInput, PERSONA_TOOL_PROPERTIES, type ToolDef } from "./tools";
 
 export interface SpecNamed {
   name: string;
   description?: string;
+}
+
+/** ペルソナ (アクター・外部アクターの人物像。すべて任意) */
+export interface SpecPersona {
+  handle?: string;
+  attributes?: string;
+  background?: string;
+  goals?: string;
+  it_skill?: string;
+  notes?: string;
+}
+
+export interface SpecActor extends SpecNamed {
+  persona?: SpecPersona;
 }
 
 export interface SpecUsecase extends SpecNamed {
@@ -57,8 +71,8 @@ export interface SpecInformation extends SpecNamed {
 export interface ModelSpec {
   system_name: string;
   overview?: string;
-  actors?: SpecNamed[];
-  external_actors?: SpecNamed[];
+  actors?: SpecActor[];
+  external_actors?: SpecActor[];
   systems?: SpecNamed[];
   ledgers?: SpecNamed[];
   businesses: SpecBusiness[];
@@ -80,6 +94,15 @@ const named = (extra: Record<string, unknown> = {}, required: string[] = ["name"
 });
 const names = (description: string) => ({ type: "array", items: { type: "string" }, description });
 const list = (items: unknown, description: string) => ({ type: "array", items, description });
+
+const actorSchema = named({
+  persona: {
+    type: "object",
+    description: "ペルソナ (任意): この人物像。要望から読み取れる範囲で、分かるものだけを短く書く。無理に作らない",
+    properties: PERSONA_TOOL_PROPERTIES,
+    additionalProperties: false,
+  },
+});
 
 const usecaseSchema = named({
   informations: names("取得も保存もする情報の名前 (informations に定義したもの)"),
@@ -106,8 +129,8 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
     properties: {
       system_name: { type: "string", description: "モデル (システム) の名前" },
       overview: { type: "string", description: "概要" },
-      actors: list(named(), "社内の人の役割 (〇〇担当など)"),
-      external_actors: list(named(), "社外の人・組織 (顧客・取引先など)"),
+      actors: list(actorSchema, "社内の人の役割 (〇〇担当など)"),
+      external_actors: list(actorSchema, "社外の人・組織 (顧客・取引先など)"),
       systems: list(named(), "情報システム (自社・社外を問わない)。操作の対象になる (作業の担当にはならない)。情報の置き場所は、対象にした操作が扱う情報から導く"),
       ledgers: list(named(), "紙の台帳・伝票。記入・参照する操作の対象になる"),
       businesses: list(
@@ -231,8 +254,31 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   };
 
   // 担い手と置き場所
-  for (const a of spec.actors ?? []) add("actor", "actor", a);
-  for (const a of spec.external_actors ?? []) add("externalActor", "actor", a);
+  /** ペルソナがあれば置く (上限を超える分は切り詰める。不正なら警告だけ) */
+  const addActor = (kind: "actor" | "externalActor", a: SpecActor) => {
+    const id = add(kind, "actor", a);
+    if (!id || !a.persona || typeof a.persona !== "object") return;
+    // 不正な習熟はその項目だけ外して警告する (ペルソナは捨てない)。項目が無いペルソナは黙って飛ばす
+    const input = { ...(a.persona as Record<string, unknown>) };
+    if (input.it_skill !== undefined && input.it_skill !== "" && !isPersonaItSkill(input.it_skill)) {
+      warnings.push(`${a.name} のペルソナ: it_skill「${String(input.it_skill)}」は使えないので外しました`);
+      delete input.it_skill;
+    }
+    const merged = mergePersonaInput(undefined, input);
+    if ("error" in merged) return;
+    const p = merged.persona;
+    const clipped = {
+      ...p,
+      ...(p.handle !== undefined ? { handle: truncateText(p.handle, NAME_MAX_LENGTH) } : {}),
+      ...(p.attributes !== undefined ? { attributes: truncateText(p.attributes, NAME_MAX_LENGTH) } : {}),
+      ...(p.background !== undefined ? { background: truncateText(p.background, DESCRIPTION_MAX_LENGTH) } : {}),
+      ...(p.goals !== undefined ? { goals: truncateText(p.goals, DESCRIPTION_MAX_LENGTH) } : {}),
+      ...(p.notes !== undefined ? { notes: truncateText(p.notes, DESCRIPTION_MAX_LENGTH) } : {}),
+    };
+    apply(setPersona(model, { id, persona: clipped }), `${a.name} のペルソナを置けません`);
+  };
+  for (const a of spec.actors ?? []) addActor("actor", a);
+  for (const a of spec.external_actors ?? []) addActor("externalActor", a);
   for (const a of spec.systems ?? []) add("system", "actor", a);
   for (const a of spec.ledgers ?? []) add("ledger", "ledger", a);
   // 情報のまわり (操作から参照されるので先に作る)

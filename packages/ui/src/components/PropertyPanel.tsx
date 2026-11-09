@@ -10,6 +10,7 @@ import {
   removeRelation,
   setEdgeSides,
   setIssueTargets,
+  setPersona,
   setRelationAccess,
   setScreenUsecase,
   setUsecaseTarget,
@@ -20,7 +21,7 @@ import { relationKindFor, relationLabel, relationRule, sameRelation } from "@unt
 import { suggestContext } from "@untie/core/model/contexts";
 import { lineage } from "@untie/core/model/lineage";
 import { informationPlaces, PLACE_ROLE_LABELS, placeInformations, screenInformations, type Derived } from "@untie/core/model/placement";
-import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
+import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, LIMITS, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, designReferences, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
@@ -45,6 +46,9 @@ import {
   ISSUE_SCOPE_LABELS,
   ISSUE_SCOPE_TARGETS,
   OVERALL_ISSUE_TARGET_KINDS,
+  PERSONA_FIELD_LABELS,
+  PERSONA_IT_SKILL_LABELS,
+  type Persona,
   SPECIFIC_ISSUE_TARGET_KINDS,
   type IssueTargetKind,
   type Activity,
@@ -61,6 +65,9 @@ import {
 import { isAnalysisBoard, isFixedBoard, selectReadOnly, useUntieStore } from "../store";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
+import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
+import { getApiKey } from "../ai/keys";
+import { PROVIDERS } from "../ai/providers";
 import { getPlatform } from "../platform";
 import { CommitField } from "./CommitField";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -278,6 +285,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         readOnly={readOnly}
         onCommit={(description) => update({ description })}
       />
+      {(element.kind === "actor" || element.kind === "externalActor") && <PersonaSection actor={element} />}
       {(element.kind === "activity" || element.kind === "usecase") && (
         <>
           <HoursField value={element.hours} readOnly={readOnly} onCommit={(hours) => update({ hours })} onError={(r) => pushToast(r, "error")} />
@@ -1431,6 +1439,124 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
         )}
       </section>
       <IssueAnalysisFields issue={issue} />
+    </>
+  );
+}
+
+/**
+ * アクター・外部アクターのペルソナ (人物像) と、困りごとのヒアリング。
+ * 名前・説明と同じく、自由ボードでも編集できる。閲覧専用のファイルでは読み取りだけ
+ */
+function PersonaSection({ actor }: { actor: Extract<Element, { kind: "actor" | "externalActor" }> }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const readOnly = useUntieStore(selectReadOnly);
+  const agentMode = useAgentStore((s) => s.mode);
+  const agentRunning = useAgentStore((s) => s.running);
+  const startHearing = useAgentStore((s) => s.startHearing);
+  const provider = useAgentStore((s) => s.settings.provider);
+  const settingsOpen = useAgentStore((s) => s.settingsOpen);
+  const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
+  const [answerer, setAnswerer] = useState<HearingAnswerer>("persona");
+  const [hasKey, setHasKey] = useState<boolean | undefined>(undefined);
+  const persona = actor.persona;
+  const hearing = agentMode.kind === "hearing" && agentMode.actorId === actor.id;
+
+  // API キーがあるか (設定のダイアログを閉じたあとにも調べ直す)
+  useEffect(() => {
+    let alive = true;
+    setHasKey(undefined);
+    getApiKey(provider).then(
+      (k) => alive && setHasKey(!!k),
+      () => alive && setHasKey(false),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [provider, settingsOpen]);
+
+  /** いまのモデルのペルソナに、変えた項目だけ重ねて置く (入力の確定が重なっても他の項目を巻き戻さない) */
+  const commit = (patch: Partial<Persona>) => {
+    const r = dispatch((m) => {
+      const current = m.elements.find((e) => e.id === actor.id);
+      const now = current && (current.kind === "actor" || current.kind === "externalActor") ? current.persona : undefined;
+      return setPersona(m, { id: actor.id, persona: { ...now, ...patch } });
+    });
+    if (!r.ok) pushToast(r.reason, "error");
+  };
+
+  const textField = (key: "handle" | "attributes" | "background" | "goals" | "notes", max: number, multiline: boolean, placeholder?: string) => (
+    <CommitField
+      label={PERSONA_FIELD_LABELS[key]}
+      multiline={multiline}
+      maxLength={max}
+      placeholder={placeholder}
+      readOnly={readOnly}
+      value={persona?.[key] ?? ""}
+      onCommit={(v) => commit({ [key]: v })}
+    />
+  );
+
+  return (
+    <>
+      <section className="subsection" aria-label="ペルソナ">
+        <h3>ペルソナ</h3>
+        <p className="hint">この人の人物像。AI のヒアリングで、この人になりきって答える材料になります。</p>
+        {textField("handle", LIMITS.personaHandle.max, false, "例: 田中さん (店長・45歳)")}
+        {textField("attributes", LIMITS.personaAttributes.max, false, "年代・経験年数・勤務形態など")}
+        {textField("background", LIMITS.personaBackground.max, true, "何を任され、何を気にしているか")}
+        {textField("goals", LIMITS.personaGoals.max, true, "この人が達成したいこと")}
+        <label className="field">
+          <span className="field-label">{PERSONA_FIELD_LABELS.itSkill}</span>
+          <select
+            aria-label={PERSONA_FIELD_LABELS.itSkill}
+            value={persona?.itSkill ?? ""}
+            disabled={readOnly}
+            onChange={(e) => commit({ itSkill: (e.target.value || undefined) as Persona["itSkill"] })}
+          >
+            <option value="">未設定</option>
+            {(Object.keys(PERSONA_IT_SKILL_LABELS) as NonNullable<Persona["itSkill"]>[]).map((k) => (
+              <option key={k} value={k}>
+                {PERSONA_IT_SKILL_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {textField("notes", LIMITS.personaNotes.max, true)}
+      </section>
+      {!readOnly && (
+        <section className="subsection" aria-label="困りごとのヒアリング">
+          <label className="field">
+            <span className="field-label">ヒアリングの答え方</span>
+            <select aria-label="ヒアリングの答え方" value={answerer} disabled={hearing || agentRunning} onChange={(e) => setAnswerer(e.target.value as HearingAnswerer)}>
+              {(Object.keys(HEARING_ANSWERER_LABELS) as HearingAnswerer[]).map((k) => (
+                <option key={k} value={k}>
+                  {HEARING_ANSWERER_LABELS[k]}
+                  {k === "persona" ? " (既定)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="link hearing-start"
+            disabled={hearing || agentRunning || hasKey !== true}
+            title={hasKey === false ? "「AI の設定」で API キーを入れると使えます" : "この人の困りごとを AI とのヒアリングで聞き出し、課題にする"}
+            onClick={() => void startHearing(actor.id, answerer)}
+          >
+            {hearing ? "ヒアリング中…" : "困りごとをヒアリングする"}
+          </button>
+          {hasKey === false && (
+            <p className="hint">
+              「困りごとをヒアリングする」を使うには、
+              <button type="button" className="link" onClick={() => setSettingsOpen(true)}>
+                AI の設定
+              </button>
+              で {PROVIDERS[provider].label} の API キーを入れてください。
+            </p>
+          )}
+        </section>
+      )}
     </>
   );
 }

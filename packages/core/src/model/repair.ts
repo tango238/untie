@@ -16,6 +16,7 @@
 // - ボードが 0 枚なら「ボード 1」を作る
 // - 設計データ (0.5.0): システムが無い設計、元の画面が無い (別のシステムの画面を含む) 設計の画面、画面が無い遷移・ナビゲーションの項目、
 //   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)。大きすぎる・深すぎる・使えないキーを含む画面 UI は、画面を残して画面 UI と対応を消す
+// - アクター・外部アクターのペルソナは、列挙の外の IT の習熟を外し、全項目が空なら persona ごと消す
 // - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
 //
 // changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
@@ -32,7 +33,7 @@ import { isTooLong, VIEW_JSON_MAX_LENGTH } from "./limits";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
 import { truncateModelStrings } from "./truncate";
-import { ELEMENT_KIND_LABELS, isContextMemberKind } from "./types";
+import { ELEMENT_KIND_LABELS, isContextMemberKind, isPersonaItSkill, normalizePersona } from "./types";
 import type { Board, Buc, Element, UntieModel } from "./types";
 
 export interface RepairResult {
@@ -54,6 +55,8 @@ export function repairModel(input: UntieModel): RepairResult {
   const model = truncated.model;
   const changes: string[] = [...truncated.changes];
 
+  /** 知らせを出さずに直した (全項目が空のペルソナを消した) */
+  let silentlyFixed = false;
   const next = produce(model, (draft) => {
     const label = (e: Element) => `${ELEMENT_KIND_LABELS[e.kind]} ${e.id}`;
     const kindOf = new Map<string, Element["kind"]>(draft.elements.map((e) => [e.id, e.kind]));
@@ -64,6 +67,21 @@ export function repairModel(input: UntieModel): RepairResult {
       if (kind === undefined) return `${ELEMENT_KIND_LABELS[want]} ${id} が無い`;
       return kind === want ? null : `${ELEMENT_KIND_LABELS[want]} ${id} ではなく${ELEMENT_KIND_LABELS[kind]}を指している`;
     };
+
+    // 0. ペルソナ。列挙の外の IT の習熟は項目を外し、全項目が空 (空のオブジェクトを含む) なら persona ごと消す
+    for (const e of draft.elements) {
+      if (e.kind !== "actor" && e.kind !== "externalActor") continue;
+      const persona = e.persona as Record<string, unknown> | undefined;
+      if (persona === undefined) continue;
+      if (typeof persona === "object" && persona !== null && "itSkill" in persona && !isPersonaItSkill(persona.itSkill)) {
+        changes.push(`${label(e)} のペルソナの IT の習熟を外した (値が正しくない)`);
+        delete persona.itSkill;
+      }
+      if (normalizePersona(persona) === null) {
+        delete e.persona;
+        silentlyFixed = true;
+      }
+    }
 
     // 1. 活動 (BUC)。業務が無いものを消し、業務ごとに既定の活動をちょうど 1 個にし、名前を業務名に揃える
     const removed = new Set<string>();
@@ -374,5 +392,5 @@ export function repairModel(input: UntieModel): RepairResult {
   });
 
   // 何も直していなければ入力の参照をそのまま返す
-  return changes.length === 0 ? { model, changes } : { model: next, changes };
+  return changes.length === 0 && !silentlyFixed ? { model, changes } : { model: next, changes };
 }

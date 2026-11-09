@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
+import { HEARING_ANSWERER_LABELS, HEARING_SUMMARY_REQUEST } from "../../ai/hearing";
 import { PROVIDERS } from "../../ai/providers";
 import { useUntieStore } from "../../store";
 
-/** 下のペイン: AI エージェントとの会話。編集中のモデルを自然言語で直す。課題の深掘りもここで行う */
+/** 下のペイン: AI エージェントとの会話。編集中のモデルを自然言語で直す。課題の深掘りと困りごとのヒアリングもここで行う */
 export function AgentPane() {
   const items = useAgentStore((s) => s.items);
   const running = useAgentStore((s) => s.running);
@@ -13,9 +14,11 @@ export function AgentPane() {
   const cancel = useAgentStore((s) => s.cancel);
   const newConversation = useAgentStore((s) => s.newConversation);
   const endGrill = useAgentStore((s) => s.endGrill);
+  const endHearing = useAgentStore((s) => s.endHearing);
   const setOpen = useAgentStore((s) => s.setOpen);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const grillIssue = useUntieStore((s) => (mode.kind === "grill" ? s.model.elements.find((e) => e.id === mode.issueId) : undefined));
+  const hearingActor = useUntieStore((s) => (mode.kind === "hearing" ? s.model.elements.find((e) => e.id === mode.actorId) : undefined));
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const provider = PROVIDERS[settings.provider];
@@ -39,6 +42,13 @@ export function AgentPane() {
             <>
               課題を深掘り: <span className="agent-grill-issue">「{grillIssue?.name || (grillIssue ? "(名前なし)" : "(削除された課題)")}」</span>
             </>
+          ) : mode.kind === "hearing" ? (
+            <>
+              ヒアリング:{" "}
+              <span className="agent-grill-issue">
+                「{hearingActor?.name || (hearingActor ? "(名前なし)" : "(削除されたアクター)")}」({HEARING_ANSWERER_LABELS[mode.answerer]})
+              </span>
+            </>
           ) : (
             "AI エージェント"
           )}
@@ -51,6 +61,15 @@ export function AgentPane() {
           <button type="button" onClick={endGrill}>
             深掘りを終える
           </button>
+        ) : mode.kind === "hearing" ? (
+          <>
+            <button type="button" onClick={() => void send(HEARING_SUMMARY_REQUEST)} disabled={running}>
+              まとめる
+            </button>
+            <button type="button" onClick={endHearing}>
+              ヒアリングを終える
+            </button>
+          </>
         ) : (
           <button type="button" onClick={newConversation} disabled={running || items.length === 0}>
             新しい会話
@@ -85,7 +104,15 @@ export function AgentPane() {
       <div className="agent-input">
         <textarea
           aria-label="AI への依頼"
-          placeholder={mode.kind === "grill" ? "質問に答えて Enter で送信 (Shift+Enter で改行)。「はい」で推奨を採ります" : "依頼を書いて Enter で送信 (Shift+Enter で改行)"}
+          placeholder={
+            mode.kind === "grill"
+              ? "質問に答えて Enter で送信 (Shift+Enter で改行)。「はい」で推奨を採ります"
+              : mode.kind === "hearing"
+                ? mode.answerer === "persona"
+                  ? "ペルソナに質問して Enter で送信 (Shift+Enter で改行)"
+                  : "質問に答えて Enter で送信 (Shift+Enter で改行)。「はい」で推奨を採ります"
+                : "依頼を書いて Enter で送信 (Shift+Enter で改行)"
+          }
           value={text}
           rows={2}
           onChange={(e) => setText(e.target.value)}

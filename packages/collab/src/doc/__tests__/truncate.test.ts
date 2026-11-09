@@ -57,6 +57,31 @@ describe("上限を超える文字列は要素を外さず切り詰める", () =
     expect(validateModel(JSON.parse(JSON.stringify(read))).ok).toBe(true);
   });
 
+  it("ペルソナの長い文字列・不正な IT の習熟があっても、要素を外さず repairDoc が直す", () => {
+    const server = new Y.Doc();
+    loadModel(server, model());
+    writeLong(server, "actor_a", "persona", { handle: "あ".repeat(201), itSkill: "bogus", goals: "目標" });
+    expect(rebuildModel(server).elements).toHaveLength(2);
+    const changes = repairDoc(server, "repair");
+    expect(changes).toEqual(["アクター actor_a のペルソナの呼び名が長すぎたので切り詰めた", "アクター actor_a のペルソナの IT の習熟を外した (値が正しくない)"]);
+    // 表示用の読み (readModel) は、Y.Doc を直す前でも不正な習熟を外して要素を残す
+    const fixed = rebuildModel(server).elements.find((e) => e.id === "actor_a") as { persona?: unknown };
+    expect(fixed.persona).toEqual({ handle: "あ".repeat(200), goals: "目標" });
+  });
+
+  it("不正な IT の習熟は readModel(表示用)でも外れ、Y.Doc は repairDoc が直す。空のペルソナ {} は知らせなしで消える", () => {
+    const doc = new Y.Doc();
+    loadModel(doc, model());
+    writeLong(doc, "actor_a", "persona", { itSkill: "bogus", goals: "目標" });
+    expect((readModel(doc).elements.find((e) => e.id === "actor_a") as { persona?: unknown }).persona).toEqual({ goals: "目標" });
+    expect((readRawModel(doc).elements.find((e) => e.id === "actor_a") as { persona?: unknown }).persona).toEqual({ itSkill: "bogus", goals: "目標" });
+    expect(repairDoc(doc, "repair")).toHaveLength(1);
+    expect((getRoots(doc).elements.get("actor_a") as Y.Map<unknown>).get("persona")).toEqual({ goals: "目標" });
+    writeLong(doc, "actor_a", "persona", {});
+    expect(repairDoc(doc, "repair")).toEqual([]);
+    expect((getRoots(doc).elements.get("actor_a") as Y.Map<unknown>).has("persona")).toBe(false);
+  });
+
   it("形が壊れた要素 (型が違う・項目が欠けた) は、これまでどおり外す", () => {
     const doc = new Y.Doc();
     loadModel(doc, model());

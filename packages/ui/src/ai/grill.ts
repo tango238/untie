@@ -41,39 +41,74 @@ ${axes}
 利用者が見るのは画面のボードとプロパティ欄なので、作業・操作・活動などの画面での呼び名で話します。`;
 }
 
-/** 深掘りで使う道具。モデルを読む道具は共通、書く道具はこの課題に限る */
-export const GRILL_TOOLS: ToolDef[] = [
-  MODEL_TOOLS.find((t) => t.name === "get_model")!,
-  {
-    name: "update_issue_analysis",
-    description:
-      "深掘り中の課題の分析 (現象・所在・理由・影響) と重要度を書く。指定した項目だけ変わる (空文字で消す)。利用者が了承してから呼ぶこと。",
-    parameters: {
-      type: "object",
-      properties: {
-        ...Object.fromEntries(
-          ISSUE_ANALYSIS_KEYS.map((k) => [k, { type: "string", description: `${ISSUE_ANALYSIS_LABELS[k]}: ${ISSUE_ANALYSIS_QUESTIONS[k]}` }]),
-        ),
-        severity: { type: "integer", minimum: 1, maximum: 5, description: "重要度 (1 低 〜 5 高)" },
+/**
+ * 課題の分析と対象を書く道具の定義。深掘り (課題が 1 つに決まっている) とヒアリング (既存の課題に追記するので issue_id を受ける) で共通。
+ * withIssueId が真なら issue_id を必須の引数に足す
+ */
+export function issueWriteTools(withIssueId: boolean): ToolDef[] {
+  const issueId = withIssueId ? { issue_id: { type: "string", description: "追記する既存の課題の id" } } : {};
+  const required = withIssueId ? ["issue_id"] : [];
+  const subject = withIssueId ? "既存の課題" : "深掘り中の課題";
+  return [
+    {
+      name: "update_issue_analysis",
+      description: withIssueId
+        ? `${subject}の分析 (現象・所在・理由・影響) に追記する。指定した項目の文は、既存の文を残して改行で足される (置き換えない)。重要度は指定すると置き換わる。利用者が了承してから呼ぶこと。`
+        : `${subject}の分析 (現象・所在・理由・影響) と重要度を書く。指定した項目だけ変わる (空文字で消す)。利用者が了承してから呼ぶこと。`,
+      parameters: {
+        type: "object",
+        properties: {
+          ...issueId,
+          ...Object.fromEntries(
+            ISSUE_ANALYSIS_KEYS.map((k) => [k, { type: "string", description: `${ISSUE_ANALYSIS_LABELS[k]}: ${ISSUE_ANALYSIS_QUESTIONS[k]}` }]),
+          ),
+          severity: { type: "integer", minimum: 1, maximum: 5, description: "重要度 (1 低 〜 5 高)" },
+        },
+        ...(required.length > 0 ? { required } : {}),
+        additionalProperties: false,
       },
-      additionalProperties: false,
     },
-  },
-  {
-    name: "set_issue_targets",
-    description:
-      "深掘り中の課題の対象 (所在の要素) を置き換える。登場人物の id だけ (全体的な課題)、または業務・作業・操作の id だけ (具体的な課題)。空にすると未整理に戻る。利用者が了承してから呼ぶこと。",
-    parameters: {
-      type: "object",
-      properties: { target_ids: { type: "array", items: { type: "string" }, description: "対象の要素 id" } },
-      required: ["target_ids"],
-      additionalProperties: false,
+    {
+      name: "set_issue_targets",
+      description: `${subject}の対象 (所在の要素) を置き換える。登場人物の id だけ (全体的な課題)、または業務・作業・操作の id だけ (具体的な課題)。空にすると未整理に戻る。利用者が了承してから呼ぶこと。`,
+      parameters: {
+        type: "object",
+        properties: { ...issueId, target_ids: { type: "array", items: { type: "string" }, description: "対象の要素 id" } },
+        required: [...required, "target_ids"],
+        additionalProperties: false,
+      },
     },
-  },
-];
+  ];
+}
+
+/** 深掘りで使う道具。モデルを読む道具は共通、書く道具はこの課題に限る */
+export const GRILL_TOOLS: ToolDef[] = [MODEL_TOOLS.find((t) => t.name === "get_model")!, ...issueWriteTools(false)];
 
 const okJson = (data: unknown, changed: boolean): ToolOutcome => ({ ok: true, content: JSON.stringify(data), changed });
 const fail = (reason: string): ToolOutcome => ({ ok: false, content: JSON.stringify({ error: reason }), changed: false });
+
+/** update_issue_analysis の実行。issueId の課題の分析と重要度を書く */
+export function runUpdateIssueAnalysis(editor: ModelEditor, issueId: string, input: Record<string, unknown>): ToolOutcome {
+  const analysis: Partial<IssueAnalysis> = {};
+  for (const k of ISSUE_ANALYSIS_KEYS) if (typeof input[k] === "string") analysis[k] = input[k] as string;
+  const patch = {
+    ...(Object.keys(analysis).length > 0 ? { analysis } : {}),
+    ...(typeof input.severity === "number" ? { severity: input.severity } : {}),
+  };
+  if (Object.keys(patch).length === 0) return fail("変える項目がありません");
+  const before = editor.getModel();
+  const r = editor.apply((m) => updateElement(m, { id: issueId, patch }));
+  return r.ok ? okJson({ ok: true }, r.model !== before) : fail(r.reason);
+}
+
+/** set_issue_targets の実行。issueId の課題の対象を置き換える */
+export function runSetIssueTargets(editor: ModelEditor, issueId: string, input: Record<string, unknown>): ToolOutcome {
+  const targetIds = Array.isArray(input.target_ids) ? input.target_ids.filter((x): x is string => typeof x === "string") : null;
+  if (!targetIds) return fail("target_ids が必要です");
+  const before = editor.getModel();
+  const r = editor.apply((m) => setIssueTargets(m, { issueId, targetIds }));
+  return r.ok ? okJson({ ok: true }, r.model !== before) : fail(r.reason);
+}
 
 /** 深掘りの道具を 1 回実行する。書く道具は issueId の課題にだけ効く */
 export function executeGrillTool(editor: ModelEditor, issueId: string, name: string, rawInput: unknown): ToolOutcome {
@@ -81,28 +116,10 @@ export function executeGrillTool(editor: ModelEditor, issueId: string, name: str
   switch (name) {
     case "get_model":
       return executeTool(editor, name, input);
-
-    case "update_issue_analysis": {
-      const analysis: Partial<IssueAnalysis> = {};
-      for (const k of ISSUE_ANALYSIS_KEYS) if (typeof input[k] === "string") analysis[k] = input[k] as string;
-      const patch = {
-        ...(Object.keys(analysis).length > 0 ? { analysis } : {}),
-        ...(typeof input.severity === "number" ? { severity: input.severity } : {}),
-      };
-      if (Object.keys(patch).length === 0) return fail("変える項目がありません");
-      const before = editor.getModel();
-      const r = editor.apply((m) => updateElement(m, { id: issueId, patch }));
-      return r.ok ? okJson({ ok: true }, r.model !== before) : fail(r.reason);
-    }
-
-    case "set_issue_targets": {
-      const targetIds = Array.isArray(input.target_ids) ? input.target_ids.filter((x): x is string => typeof x === "string") : null;
-      if (!targetIds) return fail("target_ids が必要です");
-      const before = editor.getModel();
-      const r = editor.apply((m) => setIssueTargets(m, { issueId, targetIds }));
-      return r.ok ? okJson({ ok: true }, r.model !== before) : fail(r.reason);
-    }
-
+    case "update_issue_analysis":
+      return runUpdateIssueAnalysis(editor, issueId, input);
+    case "set_issue_targets":
+      return runSetIssueTargets(editor, issueId, input);
     default:
       return fail(`不明な道具です: ${name}`);
   }

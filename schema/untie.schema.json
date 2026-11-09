@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.5.2"
+      "const": "0.5.3"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -137,7 +137,8 @@
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "actor" },
         "name": { "$ref": "#/$defs/name" },
-        "description": { "$ref": "#/$defs/description" }
+        "description": { "$ref": "#/$defs/description" },
+        "persona": { "$ref": "#/$defs/persona" }
       }
     },
     "externalActor": {
@@ -149,7 +150,8 @@
         "id": { "$ref": "#/$defs/id" },
         "kind": { "const": "externalActor" },
         "name": { "$ref": "#/$defs/name" },
-        "description": { "$ref": "#/$defs/description" }
+        "description": { "$ref": "#/$defs/description" },
+        "persona": { "$ref": "#/$defs/persona" }
       }
     },
     "system": {
@@ -431,6 +433,19 @@
           "type": "string",
           "maxLength": 4000
         }
+      }
+    },
+    "persona": {
+      "description": "ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "handle": { "description": "呼び名。例: 田中さん (店長・45歳)。", "type": "string", "maxLength": 200 },
+        "attributes": { "description": "属性。年代・経験年数・勤務形態などを 1 行で。", "type": "string", "maxLength": 200 },
+        "background": { "description": "背景と役割。何を任され、何を気にしているか。", "type": "string", "maxLength": 4000 },
+        "goals": { "description": "目標。この人が達成したいこと。", "type": "string", "maxLength": 4000 },
+        "itSkill": { "description": "IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。", "enum": ["comfortable", "normal", "uncomfortable"] },
+        "notes": { "description": "備考。", "type": "string", "maxLength": 4000 }
       }
     },
     "issueAnalysis": {

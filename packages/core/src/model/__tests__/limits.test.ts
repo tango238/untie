@@ -19,6 +19,7 @@ import {
   VERIFICATION_MAX_LENGTH,
   TRIGGER_NOTE_MAX_LENGTH,
   DSL_MAX_LENGTH,
+  LIMITS,
 } from "../limits";
 import { repairModel } from "../repair";
 import { truncateElementStrings, truncateModelStrings } from "../truncate";
@@ -48,6 +49,11 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
     expect(VERIFICATION_MAX_LENGTH).toBe(def("nfr").properties!.verification.maxLength);
     expect(TRIGGER_NOTE_MAX_LENGTH).toBe(def("activity").properties!.triggerNote.maxLength);
     expect(DSL_MAX_LENGTH).toBe(def("database").properties!.dsl.maxLength);
+    expect(LIMITS.personaHandle.max).toBe(def("persona").properties!.handle.maxLength);
+    expect(LIMITS.personaAttributes.max).toBe(def("persona").properties!.attributes.maxLength);
+    expect(LIMITS.personaBackground.max).toBe(def("persona").properties!.background.maxLength);
+    expect(LIMITS.personaGoals.max).toBe(def("persona").properties!.goals.maxLength);
+    expect(LIMITS.personaNotes.max).toBe(def("persona").properties!.notes.maxLength);
   });
 
   it("スキーマに maxLength を足したら、ここも足すこと (文字列の上限を持つ項目はこれだけ。id は自動で振るので上限の検査は要らない)", () => {
@@ -75,6 +81,11 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "nfr.verification",
         "activity.triggerNote",
         "database.dsl",
+        "persona.handle",
+        "persona.attributes",
+        "persona.background",
+        "persona.goals",
+        "persona.notes",
       ].sort(),
     );
   });
@@ -252,5 +263,42 @@ describe("truncateElementStrings: 作業の起点 (その他)", () => {
     expect(empty.fields).toEqual(["起点 (その他)"]);
     const ok = { ...a, triggerNote: "電話" };
     expect(truncateElementStrings(ok).element).toBe(ok);
+  });
+});
+
+describe("ペルソナ (0.5.3) の切り詰めと修復", () => {
+  const withPersona = (persona: unknown): UntieModel => {
+    const m = okModel(addElement(emptyModel(), { kind: "actor", name: "A" }));
+    return { ...m, elements: m.elements.map((e) => ({ ...e, persona })) as UntieModel["elements"] };
+  };
+  const personaOf = (m: UntieModel) => (m.elements[0] as { persona?: Record<string, unknown> }).persona;
+
+  it("長すぎる項目は切り詰める。truncate は IT の習熟に触れず (誤った「長すぎた」の知らせを出さない)、repair が外して知らせる", () => {
+    const broken = withPersona({ handle: long(NAME_MAX_LENGTH + 1), attributes: long(NAME_MAX_LENGTH + 1), background: long(DESCRIPTION_MAX_LENGTH + 1), goals: "g", itSkill: "bogus", notes: long(DESCRIPTION_MAX_LENGTH + 1) });
+    const truncated = truncateModelStrings(broken);
+    expect(truncated.changes).toHaveLength(1);
+    expect(truncated.changes[0]).not.toContain("IT の習熟");
+    expect(personaOf(truncated.model)!.itSkill).toBe("bogus");
+    const { model: fixed, changes } = repairModel(broken);
+    expect(personaOf(fixed)).toEqual({ handle: long(NAME_MAX_LENGTH), attributes: long(NAME_MAX_LENGTH), background: long(DESCRIPTION_MAX_LENGTH), goals: "g", notes: long(DESCRIPTION_MAX_LENGTH) });
+    expect(changes).toContain("アクター " + broken.elements[0].id + " のペルソナの IT の習熟を外した (値が正しくない)");
+    expect(validateModel(JSON.parse(JSON.stringify(fixed))).ok).toBe(true);
+  });
+
+  it("全項目が空のペルソナ ({} や、不正な習熟だけ) は repair が persona ごと消す。知らせは習熟の分だけ", () => {
+    const empty = repairModel(withPersona({}));
+    expect(empty.model.elements[0]).not.toHaveProperty("persona");
+    expect(empty.changes).toEqual([]);
+    const onlyBad = repairModel(withPersona({ itSkill: "bogus" }));
+    expect(onlyBad.model.elements[0]).not.toHaveProperty("persona");
+    expect(onlyBad.changes).toHaveLength(1);
+    // 切り詰めたあとに空になる場合はないが、空文字だけの項目も消える
+    expect(repairModel(withPersona({ handle: "  " })).model.elements[0]).not.toHaveProperty("persona");
+  });
+
+  it("正しいペルソナは何も変えない", () => {
+    const ok = withPersona({ handle: "田中さん", itSkill: "normal" });
+    expect(truncateModelStrings(ok).model).toBe(ok);
+    expect(repairModel(ok).changes).toEqual([]);
   });
 });

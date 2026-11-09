@@ -72,6 +72,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.5.2",
     migrate: (json) => json,
   },
+  {
+    // 0.5.3: アクター・外部アクターに任意のペルソナ (persona) を足す。省略できる項目を足すだけなので変換は要らない
+    from: "0.5.2",
+    to: "0.5.3",
+    migrate: (json) => json,
+  },
 ];
 
 /**

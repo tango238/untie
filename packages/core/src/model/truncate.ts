@@ -2,7 +2,7 @@
 // スキーマに合わない「形の壊れた要素」として全員の画面から外され、関係もサーバーに消される。
 // そうならないよう、コマンドをすり抜けて Y.Doc に入った長い文字列 (古い版のクライアント・壊れた update など) は、外さずに切り詰める。
 import { ANALYSIS_MAX_LENGTH, DSL_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "./limits";
-import { ELEMENT_KIND_LABELS, ISSUE_ANALYSIS_KEYS, ISSUE_ANALYSIS_LABELS } from "./types";
+import { ELEMENT_KIND_LABELS, ISSUE_ANALYSIS_KEYS, ISSUE_ANALYSIS_LABELS, PERSONA_FIELD_LABELS } from "./types";
 import type { Database, DesignScreen, Layout, Transition, UntieModel } from "./types";
 import type { Element } from "./types";
 
@@ -52,6 +52,12 @@ export function truncateElementStrings<T extends object>(element: T): TruncatedE
     const analysis: Record<string, unknown> = { ...(src.analysis as Record<string, unknown>) };
     for (const key of ISSUE_ANALYSIS_KEYS) if (key in analysis) analysis[key] = cut(analysis[key], ANALYSIS_MAX_LENGTH, `分析の${ISSUE_ANALYSIS_LABELS[key]}`, fields);
     out.analysis = analysis;
+  }
+  if (typeof src.persona === "object" && src.persona !== null && !Array.isArray(src.persona)) {
+    const persona: Record<string, unknown> = { ...(src.persona as Record<string, unknown>) };
+    const personaMax = { handle: NAME_MAX_LENGTH, attributes: NAME_MAX_LENGTH, background: DESCRIPTION_MAX_LENGTH, goals: DESCRIPTION_MAX_LENGTH, notes: DESCRIPTION_MAX_LENGTH } as const;
+    for (const [key, max] of Object.entries(personaMax)) if (key in persona) persona[key] = cut(persona[key], max, `ペルソナの${PERSONA_FIELD_LABELS[key as keyof typeof personaMax]}`, fields);
+    out.persona = persona;
   }
   if (fields.length === 0) return { element, fields };
   // 元に無かった項目 (undefined) は足さない

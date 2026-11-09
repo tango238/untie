@@ -1,10 +1,11 @@
 // AI エージェントの会話の状態。モデルの編集はアプリのストアを通し、1 回の応答の編集を 1 件の履歴にまとめる。
 import { create } from "zustand";
-import { ELEMENT_KIND_LABELS } from "@untie/core/model/types";
+import { ELEMENT_KIND_LABELS, isPersonaOwnerKind } from "@untie/core/model/types";
 import { FIXED_LAYER_LABELS, parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { selectReadOnly, useUntieStore } from "../store";
 import { createChatSession, describeChatError, type ChatSession, type SeedTurn } from "./chat";
 import { executeGrillTool, GRILL_TOOLS, grillOpening, grillSystemPrompt } from "./grill";
+import { executeHearingTool, HEARING_TOOLS, hearingOpening, hearingSystemPrompt, type HearingAnswerer } from "./hearing";
 import { getApiKey } from "./keys";
 import { agentSystemPrompt } from "./prompts";
 import { loadAiSettings, PROVIDERS, saveAiSettings, type AiSettings } from "./providers";
@@ -24,8 +25,10 @@ export interface ChatItem {
  * 会話のモード。
  * - edit: 編集中のモデルを会話で直す (通常)
  * - grill: 1 つの課題を深掘りする。AI はその課題の分析・重要度・対象だけを変えられる
+ * - hearing: 1 人のアクター・外部アクターに困りごとをヒアリングする。AI はそのペルソナと、課題の登録・追記だけを変えられる。
+ *   answerer が persona なら AI がペルソナになりきって答え、self なら AI が本人に聞く
  */
-export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string };
+export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string } | { kind: "hearing"; actorId: string; answerer: HearingAnswerer };
 
 interface AgentState {
   /** 下のペインを開いているか */
@@ -49,6 +52,10 @@ interface AgentState {
   startGrill: (issueId: string) => Promise<void>;
   /** 深掘りを終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
   endGrill: () => void;
+  /** 困りごとのヒアリングを始める。新しい会話にし、アクターのまわりを渡して最初の発話をもらう */
+  startHearing: (actorId: string, answerer: HearingAnswerer) => Promise<void>;
+  /** ヒアリングを終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
+  endHearing: () => void;
 }
 
 let seq = 0;
@@ -57,6 +64,8 @@ let session: ChatSession | null = null;
 let sessionKey = "";
 let pendingSeed: SeedTurn[] = [];
 let controller: AbortController | null = null;
+/** いまのヒアリングで add_issue が作った課題の id (追記できる課題の範囲。会話を捨てると空になる) */
+const hearingCreated = new Set<string>();
 
 const TOOL_LABELS: Record<string, string> = {
   get_model: "モデルを読む",
@@ -72,6 +81,8 @@ const TOOL_LABELS: Record<string, string> = {
   get_database_dsl: "DSL を読む",
   set_database_dsl: "DSL を変更",
   set_table_information: "テーブルの情報を変更",
+  set_persona: "ペルソナを変更",
+  add_issue: "課題を登録",
   update_issue_analysis: "課題の分析を更新",
   set_issue_targets: "課題の対象を変更",
 };
@@ -103,6 +114,14 @@ function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolD
       runTool: (name, input) => executeGrillTool(storeEditor, mode.issueId, name, input),
     };
   }
+  if (mode.kind === "hearing") {
+    return {
+      key: `hearing:${mode.actorId}:${mode.answerer}`,
+      system: hearingSystemPrompt(mode.answerer),
+      tools: HEARING_TOOLS,
+      runTool: (name, input) => executeHearingTool(storeEditor, mode.actorId, name, input, { created: hearingCreated, answerer: mode.answerer }),
+    };
+  }
   return { key: "edit", system: agentSystemPrompt(), tools: MODEL_TOOLS, runTool: (name, input) => executeToolAsync(storeEditor, name, input) };
 }
 
@@ -115,6 +134,7 @@ export const useAgentStore = create<AgentState>()((set, get) => {
     session = null;
     sessionKey = "";
     pendingSeed = [];
+    hearingCreated.clear();
   };
 
   return {
@@ -162,17 +182,47 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       set({ mode: { kind: "edit" } });
       push("info", "深掘りを終えました。ここからは通常の会話です。");
     },
+    startHearing: async (actorId, answerer) => {
+      if (get().running) return;
+      const st = useUntieStore.getState();
+      const actor = st.model.elements.find((e) => e.id === actorId);
+      if (!actor || !isPersonaOwnerKind(actor.kind)) return;
+      resetSession();
+      set({ open: true, mode: { kind: "hearing", actorId, answerer }, items: [] });
+      push(
+        "info",
+        answerer === "persona"
+          ? `「${actor.name}」のペルソナにヒアリングします。AI がこの人になりきって答えるので、気になるところを質問してください。答えはすべて仮説です。「まとめる」で困りごとを課題の案にします。`
+          : `「${actor.name}」の本人にヒアリングします。AI の質問に答えていくと、困りごとを見つけて課題にします。「まとめる」で困りごとを課題の案にします。`,
+      );
+      await run(hearingOpening(st.model, actor, answerer), false);
+      // 最初の発言が届かなかった (キーが無い・中断など) ら、通常に戻してやり直せるようにする
+      if (!session) set({ mode: { kind: "edit" } });
+    },
+    endHearing: () => {
+      if (get().mode.kind !== "hearing") return;
+      get().cancel();
+      resetSession();
+      set({ mode: { kind: "edit" } });
+      push("info", "ヒアリングを終えました。ここからは通常の会話です。");
+    },
     send: (text) => run(text, true),
   };
 
   /**
-   * 途中でエラーになった会話を作り直すときに引き継ぐ履歴。深掘りでは、表示していない最初の発言 (課題の JSON) を
+   * 途中でエラーになった会話を作り直すときに引き継ぐ履歴。深掘り・ヒアリングでは、表示していない最初の発言 (課題・アクターの JSON) を
    * いまの課題から作り直して先頭に置き、そのあとの利用者と AI のやり取りを続ける。まだやり取りが無ければ何も引き継がない
    */
   function recoverySeed(): SeedTurn[] {
     const mode = get().mode;
     const turns = get().items.flatMap((i): SeedTurn[] => (i.role === "user" || i.role === "assistant" ? [{ role: i.role, text: i.text }] : []));
-    if (mode.kind !== "grill" || turns.length === 0) return [];
+    if (turns.length === 0) return [];
+    if (mode.kind === "hearing") {
+      const actor = useUntieStore.getState().model.elements.find((e) => e.id === mode.actorId);
+      if (!actor) return [];
+      return [{ role: "user", text: hearingOpening(useUntieStore.getState().model, actor, mode.answerer) }, ...turns];
+    }
+    if (mode.kind !== "grill") return [];
     const st = useUntieStore.getState();
     const issue = st.model.elements.find((e) => e.id === mode.issueId);
     if (!issue || issue.kind !== "issue") return [];

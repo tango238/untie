@@ -56,6 +56,23 @@ describe("buildModelFromSpec", () => {
     expect(issue && issue.kind === "issue" && issue.targetIds).toHaveLength(1);
   });
 
+  it("アクター・外部アクターの persona を受け付けて反映する。長い文字列は切り詰め、不正な習熟は警告して置かない", () => {
+    const r = buildModelFromSpec({
+      ...spec,
+      actors: [{ name: "フロント係", persona: { handle: "田中さん", attributes: "あ".repeat(300), it_skill: "uncomfortable", goals: "待たせない" } }],
+      external_actors: [{ name: "宿泊客", persona: { it_skill: "bogus", handle: "出張客" } }, { name: "旅行会社", persona: { background: "団体が多い" } }, { name: "取引先", persona: {} }],
+    });
+    const find = (n: string) => r.model.elements.find((e) => e.name === n) as { persona?: Record<string, string> };
+    expect(find("フロント係").persona).toEqual({ handle: "田中さん", attributes: "あ".repeat(200), itSkill: "uncomfortable", goals: "待たせない" });
+    // 不正な習熟はその項目だけ外し、ほかの項目は残す。項目の無い persona は黙って飛ばす
+    expect(find("宿泊客").persona).toEqual({ handle: "出張客" });
+    expect(find("取引先").persona).toBeUndefined();
+    expect(r.warnings.filter((w) => w.includes("取引先"))).toEqual([]);
+    expect(find("旅行会社").persona).toEqual({ background: "団体が多い" });
+    expect(r.warnings.filter((w) => w.includes("宿泊客 のペルソナ"))).toHaveLength(1);
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
   it("見つからない名前は飛ばして warnings に残す", () => {
     const r = buildModelFromSpec({
       system_name: "x",
