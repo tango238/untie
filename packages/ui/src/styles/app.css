@@ -296,12 +296,11 @@ textarea { resize: vertical; width: 100%; }
 .dialog-actions button { white-space: nowrap; }
 /* 選択肢が 3 つあるときはボタンが並ぶ幅を取る */
 .dialog:has(.dialog-actions > :nth-child(3)) { width: 440px; }
-/* ショートカットの一覧 (Cmd/Ctrl+/ とコード Cmd/Ctrl+B) */
+/* ショートカットの一覧 (Cmd/Ctrl+B) */
 .shortcuts-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 110; padding: 12px; }
 .shortcuts-panel { background: rgba(20,20,20,0.9); color: #fff; border-radius: 12px; padding: 18px 22px; width: 720px; max-width: 100%; max-height: calc(100dvh - 24px); overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); outline: none; }
 .shortcuts-panel h2 { margin: 0 0 8px; font-size: 16px; }
 .shortcuts-panel h3 { margin: 0 0 4px; font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; }
-.shortcuts-waiting:empty { display: none; }
 .shortcuts-panel .dialog-actions button:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
 .shortcuts-waiting { margin: 0 0 12px; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.15); }
 .shortcuts-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 24px; margin-bottom: 14px; }

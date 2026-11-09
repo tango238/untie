@@ -19,66 +19,52 @@ import {
 import { SystemSelectDialog } from "./design/SystemSelectDialog";
 import { navigateTo, useShortcutsUi } from "../store/shortcutsUi";
 
-/** 3 秒たっても次のキーが押されなければ、キー待ちを解く */
-export const CHORD_TIMEOUT_MS = 3000;
-
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Meta", "Alt", "AltGraph", "CapsLock"]);
-const isSlashKey = (key: string) => key === "/" || key === "?";
 
 /**
- * ショートカットの一覧 (Cmd/Ctrl+/ または ?) と、ボードへ移るコード (Cmd/Ctrl+B のあとにキー)。
+ * ショートカットの一覧と、ボードへ移るコード (Cmd/Ctrl+B で一覧を開き、開いている間にキーを押す)。
  * document の keydown で拾う。文字を打つ入力欄 (select は含まない)・IME 変換中・ほかのモーダルなダイアログの上では何もしない
- * (ブラウザの既定の動作もそのまま)。キー待ちで処理したキーは preventDefault と stopPropagation をして、useKeyboard に渡さない
+ * (ブラウザの既定の動作もそのまま)。一覧が開いている間に処理したキーは preventDefault と stopPropagation をして、useKeyboard に渡さない
  */
 export function handleShortcutKeyDown(e: KeyboardEvent): void {
   if (e.isComposing || e.keyCode === 229) return;
   const ui = useShortcutsUi.getState();
   if (ui.open) {
-    if (ui.waiting) {
-      if (MODIFIER_KEYS.has(e.key)) return;
-      // Tab・Enter・Space はキー待ちを解いて一覧として使う (キーの本来の動作はそのまま)
-      if (e.key === "Tab" || e.key === "Enter" || e.key === " ") {
-        ui.setWaiting(false);
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      // 続けて Cmd+B を押したら待ち直す (3 秒を数え直す)
-      if (hasModKey(e) && !e.altKey && e.key.toLowerCase() === "b") {
-        ui.setWaiting(true);
-        return;
-      }
-      // 修飾キー付きのキー (Cmd+S など) と Esc、表に無いキーは取り消して閉じる。修飾キー付きでは移らない
-      const target = e.metaKey || e.ctrlKey || e.altKey || e.key === "Escape" ? null : resolveChordKey(e.key);
-      if (target) navigateTo(target);
-      else ui.close();
-      return;
-    }
+    if (MODIFIER_KEYS.has(e.key)) return;
+    // Tab・Enter・Space は行のボタンを操作するためにそのまま通す
+    if (e.key === "Tab" || e.key === "Enter" || e.key === " ") return;
     if (e.key === "Escape") {
       e.preventDefault();
       ui.close();
       return;
     }
-    if (hasModKey(e) && !e.altKey) {
-      if (isSlashKey(e.key)) {
-        e.preventDefault();
-        ui.close();
-      } else if (e.key.toLowerCase() === "b" && !e.shiftKey) {
-        e.preventDefault();
-        ui.setWaiting(true);
-      }
+    // 開いている間に Cmd+B を押しても何も変わらない (ブラウザの既定の動作だけ止める)
+    if (hasModKey(e) && !e.altKey && e.key.toLowerCase() === "b" && !e.shiftKey) {
+      e.preventDefault();
+      return;
+    }
+    // 修飾キー付きのキー (Cmd+S など) は、移動せず閉じるだけ
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      ui.close();
+      return;
+    }
+    // 表のキーならそのボードへ移る。表に無いキーは無視する
+    const target = resolveChordKey(e.key);
+    if (target) {
+      e.preventDefault();
+      e.stopPropagation();
+      navigateTo(target);
     }
     return;
   }
   if (!hasModKey(e) || e.altKey) return;
-  // Shift が要る配列のために、"/" は Shift 付きでも、"?" でも開く。B は Shift なしだけ
-  const isSlash = isSlashKey(e.key);
-  const isB = e.key.toLowerCase() === "b" && !e.shiftKey;
-  if (!isSlash && !isB) return;
+  if (e.key.toLowerCase() !== "b" || e.shiftKey) return;
   if (isTextEntry(e.target)) return;
   if (document.querySelector('[aria-modal="true"]')) return;
   e.preventDefault();
-  ui.show(isB);
+  ui.show();
 }
 
 function targetBoardId(t: ShortcutTarget): string | null {
@@ -133,8 +119,6 @@ function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
 }
 
 function ShortcutsPanel() {
-  const waiting = useShortcutsUi((s) => s.waiting);
-  const waitingSince = useShortcutsUi((s) => s.waitingSince);
   const cloud = useUntieStore((s) => s.cloud !== null);
   const close = useShortcutsUi((s) => s.close);
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
@@ -159,13 +143,6 @@ function ShortcutsPanel() {
       fileMenu?.focus();
     };
   }, []);
-  // キー待ちは 3 秒で解く (一覧は開いたまま)
-  useEffect(() => {
-    if (!waiting) return;
-    const t = setTimeout(() => useShortcutsUi.getState().setWaiting(false), CHORD_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [waiting, waitingSince]);
-
   const current = (t: ShortcutTarget) => (t.type === "mode" ? t.mode === mode : targetBoardId(t) === currentBoardId);
   const freeEntries: ShortcutEntry[] = boards.map((b) => ({ key: "", label: b.name, target: { type: "free", boardId: b.id } }));
 
@@ -173,7 +150,7 @@ function ShortcutsPanel() {
     <div className="shortcuts-backdrop" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="shortcuts-panel" role="dialog" aria-modal="true" aria-label="ショートカット" tabIndex={-1} ref={panelRef} onKeyDown={trapTab}>
         <h2>ショートカット</h2>
-        <p className="shortcuts-waiting" role="status">{waiting ? "移りたいボードのキーを押してください" : ""}</p>
+        <p className="shortcuts-waiting" role="status">キーを押すとそのボードへ移ります (Esc で閉じる)</p>
         <div className="shortcuts-groups">
           <Group title="モード" entries={MODE_ENTRIES} current={current} chord={chord} />
           <Group title="固定ボード (分析)" entries={FIXED_ENTRIES} current={current} chord={chord} />
@@ -205,14 +182,8 @@ function ShortcutsPanel() {
                 </li>
               ))}
               <li className="shortcuts-static">
-                <span className="shortcuts-keys"><Kbd>{`${mod}/`}</Kbd></span>
-                <span>この一覧</span>
-              </li>
-              <li>
-                <button type="button" onClick={() => useShortcutsUi.getState().setWaiting(true)}>
-                  <span className="shortcuts-keys"><Kbd>{chord}</Kbd></span>
-                  <span>ボードへ移る (次のキーを押す)</span>
-                </button>
+                <span className="shortcuts-keys"><Kbd>{chord}</Kbd></span>
+                <span>この一覧を開く (開いている間にキーを押すとボードへ移る)</span>
               </li>
               <li className="shortcuts-static">
                 <span className="shortcuts-keys"><Kbd>Esc</Kbd></span>

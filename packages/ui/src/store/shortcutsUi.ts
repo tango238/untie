@@ -8,26 +8,18 @@ import type { ShortcutTarget } from "../shortcuts";
 interface ShortcutsUi {
   /** 一覧ダイアログを出しているか */
   open: boolean;
-  /** ボードのキー待ち (Cmd+B のあと) */
-  waiting: boolean;
-  /** キー待ちを (再) 開始した回数。3 秒を数え直すための印 */
-  waitingSince: number;
   /** 設計の対象システムを選ぶダイアログ。選んだあとに移るボードを持つ (設計モードのキーで未定のとき) */
   systemSelect: { boardId?: string } | null;
-  show: (waiting?: boolean) => void;
+  show: () => void;
   close: () => void;
-  setWaiting: (waiting: boolean) => void;
   closeSystemSelect: () => void;
 }
 
 export const useShortcutsUi = create<ShortcutsUi>((set) => ({
   open: false,
-  waiting: false,
-  waitingSince: 0,
   systemSelect: null,
-  show: (waiting = false) => set((s) => ({ open: true, waiting, waitingSince: s.waitingSince + 1 })),
-  close: () => set({ open: false, waiting: false }),
-  setWaiting: (waiting) => set((s) => ({ waiting, waitingSince: s.waitingSince + 1 })),
+  show: () => set({ open: true }),
+  close: () => set({ open: false }),
   closeSystemSelect: () => set({ systemSelect: null }),
 }));
 

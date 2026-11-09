@@ -608,7 +608,7 @@ function FileMenu({
           {item("JSON に書き出す…", comboLabel("S"), () => void exportModelToFile())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
           {modeMenu}
-          {item("ショートカット一覧", `${modLabel()}/`, () => useShortcutsUi.getState().show())}
+          {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {!readOnly && (
             <>
               <div className="menu-sep" role="separator" />
@@ -700,7 +700,7 @@ function FileMenu({
             )}
           </div>
           {modeMenu}
-          {item("ショートカット一覧", `${modLabel()}/`, () => useShortcutsUi.getState().show())}
+          {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {item("保存", comboLabel("S"), () => void saveDocument())}
           {item("別名で保存…", comboLabel("S", { shift: true }), () => void saveDocument(true))}
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}

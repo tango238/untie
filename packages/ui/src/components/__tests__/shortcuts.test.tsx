@@ -25,7 +25,7 @@ beforeEach(() => {
   // 設計ボード (React Flow) が使う
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   localStorage.clear();
-  useShortcutsUi.setState({ open: false, waiting: false, waitingSince: 0, systemSelect: null });
+  useShortcutsUi.setState({ open: false, systemSelect: null });
   resetStore();
   useUntieStore.setState({ cloud: null });
 });
@@ -45,28 +45,30 @@ describe("ショートカットの表", () => {
 });
 
 describe("ショートカットの一覧", () => {
-  it("Ctrl+/ で開閉し、開くとパネルに focus が移る", () => {
+  it("Ctrl+B で開き、開くとパネルに focus が移る。/ と ? では開かない", () => {
     render(<App />);
     expect(dialog()).toBeNull();
-    mod("/");
+    mod("b");
+    mod("/", { shiftKey: true });
+    expect(dialog()).toBeNull();
+    mod("b");
     const d = dialog()!;
     expect(d).not.toBeNull();
     expect(document.activeElement).toBe(d);
     expect(within(d).getByRole("heading", { name: "ショートカット" })).toBeTruthy();
-    expect(within(d).queryByText("移りたいボードのキーを押してください")).toBeNull();
-    mod("/");
-    expect(dialog()).toBeNull();
+    expect(within(d).getByRole("status").textContent).toBe("キーを押すとそのボードへ移ります (Esc で閉じる)");
+    expect(d.textContent).toContain("この一覧を開く");
   });
 
   it("Esc・幕のクリック・閉じるボタンで閉じる", () => {
     render(<App />);
-    mod("/");
+    mod("b");
     press("Escape");
     expect(dialog()).toBeNull();
-    mod("/");
+    mod("b");
     fireEvent.click(dialog()!.parentElement!);
     expect(dialog()).toBeNull();
-    mod("/");
+    mod("b");
     fireEvent.click(within(dialog()!).getByRole("button", { name: "閉じる" }));
     expect(dialog()).toBeNull();
   });
@@ -74,6 +76,7 @@ describe("ショートカットの一覧", () => {
   it("ファイルメニューの「ショートカット一覧」から開く", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    expect(screen.getByRole("menuitem", { name: /ショートカット一覧/ }).textContent).toContain("Ctrl+B");
     fireEvent.click(screen.getByRole("menuitem", { name: /ショートカット一覧/ }));
     expect(dialog()).not.toBeNull();
   });
@@ -83,7 +86,6 @@ describe("ショートカットの一覧", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
-    mod("/", {}, input);
     mod("b", {}, input);
     expect(dialog()).toBeNull();
     input.remove();
@@ -91,13 +93,13 @@ describe("ショートカットの一覧", () => {
 
   it("IME の変換中は拾わない", () => {
     render(<App />);
-    mod("/", { isComposing: true });
+    mod("b", { isComposing: true });
     expect(dialog()).toBeNull();
   });
 
   it("行を押すとそのボードへ移って閉じる。いまのボードの行は強調する", () => {
     render(<App />);
-    mod("/");
+    mod("b");
     const current = within(dialog()!).getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "true");
     expect(current.map((b) => b.textContent)).toEqual([expect.stringContaining("分析"), expect.stringContaining("全体")]);
     fireEvent.click(within(dialog()!).getByRole("button", { name: /操作/ }));
@@ -107,17 +109,16 @@ describe("ショートカットの一覧", () => {
 
   it("自由ボードを名前で並べ、押すと移る", () => {
     render(<App />);
-    mod("/");
+    mod("b");
     fireEvent.click(within(dialog()!).getByRole("button", { name: "全体" }));
     expect(st().ui.currentBoardId).toBe("board_overview");
   });
 });
 
 describe("コード (Ctrl+B)", () => {
-  it("Ctrl+B でキー待ちの一覧が開き、5 で操作ボードへ移って閉じる", () => {
+  it("Ctrl+B で一覧が開き、開いている間に 5 を押すと操作ボードへ移って閉じる", () => {
     render(<App />);
     mod("b");
-    expect(within(dialog()!).getByText("移りたいボードのキーを押してください")).toBeTruthy();
     press("5");
     expect(dialog()).toBeNull();
     expect(st().ui.mode).toBe("analysis");
@@ -166,28 +167,40 @@ describe("コード (Ctrl+B)", () => {
     expect(st().ui.currentBoardId).toBe("design:relation");
   });
 
-  it("表に無いキーと Esc は取り消して閉じる", () => {
+  it("表に無い文字キーは無視して閉じない。Esc で閉じる", () => {
     render(<App />);
     mod("b");
     press("z");
-    expect(dialog()).toBeNull();
+    press("/");
+    press("?");
+    expect(dialog()).not.toBeNull();
     expect(st().ui.currentBoardId).toBe("board_overview");
-    mod("b");
     press("Escape");
     expect(dialog()).toBeNull();
   });
 
-  it("3 秒たってもキーが押されなければキー待ちを解く (一覧は開いたまま)", () => {
-    vi.useFakeTimers();
+  it("メニューから開いても、開いている間に 1 を押すと移る", () => {
     render(<App />);
-    mod("b");
-    expect(screen.queryByText("移りたいボードのキーを押してください")).not.toBeNull();
-    act(() => void vi.advanceTimersByTime(3100));
-    expect(screen.queryByText("移りたいボードのキーを押してください")).toBeNull();
-    expect(dialog()).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /ショートカット一覧/ }));
+    press("1");
+    expect(dialog()).toBeNull();
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
   });
 
-  it("修飾キーだけの押下ではキー待ちを取り消さない", () => {
+  it("メニューから開いて S を押すと設計へ (システム選択)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /ショートカット一覧/ }));
+    press("s");
+    const sel = screen.getByRole("dialog", { name: "システムの選択" });
+    fireEvent.click(within(sel).getByRole("radio", { name: /宿泊管理システム/ }));
+    fireEvent.click(within(sel).getByRole("button", { name: "設計する" }));
+    expect(st().ui.mode).toBe("design");
+    expect(st().ui.currentBoardId).toBe("design:sitemap");
+  });
+
+  it("修飾キーだけの押下では閉じない", () => {
     render(<App />);
     mod("b");
     press("Control", { ctrlKey: true });
@@ -212,7 +225,7 @@ describe("コード (Ctrl+B)", () => {
   });
 });
 
-describe("キー待ちと既存のキー処理", () => {
+describe("一覧が開いている間のキーと既存のキー処理", () => {
   it("Ctrl+B → Ctrl+S: 保存も移動も起きず、閉じるだけ", () => {
     const save = vi.fn().mockResolvedValue(null);
     getPlatform().saveTextFile = save;
@@ -235,24 +248,22 @@ describe("キー待ちと既存のキー処理", () => {
     expect(st().history.past.length).toBe(past);
   });
 
-  it("Ctrl+B を続けて押すと待ち直し、3 秒を数え直す", () => {
-    vi.useFakeTimers();
+  it("開いている間の Ctrl+B は何も変えない", () => {
     render(<App />);
     mod("b");
-    act(() => void vi.advanceTimersByTime(2000));
     mod("b");
-    act(() => void vi.advanceTimersByTime(2000));
-    expect(screen.queryByText("移りたいボードのキーを押してください")).not.toBeNull();
-    act(() => void vi.advanceTimersByTime(1200));
-    expect(screen.queryByText("移りたいボードのキーを押してください")).toBeNull();
+    expect(dialog()).not.toBeNull();
   });
 
-  it("キー待ち中の Tab はキー待ちを解くだけで、一覧は開いたまま", () => {
+  it("開いている間の Tab・Enter・Space は横取りしない", () => {
     render(<App />);
     mod("b");
-    press("Tab");
+    for (const k of ["Tab", "Enter", " "]) {
+      const ev = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+      document.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
     expect(dialog()).not.toBeNull();
-    expect(screen.queryByText("移りたいボードのキーを押してください")).toBeNull();
   });
 });
 
@@ -262,7 +273,6 @@ describe("拾う・拾わない", () => {
     const modal = document.createElement("div");
     modal.setAttribute("aria-modal", "true");
     document.body.appendChild(modal);
-    mod("/");
     mod("b");
     expect(dialog()).toBeNull();
     modal.remove();
@@ -270,18 +280,8 @@ describe("拾う・拾わない", () => {
 
   it("Alt 付きは拾わない", () => {
     render(<App />);
-    mod("/", { altKey: true });
+    mod("b", { altKey: true });
     expect(dialog()).toBeNull();
-  });
-
-  it("Shift 付きの / と ? でも開く", () => {
-    render(<App />);
-    mod("/", { shiftKey: true });
-    expect(dialog()).not.toBeNull();
-    mod("?");
-    expect(dialog()).toBeNull();
-    mod("?", { shiftKey: true });
-    expect(dialog()).not.toBeNull();
   });
 
   it("contenteditable は拾わず、select は拾う", () => {
@@ -303,9 +303,9 @@ describe("拾う・拾わない", () => {
   it("macOS では Cmd を拾い、Ctrl は拾わない", () => {
     vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
     render(<App />);
-    press("/", { ctrlKey: true });
+    press("b", { ctrlKey: true });
     expect(dialog()).toBeNull();
-    press("/", { metaKey: true });
+    press("b", { metaKey: true });
     expect(dialog()).not.toBeNull();
     vi.restoreAllMocks();
   });
@@ -316,7 +316,7 @@ describe("一覧の表示と移動", () => {
     render(<App />);
     const btn = screen.getByRole("button", { name: "ホーム" });
     btn.focus();
-    mod("/");
+    mod("b");
     expect(document.activeElement).toBe(dialog());
     press("Escape");
     expect(document.activeElement).toBe(btn);
@@ -333,7 +333,7 @@ describe("一覧の表示と移動", () => {
   it("自由ボードの行を押しても、設計モードのままモードは変わらない", () => {
     render(<App />);
     act(() => st().enterDesign("sys_pms"));
-    mod("/");
+    mod("b");
     fireEvent.click(within(dialog()!).getByRole("button", { name: "全体" }));
     expect(st().ui.mode).toBe("design");
     expect(st().ui.currentBoardId).toBe("board_overview");
@@ -342,10 +342,11 @@ describe("一覧の表示と移動", () => {
   it("クラウドファイルでは、開く・元に戻すを出さず、保存は JSON の書き出しにする", () => {
     useUntieStore.setState({ cloud: { role: "editor" } as never });
     render(<App />);
-    mod("/");
+    mod("b");
     const text = dialog()!.textContent!;
     expect(text).toContain("JSON に書き出す");
     expect(text).not.toContain("元に戻す");
-    expect(text).not.toContain("開く");
+    expect(text).not.toContain("開く…");
+    expect(text).not.toContain("Ctrl+O");
   });
 });
