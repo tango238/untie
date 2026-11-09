@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addElement, addRelation, emptyModel, removeElement, setPersona, updateElement, validateModel } from "@untie/core";
+import { addElement, addRelation, emptyModel, removeElement, setEventTiming, setPersona, updateElement, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { createHotelSample } from "@untie/core/sample";
 import { applyModelDiff, getRoots, loadModel, rebuildModel } from "..";
@@ -153,6 +153,27 @@ describe("applyModelDiff", () => {
     expect(rebuildModel(doc)).toStrictEqual(cleared.model);
     // 読み込み (loadModel) でも往復する
     expect(rebuildModel(fresh(changed.model))).toStrictEqual(changed.model);
+  });
+
+  it("イベントの発生タイミングは Y.Doc を往復し、更新・削除も反映される", () => {
+    const m = createHotelSample();
+    const ev = m.elements.find((e) => e.kind === "event")!;
+    const doc = fresh(m);
+    const a = setEventTiming(m, { id: ev.id, timing: { type: "scheduled", every: "month", day: 25, hour: 9, minute: 0, note: "営業日だけ" } });
+    if (!a.ok) throw new Error(a.reason);
+    applyModelDiff(doc, m, a.model, "local");
+    expect(rebuildModel(doc)).toStrictEqual(a.model);
+    expectValid(rebuildModel(doc));
+    const b = setEventTiming(a.model, { id: ev.id, timing: { type: "adhoc", note: "Webhook を受けたとき" } });
+    if (!b.ok) throw new Error(b.reason);
+    applyModelDiff(doc, a.model, b.model, "local");
+    expect(rebuildModel(doc)).toStrictEqual(b.model);
+    const c = setEventTiming(b.model, { id: ev.id, timing: null });
+    if (!c.ok) throw new Error(c.reason);
+    applyModelDiff(doc, b.model, c.model, "local");
+    expect(getRoots(doc).elements.get(ev.id)!.has("timing")).toBe(false);
+    expect(rebuildModel(doc)).toStrictEqual(c.model);
+    expect(rebuildModel(fresh(b.model))).toStrictEqual(b.model);
   });
 
   it("分析は項目ごとの Y.Map で、別の項目は別々に書ける", () => {

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidDesignShape, isPersonaItSkill, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
+import { EDGE_SIDES, isValidDesignShape, isPersonaItSkill, normalizeEventTiming, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
 import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
@@ -40,7 +40,7 @@ function readElements(map: Y.Map<Y.Map<unknown>>): Element[] {
     // 形の検査は、長すぎる文字列を切り詰めた写しで行う。上限を超えただけの要素を外すと、その要素と関係が全員の画面から消える。
     // 値は切り詰めずに返す (readRawModel。サーバーの repairDoc が Y.Doc に切り詰めを書けるよう、「直す前」はそのまま)
     // 種類が分からない要素や、形の壊れた要素 (項目が欠けた課題など。壊れた update) は組み立てない。1 つで全員が落ちるのを防ぐ
-    if (!isValidElementShape(dropBadPersonaSkill(truncateElementStrings(element).element))) return;
+    if (!isValidElementShape(fixEventTiming(dropBadPersonaSkill(truncateElementStrings(element).element)))) return;
     items.push({ order, id, value: element as Element });
   });
   return sortedValues(items);
@@ -159,9 +159,22 @@ function dropBadShell<T extends object>(screen: T): T {
   return rest as T;
 }
 
-/** 表示用に、不正な IT の習熟をペルソナから落とす (同じ参照を保てるところは保つ) */
+/**
+ * イベントの発生タイミングを正規化する (種類が分からなければ項目を落とす。要素は残す)。問題が無ければ同じ参照を返す。
+ * 形の壊れたタイミングのせいで、イベントが全員の画面から消えないようにする
+ */
+export function fixEventTiming<T extends object>(element: T): T {
+  if ((element as { kind?: unknown }).kind !== "event" || !("timing" in element)) return element;
+  const timing = (element as { timing?: unknown }).timing;
+  const normalized = normalizeEventTiming(timing);
+  if (normalized !== null && JSON.stringify(normalized) === JSON.stringify(timing)) return element;
+  const { timing: _drop, ...rest } = element as Record<string, unknown>;
+  return (normalized === null ? rest : { ...rest, timing: normalized }) as T;
+}
+
+/** 表示用に、不正な IT の習熟をペルソナから落とし、イベントの発生タイミングを正規化する (同じ参照を保てるところは保つ) */
 function dropBadPersonaSkills(model: UntieModel): UntieModel {
-  const elements = model.elements.map(dropBadPersonaSkill);
+  const elements = model.elements.map((e) => fixEventTiming(dropBadPersonaSkill(e)));
   return elements.every((e, i) => e === model.elements[i]) ? model : { ...model, elements };
 }
 

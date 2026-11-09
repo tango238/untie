@@ -191,7 +191,7 @@ const events: Element[] = [
   { id: "ev_order_confirmed", kind: "event", name: "注文が確定した", contextId: "ctx_order" },
   { id: "ev_order_cancelled", kind: "event", name: "注文が取り消された", contextId: "ctx_order" },
   { id: "ev_stock_allocated", kind: "event", name: "在庫が引き当てられた", contextId: "ctx_item" },
-  { id: "ev_payment_confirmed", kind: "event", name: "入金が確認された", contextId: "ctx_order" },
+  { id: "ev_payment_confirmed", kind: "event", name: "入金が確認された", contextId: "ctx_order", timing: { type: "adhoc", note: "決済サービスから入金の通知 (Webhook) を受けたとき" } },
   { id: "ev_pick_listed", kind: "event", name: "ピッキングの指示が出た", contextId: "ctx_order" },
   { id: "ev_label_issued", kind: "event", name: "送り状が発行された", contextId: "ctx_shipping" },
   { id: "ev_shipped", kind: "event", name: "出荷が記録された", contextId: "ctx_shipping" },

@@ -182,7 +182,7 @@ const conditions: Element[] = [
 
 /** イベント (操作やシステムが発生させる出来事) */
 const events: Element[] = [
-  { id: "ev_card_paid", kind: "event", name: "カード・電子マネーで支払われた", contextId: "ctx_accounting" },
+  { id: "ev_card_paid", kind: "event", name: "カード・電子マネーで支払われた", contextId: "ctx_accounting", timing: { type: "adhoc", note: "決済端末から決済の結果が届いたとき" } },
 ];
 
 /** POSレジの画面 (設計モードのサイトマップの材料。ほかのシステムの画面は置かない) */

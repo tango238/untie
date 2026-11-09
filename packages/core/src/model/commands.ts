@@ -17,6 +17,10 @@ import {
   isPersonaItSkill,
   isPersonaOwnerKind,
   normalizePersona,
+  normalizeEventTiming,
+  isEventTimingType,
+  isEventTimingEvery,
+  type EventTiming,
   type Persona,
   isSystemMemberKind,
   NFR_CATEGORIES,
@@ -1689,6 +1693,46 @@ export function setPersona(model: UntieModel, payload: SetPersonaPayload): Comma
     if (!el || !isPersonaOwnerKind(el.kind)) return;
     if (persona) (el as { persona?: Persona }).persona = persona;
     else delete (el as { persona?: Persona }).persona;
+  });
+  return { ok: true, model: next };
+}
+
+export interface SetEventTimingPayload {
+  /** イベントの id */
+  id: string;
+  /** 新しい発生タイミング。null で消す */
+  timing: EventTiming | null;
+}
+
+/**
+ * イベントの発生タイミングを置き換える (normalizeEventTiming で正規化する: 定期は周期に合う項目だけ、不定期は時刻を持たない)。
+ * 種類・周期が列挙の外、日・時・分が範囲外の整数でないときは失敗。同じなら model をそのまま返す
+ */
+export function setEventTiming(model: UntieModel, payload: SetEventTimingPayload): CommandResult {
+  const target = findElement(model, payload.id);
+  if (!target) return fail(`要素が存在しません: ${payload.id}`);
+  if (target.kind !== "event") return fail("発生タイミングを持てるのはイベントだけです");
+  const input = payload.timing;
+  if (input !== null) {
+    if (typeof input !== "object" || Array.isArray(input)) return fail("発生タイミングの形が不正です");
+    if (!isEventTimingType(input.type)) return fail(`発生タイミングの種類が不正です: ${String(input.type)} (scheduled か adhoc)`);
+    if (input.every !== undefined && !isEventTimingEvery(input.every)) return fail(`定期の周期が不正です: ${String(input.every)} (month / day / hour)`);
+    const range = (v: unknown, min: number, max: number, label: string) =>
+      v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max) ? null : `${label}は ${min}〜${max} の整数です: ${String(v)}`;
+    const bad = range(input.day, 1, 31, "日") ?? range(input.hour, 0, 23, "時") ?? range(input.minute, 0, 59, "分");
+    if (bad) return fail(bad);
+  }
+  const timing = normalizeEventTiming(input);
+  if (timing?.note !== undefined) {
+    const reason = checkLength("eventTimingNote", timing.note);
+    if (reason) return fail(reason);
+  }
+  if (JSON.stringify(timing) === JSON.stringify(target.timing === undefined ? null : normalizeEventTiming(target.timing))) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const el = draft.elements.find((e) => e.id === payload.id);
+    if (!el || el.kind !== "event") return;
+    if (timing) el.timing = timing;
+    else delete el.timing;
   });
   return { ok: true, model: next };
 }

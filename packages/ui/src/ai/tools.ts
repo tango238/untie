@@ -13,6 +13,7 @@ import {
   setDesignScreenView,
   setIssueTargets,
   setPersona,
+  setEventTiming,
   setRelationAccess,
   setScreenUsecase,
   setTableInformation,
@@ -26,7 +27,7 @@ import { viewBindingSlots, viewShapeProblem } from "@untie/core/model/designView
 import { designScreenName } from "@untie/core/model/sitemap";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
-import { ELEMENT_KINDS, isPersonaItSkill, isPersonaOwnerKind, PERSONA_IT_SKILLS, PERSONA_FIELD_LABELS, PERSONA_IT_SKILL_LABELS, type ElementKind, type Persona, type UntieModel } from "@untie/core/model/types";
+import { ELEMENT_KINDS, isPersonaItSkill, isPersonaOwnerKind, PERSONA_IT_SKILLS, PERSONA_FIELD_LABELS, PERSONA_IT_SKILL_LABELS, type ElementKind, type EventTiming, type Persona, type UntieModel } from "@untie/core/model/types";
 
 /** プロバイダーに渡す道具の定義 (JSON Schema) */
 export interface ToolDef {
@@ -157,6 +158,25 @@ export const MODEL_TOOLS: ToolDef[] = [
       type: "object",
       properties: { id: str("アクターまたは外部アクターの id"), ...PERSONA_TOOL_PROPERTIES },
       required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_event_timing",
+    description:
+      "イベントの発生タイミングを置き換える。type が scheduled (定期) なら every の周期 (month 毎月 / day 毎日 / hour 毎時) で繰り返すバッチ処理で、day (毎月の何日。month のとき)・hour (何時。month・day のとき)・minute (何分) で時刻を決める。adhoc (不定期・随時) は Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかを note に書く。type を空文字にすると発生タイミングを消す。指定しない項目は持たない (置き換え)。",
+    parameters: {
+      type: "object",
+      properties: {
+        id: str("イベントの id"),
+        type: { type: "string", enum: ["scheduled", "adhoc", ""], description: "scheduled (定期) / adhoc (不定期・随時)。空文字で消す" },
+        every: { type: "string", enum: ["month", "day", "hour"], description: "定期の周期: month (毎月) / day (毎日。既定) / hour (毎時)" },
+        day: { type: "integer", minimum: 1, maximum: 31, description: "毎月の何日 (every が month のとき)" },
+        hour: { type: "integer", minimum: 0, maximum: 23, description: "何時 (every が month か day のとき)" },
+        minute: { type: "integer", minimum: 0, maximum: 59, description: "何分 (定期のとき)" },
+        note: str("補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。4000 文字まで"),
+      },
+      required: ["id", "type"],
       additionalProperties: false,
     },
   },
@@ -438,6 +458,15 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const id = s(input.id);
       if (!id) return fail("id が必要です");
       return setPersonaFromInput(editor, id, input);
+    }
+
+    case "set_event_timing": {
+      const id = s(input.id);
+      if (!id) return fail("id が必要です");
+      if (input.type === "") return run(editor, (m) => setEventTiming(m, { id, timing: null }));
+      const timing: Record<string, unknown> = { type: input.type };
+      for (const key of ["every", "day", "hour", "minute", "note"] as const) if (input[key] !== undefined) timing[key] = input[key];
+      return run(editor, (m) => setEventTiming(m, { id, timing: timing as unknown as EventTiming }));
     }
 
     case "remove_element": {

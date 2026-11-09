@@ -5,7 +5,7 @@ const func1 = func1Module.default ?? func1Module;
 import func0Module from "ajv/dist/runtime/equal.js";
 const func0 = func0Module.default ?? func0Module;
 export const validateModelSchema = validate20;
-const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.5.3"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
+const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.5.4"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}},"eventTiming":{"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
 const schema32 = {"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}};
 const schema33 = {"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200};
 const schema34 = {"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000};
@@ -4242,7 +4242,8 @@ return errors === 0;
 }
 validate50.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema104 = {"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}};
+const schema104 = {"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}};
+const schema109 = {"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}};
 
 function validate52(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -4296,7 +4297,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!(((((key0 === "id") || (key0 === "kind")) || (key0 === "name")) || (key0 === "description")) || (key0 === "contextId"))){
+if(!((((((key0 === "id") || (key0 === "kind")) || (key0 === "name")) || (key0 === "description")) || (key0 === "contextId")) || (key0 === "timing"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -4511,9 +4512,11 @@ vErrors = null;
 }
 }
 }
-}
-else {
-const err20 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.timing !== undefined){
+let data5 = data.timing;
+if(data5 && typeof data5 == "object" && !Array.isArray(data5)){
+if(data5.type === undefined){
+const err20 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/required",keyword:"required",params:{missingProperty: "type"},message:"must have required property '"+"type"+"'"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -4522,12 +4525,203 @@ vErrors.push(err20);
 }
 errors++;
 }
+for(const key1 in data5){
+if(!((((((key1 === "type") || (key1 === "every")) || (key1 === "day")) || (key1 === "hour")) || (key1 === "minute")) || (key1 === "note"))){
+const err21 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data5.type !== undefined){
+let data6 = data5.type;
+if(!((data6 === "scheduled") || (data6 === "adhoc"))){
+const err22 = {instancePath:instancePath+"/timing/type",schemaPath:"#/$defs/eventTiming/properties/type/enum",keyword:"enum",params:{allowedValues: schema109.properties.type.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+if(data5.every !== undefined){
+let data7 = data5.every;
+if(!(((data7 === "month") || (data7 === "day")) || (data7 === "hour"))){
+const err23 = {instancePath:instancePath+"/timing/every",schemaPath:"#/$defs/eventTiming/properties/every/enum",keyword:"enum",params:{allowedValues: schema109.properties.every.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+if(data5.day !== undefined){
+let data8 = data5.day;
+if(!((typeof data8 == "number") && (!(data8 % 1) && !isNaN(data8)))){
+const err24 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+if(typeof data8 == "number"){
+if(data8 > 31 || isNaN(data8)){
+const err25 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/maximum",keyword:"maximum",params:{comparison: "<=", limit: 31},message:"must be <= 31"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(data8 < 1 || isNaN(data8)){
+const err26 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+}
+}
+if(data5.hour !== undefined){
+let data9 = data5.hour;
+if(!((typeof data9 == "number") && (!(data9 % 1) && !isNaN(data9)))){
+const err27 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+if(typeof data9 == "number"){
+if(data9 > 23 || isNaN(data9)){
+const err28 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/maximum",keyword:"maximum",params:{comparison: "<=", limit: 23},message:"must be <= 23"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+if(data9 < 0 || isNaN(data9)){
+const err29 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+}
+if(data5.minute !== undefined){
+let data10 = data5.minute;
+if(!((typeof data10 == "number") && (!(data10 % 1) && !isNaN(data10)))){
+const err30 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(typeof data10 == "number"){
+if(data10 > 59 || isNaN(data10)){
+const err31 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/maximum",keyword:"maximum",params:{comparison: "<=", limit: 59},message:"must be <= 59"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(data10 < 0 || isNaN(data10)){
+const err32 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+}
+if(data5.note !== undefined){
+let data11 = data5.note;
+if(typeof data11 === "string"){
+if(func1(data11) > 4000){
+const err33 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+}
+else {
+const err36 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
 validate52.errors = vErrors;
 return errors === 0;
 }
 validate52.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema109 = {"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}};
+const schema110 = {"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}};
 
 function validate54(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -4760,7 +4954,7 @@ return errors === 0;
 }
 validate54.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema114 = {"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}};
+const schema115 = {"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}};
 
 function validate56(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -4990,7 +5184,7 @@ vErrors.push(err18);
 errors++;
 }
 if(!((((((data5 === "availability") || (data5 === "performance")) || (data5 === "operability")) || (data5 === "migration")) || (data5 === "security")) || (data5 === "environment"))){
-const err19 = {instancePath:instancePath+"/category",schemaPath:"#/properties/category/enum",keyword:"enum",params:{allowedValues: schema114.properties.category.enum},message:"must be equal to one of the allowed values"};
+const err19 = {instancePath:instancePath+"/category",schemaPath:"#/properties/category/enum",keyword:"enum",params:{allowedValues: schema115.properties.category.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -5397,8 +5591,8 @@ return errors === 0;
 }
 validate23.evaluated = {"dynamicProps":true,"dynamicItems":false};
 
-const schema119 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}};
-const schema121 = {"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]};
+const schema120 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}};
+const schema122 = {"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]};
 
 function validate59(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -5521,7 +5715,7 @@ vErrors.push(err9);
 errors++;
 }
 if(!((((((((((((((((((((data1 === "actorBusiness") || (data1 === "actorActivity")) || (data1 === "activityUsecase")) || (data1 === "usecaseInformation")) || (data1 === "usecaseCondition")) || (data1 === "informationRelated")) || (data1 === "informationVariation")) || (data1 === "conditionVariation")) || (data1 === "conditionState")) || (data1 === "stateUsecase")) || (data1 === "usecaseState")) || (data1 === "usecaseSystem")) || (data1 === "usecaseEvent")) || (data1 === "systemEvent")) || (data1 === "eventUsecase")) || (data1 === "usecaseNext")) || (data1 === "activityTrigger")) || (data1 === "eventActivity")) || (data1 === "usecaseScreen")) || (data1 === "actorNfr"))){
-const err10 = {instancePath:instancePath+"/kind",schemaPath:"#/$defs/relationKind/enum",keyword:"enum",params:{allowedValues: schema121.enum},message:"must be equal to one of the allowed values"};
+const err10 = {instancePath:instancePath+"/kind",schemaPath:"#/$defs/relationKind/enum",keyword:"enum",params:{allowedValues: schema122.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err10];
 }
@@ -5634,7 +5828,7 @@ vErrors.push(err19);
 errors++;
 }
 if(!((data4 === "read") || (data4 === "write"))){
-const err20 = {instancePath:instancePath+"/access",schemaPath:"#/properties/access/enum",keyword:"enum",params:{allowedValues: schema119.properties.access.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/access",schemaPath:"#/properties/access/enum",keyword:"enum",params:{allowedValues: schema120.properties.access.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -5660,8 +5854,8 @@ return errors === 0;
 }
 validate59.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema124 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
-const schema127 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
+const schema125 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
+const schema128 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
 
 function validate62(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -5851,8 +6045,8 @@ return errors === 0;
 }
 validate62.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema129 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
-const schema131 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
+const schema130 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
+const schema132 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
 
 function validate64(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -5945,7 +6139,7 @@ vErrors.push(err6);
 errors++;
 }
 if(!((((data1 === "left") || (data1 === "right")) || (data1 === "top")) || (data1 === "bottom"))){
-const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema131.enum},message:"must be equal to one of the allowed values"};
+const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema132.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -5968,7 +6162,7 @@ vErrors.push(err8);
 errors++;
 }
 if(!((((data2 === "left") || (data2 === "right")) || (data2 === "top")) || (data2 === "bottom"))){
-const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema131.enum},message:"must be equal to one of the allowed values"};
+const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema132.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -6178,8 +6372,8 @@ return errors === 0;
 }
 validate61.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema133 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
-const schema136 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
+const schema134 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
+const schema137 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
 
 function validate68(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6431,7 +6625,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema136.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema137.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -6491,7 +6685,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema136.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema137.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -6735,7 +6929,7 @@ return errors === 0;
 }
 validate68.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema143 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
+const schema144 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
 
 function validate70(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6928,7 +7122,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema143.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema144.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -6979,8 +7173,8 @@ return errors === 0;
 }
 validate70.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema148 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
-const schema152 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
+const schema149 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
+const schema153 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
 
 function validate73(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -7291,7 +7485,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema148.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema149.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -7687,7 +7881,7 @@ return errors === 0;
 }
 validate67.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema157 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
+const schema158 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
 
 function validate77(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -8131,8 +8325,8 @@ vErrors.push(err9);
 }
 errors++;
 }
-if("0.5.3" !== data1){
-const err10 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.5.3"},message:"must be equal to constant"};
+if("0.5.4" !== data1){
+const err10 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.5.4"},message:"must be equal to constant"};
 if(vErrors === null){
 vErrors = [err10];
 }
@@ -12462,7 +12656,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!(((((key0 === "id") || (key0 === "kind")) || (key0 === "name")) || (key0 === "description")) || (key0 === "contextId"))){
+if(!((((((key0 === "id") || (key0 === "kind")) || (key0 === "name")) || (key0 === "description")) || (key0 === "contextId")) || (key0 === "timing"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -12677,14 +12871,207 @@ vErrors = null;
 }
 }
 }
-}
-else {
-const err20 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.timing !== undefined){
+let data5 = data.timing;
+if(data5 && typeof data5 == "object" && !Array.isArray(data5)){
+if(data5.type === undefined){
+const err20 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/required",keyword:"required",params:{missingProperty: "type"},message:"must have required property '"+"type"+"'"};
 if(vErrors === null){
 vErrors = [err20];
 }
 else {
 vErrors.push(err20);
+}
+errors++;
+}
+for(const key1 in data5){
+if(!((((((key1 === "type") || (key1 === "every")) || (key1 === "day")) || (key1 === "hour")) || (key1 === "minute")) || (key1 === "note"))){
+const err21 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data5.type !== undefined){
+let data6 = data5.type;
+if(!((data6 === "scheduled") || (data6 === "adhoc"))){
+const err22 = {instancePath:instancePath+"/timing/type",schemaPath:"#/$defs/eventTiming/properties/type/enum",keyword:"enum",params:{allowedValues: schema109.properties.type.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+if(data5.every !== undefined){
+let data7 = data5.every;
+if(!(((data7 === "month") || (data7 === "day")) || (data7 === "hour"))){
+const err23 = {instancePath:instancePath+"/timing/every",schemaPath:"#/$defs/eventTiming/properties/every/enum",keyword:"enum",params:{allowedValues: schema109.properties.every.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+if(data5.day !== undefined){
+let data8 = data5.day;
+if(!((typeof data8 == "number") && (!(data8 % 1) && !isNaN(data8)))){
+const err24 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+if(typeof data8 == "number"){
+if(data8 > 31 || isNaN(data8)){
+const err25 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/maximum",keyword:"maximum",params:{comparison: "<=", limit: 31},message:"must be <= 31"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(data8 < 1 || isNaN(data8)){
+const err26 = {instancePath:instancePath+"/timing/day",schemaPath:"#/$defs/eventTiming/properties/day/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+}
+}
+if(data5.hour !== undefined){
+let data9 = data5.hour;
+if(!((typeof data9 == "number") && (!(data9 % 1) && !isNaN(data9)))){
+const err27 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+if(typeof data9 == "number"){
+if(data9 > 23 || isNaN(data9)){
+const err28 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/maximum",keyword:"maximum",params:{comparison: "<=", limit: 23},message:"must be <= 23"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+if(data9 < 0 || isNaN(data9)){
+const err29 = {instancePath:instancePath+"/timing/hour",schemaPath:"#/$defs/eventTiming/properties/hour/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+}
+if(data5.minute !== undefined){
+let data10 = data5.minute;
+if(!((typeof data10 == "number") && (!(data10 % 1) && !isNaN(data10)))){
+const err30 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(typeof data10 == "number"){
+if(data10 > 59 || isNaN(data10)){
+const err31 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/maximum",keyword:"maximum",params:{comparison: "<=", limit: 59},message:"must be <= 59"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(data10 < 0 || isNaN(data10)){
+const err32 = {instancePath:instancePath+"/timing/minute",schemaPath:"#/$defs/eventTiming/properties/minute/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+}
+if(data5.note !== undefined){
+let data11 = data5.note;
+if(typeof data11 === "string"){
+if(func1(data11) > 4000){
+const err33 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath:instancePath+"/timing",schemaPath:"#/$defs/eventTiming/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+}
+else {
+const err36 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
 }
 errors++;
 }
@@ -13156,7 +13543,7 @@ vErrors.push(err18);
 errors++;
 }
 if(!((((((data5 === "availability") || (data5 === "performance")) || (data5 === "operability")) || (data5 === "migration")) || (data5 === "security")) || (data5 === "environment"))){
-const err19 = {instancePath:instancePath+"/category",schemaPath:"#/properties/category/enum",keyword:"enum",params:{allowedValues: schema114.properties.category.enum},message:"must be equal to one of the allowed values"};
+const err19 = {instancePath:instancePath+"/category",schemaPath:"#/properties/category/enum",keyword:"enum",params:{allowedValues: schema115.properties.category.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -13459,7 +13846,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema136.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema137.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -13519,7 +13906,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema136.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema137.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -13956,7 +14343,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema143.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema144.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -14055,7 +14442,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema148.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema149.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }

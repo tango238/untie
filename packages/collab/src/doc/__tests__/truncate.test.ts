@@ -82,6 +82,23 @@ describe("上限を超える文字列は要素を外さず切り詰める", () =
     expect((getRoots(doc).elements.get("actor_a") as Y.Map<unknown>).has("persona")).toBe(false);
   });
 
+  it("イベントの発生タイミングが壊れていても (種類が不正・周期に合わない項目・長い補足)、イベントを外さず readModel が直し、repairDoc が Y.Doc を直す", () => {
+    const doc = new Y.Doc();
+    let m = model();
+    m = ok(addElement(m, { kind: "event", name: "入金が確認された", id: "ev_a", boardId: "board_main" })).model;
+    loadModel(doc, m);
+    writeLong(doc, "ev_a", "timing", { type: "bogus" });
+    expect(readModel(doc).elements.find((e) => e.id === "ev_a")).not.toHaveProperty("timing");
+    expect(repairDoc(doc, "repair")).toEqual(["イベント ev_a の発生タイミングを外した (種類が正しくない)"]);
+    expect((getRoots(doc).elements.get("ev_a") as Y.Map<unknown>).has("timing")).toBe(false);
+    writeLong(doc, "ev_a", "timing", { type: "adhoc", hour: 99, note: "あ".repeat(4001) });
+    const read = readModel(doc).elements.find((e) => e.id === "ev_a") as { timing?: unknown };
+    expect(read.timing).toEqual({ type: "adhoc", note: "あ".repeat(4000) });
+    expect(validateModel(JSON.parse(JSON.stringify(readModel(doc)))).ok).toBe(true);
+    expect(repairDoc(doc, "repair")).toHaveLength(2);
+    expect((getRoots(doc).elements.get("ev_a") as Y.Map<unknown>).get("timing")).toEqual({ type: "adhoc", note: "あ".repeat(4000) });
+  });
+
   it("形が壊れた要素 (型が違う・項目が欠けた) は、これまでどおり外す", () => {
     const doc = new Y.Doc();
     loadModel(doc, model());

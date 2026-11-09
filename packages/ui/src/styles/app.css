@@ -954,3 +954,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .data-diagram .react-flow__edge.is-selected path { stroke: var(--selected); stroke-width: 2; }
 /* 列の編集を開いたテーブルは、下のノードに隠れないよう前に出す */
 .data-diagram .react-flow__node:has(.diagram-column-editor) { z-index: 10 !important; }
+
+/* イベントの発生タイミング */
+.event-timing-row { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.event-timing-field { flex: 1 1 70px; min-width: 70px; }
+.event-timing-field select { width: 100%; }
+.event-timing-summary { margin-top: 2px; }

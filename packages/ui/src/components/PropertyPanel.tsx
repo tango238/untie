@@ -11,6 +11,7 @@ import {
   setEdgeSides,
   setIssueTargets,
   setPersona,
+  setEventTiming,
   setRelationAccess,
   setScreenUsecase,
   setUsecaseTarget,
@@ -49,6 +50,12 @@ import {
   PERSONA_FIELD_LABELS,
   PERSONA_IT_SKILL_LABELS,
   type Persona,
+  describeEventTiming,
+  EVENT_TIMING_EVERIES,
+  EVENT_TIMING_EVERY_LABELS,
+  EVENT_TIMING_TYPES,
+  EVENT_TIMING_TYPE_LABELS,
+  type EventTiming,
   SPECIFIC_ISSUE_TARGET_KINDS,
   type IssueTargetKind,
   type Activity,
@@ -286,6 +293,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         onCommit={(description) => update({ description })}
       />
       {(element.kind === "actor" || element.kind === "externalActor") && <PersonaSection actor={element} />}
+      {element.kind === "event" && <EventTimingSection event={element} />}
       {(element.kind === "activity" || element.kind === "usecase") && (
         <>
           <HoursField value={element.hours} readOnly={readOnly} onCommit={(hours) => update({ hours })} onError={(r) => pushToast(r, "error")} />
@@ -1447,6 +1455,108 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
  * アクター・外部アクターのペルソナ (人物像) と、困りごとのヒアリング。
  * 名前・説明と同じく、自由ボードでも編集できる。閲覧専用のファイルでは読み取りだけ
  */
+const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+/**
+ * イベントの発生タイミング: 種類 (なし・定期・不定期)。定期は周期 (毎月・毎日・毎時) と、周期に合う日・時・分。
+ * 補足は、定期なら「営業日だけ」など、不定期ならいつ起きるか (Webhook を受けたときなど)
+ */
+function EventTimingSection({ event }: { event: Extract<Element, { kind: "event" }> }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const readOnly = useUntieStore(selectReadOnly);
+  const timing = event.timing;
+
+  /** いまのモデルのタイミングに、変えた項目だけ重ねて置く。種類を変えたら周期に合わない項目はコマンドが外す */
+  const commit = (next: EventTiming | null) => {
+    const r = dispatch((m) => setEventTiming(m, { id: event.id, timing: next }));
+    if (!r.ok) pushToast(r.reason, "error");
+  };
+  const patch = (p: Partial<EventTiming>) => {
+    if (!timing) return;
+    const merged: Record<string, unknown> = { ...timing, ...p };
+    for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
+    commit(merged as unknown as EventTiming);
+  };
+  const numberSelect = (key: "day" | "hour" | "minute", label: string, values: number[], suffix: string) => (
+    <label className="field event-timing-field">
+      <span className="field-label">{label}</span>
+      <select
+        aria-label={`発生タイミングの${label}`}
+        value={timing?.[key] ?? ""}
+        disabled={readOnly}
+        onChange={(e) => patch({ [key]: e.target.value === "" ? undefined : Number(e.target.value) })}
+      >
+        <option value="">--</option>
+        {values.map((v) => (
+          <option key={v} value={v}>
+            {v}
+            {suffix}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <section className="subsection" aria-label="発生タイミング">
+      <h3>発生タイミング</h3>
+      <p className="hint">定期は、毎月・毎日・毎時に繰り返すバッチ処理。不定期 (随時) は、Webhook などから API が呼ばれたときのような、決まった時刻の無い処理です。</p>
+      <label className="field">
+        <span className="field-label">種類</span>
+        <select
+          aria-label="発生タイミングの種類"
+          value={timing?.type ?? ""}
+          disabled={readOnly}
+          onChange={(e) => {
+            const type = e.target.value as EventTiming["type"] | "";
+            if (type === "") commit(null);
+            else commit({ ...(timing?.note ? { note: timing.note } : {}), ...(type === "scheduled" ? { type, every: timing?.every ?? "day", hour: timing?.hour, minute: timing?.minute, day: timing?.day } : { type }) } as EventTiming);
+          }}
+        >
+          <option value="">決めていない</option>
+          {EVENT_TIMING_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {EVENT_TIMING_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {timing?.type === "scheduled" && (
+        <div className="event-timing-row">
+          <label className="field event-timing-field">
+            <span className="field-label">周期</span>
+            <select aria-label="発生タイミングの周期" value={timing.every ?? "day"} disabled={readOnly} onChange={(e) => patch({ every: e.target.value as EventTiming["every"] })}>
+              {EVENT_TIMING_EVERIES.map((k) => (
+                <option key={k} value={k}>
+                  {EVENT_TIMING_EVERY_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {timing.every === "month" && numberSelect("day", "日", range(1, 31), "日")}
+          {timing.every !== "hour" && numberSelect("hour", "時", range(0, 23), "時")}
+          {numberSelect("minute", "分", range(0, 59), "分")}
+        </div>
+      )}
+      {timing && (
+        <>
+          <CommitField
+            label={timing.type === "adhoc" ? "いつ起きるか" : "補足"}
+            multiline
+            maxLength={LIMITS.eventTimingNote.max}
+            placeholder={timing.type === "adhoc" ? "例: 決済サービスから入金の Webhook を受けたとき" : "例: 営業日だけ・前日分をまとめて"}
+            readOnly={readOnly}
+            value={timing.note ?? ""}
+            onCommit={(note) => patch({ note: note === "" ? undefined : note })}
+          />
+          <p className="hint event-timing-summary">{describeEventTiming(timing)}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
 function PersonaSection({ actor }: { actor: Extract<Element, { kind: "actor" | "externalActor" }> }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);

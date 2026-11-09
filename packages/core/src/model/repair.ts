@@ -17,6 +17,7 @@
 // - 設計データ (0.5.0): システムが無い設計、元の画面が無い (別のシステムの画面を含む) 設計の画面、画面が無い遷移・ナビゲーションの項目、
 //   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)。大きすぎる・深すぎる・使えないキーを含む画面 UI は、画面を残して画面 UI と対応を消す
 // - アクター・外部アクターのペルソナは、列挙の外の IT の習熟を外し、全項目が空なら persona ごと消す
+// - イベントの発生タイミング (0.5.4) は、種類が分からなければ timing ごと消し、周期に合わない・範囲外の項目は外す (normalizeEventTiming)
 // - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
 //
 // changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
@@ -33,7 +34,7 @@ import { isTooLong, VIEW_JSON_MAX_LENGTH } from "./limits";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
 import { truncateModelStrings } from "./truncate";
-import { ELEMENT_KIND_LABELS, isContextMemberKind, isPersonaItSkill, normalizePersona } from "./types";
+import { ELEMENT_KIND_LABELS, isContextMemberKind, isPersonaItSkill, normalizeEventTiming, normalizePersona } from "./types";
 import type { Board, Buc, Element, UntieModel } from "./types";
 
 export interface RepairResult {
@@ -80,6 +81,19 @@ export function repairModel(input: UntieModel): RepairResult {
       if (normalizePersona(persona) === null) {
         delete e.persona;
         silentlyFixed = true;
+      }
+    }
+
+    // 0b. イベントの発生タイミング。種類が分からなければ消し、ほかは正規化した形にそろえる
+    for (const e of draft.elements) {
+      if (e.kind !== "event" || e.timing === undefined) continue;
+      const normalized = normalizeEventTiming(e.timing);
+      if (normalized === null) {
+        changes.push(`${label(e)} の発生タイミングを外した (種類が正しくない)`);
+        delete e.timing;
+      } else if (JSON.stringify(normalized) !== JSON.stringify(e.timing)) {
+        changes.push(`${label(e)} の発生タイミングの、周期に合わない・範囲外の項目を外した`);
+        e.timing = normalized;
       }
     }
 
