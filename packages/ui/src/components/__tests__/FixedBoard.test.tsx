@@ -62,7 +62,8 @@ describe("FixedBoard", () => {
     const line = (id: string) => container.querySelector(`[data-fixed-card="${id}"] .fixed-card-ellipsis`);
     expect(line("actor_front")!.textContent).toBe("田中さん / 経験 8 年");
     expect(line("actor_reservation")).toBeNull();
-    expect(line("actor_housekeeping")).toBeNull();
+    // サンプルのペルソナ (宿泊施設は全員に入っている) はそのまま出る
+    expect(line("actor_housekeeping")!.textContent).toBe("小林さん (清掃担当・58歳) / 勤続 12 年・パート (午前中心)");
   });
 
   it("絞り込みで一致する要素だけを出す", () => {

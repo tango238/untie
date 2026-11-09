@@ -28,12 +28,33 @@ describe("宿泊施設サンプル", () => {
     expect(count("buc")).toBe(5 + 3);
     expect(count("activity")).toBeGreaterThanOrEqual(15);
     expect(count("usecase")).toBeGreaterThanOrEqual(10);
+    expect(count("screen")).toBe(10);
     expect(count("information")).toBe(6);
     expect(count("state")).toBe(9);
     expect(count("variation")).toBe(3);
     expect(count("condition")).toBe(3);
     expect(count("issue")).toBe(5);
     expect(hotelSample.boards.map((b) => b.name)).toEqual(["全体", "予約からチェックアウトまで", "情報と状態"]);
+  });
+
+  it("社内のシステムを使う操作は画面を対象にし、1 つの画面は 1 つの操作だけが使う", () => {
+    const screens = hotelSample.elements.filter((e) => e.kind === "screen");
+    for (const sc of screens) {
+      const uses = hotelSample.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === sc.id);
+      expect(uses, sc.id).toHaveLength(1);
+    }
+    // 画面を使う操作は、システム・帳票を直接の対象にしない
+    const screenUcs = new Set(hotelSample.relations.filter((r) => r.kind === "usecaseScreen").map((r) => r.sourceId));
+    expect(hotelSample.relations.some((r) => r.kind === "usecaseSystem" && screenUcs.has(r.sourceId))).toBe(false);
+  });
+
+  it("アクターと外部アクターの全員にペルソナが入っている", () => {
+    const people = hotelSample.elements.filter((e) => e.kind === "actor" || e.kind === "externalActor");
+    expect(people).toHaveLength(6);
+    for (const p of people) {
+      const persona = (p as { persona?: Record<string, string> }).persona;
+      for (const key of ["handle", "attributes", "background", "goals", "itSkill"]) expect(persona?.[key], `${p.id}.${key}`).toBeTruthy();
+    }
   });
 
   it("0.1.0 からある関係の種類と、操作の対象 (usecaseSystem) がすべて使われている (新しい種類は見本のネットショップで使う)", () => {

@@ -223,7 +223,7 @@ describe("fixedGroups", () => {
     if (!r.ok) throw new Error(r.reason);
     m = r.model;
     expect(m.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "screen", systemId: "sys_pms" });
-    expect(names(fixedGroups(m, "screen").find((g) => g.key === "sys_pms")!.items)).toEqual(["チェックイン画面"]);
+    expect(names(fixedGroups(m, "screen").find((g) => g.key === "sys_pms")!.items)).toContain("チェックイン画面");
     const n = addToGroup(m, fixedGroups(m, "nfr").find((g) => g.key === "sys_pms")!, "夜間も止まらない");
     expect(n.ok && n.model.elements.find((e) => e.id === n.id)).toMatchObject({ kind: "nfr", systemId: "sys_pms" });
   });

@@ -178,7 +178,7 @@ describe("AI エージェント", () => {
     ]);
     st().undo();
     expect(st().model.elements.filter((e) => e.kind === "issue")).toHaveLength(issuesBefore);
-    expect(st().model.elements.find((e) => e.id === "actor_front")).not.toHaveProperty("persona");
+    expect(st().model.elements.find((e) => e.id === "actor_front")).not.toMatchObject({ persona: { handle: "田中さん" } });
 
     useAgentStore.getState().endHearing();
     expect(useAgentStore.getState().mode).toEqual({ kind: "edit" });

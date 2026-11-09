@@ -26,6 +26,11 @@ const parse = (s: string) => JSON.parse(s) as Record<string, unknown>;
 const el = (m: UntieModel, id: string) => m.elements.find((e) => e.id === id)!;
 const section = (text: string) => JSON.parse(text.slice(text.indexOf("<ヒアリング>") + 7, text.indexOf("</ヒアリング>"))) as Record<string, any>;
 
+/** サンプルに入っているペルソナを外す (ペルソナが無い状態から試すため) */
+function withoutPersona(m: ReturnType<typeof sample>): ReturnType<typeof sample> {
+  return { ...m, elements: m.elements.map((e) => { const { persona: _p, ...rest } = e as typeof e & { persona?: unknown }; return rest as typeof e; }) };
+}
+
 describe("ヒアリングの最初の発言", () => {
   it("アクターのペルソナ・主担当の業務・担当する作業と使う操作・既にある課題が入る", () => {
     const m = okModel(setPersona(sample(), { id: "actor_front", persona: { handle: "田中さん", itSkill: "uncomfortable", goals: "待たせない" } }));
@@ -47,7 +52,7 @@ describe("ヒアリングの最初の発言", () => {
   });
 
   it("ペルソナが無ければ persona は null で、答え方に合わせて最初の依頼が変わる", () => {
-    const m = sample();
+    const m = withoutPersona(sample());
     const persona = hearingOpening(m, el(m, "actor_front"), "persona");
     const self = hearingOpening(m, el(m, "actor_front"), "self");
     expect(section(persona).persona).toBeNull();
@@ -211,7 +216,7 @@ describe("ヒアリングの道具", () => {
   });
 
   it("set_persona はこのアクターだけに効き、指定した項目だけ変わる。ほかの要素は断る", () => {
-    const e = editorOf(sample());
+    const e = editorOf(withoutPersona(sample()));
     const r = executeHearingTool(e, "actor_front", "set_persona", { handle: "田中さん (店長・45歳)", it_skill: "uncomfortable", goals: "待たせない" });
     expect(r.ok && r.changed).toBe(true);
     expect(el(e.model, "actor_front")).toMatchObject({ persona: { handle: "田中さん (店長・45歳)", itSkill: "uncomfortable", goals: "待たせない" } });
@@ -228,7 +233,7 @@ describe("ヒアリングの道具", () => {
 
 describe("通常の編集モードのペルソナ", () => {
   it("set_persona は任意のアクター・外部アクターに効き、get_model の出力にペルソナが入る", () => {
-    const e = editorOf(sample());
+    const e = editorOf(withoutPersona(sample()));
     expect(MODEL_TOOLS.map((t) => t.name)).toContain("set_persona");
     expect(executeTool(e, "set_persona", { id: "ext_guest", handle: "出張の多いお客様", it_skill: "comfortable" }).ok).toBe(true);
     expect(executeTool(e, "set_persona", { id: "actor_reservation", background: "予約を任される" }).ok).toBe(true);

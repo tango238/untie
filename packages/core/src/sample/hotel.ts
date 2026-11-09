@@ -5,15 +5,15 @@ import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, ty
 // ---------------------------------------------------------------- 要素
 
 const actors: Element[] = [
-  { id: "actor_reservation", kind: "actor", name: "予約担当" },
-  { id: "actor_front", kind: "actor", name: "フロント担当" },
-  { id: "actor_housekeeping", kind: "actor", name: "清掃担当" },
-  { id: "actor_manager", kind: "actor", name: "支配人" },
+  { id: "actor_reservation", kind: "actor", name: "予約担当", persona: { handle: "山口さん (予約担当・34歳)", attributes: "勤続 7 年・正社員・日勤", background: "電話と予約サイトの予約を受け付け、部屋の空きを見ながら確定まで進める。転記の手間と二重予約を気にしている", goals: "予約の入力ミスをなくし、確認の電話を減らす", itSkill: "normal" } },
+  { id: "actor_front", kind: "actor", name: "フロント担当", persona: { handle: "中村さん (フロント担当・29歳)", attributes: "勤続 5 年・正社員・早番と遅番の交代", background: "到着から精算までの接客を一人で回し、繁忙期のチェックインの列に追われる", goals: "お客様を待たせずに案内する", itSkill: "comfortable" } },
+  { id: "actor_housekeeping", kind: "actor", name: "清掃担当", persona: { handle: "小林さん (清掃担当・58歳)", attributes: "勤続 12 年・パート (午前中心)", background: "客室の清掃と点検を任され、チェックアウト直後の部屋を急いで整える", goals: "部屋の状態を連絡の手間なく伝える", itSkill: "uncomfortable" } },
+  { id: "actor_manager", kind: "actor", name: "支配人", persona: { handle: "加藤さん (支配人・50歳)", attributes: "支配人歴 6 年・正社員", background: "稼働と接客の質に責任を持ち、清掃の段取りと人の配置を決める", goals: "客室の稼働を保ちつつ残業を減らす", itSkill: "normal" } },
 ];
 
 const externalActors: Element[] = [
-  { id: "ext_guest", kind: "externalActor", name: "宿泊客" },
-  { id: "ext_travel_agency", kind: "externalActor", name: "旅行会社" },
+  { id: "ext_guest", kind: "externalActor", name: "宿泊客", persona: { handle: "出張で来る会社員 (40 代)", attributes: "年に 10 回ほど・1 泊が中心", background: "朝が早く、チェックインとチェックアウトの待ち時間を嫌う", goals: "手続きを短く済ませて休む", itSkill: "normal" } },
+  { id: "ext_travel_agency", kind: "externalActor", name: "旅行会社", persona: { handle: "団体旅行の手配担当 (40 代)", attributes: "月に数件・団体や記念旅行の予約", background: "電話とメールで部屋数や日程を調整し、変更や取消を直前に伝えることが多い", goals: "希望の日程で確実に部屋を押さえる", itSkill: "normal" } },
 ];
 
 /** システム (自社・社外を問わない。作業の担当にも、情報の置き場所にもなる) と、紙の帳票 (情報の置き場所) */
@@ -104,6 +104,20 @@ const usecases: Element[] = [
   { id: "uc_record_sales", kind: "usecase", name: "売上を計上する" },
   { id: "uc_record_checkout", kind: "usecase", name: "チェックアウトを記録する" },
   { id: "uc_update_cleaning", kind: "usecase", name: "清掃状況を更新する" },
+];
+
+/** 社内のシステムの画面 (1 つの画面は 1 つの操作だけが使う) */
+const screens: Element[] = [
+  { id: "scr_reservation_confirm", kind: "screen", name: "予約の確定画面", description: "仮予約の内容を確かめ、予約を確定する画面。", systemId: "sys_pms" },
+  { id: "scr_reservation_search", kind: "screen", name: "予約の検索画面", description: "名前や日付から予約を探す画面。", systemId: "sys_pms" },
+  { id: "scr_reservation_change", kind: "screen", name: "予約の変更画面", description: "予約の日程や人数を変更する画面。", systemId: "sys_pms" },
+  { id: "scr_reservation_cancel", kind: "screen", name: "予約の取消画面", description: "予約を取り消し、取消料を確認する画面。", systemId: "sys_pms" },
+  { id: "scr_checkin", kind: "screen", name: "チェックインの画面", description: "到着した宿泊客のチェックインを記録する画面。", systemId: "sys_pms" },
+  { id: "scr_room_assign", kind: "screen", name: "部屋の割り当て画面", description: "予約に部屋を割り当てる画面。", systemId: "sys_pms" },
+  { id: "scr_extra_charge", kind: "screen", name: "追加料金の登録画面", description: "滞在中の追加料金を請求に登録する画面。", systemId: "sys_pms" },
+  { id: "scr_invoice", kind: "screen", name: "請求書の発行画面", description: "請求書を作って発行する画面。", systemId: "sys_pms" },
+  { id: "scr_checkout", kind: "screen", name: "チェックアウトの画面", description: "チェックアウトを記録し、部屋を清掃待ちにする画面。", systemId: "sys_pms" },
+  { id: "scr_sales_record", kind: "screen", name: "売上の計上画面", description: "宿泊料金の売上を会計システムへ計上する画面。", systemId: "sys_accounting" },
 ];
 
 /** 役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ */
@@ -318,18 +332,19 @@ const pairs: [source: string, target: string, access?: InformationAccess][] = [
   ["uc_calc_charge", "sys_pms"],
   ["uc_calc_charge", "ev_charge_calculated"],
   ["ev_charge_calculated", "uc_issue_invoice"],
-  // usecaseSystem (操作 → システム・帳票: 対象)。0.2.0 から、システムは作業の担当ではなく操作の対象にする
-  ["uc_confirm_reservation", "sys_pms"],
-  ["uc_search_reservation", "sys_pms"],
-  ["uc_change_reservation", "sys_pms"],
-  ["uc_cancel_reservation", "sys_pms"],
-  ["uc_record_checkin", "sys_pms"],
+  // usecaseSystem (操作 → システム・帳票: 対象) と usecaseScreen (操作 → 画面)。0.2.0 から、システムは作業の担当ではなく操作の対象にする。
+  // 社内のシステムを使う操作は、システムの画面を対象にする (1 つの操作の対象は、システム・帳票・画面のどれか 1 つだけ)
+  ["uc_confirm_reservation", "scr_reservation_confirm"],
+  ["uc_search_reservation", "scr_reservation_search"],
+  ["uc_change_reservation", "scr_reservation_change"],
+  ["uc_cancel_reservation", "scr_reservation_cancel"],
+  ["uc_record_checkin", "scr_checkin"],
   ["uc_fill_register", "ldg_guest_register"],
-  ["uc_assign_room", "sys_pms"],
-  ["uc_register_extra", "sys_pms"],
-  ["uc_issue_invoice", "sys_pms"],
-  ["uc_record_sales", "sys_accounting"],
-  ["uc_record_checkout", "sys_pms"],
+  ["uc_assign_room", "scr_room_assign"],
+  ["uc_register_extra", "scr_extra_charge"],
+  ["uc_issue_invoice", "scr_invoice"],
+  ["uc_record_sales", "scr_sales_record"],
+  ["uc_record_checkout", "scr_checkout"],
   ["uc_update_cleaning", "ldg_cleaning_sheet"],
   ["uc_register_reservation", "sys_booking_site"],
   ["uc_record_payment", "sys_payment"],
@@ -357,6 +372,7 @@ const elements: Element[] = [
   ...bucs,
   ...activities,
   ...usecases,
+  ...screens,
   ...contexts,
   ...informations,
   ...states,

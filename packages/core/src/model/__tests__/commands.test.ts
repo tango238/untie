@@ -189,12 +189,12 @@ describe("setPersona", () => {
   it("null か全項目が空なら persona ごと消える。同じなら model をそのまま返す", () => {
     const m = okModel(setPersona(sample(), { id: "actor_front", persona: { handle: "田中さん" } }));
     expect(okModel(setPersona(m, { id: "actor_front", persona: { handle: "田中さん" } }))).toBe(m);
-    expect(okModel(setPersona(m, { id: "actor_front", persona: { handle: "  " } }))).not.toHaveProperty("elements.0.persona");
+    expect(el(okModel(setPersona(m, { id: "actor_front", persona: { handle: "  " } })), "actor_front")).not.toHaveProperty("persona");
     const cleared = okModel(setPersona(m, { id: "actor_front", persona: { handle: " ", notes: "" } }));
     expect(el(cleared, "actor_front")).not.toHaveProperty("persona");
     expect(okModel(setPersona(cleared, { id: "actor_front", persona: null }))).toBe(cleared);
     expect(el(okModel(setPersona(m, { id: "actor_front", persona: null })), "actor_front")).not.toHaveProperty("persona");
-    expect(okModel(setPersona(sample(), { id: "actor_front", persona: {} }))).toStrictEqual(sample());
+    expect(el(okModel(setPersona(cleared, { id: "actor_front", persona: {} })), "actor_front")).not.toHaveProperty("persona");
   });
 
   it("外部アクターにも置ける。ほかの種類・無い id・不正な習熟・長すぎる文字列は失敗", () => {
