@@ -75,7 +75,7 @@ interface Line {
 }
 
 /** // から行末までを除く (文字列の中の // は残す) */
-function stripComment(raw: string): string {
+export function stripComment(raw: string): string {
   let inString = false;
   for (let i = 0; i < raw.length; i++) {
     const c = raw[i];
@@ -89,7 +89,7 @@ function stripComment(raw: string): string {
 }
 
 /** 文字列の中を除いて、最初の } の位置 (無ければ -1) */
-function findClose(text: string): number {
+export function findClose(text: string): number {
   let inString = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -103,11 +103,11 @@ function findClose(text: string): number {
 }
 
 /** ブロックの見出し (model Foo { など) */
-const HEADER = /^(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\{(.*)$/;
+export const HEADER = /^(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\{(.*)$/;
 const BLOCK_KEYWORDS = new Set(["model", "enum", "datasource", "generator", "type", "view"]);
 
 /** 文字列リテラルの中身 ("..." の最初の 1 つ) */
-function firstString(args: string): string | undefined {
+export function firstString(args: string): string | undefined {
   const m = /"((?:[^"\\]|\\.)*)"/.exec(args);
   return m ? m[1].replace(/\\(.)/g, "$1") : undefined;
 }

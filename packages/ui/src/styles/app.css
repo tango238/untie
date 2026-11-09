@@ -911,3 +911,46 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .home-main form.home-actions input, .home-login-code input { min-width: 0; }
   .home-table { display: block; overflow-x: auto; }
 }
+
+/* データボードの図 (ER 図) */
+.segmented { display: inline-flex; }
+.segmented button { border-radius: 0; }
+.segmented button:first-child { border-radius: 4px 0 0 4px; }
+.segmented button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
+.segmented button.is-active { background: var(--selected); color: #fff; border-color: var(--selected); }
+.data-diagram { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.data-diagram-flow { position: relative; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 6px; background: #f7f5f0; }
+.diagram-error, .diagram-empty { margin: 0 0 4px; }
+.diagram-panel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 60%; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+.diagram-hint { margin: 0; font-size: 11px; }
+.diagram-table { box-sizing: border-box; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); font-size: 12px; }
+.diagram-table.is-selected { border-color: var(--selected); box-shadow: 0 0 0 2px var(--selected); }
+.diagram-table-head { display: flex; align-items: center; gap: 4px; min-height: 34px; box-sizing: border-box; padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--border); background: #f2efe8; border-radius: 6px 6px 0 0; cursor: move; }
+.diagram-table-name { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagram-map-name { flex: none; max-width: 40%; color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagram-table-head .icon-button { font-size: 11px; line-height: 18px; }
+.diagram-name-input { flex: 1; min-width: 0; font: inherit; }
+.diagram-row { position: relative; display: flex; align-items: center; gap: 6px; height: 24px; box-sizing: border-box; padding: 0 10px; cursor: pointer; }
+.diagram-row:hover, .diagram-row.is-open { background: #e8eef7; }
+.diagram-row:focus-visible { outline: 2px solid var(--selected); outline-offset: -2px; }
+.diagram-row.is-relation { color: var(--muted); font-style: italic; }
+.diagram-key { flex: none; width: 18px; font-size: 9px; font-weight: 700; color: #8a6500; }
+.diagram-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagram-row-type { flex: none; font-size: 11px; color: var(--muted); }
+.diagram-row .react-flow__handle { width: 8px; height: 8px; background: #fff; border: 1px solid var(--muted); }
+.diagram-row .react-flow__handle.connectable { cursor: crosshair; }
+.diagram-row .react-flow__handle:not(.connectable) { opacity: 0; }
+.diagram-row .react-flow__handle.connectable:hover { background: var(--selected); border-color: var(--selected); }
+.diagram-column-editor { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; background: #f7f9fc; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: default; }
+.diagram-column-editor .hint { margin: 0; font-size: 11px; }
+.diagram-editor-line { display: flex; align-items: center; gap: 6px; }
+.diagram-editor-line > span { flex: none; width: 2.5em; color: var(--muted); }
+.diagram-editor-line select, .diagram-editor-line input { flex: 1; min-width: 0; }
+.diagram-editor-flags { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.diagram-editor-actions { display: flex; justify-content: space-between; gap: 6px; }
+.diagram-add-column { display: block; width: 100%; border: none; border-top: 1px dashed var(--border); border-radius: 0 0 6px 6px; background: none; padding: 4px; color: var(--muted); cursor: pointer; }
+.diagram-add-column:hover { color: inherit; background: #f2efe8; }
+.diagram-enum-value { padding: 2px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.data-diagram .react-flow__edge.is-selected path { stroke: var(--selected); stroke-width: 2; }
+/* 列の編集を開いたテーブルは、下のノードに隠れないよう前に出す */
+.data-diagram .react-flow__node:has(.diagram-column-editor) { z-index: 10 !important; }

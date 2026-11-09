@@ -98,6 +98,8 @@ function ok(r: { ok: boolean; model?: UntieModel; reason?: string }): UntieModel
 
 beforeEach(() => {
   localStorage.clear();
+  // このファイルはテキスト (DSL) の編集を見る。図は dataDiagram.test.tsx
+  localStorage.setItem("untie.design.dataView", "text");
   useUntieStore.setState({ cloud: null });
   ai.key = null;
   ai.sent = [];

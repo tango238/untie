@@ -11,12 +11,36 @@ import { getApiKey } from "../../ai/keys";
 import { PROVIDERS } from "../../ai/providers";
 import { selectReadOnly, useUntieStore } from "../../store";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { DataDiagram } from "./DataDiagram";
 import { useDataSelection } from "./dataSelection";
+
+/** データボードの中央の見せ方: 図 (ER 図) かテキスト (DSL)。端末ごとに覚える */
+export type DataView = "diagram" | "text";
+const DATA_VIEW_KEY = "untie.design.dataView";
+
+function loadDataView(): DataView {
+  try {
+    return localStorage.getItem(DATA_VIEW_KEY) === "text" ? "text" : "diagram";
+  } catch {
+    return "diagram";
+  }
+}
+
+function saveDataView(view: DataView) {
+  try {
+    localStorage.setItem(DATA_VIEW_KEY, view);
+  } catch {
+    // 覚えられなくても切り替えはできる
+  }
+}
 
 /** 解析エラーの一覧に出す件数 (多すぎると描画が重くなる) */
 const MAX_SHOWN_ERRORS = 100;
 
-/** 設計モードのデータボードの中央: 選んだデータベースの DSL (Prisma の一部) を編集する */
+/**
+ * 設計モードのデータボードの中央: 選んだデータベースの DSL (Prisma の一部) を、図 (ER 図) かテキストで編集する。
+ * どちらも同じ DSL を書き換えるので、いつでも行き来できる (テキストの書きかけは、図へ移るときに確定する)
+ */
 export function DslEditor() {
   const { database } = useDataSelection();
   const model = useUntieStore((s) => s.model);
@@ -24,7 +48,9 @@ export function DslEditor() {
   if (!database) {
     return (
       <section className="dsl-editor" aria-label="DSL の編集">
-        <p className="hint">{dbCount === 0 ? "左の「＋データベース」でデータベースを足すと、ここに DSL を書けます。" : "左のデータベースを選ぶと、ここに DSL が出ます。"}</p>
+        <p className="hint">
+          {dbCount === 0 ? "左の「＋データベース」でデータベースを足すと、ここに DSL を書けます。" : "左のデータベースを選ぶと、ここに DSL が出ます。"}
+        </p>
       </section>
     );
   }
@@ -41,6 +67,7 @@ function DslEditorFor({ database }: { database: Database }) {
   const settingsOpen = useAgentStore((s) => s.settingsOpen);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
 
+  const [view, setView] = useState<DataView>(loadDataView);
   // 入力中の下書き。null のあいだは外の値に追従し、同時編集の更新で書きかけを壊さない
   const [draft, setDraft] = useState<string | null>(null);
   const draftRef = useRef<string | null>(null);
@@ -168,12 +195,35 @@ function DslEditorFor({ database }: { database: Database }) {
     else void generate();
   };
 
+  const switchView = (next: DataView) => {
+    if (next === view) return;
+    if (next === "diagram") {
+      commit();
+      // 確定できなかった (長すぎるなど) ときは、書きかけを失わないようテキストのままにする
+      if (draftRef.current !== null) return;
+    }
+    setView(next);
+    saveDataView(next);
+  };
+
   const aiDisabled = readOnly || !systemId || generating || hasKey !== true;
 
   return (
     <section className="dsl-editor" aria-label="DSL の編集">
       <div className="dsl-toolbar">
         <h2 className="dsl-title">{database.name || "(名前なし)"}</h2>
+        <div className="segmented" role="group" aria-label="見せ方">
+          {(
+            [
+              ["diagram", "図"],
+              ["text", "テキスト"],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} type="button" className={view === v ? "is-active" : undefined} aria-pressed={view === v} onClick={() => switchView(v)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           disabled={aiDisabled}
@@ -188,47 +238,57 @@ function DslEditorFor({ database }: { database: Database }) {
       </div>
       {hasKey === false && !readOnly && (
         <p className="hint dsl-key-hint">
-          「情報から作る (AI)」を使うには、<button type="button" className="link" onClick={() => setSettingsOpen(true)}>AI の設定</button>で {PROVIDERS[provider].label} の API キーを入れてください。
+          「情報から作る (AI)」を使うには、
+          <button type="button" className="link" onClick={() => setSettingsOpen(true)}>
+            AI の設定
+          </button>
+          で {PROVIDERS[provider].label} の API キーを入れてください。
         </p>
       )}
-      <textarea
-        ref={areaRef}
-        className="dsl-textarea"
-        aria-label="DSL"
-        spellCheck={false}
-        value={value}
-        readOnly={readOnly || generating}
-        maxLength={LIMITS.dsl.max}
-        placeholder={'Prisma のスキーマの一部を書きます。例:\nmodel Reservation {\n  id   String @id\n  name String\n}'}
-        onChange={(e) => updateDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            commit();
-          }
-        }}
-      />
-      <div className="dsl-status" aria-label="DSL の解析結果">
-        {schema.errors.length === 0 ? (
-          <p className="hint">{value.trim() === "" ? "DSL が空です" : `エラーなし (model ${schema.models.length}、enum ${schema.enums.length})`}</p>
-        ) : (
-          <>
-            <p className="hint is-error">解析エラー {schema.errors.length} 件</p>
-            <ul className="dsl-errors">
-              {schema.errors.slice(0, MAX_SHOWN_ERRORS).map((e, i) => (
-                <li key={i}>
-                  <button type="button" className="link" onClick={() => jumpTo(e.line, e.column)}>
-                    {e.line}:{e.column}
-                  </button>{" "}
-                  {e.message}
-                </li>
-              ))}
-              {schema.errors.length > MAX_SHOWN_ERRORS && <li className="hint-inline">ほか {schema.errors.length - MAX_SHOWN_ERRORS} 件</li>}
-            </ul>
-          </>
-        )}
-      </div>
+      {view === "diagram" ? (
+        <DataDiagram database={database} readOnly={readOnly || generating} />
+      ) : (
+        <>
+          <textarea
+            ref={areaRef}
+            className="dsl-textarea"
+            aria-label="DSL"
+            spellCheck={false}
+            value={value}
+            readOnly={readOnly || generating}
+            maxLength={LIMITS.dsl.max}
+            placeholder={"Prisma のスキーマの一部を書きます。例:\nmodel Reservation {\n  id   String @id\n  name String\n}"}
+            onChange={(e) => updateDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                commit();
+              }
+            }}
+          />
+          <div className="dsl-status" aria-label="DSL の解析結果">
+            {schema.errors.length === 0 ? (
+              <p className="hint">{value.trim() === "" ? "DSL が空です" : `エラーなし (model ${schema.models.length}、enum ${schema.enums.length})`}</p>
+            ) : (
+              <>
+                <p className="hint is-error">解析エラー {schema.errors.length} 件</p>
+                <ul className="dsl-errors">
+                  {schema.errors.slice(0, MAX_SHOWN_ERRORS).map((e, i) => (
+                    <li key={i}>
+                      <button type="button" className="link" onClick={() => jumpTo(e.line, e.column)}>
+                        {e.line}:{e.column}
+                      </button>{" "}
+                      {e.message}
+                    </li>
+                  ))}
+                  {schema.errors.length > MAX_SHOWN_ERRORS && <li className="hint-inline">ほか {schema.errors.length - MAX_SHOWN_ERRORS} 件</li>}
+                </ul>
+              </>
+            )}
+          </div>
+        </>
+      )}
       {confirmAi && (
         <ConfirmDialog
           title="DSL と対応を置き換える"

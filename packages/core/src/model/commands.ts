@@ -5,6 +5,7 @@ import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDe
 import { newUniqueId } from "./id";
 import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
+import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
@@ -422,6 +423,67 @@ export function setDatabaseDesign(model: UntieModel, payload: SetDatabaseDesignP
     const db = databaseOf(draft, payload.id)!;
     db.dsl = payload.dsl;
     db.tables = tables;
+  });
+  return { ok: true, model: next };
+}
+
+export interface EditDatabaseDslPayload {
+  /** データベースの id */
+  id: string;
+  edit: PrismaEdit;
+}
+
+/**
+ * データボードの図の操作 1 つを、データベースの DSL に当てる (applyPrismaEdit)。テーブルや列の名前を変えたら、
+ * テーブルが表す情報の対応 (tables[]) と、画面の項目の対応 (bindings) の名前も合わせる。テーブルを消したら、その情報の対応も消す
+ * (画面の項目の対応は残し、検証が知らせる)。DSL に解析エラーがあれば失敗
+ */
+export function editDatabaseDsl(model: UntieModel, payload: EditDatabaseDslPayload): CommandResult {
+  const db = databaseOf(model, payload.id);
+  if (!db) return fail(`データベースが存在しません: ${payload.id}`);
+  const r = applyPrismaEdit(db.dsl, payload.edit);
+  if (!r.ok) return r;
+  const tooLong = checkLength("dsl", r.dsl);
+  if (tooLong) return fail(tooLong);
+  const edit = payload.edit;
+  if (edit.type === "renameModel" || edit.type === "addModel") {
+    const name = edit.type === "renameModel" ? edit.to : edit.name;
+    const badName = checkTableName(name);
+    if (badName) return fail(badName);
+  }
+  if (r.dsl === db.dsl) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const d = databaseOf(draft, payload.id)!;
+    d.dsl = r.dsl;
+    const renameBindings = (match: (b: ScreenBinding) => boolean, change: (b: ScreenBinding) => void) => {
+      for (const design of draft.designs) for (const s of design.screens) for (const b of s.bindings ?? []) if (b.databaseId === payload.id && match(b)) change(b);
+    };
+    if (edit.type === "renameModel") {
+      const from = d.tables.find((t) => t.table === edit.from);
+      if (from) {
+        const into = d.tables.find((t) => t.table === edit.to);
+        if (into) {
+          into.informationIds = [...new Set([...into.informationIds, ...from.informationIds])];
+          d.tables = d.tables.filter((t) => t !== from);
+        } else from.table = edit.to;
+      }
+      renameBindings(
+        (b) => b.table === edit.from,
+        (b) => {
+          b.table = edit.to;
+        },
+      );
+    } else if (edit.type === "removeModel") {
+      d.tables = d.tables.filter((t) => t.table !== edit.name);
+    } else if (edit.type === "updateField" && edit.patch.name !== undefined && edit.patch.name !== edit.field) {
+      const to = edit.patch.name;
+      renameBindings(
+        (b) => b.table === edit.model && b.column === edit.field,
+        (b) => {
+          b.column = to;
+        },
+      );
+    }
   });
   return { ok: true, model: next };
 }
