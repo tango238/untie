@@ -5,6 +5,7 @@ import { parsePrismaDsl } from "@untie/core/model/prisma";
 import { emptyModel, type Element, type UntieModel } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
+import { DataDiagram } from "../design/DataDiagram";
 import { DslEditor } from "../design/DslEditor";
 import { buildDataDiagram, diagramPositions, resetDiagramPositions, setDiagramPosition, tableNodeId } from "../design/dataDiagramFlow";
 
@@ -212,6 +213,19 @@ describe("データボードの図", () => {
     expect(screen.getByText(/図では直せません/)).toBeDefined();
     expect(screen.queryByRole("button", { name: "＋テーブル" })).toBeNull();
     expect(noBtn("＋列")).toBe(true);
+  });
+
+  it("編集できなくなったら (AI の生成中など)、開いていた列の編集を閉じる", () => {
+    prepare();
+    const db = () => st().model.databases[0]!;
+    const r = render(<DataDiagram database={db()} readOnly={false} />);
+    fireEvent.click(row("Reservation", "note"));
+    expect(table("Reservation").querySelector('[data-column-editor="note"]')).not.toBeNull();
+    r.rerender(<DataDiagram database={db()} readOnly />);
+    expect(table("Reservation").querySelector("[data-column-editor]")).toBeNull();
+    // 編集できるように戻っても、閉じたまま
+    r.rerender(<DataDiagram database={db()} readOnly={false} />);
+    expect(table("Reservation").querySelector("[data-column-editor]")).toBeNull();
   });
 
   it("閲覧専用では、図は見るだけ", () => {

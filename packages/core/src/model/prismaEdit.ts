@@ -397,6 +397,12 @@ function updateField(doc: Doc, model: string, fieldName: string, patch: PrismaFi
     if (bad) return bad;
   }
   const nextType = patch.type ?? f.type;
+  // この列を外部キー (自分の @relation の fields) か参照先 (ほかのテーブルからの references) に使う関連
+  const usedByRelation =
+    m.fields.some((x) => x.relation?.fields?.includes(f.name)) || doc.schema.models.some((x) => x.fields.some((r) => r.type === model && r.relation?.references?.includes(f.name)));
+  if (usedByRelation && (nextType !== f.type || patch.isList === true)) {
+    return `${model}.${f.name} は関連に使っているので、型やリストは変えられません。先に線 (関連) を消してください`;
+  }
   if (nextType !== f.type) {
     if (relation) return "関連の列の型は変えられません。線を消して引き直してください";
     if (!knownTypes(doc.schema).has(nextType)) return `未知の型です: ${nextType}`;

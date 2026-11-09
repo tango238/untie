@@ -169,7 +169,8 @@ function TableNode({ data }: NodeProps<Extract<DiagramNode, { type: "table" }>>)
   const a = useActions();
   const { table, rows } = data as TableNodeData;
   const selected = a.selectedTable === table;
-  const renaming = a.renaming === table;
+  // 編集できない間 (閲覧専用・AI の生成中・解析エラー) は、開いていた名前の入力や列の編集も出さない
+  const renaming = a.editable && a.renaming === table;
   return (
     <div className={`diagram-table${selected ? " is-selected" : ""}`} data-diagram-table={table} style={{ width: DIAGRAM_NODE_WIDTH }}>
       <div className="diagram-table-head">
@@ -197,7 +198,7 @@ function TableNode({ data }: NodeProps<Extract<DiagramNode, { type: "table" }>>)
         )}
       </div>
       {rows.map((r) => {
-        const open = a.editing?.table === table && a.editing.field === r.name;
+        const open = a.editable && a.editing?.table === table && a.editing.field === r.name;
         return (
           <div key={r.name}>
             <div
@@ -279,12 +280,22 @@ function DataDiagramInner({ database, editable }: { database: Database; editable
     });
   }, [flow.nodes]);
 
+  // 編集できなくなったら、開いていた列の編集・名前の入力・選んだ線を閉じる
+  useEffect(() => {
+    if (editable) return;
+    setEditing(undefined);
+    setRenaming(undefined);
+    setSelectedEdge(undefined);
+  }, [editable]);
+
   const edges: DiagramEdge[] = useMemo(
     () => flow.edges.map((e) => (selectedEdge && e.data?.model === selectedEdge.model && e.data.field === selectedEdge.field ? { ...e, selected: true, className: "is-selected" } : e)),
     [flow.edges, selectedEdge],
   );
 
   const edit = (e: PrismaEdit): boolean => {
+    // 編集できない間の操作は断る (AI の生成が終わると DSL ごと置き換わり、その間の編集は消えるため)
+    if (!editable) return false;
     const r = dispatch((m) => editDatabaseDsl(m, { id: database.id, edit: e }));
     if (!r.ok) pushToast(r.reason, "error");
     return r.ok;

@@ -133,6 +133,14 @@ describe("applyPrismaEdit: 列", () => {
     expect(reason(dsl, { type: "updateField", model: "A", field: "a", patch: { isOptional: true } })).toContain("主キー");
   });
 
+  it("関連に使っている列 (外部キー・参照先) は、型を変えたりリストにしたりしない", () => {
+    expect(reason(DSL, { type: "updateField", model: "Reservation", field: "guestId", patch: { type: "Int" } })).toContain("関連に使っている");
+    expect(reason(DSL, { type: "updateField", model: "Guest", field: "id", patch: { type: "Int" } })).toContain("関連に使っている");
+    expect(reason(DSL, { type: "updateField", model: "Reservation", field: "guestId", patch: { isList: true } })).toContain("関連に使っている");
+    // 名前・NULL 可・一意は変えられる
+    expect(apply(DSL, { type: "updateField", model: "Reservation", field: "guestId", patch: { isOptional: true } })).toContain("guestId String?");
+  });
+
   it("外部キーの列を消すと、それを使う関連 (と相手側の対) も消す", () => {
     const out = apply(DSL, { type: "removeField", model: "Reservation", field: "guestId" });
     expect(out).not.toContain("guest");
