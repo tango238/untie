@@ -353,7 +353,8 @@ function removeModel(doc: Doc, name: string): string | null {
     const gone = m.fields.filter((f) => f.type === name);
     if (gone.length === 0) continue;
     const stay = m.fields.filter((f) => !gone.includes(f));
-    const stillUsed = new Set(stay.flatMap((f) => f.relation?.fields ?? []));
+    // ほかの関連や @@id・@@unique などの一覧に使っている列は残す (消すと、無い列を指す制約が残る)
+    const stillUsed = new Set([...stay.flatMap((f) => f.relation?.fields ?? []), ...blockListColumns(m)]);
     for (const f of gone) {
       drop.add(loc.fields.get(f.name)!);
       for (const fk of f.relation?.fields ?? []) {
@@ -415,7 +416,7 @@ function updateField(doc: Doc, model: string, fieldName: string, patch: PrismaFi
   let isOptional = patch.isOptional ?? f.isOptional;
   if (patch.isList === true) isOptional = false;
   if (patch.isOptional === true) isList = false;
-  if (attributes.some((a) => a.name === "id") && isOptional) return "主キーの列は NULL 可にできません";
+  if ((attributes.some((a) => a.name === "id") || inCompositeId(m, f.name)) && isOptional) return "主キーの列は NULL 可にできません";
   const next: PrismaField = { ...f, name: nextName, type: nextType, isList, isOptional, attributes };
   doc.rewriteField(model, f.name, next);
   doc.refresh();
@@ -452,9 +453,17 @@ function removeField(doc: Doc, model: string, fieldName: string): string | null 
   const f = m.fields.find((x) => x.name === fieldName);
   if (!f) return noField(model, fieldName);
   if (isRelationField(doc.schema, f)) return removeRelation(doc, model, fieldName);
-  // この列を外部キーに使う関連も消す (関連だけが残ると DSL が壊れる)
-  for (const r of m.fields.filter((x) => x.relation?.fields?.includes(fieldName))) {
-    const e = removeRelation(doc, model, r.name);
+  if (blockListColumns(m).has(fieldName)) return `${model}.${fieldName} は @@id・@@unique などの一覧に使われているので消せません。テキストで一覧から外してください`;
+  // この列を外部キーに使う関連と、この列を参照先 (references) にするほかのテーブルからの関連も消す (関連だけが残ると DSL が壊れる)
+  const using = doc.schema.models.flatMap((x) =>
+    x.fields
+      .filter((r) => (x.name === model && r.relation?.fields?.includes(fieldName)) || (r.type === model && r.relation?.references?.includes(fieldName)))
+      .map((r) => ({ model: x.name, field: r.name })),
+  );
+  for (const r of using) {
+    // 自分への関連は、外部キーと参照先の両方に当たることがあるので、残っているものだけ消す
+    if (!doc.model(r.model)?.fields.some((x) => x.name === r.field)) continue;
+    const e = removeRelation(doc, r.model, r.field);
     if (e) return e;
   }
   doc.expand(model);
@@ -503,6 +512,11 @@ function addRelation(doc: Doc, edit: Extract<PrismaEdit, { type: "addRelation" }
   doc.insertField(edit.to, back);
   return null;
 }
+
+/** @@id・@@unique・@@index などの一覧に入っている列の名前 */
+const blockListColumns = (m: PrismaModel): Set<string> => new Set(m.blockAttributes.flatMap((a) => listOf(a.args)));
+/** @@id の一覧に入っている (複合主キーの構成列) か */
+const inCompositeId = (m: PrismaModel, field: string) => m.blockAttributes.some((a) => a.name === "id" && listOf(a.args).includes(field));
 
 const listOf = (args: string) => /\[([^\]]*)\]/.exec(args)?.[1]?.split(",").map((s) => s.trim().split("(")[0]!.trim()).filter(Boolean) ?? [];
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));

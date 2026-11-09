@@ -72,6 +72,12 @@ describe("applyPrismaEdit: テーブル", () => {
     expect(out2.startsWith("model Guest {")).toBe(true);
   });
 
+  it("消すテーブルへの外部キーの列でも、@@unique などの一覧に使っていれば残す", () => {
+    const dsl = "model A {\n  id String @id\n  bs B[]\n}\n\nmodel B {\n  id  String @id\n  aId String\n  a   A @relation(fields: [aId], references: [id])\n  @@unique([aId, id])\n}\n";
+    const out = apply(dsl, { type: "removeModel", name: "A" });
+    expect(out).toBe("model B {\n  id  String @id\n  aId String\n  @@unique([aId, id])\n}\n");
+  });
+
   it("1 行で書いた model は、触るときに 1 行 1 フィールドへ展開する", () => {
     const out = apply("model A { id String @id }\n", { type: "addField", model: "A", field: { name: "name", type: "String" } });
     expect(out).toBe("model A {\n  id String @id\n  name String\n}\n");
@@ -112,6 +118,19 @@ describe("applyPrismaEdit: 列", () => {
     expect(reason(DSL, { type: "updateField", model: "Reservation", field: "guest", patch: { type: "String" } })).toContain("関連の列");
     expect(reason(DSL, { type: "updateField", model: "Reservation", field: "id", patch: { isOptional: true } })).toContain("主キー");
     expect(reason(DSL, { type: "addField", model: "Reservation", field: { name: "x", type: "Guest" } })).toContain("線を引いて");
+  });
+
+  it("参照先の列を消すと、ほかのテーブルからそれを参照する関連 (と対) も消す", () => {
+    const out = apply(DSL, { type: "removeField", model: "Guest", field: "id" });
+    expect(out).not.toContain("@relation");
+    expect(out).not.toContain("Reservation[]");
+    expect(out).toContain("guestId String");
+  });
+
+  it("@@id・@@unique などの一覧に使う列は消さない。複合主キーの列は NULL 可にしない", () => {
+    const dsl = "model A {\n  a String\n  b String\n  @@id([a, b])\n}\n";
+    expect(reason(dsl, { type: "removeField", model: "A", field: "a" })).toContain("@@id");
+    expect(reason(dsl, { type: "updateField", model: "A", field: "a", patch: { isOptional: true } })).toContain("主キー");
   });
 
   it("外部キーの列を消すと、それを使う関連 (と相手側の対) も消す", () => {
