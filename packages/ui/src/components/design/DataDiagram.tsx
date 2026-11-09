@@ -264,7 +264,6 @@ function DataDiagramInner({ database, editable }: { database: Database; editable
   const [removing, setRemoving] = useState<string>();
   const [selectedEdge, setSelectedEdge] = useState<{ model: string; field: string }>();
   const [layoutSeq, setLayoutSeq] = useState(0);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const rf = useReactFlow();
 
   const flow = useMemo(() => buildDataDiagram(schema, database.id), [schema, database.id, layoutSeq]);
@@ -320,15 +319,15 @@ function DataDiagramInner({ database, editable }: { database: Database; editable
 
   const addTable = () => {
     const name = freePrismaModelName(database.dsl);
-    // いま見えている範囲の上の方に置く
-    const rect = wrapRef.current?.getBoundingClientRect();
-    if (rect && rect.width > 0) {
-      const p = rf.screenToFlowPosition({ x: rect.left + rect.width / 2 - DIAGRAM_NODE_WIDTH / 2, y: rect.top + 60 });
-      setDiagramPosition(database.id, tableNodeId(name), p);
-    }
+    // 今あるノードの右に空けて置く (重ならないように)。置いたところが見えるよう寄せる
+    const right = nodes.reduce((max, n) => Math.max(max, n.position.x + (n.measured?.width ?? DIAGRAM_NODE_WIDTH)), Number.NEGATIVE_INFINITY);
+    const top = nodes.reduce((min, n) => Math.min(min, n.position.y), Number.POSITIVE_INFINITY);
+    const p = nodes.length === 0 ? { x: 0, y: 0 } : { x: right + 70, y: top };
+    setDiagramPosition(database.id, tableNodeId(name), p);
     if (!edit({ type: "addModel", name })) return;
     selectDesignTable(name, database.id);
     setRenaming(name);
+    window.requestAnimationFrame(() => void rf.setCenter(p.x + DIAGRAM_NODE_WIDTH / 2, p.y + 120, { zoom: rf.getZoom(), duration: 200 }));
   };
 
   const onNodesChange = (changes: NodeChange<DiagramNode>[]) => {
@@ -349,7 +348,7 @@ function DataDiagramInner({ database, editable }: { database: Database; editable
 
   return (
     <ActionsContext.Provider value={actions}>
-      <div ref={wrapRef} className="data-diagram-flow">
+      <div className="data-diagram-flow">
         <ReactFlow<DiagramNode, DiagramEdge>
           nodes={nodes}
           edges={edges}
