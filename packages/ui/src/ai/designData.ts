@@ -1,7 +1,7 @@
 // 設計モードのデータボード「情報から作る (AI)」: 対象システムが使う情報から、データベースの DSL (Prisma の一部) と
 // テーブル → 情報の対応を一回きりで作らせる。AI は submit_database で結果を提出し、DSL を解析して、エラーがあれば 1 回だけ出し直させる。
 import { informationLocations, screenInformationTables } from "@untie/core/model/analysis";
-import { systemInformationIds } from "@untie/core/model/designData";
+import { aggregateOfInformation, systemInformationIds } from "@untie/core/model/designData";
 import { parsePrismaDsl, PRISMA_SCALAR_TYPES, type PrismaError } from "@untie/core/model/prisma";
 import type { Database, UntieModel } from "@untie/core/model/types";
 import { ChatError, createChatSession } from "./chat";
@@ -55,12 +55,21 @@ export function dataDesignSystemPrompt(): string {
 - model と列の名前は英語 (model は PascalCase、列は camelCase)。表す情報の名前は model の前の // コメントに書く
 - 対象のシステムが使う情報は、必ずどれかの model が表すようにする。複数の情報を 1 つの model にまとめても、1 つの情報を複数の model に分けてもよい
 - 情報どうしの関連は @relation で表す。外部キーの列も書く。種別のように値が決まっているものは enum にする
+- 情報に集約 (aggregate) が書いてあれば、集約の境界に合わせる: ルート (role: root) を 1 つの model にし、英語名 (english) があれば model の名前にする。中の情報 (role: member) は、ルートへの @relation を持つ model か、ルートの model の列にする。別の集約の情報との関連は、@relation を張らずに ID の列だけにする (集約をまたいで整合を取らないため)。集約の書いていない情報どうしは、上の決まりどおり @relation で表す
 - 業務の言葉にない列を作りすぎない。主キー (id) と、情報の説明から読み取れる列、関連の外部キーを中心にする
 - 今の DSL が空でなければ、それを直したり足したりして全体を返す (既存の model の名前は変えない)。テーブル → 情報の対応も、今の対応を含めた全体を返す (返さなかった既存の対応は、model が残っていればそのまま残る)
 - 結果は submit_database で提出する。DSL に解析エラーがあると理由が返るので、直して出し直す`;
 }
 
 const nameOf = (e: { name: string } | undefined) => e?.name || "(名前なし)";
+
+/** 情報が入っている集約 (ドメインモデルで決めてあれば)。AI がテーブルの境界を集約に合わせるための材料 */
+function aggregateForAi(model: UntieModel, systemId: string, informationId: string): { aggregate?: { name: string; english?: string; context?: string; role: "root" | "member"; rootInformationId: string } } {
+  const owner = aggregateOfInformation(model, systemId, informationId);
+  if (!owner) return {};
+  const a = owner.aggregate;
+  return { aggregate: { name: a.name, ...(a.english ? { english: a.english } : {}), ...(owner.context ? { context: owner.context.name } : {}), role: owner.role, rootInformationId: a.rootInformationId } };
+}
 
 /** 対象システムが使う情報の材料と、今の DSL・対応を渡す依頼の文章 */
 export function dataDesignRequest(model: UntieModel, systemId: string, db: Database): string {
@@ -88,6 +97,7 @@ export function dataDesignRequest(model: UntieModel, systemId: string, db: Datab
       ...(related(id).length > 0 ? { related: related(id) } : {}),
       ...(screensOf.has(id) ? { screens: [...new Set(screensOf.get(id))] } : {}),
       ...(places.length > 0 ? { places } : {}),
+      ...aggregateForAi(model, systemId, id),
     };
   });
   return `システム「${nameOf(system)}」のデータベース「${db.name}」の設計を作ってください。

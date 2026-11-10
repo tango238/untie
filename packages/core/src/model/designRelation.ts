@@ -1,6 +1,6 @@
 // 設計モードの関連ボード (5.7) の計算。分析の情報 ↔ テーブル、テーブルの項目 ↔ 設計の画面の関連を、モデルから毎回組み立てる。純粋関数だけを置く。
 import { effectiveDatabaseIds } from "./design";
-import { systemInformationIds, unmappedInformationIds } from "./designData";
+import { aggregateOfInformation, systemInformationIds, unmappedInformationIds } from "./designData";
 import { unboundSlots } from "./designView";
 import { describePrismaField } from "./prisma";
 import { parsePrismaDslCached } from "./prismaCache";
@@ -38,6 +38,8 @@ export interface RelationInformation {
   description?: string;
   /** 使うデータベースのどのテーブルにも対応していない (informationUnmapped と同じ判定) */
   unmapped: boolean;
+  /** 入っている集約 (ドメインモデルで決めてあれば)。関連ボードで、集約ごとの枠にまとめる */
+  aggregate?: { id: string; name: string; role: "root" | "member" };
 }
 
 export interface RelationColumn {
@@ -96,7 +98,17 @@ export function buildRelationGraph(model: UntieModel, systemId: string): Relatio
   const unmapped = new Set(unmappedInformationIds(model, systemId, [...infoIds]));
   const informations: RelationInformation[] = model.elements
     .filter((e) => e.kind === "information" && infoIds.has(e.id))
-    .map((e) => ({ id: e.id, name: nameOf(e), ...(e.description ? { description: e.description } : {}), unmapped: unmapped.has(e.id) }));
+    .map((e) => {
+      // 集約 (ドメインモデル) が決まっていれば、関連ボードで集約ごとにまとめる
+      const owner = aggregateOfInformation(model, systemId, e.id);
+      return {
+        id: e.id,
+        name: nameOf(e),
+        ...(e.description ? { description: e.description } : {}),
+        unmapped: unmapped.has(e.id),
+        ...(owner ? { aggregate: { id: owner.aggregate.id, name: owner.aggregate.english ? `${owner.aggregate.name} (${owner.aggregate.english})` : owner.aggregate.name, role: owner.role } } : {}),
+      };
+    });
   const known = new Set(informations.map((i) => i.id));
 
   const edges: RelationEdge[] = [];

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { removeContextRelation } from "@untie/core/model/domainCommands";
+import { addContextRelation, removeContextRelation } from "@untie/core/model/domainCommands";
+import { deriveContextMap } from "@untie/core/model/domainMap";
 import { emptyDomain } from "@untie/core/model/types";
 import { validateModel } from "@untie/core/model/validate";
 import { createNetshopSample } from "@untie/core/sample";
@@ -8,6 +9,7 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import App from "../../App";
 import { ContextMapBoard } from "../design/ContextMapBoard";
+import { buildContextMapFlow } from "../design/contextMapFlow";
 import { DesignCheckPanel } from "../design/DesignCheckPanel";
 import { DomainBoard } from "../design/DomainBoard";
 import { DomainLeftPane } from "../design/DomainLeftPane";
@@ -284,6 +286,40 @@ describe("コンテキストマップ", () => {
     // 会計は別のシステムのコンテキストなので、そのシステムの設計へ切り替える
     fireEvent.click(screen.getByRole("button", { name: "会計" }));
     expect(st().ui).toMatchObject({ designSystemId: "sys_accounting", currentBoardId: "design:domain", designDomain: { kind: "context", id: "bc_accounting" } });
+  });
+});
+
+describe("コンテキストマップの図", () => {
+  it("上流を左・下流を右に並べ、決めた関係は実線 (略号 · 統合の方式)、未決のつながりは破線にする", () => {
+    const m = createNetshopSample();
+    const name = (id: string) => m.elements.find((e) => e.id === id)?.name ?? "";
+    const count = (id: string) => m.domain.aggregates.filter((a) => a.boundedContextId === id).length;
+    const { nodes, edges } = buildContextMapFlow(deriveContextMap(m), name, count);
+    const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
+    // 決済 → 受注 → 在庫・出荷 → 会計
+    expect(x("bc_payment")).toBeLessThan(x("bc_ordering"));
+    expect(x("bc_ordering")).toBeLessThan(x("bc_inventory"));
+    expect(x("bc_shipping")).toBeLessThan(x("bc_accounting"));
+    expect(nodes.find((n) => n.id === "bc_payment")!.data).toMatchObject({ subdomain: "汎用 (Generic)", systems: "決済サービス", aggregates: 0 });
+    expect(edges.find((e) => e.id === "cr_payment_ordering")).toMatchObject({ source: "bc_payment", target: "bc_ordering", label: "ACL · Messaging" });
+    expect(edges.every((e) => e.style === undefined)).toBe(true);
+    // 関係を消すと、そのつながりは破線の「未決」になる。対等な関係は両向きの矢印
+    let next = removeContextRelation(m, { id: "cr_ordering_inventory" });
+    if (!next.ok) throw new Error(next.reason);
+    const undecided = buildContextMapFlow(deriveContextMap(next.model), name, count).edges.find((e) => e.source === "bc_ordering" && e.target === "bc_inventory")!;
+    expect(undecided).toMatchObject({ label: "未決", style: { strokeDasharray: "5 4" } });
+    next = addContextRelation(next.model, { upstreamId: "bc_ordering", downstreamId: "bc_inventory", kind: "partnership" });
+    if (!next.ok) throw new Error(next.reason);
+    const peer = buildContextMapFlow(deriveContextMap(next.model), name, count).edges.find((e) => e.source === "bc_ordering" && e.target === "bc_inventory")!;
+    expect(peer.label).toBe("P");
+    expect(peer.markerStart).toBeDefined();
+  });
+
+  it("ボードに図と「書き出す」が出る", () => {
+    start(true);
+    render(<ContextMapBoard />);
+    expect(screen.getByTestId("contextmap-diagram")).toBeDefined();
+    expect(screen.getByRole("button", { name: "書き出す (distill-ddd)…" })).toBeDefined();
   });
 });
 

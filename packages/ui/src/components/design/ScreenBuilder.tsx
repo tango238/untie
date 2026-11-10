@@ -32,9 +32,21 @@ export function databaseInfos(model: UntieModel, design: SystemDesign): DbInfo[]
   });
 }
 
-/** 画面 UI の新規作成の中身: 目的と、空の入力セクション 1 つ */
-function newView(title: string, goal: string): Json {
+/**
+ * 画面 UI の新規作成の中身: 目的と、セクション 1 つ。
+ * 画面を使う操作が情報を読むだけ (問い合わせ) なら一覧、書く (コマンド) なら入力を既定にする
+ */
+export function newView(title: string, goal: string, readOnly = false): Json {
+  if (readOnly) return { title, goal, sections: [{ id: "main", title: "一覧", kind: "list", list: { columns: [{ id: "name", label: "名前" }] } }] };
   return { title, goal, sections: [{ id: "main", title: "入力", kind: "form", fields: [] }] };
+}
+
+/** 画面を使う操作が、情報を読むだけか (扱う情報があり、すべて取得だけ) */
+export function screenIsReadOnly(model: UntieModel, analysisScreenId: string | undefined): boolean {
+  if (!analysisScreenId) return false;
+  const usecases = new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === analysisScreenId).map((r) => r.sourceId));
+  const access = model.relations.filter((r) => r.kind === "usecaseInformation" && usecases.has(r.sourceId));
+  return access.length > 0 && access.every((r) => r.access === "read");
 }
 
 /** 右のペイン (設計モードの画面ボード): 選んだ画面の画面 UI を、フォームか YAML で組み立てる。AI で作ることもできる */
@@ -226,7 +238,7 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
         <div className="screen-empty">
           <p className="hint">この画面には、画面 UI がまだありません。</p>
           {!readOnly && (
-            <button type="button" onClick={() => save(newView(name, description || name), [])}>
+            <button type="button" onClick={() => save(newView(name, description || name, screenIsReadOnly(model, analysis?.id)), [])}>
               画面 UI を作る
             </button>
           )}

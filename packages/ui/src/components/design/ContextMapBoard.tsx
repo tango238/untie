@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, type NodeProps } from "@xyflow/react";
+import { useMemo, useState } from "react";
 import { cachedContextMap } from "@untie/core/model/domainCache";
 import { addContextRelation, removeContextRelation, updateContextRelation } from "@untie/core/model/domainCommands";
 import {
@@ -15,6 +16,8 @@ import { DESCRIPTION_MAX_LENGTH } from "@untie/core/model/limits";
 import type { BoundedContext, ContextRelation } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
 import { CommitField } from "../CommitField";
+import { exportDomainDocsToFolder } from "../../io/document";
+import { buildContextMapFlow, type ContextNode } from "./contextMapFlow";
 import { revealDomainSelection, useDomainEdit } from "./domainElementClick";
 
 type Edit = ReturnType<typeof useDomainEdit>;
@@ -77,6 +80,30 @@ function Evidence({ flow }: { flow: ContextFlow }) {
   );
 }
 
+/** 図のノード: コンテキスト (名前・英語名・分類・実装するシステム)。押すと、ドメインボードでそのコンテキストを選ぶ */
+function ContextMapNode({ data }: NodeProps<ContextNode>) {
+  const c = data.context;
+  return (
+    <div className={`nokey contextmap-node${c.subdomain ? ` is-${c.subdomain}` : ""}${data.aggregates === 0 ? " is-external" : ""}`} role="button" tabIndex={0} aria-label={`コンテキスト ${c.name}${data.subdomain ? ` (${data.subdomain})` : ""}`}>
+      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <div className="contextmap-node-name" title={c.name}>
+        {c.name || "(名前なし)"}
+        {c.english && <span className="contextmap-node-english">{c.english}</span>}
+      </div>
+      <div className="contextmap-node-sub">
+        {data.subdomain && <span className="domain-node-badge">{data.subdomain}</span>}
+        {data.aggregates === 0 && <span className="domain-node-badge">外部</span>}
+        <span className="domain-node-text" title={data.systems}>
+          {data.systems}
+        </span>
+      </div>
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+    </div>
+  );
+}
+
+const nodeTypes = { context: ContextMapNode };
+
 /**
  * 設計モードのコンテキストマップ: 保存した境界づけられたコンテキスト (すべてのシステムの分) と、そのあいだの関係を表で見せて決める。
  * つながり (イベントがきっかけになる・情報を取得する) は分析と保存した判断から導き、関係の種類と統合の方式は人が決めて保存する
@@ -93,6 +120,15 @@ export function ContextMapBoard() {
   const [kind, setKind] = useState<ContextRelationKind>("customerSupplier");
   const aggregateCount = (id: string) => model.domain.aggregates.filter((a) => a.boundedContextId === id).length;
   const open = (c: BoundedContext) => revealDomainSelection({ kind: "context", id: c.id }, c.systemIds.includes(systemId ?? "") ? undefined : c.systemIds[0]);
+  const flow = useMemo(
+    () =>
+      buildContextMapFlow(
+        map,
+        (id) => model.elements.find((e) => e.id === id)?.name || "(名前なし)",
+        (id) => model.domain.aggregates.filter((a) => a.boundedContextId === id).length,
+      ),
+    [map, model],
+  );
   const add = () => {
     if (edit.run((m) => addContextRelation(m, { upstreamId, downstreamId, kind }))) {
       setUpstreamId("");
@@ -103,6 +139,13 @@ export function ContextMapBoard() {
     <section className="domain-board contextmap-board" aria-label="設計ボード: コンテキストマップ">
       <div className="dsl-toolbar domain-toolbar">
         <h2 className="dsl-title">コンテキストマップ</h2>
+        {map.contexts.length > 0 && (
+          <span className="domain-toolbar-actions">
+            <button type="button" onClick={() => void exportDomainDocsToFolder()} title="distill-ddd (/ddd スキル) の成果物の形式 (docs/domain/*.md) で、選んだフォルダへ書き出す">
+              書き出す (distill-ddd)…
+            </button>
+          </span>
+        )}
       </div>
       <p className="hint domain-hint">境界づけられたコンテキスト (すべてのシステムの分) と、そのあいだの関係です。つながりは分析から導き、関係の種類と統合の方式はここで決めて保存します</p>
       <div className="domain-scroll">
@@ -110,6 +153,29 @@ export function ContextMapBoard() {
           <p className="hint domain-empty">境界づけられたコンテキストがまだありません。ドメインボードで「候補から作る」か「＋コンテキスト」で作ると、ここに出ます</p>
         ) : (
           <>
+            <div className="contextmap-canvas" data-testid="contextmap-diagram">
+              <ReactFlowProvider>
+                <ReactFlow<ContextNode>
+                  nodes={flow.nodes}
+                  edges={flow.edges}
+                  nodeTypes={nodeTypes}
+                  nodesDraggable={false}
+                  nodesConnectable={false}
+                  nodesFocusable={false}
+                  edgesFocusable={false}
+                  elementsSelectable={false}
+                  fitView
+                  fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+                  minZoom={0.2}
+                  proOptions={{ hideAttribution: true }}
+                  onNodeClick={(_, node) => open(node.data.context)}
+                >
+                  <Background />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </ReactFlowProvider>
+            </div>
+            <p className="hint">左が上流、右が下流。実線は決めた関係 (種類の略号 · 統合の方式)、破線は、つながりがあるのに関係を決めていない組です。コンテキストを押すと、ドメインボードで開きます</p>
             <h3 className="contextmap-title">境界づけられたコンテキスト</h3>
             <table className="an-table" aria-label="境界づけられたコンテキスト">
               <thead>

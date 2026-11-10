@@ -53,6 +53,12 @@ export interface SecretStore {
 /** ブラウザでのログインが deep link か引換コードで終わった知らせ (デスクトップ)。失敗は state の不一致・コードの期限切れなど */
 export type LoginResult = { ok: true } | { ok: false; message: string };
 
+/** まとめて書き出すファイル (name はフォルダの中のファイル名) */
+export interface TextFile {
+  name: string;
+  text: string;
+}
+
 export interface Platform {
   kind: "web" | "desktop";
   /**
@@ -68,6 +74,12 @@ export interface Platform {
    * 保存先を選ぶのを取り消したら null
    */
   saveTextFile(text: string, path: string | null, suggestedName: string): Promise<SavedFile | null>;
+  /**
+   * 複数のテキストファイルを、選んだフォルダへ書き出す (ドメインモデルの書き出し。同じ名前のファイルは上書きする)。
+   * フォルダを選べない環境 (File System Access API の無いブラウザ) では、zipName の zip にまとめてダウンロードする (中のフォルダは zipFolder)。
+   * where は書き出した先の名前 (フォルダか zip)。取り消したら null
+   */
+  saveTextFiles(files: readonly TextFile[], options: { zipName: string; zipFolder: string }): Promise<{ where: string; count: number } | null>;
   /** 開く・保存する場所をあとから指し直せるか (最近開いたファイルを持てるか) */
   canReopenFiles(): boolean;
   /** 未保存の変更を捨ててよいかを聞く */

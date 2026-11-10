@@ -12,6 +12,7 @@ import {
   type SavedFile,
   type SecretStore,
 } from "@untie/ui/platform";
+import { makeZip } from "@untie/ui/io/zip";
 
 // ---- ファイル ----
 
@@ -19,6 +20,7 @@ import {
 interface FilePickerWindow {
   showOpenFilePicker?: (options: object) => Promise<FileSystemFileHandle[]>;
   showSaveFilePicker?: (options: object) => Promise<FileSystemFileHandle>;
+  showDirectoryPicker?: (options: object) => Promise<FileSystemDirectoryHandle>;
 }
 const pickerWindow = () => window as unknown as FilePickerWindow;
 const PICKER_TYPES = [{ description: "Untie モデル", accept: { "application/json": [`.${FILE_EXTENSION}`] } }];
@@ -270,6 +272,30 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       return { path: null, name: suggestedName };
+    },
+
+    async saveTextFiles(files, { zipName, zipFolder }) {
+      const picker = pickerWindow();
+      if (picker.showDirectoryPicker) {
+        let dir: FileSystemDirectoryHandle;
+        try {
+          dir = await picker.showDirectoryPicker({ mode: "readwrite" });
+        } catch (e) {
+          if (isAbort(e)) return null;
+          throw e;
+        }
+        for (const f of files) await writeHandle(await dir.getFileHandle(f.name, { create: true }), f.text);
+        return { where: dir.name, count: files.length };
+      }
+      // フォルダを選べないブラウザでは、zip にまとめてダウンロードする
+      const zip = makeZip(files.map((f) => ({ path: `${zipFolder}/${f.name}`, text: f.text })));
+      const url = URL.createObjectURL(new Blob([zip as BlobPart], { type: "application/zip" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = zipName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return { where: zipName, count: files.length };
     },
 
     canReopenFiles,

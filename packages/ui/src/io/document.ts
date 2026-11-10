@@ -1,4 +1,5 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
+import { DOMAIN_DOCS_DIR, exportDomainDocs } from "@untie/core/model/domainExport";
 import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
 import { SAMPLES, type SampleEntry } from "@untie/core/sample";
@@ -143,6 +144,32 @@ export async function exportModelToFile(): Promise<boolean> {
     const saved = await getPlatform().saveTextFile(serializeModel(model), null, name);
     if (!saved) return false;
     st.pushToast(`「${saved.name}」に書き出しました`, "info");
+    return true;
+  } catch (e) {
+    st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
+    return false;
+  }
+}
+
+/**
+ * ドメインモデルを、distill-ddd (/ddd スキル) の成果物の形式 (docs/domain/*.md と .ddd-session.json) で書き出す。
+ * 書き出すフォルダを選ぶ (リポジトリの docs/domain)。フォルダを選べないブラウザでは zip にまとめる
+ */
+export async function exportDomainDocsToFolder(): Promise<boolean> {
+  const st = useUntieStore.getState();
+  // 入力中の名前・説明を確定させてから書き出す
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const { model } = useUntieStore.getState();
+  const docs = exportDomainDocs(model, { today: new Date().toISOString().slice(0, 10) });
+  if (docs.files.length === 0) {
+    st.pushToast("書き出すドメインモデルがありません。設計モードのドメインボードで、境界づけられたコンテキストを作ってください", "error");
+    return false;
+  }
+  try {
+    const saved = await getPlatform().saveTextFiles(docs.files, { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-domain.zip`, zipFolder: DOMAIN_DOCS_DIR });
+    if (!saved) return false;
+    const note = docs.warnings.length > 0 ? `。英語名が無いなど、distill-ddd の図に出ないものが ${docs.warnings.length} 件あります (設計モードの検証で確かめられます)` : "";
+    st.pushToast(`ドメインモデルを「${saved.where}」に書き出しました (${saved.count} ファイル)${note}`, "info");
     return true;
   } catch (e) {
     st.pushToast(`書き出せませんでした: ${String(e)}`, "error");

@@ -770,3 +770,25 @@ describe("検証パネルからの移動", () => {
     expect(st().ui.designScreenId).toBe("d1");
   });
 });
+
+describe("画面 UI の新規作成の既定", () => {
+  it("画面を使う操作が情報を読むだけ (問い合わせ) かどうかを、扱う情報の取得・保存の区別から決める", async () => {
+    const { screenIsReadOnly } = await import("../design/ScreenBuilder");
+    const { createNetshopSample } = await import("@untie/core/sample");
+    const shop = createNetshopSample();
+    const screenOf = (usecaseId: string) => shop.relations.find((r) => r.kind === "usecaseScreen" && r.sourceId === usecaseId)!.targetId;
+    // 注文を検索する は注文を読むだけ。注文を確定する は注文を書く
+    expect(screenIsReadOnly(shop, screenOf("uc_search_order"))).toBe(true);
+    expect(screenIsReadOnly(shop, screenOf("uc_confirm_order"))).toBe(false);
+    expect(screenIsReadOnly(shop, undefined)).toBe(false);
+    // 問い合わせの既定は一覧、コマンドの既定は入力。どちらも mokkun の検証に通る
+    const { newView } = await import("../design/ScreenBuilder");
+    const { validateView } = await import("../design/viewValidate");
+    const list = newView("注文の検索", "注文を探す", true) as { sections: { kind: string }[] };
+    expect(list.sections[0]!.kind).toBe("list");
+    expect(validateView(list, "v", [])).toEqual({ ok: true });
+    const form = newView("注文の確定", "注文を確定する") as { sections: { kind: string }[] };
+    expect(form.sections[0]!.kind).toBe("form");
+    expect(validateView(form, "v", [])).toEqual({ ok: true });
+  });
+});

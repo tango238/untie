@@ -76,7 +76,7 @@ function ScreenNode({ data }: NodeProps<Extract<RelationFlowNode, { type: "scree
   );
 }
 
-/** データベースの枠 (データベースが 2 つ以上のときだけ) */
+/** 枠: データベース (2 つ以上のときだけ) と、集約 (ドメインモデルで決めた情報のまとまり) */
 function FrameNode({ data }: NodeProps<Extract<RelationFlowNode, { type: "frame" }>>) {
   return (
     <div className="relation-frame" data-relation-frame>
@@ -97,7 +97,7 @@ function RelationCanvasInner() {
 
   // 画面・情報・テーブルの集合か対象のシステムが変わったら、全体が見えるよう合わせ直す (選択では動かさない)
   const rf = useReactFlow();
-  const fitKey = `${systemId}:${graph.informations.map((i) => i.id).join(",")}:${graph.databases.map((d) => `${d.id}[${d.tables.map((t) => t.name).join(",")}]`).join(",")}:${graph.screens.map((s) => s.id).join(",")}`;
+  const fitKey = `${systemId}:${graph.informations.map((i) => `${i.id}${i.aggregate ? `@${i.aggregate.id}` : ""}`).join(",")}:${graph.databases.map((d) => `${d.id}[${d.tables.map((t) => t.name).join(",")}]`).join(",")}:${graph.screens.map((s) => s.id).join(",")}`;
   useEffect(() => {
     const handle = window.requestAnimationFrame(() => void rf.fitView({ padding: 0.2, maxZoom: 1 }));
     return () => window.cancelAnimationFrame(handle);

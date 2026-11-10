@@ -789,6 +789,18 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .domain-terms td .field, .contextmap-relations td .field { margin: 0; }
 /* コンテキストマップ */
 .contextmap-title { margin: 12px 0 6px; font-size: 13px; }
+.contextmap-canvas { position: relative; height: 300px; background: #f6f4ef; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; }
+.contextmap-canvas .react-flow__handle { opacity: 0; pointer-events: none; }
+.contextmap-canvas .react-flow__edge.is-undecided .react-flow__edge-path { stroke: #c08a2c; }
+.contextmap-node { box-sizing: border-box; width: 100%; height: 100%; padding: 8px 10px; background: #fff; border: 1px solid var(--border); border-top: 4px solid #b9b2a3; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; gap: 4px; cursor: pointer; }
+.contextmap-node:focus-visible { outline: 2px solid var(--selected); outline-offset: 2px; }
+.contextmap-node.is-core { border-top-color: #c9962b; background: #fdf8ec; }
+.contextmap-node.is-supporting { border-top-color: #4a7fb5; background: #f3f8fd; }
+.contextmap-node.is-generic { border-top-color: #8a8f98; background: #f6f7f8; }
+.contextmap-node.is-external { border-style: dashed; border-top-style: solid; }
+.contextmap-node-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contextmap-node-english { margin-left: 6px; font-weight: 400; font-size: 11px; color: var(--muted); }
+.contextmap-node-sub { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 10px; color: var(--muted); }
 .contextmap-relations tr.is-undecided th { background: #fdf6e3; }
 .contextmap-relations select { max-width: 220px; }
 .contextmap-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }

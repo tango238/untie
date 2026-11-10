@@ -316,6 +316,17 @@ export function desktopPlatform(): Platform {
       return { path: target, name: baseName(target) };
     },
 
+    async saveTextFiles(files) {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const dir = await open({ multiple: false, directory: true, title: "書き出すフォルダを選ぶ" });
+      if (typeof dir !== "string") return null;
+      // 選ばれたフォルダの区切りに合わせる (Windows は \)
+      const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
+      const base = dir.endsWith(sep) ? dir : dir + sep;
+      for (const f of files) await invoke("write_model_file", { path: base + f.name, contents: f.text });
+      return { where: dir, count: files.length };
+    },
+
     canReopenFiles: () => true,
 
     confirmDiscard,

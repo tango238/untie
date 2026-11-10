@@ -9,7 +9,7 @@ import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
 import { useSessionStore } from "../cloud/session";
-import { confirmDiscardIfDirty, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { confirmDiscardIfDirty, exportDomainDocsToFolder, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
 import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
@@ -462,6 +462,8 @@ function FileMenu({
   const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const signedIn = useSessionStore((s) => s.status === "signedIn");
+  // 保存したドメインモデル (境界づけられたコンテキスト) があるときだけ、書き出しの項目を出す
+  const hasDomain = useUntieStore((s) => s.model.domain.contexts.length > 0);
   // クラウドへ保存している間は押せない (二重に作らない)
   const [savingToCloud, setSavingToCloud] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -608,6 +610,7 @@ function FileMenu({
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("ホーム", "", onHome)}
           {item("JSON に書き出す…", comboLabel("S"), () => void exportModelToFile())}
+          {hasDomain && item("ドメインモデルを書き出す (distill-ddd)…", "", () => void exportDomainDocsToFolder())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
           {modeMenu}
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
@@ -705,6 +708,7 @@ function FileMenu({
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {item("保存", comboLabel("S"), () => void saveDocument())}
           {item("別名で保存…", comboLabel("S", { shift: true }), () => void saveDocument(true))}
+          {hasDomain && item("ドメインモデルを書き出す (distill-ddd)…", "", () => void exportDomainDocsToFolder())}
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}

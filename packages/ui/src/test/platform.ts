@@ -16,6 +16,10 @@ export interface MemoryPlatform extends Platform {
   opened: OpenedFile | null;
   /** saveTextFile で書いた内容 (新しい順ではなく書いた順) */
   saved: { text: string; path: string | null; name: string }[];
+  /** saveTextFiles で選ぶフォルダ (null なら取り消し) */
+  folder: string | null;
+  /** saveTextFiles で書いた内容 */
+  savedFolders: { folder: string; files: { name: string; text: string }[]; options: { zipName: string; zipFolder: string } }[];
   /** confirmDiscard の答え */
   discard: boolean;
   /** openExternalUrl で開いた URL */
@@ -49,6 +53,8 @@ export function memoryPlatform(): MemoryPlatform {
     cloud: true,
     opened: null,
     saved: [],
+    folder: "/repo/docs/domain",
+    savedFolders: [],
     discard: true,
     openedUrls: [],
     contents: new Map(),
@@ -72,6 +78,11 @@ export function memoryPlatform(): MemoryPlatform {
       const target = path ?? `/docs/${suggestedName}`;
       p.contents.set(target, text);
       return { path: target, name: baseName(target) };
+    },
+    async saveTextFiles(files, options) {
+      if (p.folder === null) return null;
+      p.savedFolders.push({ folder: p.folder, files: files.map((f) => ({ ...f })), options });
+      return { where: p.folder, count: files.length };
     },
     canReopenFiles: () => true,
     async confirmDiscard() {
