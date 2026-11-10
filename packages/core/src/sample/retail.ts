@@ -4,7 +4,7 @@ import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigati
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
-import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -583,6 +583,7 @@ const baseModel: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain: emptyDomain(),
 };
 
 

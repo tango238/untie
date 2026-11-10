@@ -1,11 +1,11 @@
 import * as Y from "yjs";
-import type { Board, Database, DesignScreen, Element, IssueAnalysis, NavGroup, SystemDesign, Transition, UntieModel } from "@untie/core";
+import type { Board, Database, DesignScreen, DomainModel, Element, IssueAnalysis, NavGroup, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { initialOrders, planOrders } from "./order";
 import { isUndirected, RELATION_KINDS } from "@untie/core";
-import { databaseKey, designKey, getRoots, ORDER_KEY } from "./roots";
-import type { DesignMetaRecord, DesignScreenRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
-import { analysisToYMap, boardToYMap, designScreenFields, edgeFields, elementToYMap, ELEMENT_SKIPPED_KEYS, layoutRecord, navGroupFields, nodeFields, relationFields, transitionFields, writeDatabase, writeDesign } from "./write";
+import { databaseKey, designKey, excludedKey, getRoots, ORDER_KEY } from "./roots";
+import type { DesignMetaRecord, DesignScreenRecord, DomainExcludedRecord, DomainPartRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
+import { analysisToYMap, boardToYMap, designScreenFields, DOMAIN_LISTS, domainPartFields, edgeFields, elementToYMap, ELEMENT_SKIPPED_KEYS, excludedFields, layoutRecord, navGroupFields, nodeFields, relationFields, transitionFields, writeDatabase, writeDesign } from "./write";
 
 /** 配列 (id を持つ項目の並び) を Y.Map に書くための部品 */
 interface ListAdapter<T> {
@@ -252,6 +252,22 @@ function databaseAdapter(roots: UntieDocRoots): ListAdapter<Database> {
   };
 }
 
+// ---------------------------------------------------------------- ドメインモデル (0.6.0)
+// 部品ごとに id をキーにした値で置く (roots.ts)。配列ごとに、id 単位の差分を書く。
+
+function syncDomain(roots: UntieDocRoots, before: DomainModel, after: DomainModel): void {
+  if (before === after) return;
+  for (const [list, part] of DOMAIN_LISTS) {
+    const b = before[list] as readonly { id: string }[];
+    const a = after[list] as readonly { id: string }[];
+    if (b === a) continue;
+    syncList(b, a, recordAdapter<{ id: string }, DomainPartRecord>(roots.domain as Y.Map<DomainPartRecord>, (x) => x.id, (x) => domainPartFields(part, x)));
+  }
+  if (before.excluded !== after.excluded) {
+    syncList(before.excluded, after.excluded, recordAdapter<string, DomainExcludedRecord>(roots.domain as Y.Map<DomainExcludedRecord>, excludedKey, excludedFields));
+  }
+}
+
 /**
  * 関係を消したとき、Y.Doc に残っている同じ関係 (sameRelation) の重複と、その線の設定も消す。
  * 残すと、見えていた方を消した途端に、表示から外れていた重複の方が現れてしまう。
@@ -308,5 +324,6 @@ export function applyModelDiff(doc: Y.Doc, before: UntieModel, after: UntieModel
     syncList(before.boards, after.boards, boardAdapter(roots.boards));
     syncList(before.designs, after.designs, designAdapter(roots));
     syncList(before.databases, after.databases, databaseAdapter(roots));
+    syncDomain(roots, before.domain, after.domain);
   }, origin);
 }

@@ -1,6 +1,21 @@
 import type { ElementKind } from "./types";
 
-export type IdKind = ElementKind | "relation" | "board" | "designScreen" | "transition" | "database" | "navGroup";
+export type IdKind =
+  | ElementKind
+  | "relation"
+  | "board"
+  | "designScreen"
+  | "transition"
+  | "database"
+  | "navGroup"
+  | "boundedContext"
+  | "aggregate"
+  | "invariant"
+  | "domainCommand"
+  | "domainEvent"
+  | "domainPolicy"
+  | "contextRelation"
+  | "domainTerm";
 
 export const ID_PREFIXES: Record<IdKind, string> = {
   actor: "actor",
@@ -28,6 +43,15 @@ export const ID_PREFIXES: Record<IdKind, string> = {
   database: "db",
   // ナビゲーションのグループ (レイアウト)
   navGroup: "nav",
+  // ドメインモデル (0.6.0)
+  boundedContext: "bc",
+  aggregate: "ag",
+  invariant: "inv",
+  domainCommand: "cm",
+  domainEvent: "de",
+  domainPolicy: "po",
+  contextRelation: "cr",
+  domainTerm: "tm",
 };
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

@@ -25,3 +25,5 @@ export * from "./domainModel";
 export * from "./domainNotices";
 export * from "./domainScope";
 export * from "./domainCache";
+export * from "./domain";
+export * from "./domainCommands";

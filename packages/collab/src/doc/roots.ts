@@ -13,6 +13,7 @@ export const ROOT_NAMES = {
   designTransitions: "designTransitions",
   designNav: "designNav",
   databases: "databases",
+  domain: "domain",
 } as const;
 
 /** 順序キーを入れる項目名 (要素・ボードは Y.Map のキー、関係・ノード・線は値の項目) */
@@ -91,6 +92,33 @@ export interface NavGroupRecord {
   order: string;
 }
 
+// ドメインモデル (0.6.0) も、1 つのルートに平らな「キー → JSON の値」で置く。部品 (コンテキスト・集約・コマンド・イベント・ポリシー・関係・用語) は
+// id をキーにし、値に部品の種類 (part) と並び (order) を持つ。親 (集約のコンテキスト、コマンドの集約) は値の中の id で指すので、付け替えてもキーは変わらない。
+// 別々の部品を 2 人が同時に直しても両方残り、同じ部品への同時の書き込みは後勝ちで 1 つになる (集約の中の情報・不変条件は集約の値の中なので、同じ集約を同時に直すと後勝ち)。
+// 外した候補 (excluded) は 1 件 1 キー (`x:` + 候補のキー) で置く。
+
+/** domain の値の種類 */
+export const DOMAIN_PARTS = ["context", "aggregate", "command", "event", "policy", "relation", "term"] as const;
+export type DomainPart = (typeof DOMAIN_PARTS)[number];
+
+/** domain の値 (キーは部品の id)。part と order のほかは、部品の JSON そのまま (id を含む) */
+export interface DomainPartRecord {
+  part: DomainPart;
+  id: string;
+  order: string;
+  [key: string]: unknown;
+}
+
+/** domain の値 (キーは `x:` + 候補のキー)。外した候補 */
+export interface DomainExcludedRecord {
+  part: "excluded";
+  key: string;
+  order: string;
+}
+
+/** 外した候補の Y.Map のキー (部品の id は [A-Za-z0-9_-] だけなので、`:` を含むキーとは重ならない) */
+export const excludedKey = (key: string) => `x:${key}`;
+
 /** designs のキー。systemId・データベースの id は [A-Za-z0-9_-] だけなので、`/` で区切れる */
 export const designKey = (systemId: string, part: "meta" | "layout") => `${systemId}/${part}`;
 /** databases のキー。データベースがあるかは `${id}/name` の有無で決める */
@@ -118,6 +146,8 @@ export interface UntieDocRoots {
   designNav: Y.Map<NavGroupRecord>;
   /** `${id}/name`・`${id}/dsl` (文字列)、`${id}/tables` (JSON)、`${id}/order` */
   databases: Y.Map<unknown>;
+  /** ドメインモデルの部品の id → DomainPartRecord、`x:` + 候補のキー → DomainExcludedRecord */
+  domain: Y.Map<DomainPartRecord | DomainExcludedRecord>;
 }
 
 /** Y.Doc からルートを取り出す (無ければ作られる) */
@@ -132,5 +162,6 @@ export function getRoots(doc: Y.Doc): UntieDocRoots {
     designTransitions: doc.getMap(ROOT_NAMES.designTransitions),
     designNav: doc.getMap(ROOT_NAMES.designNav),
     databases: doc.getMap(ROOT_NAMES.databases),
+    domain: doc.getMap(ROOT_NAMES.domain),
   };
 }

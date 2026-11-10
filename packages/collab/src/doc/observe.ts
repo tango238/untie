@@ -10,6 +10,8 @@ export interface ModelChanges {
   designs: Set<string>;
   /** 変わったデータベースの id */
   databases: Set<string>;
+  /** ドメインモデル (domain) が変わったか */
+  domain: boolean;
   /** meta (名前・説明) が変わったか */
   meta: boolean;
 }
@@ -22,7 +24,7 @@ export interface ModelChanges {
 export function observeModelChanges(doc: Y.Doc, onChange: (changed: ModelChanges, origin: unknown) => void): () => void {
   const roots = getRoots(doc);
   let pending: ModelChanges | null = null;
-  const take = (): ModelChanges => (pending ??= { elements: new Set(), relations: new Set(), boards: new Set(), designs: new Set(), databases: new Set(), meta: false });
+  const take = (): ModelChanges => (pending ??= { elements: new Set(), relations: new Set(), boards: new Set(), designs: new Set(), databases: new Set(), domain: false, meta: false });
 
   /** ルートの直下の項目 (path が空ならルートの Y.Map のキー、そうでなければ path の先頭が id) */
   const collect = (target: Set<string>) => (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
@@ -49,6 +51,9 @@ export function observeModelChanges(doc: Y.Doc, onChange: (changed: ModelChanges
   const onTransitions = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => owners(roots.designTransitions, take().designs)(events);
   const onNav = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => owners(roots.designNav, take().designs)(events);
   const onDatabases = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => prefixes(take().databases)(events);
+  const onDomain = () => {
+    take().domain = true;
+  };
   const onMeta = () => {
     take().meta = true;
   };
@@ -68,6 +73,7 @@ export function observeModelChanges(doc: Y.Doc, onChange: (changed: ModelChanges
   roots.designTransitions.observeDeep(onTransitions);
   roots.designNav.observeDeep(onNav);
   roots.databases.observeDeep(onDatabases);
+  roots.domain.observeDeep(onDomain);
   doc.on("afterTransaction", onAfter);
   return () => {
     roots.meta.unobserveDeep(onMeta);
@@ -79,6 +85,7 @@ export function observeModelChanges(doc: Y.Doc, onChange: (changed: ModelChanges
     roots.designTransitions.unobserveDeep(onTransitions);
     roots.designNav.unobserveDeep(onNav);
     roots.databases.unobserveDeep(onDatabases);
+    roots.domain.unobserveDeep(onDomain);
     doc.off("afterTransaction", onAfter);
   };
 }

@@ -2,6 +2,7 @@
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
+import { renameDomainStateGroup, sweepDomain } from "./domain";
 import { newUniqueId } from "./id";
 import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
@@ -219,6 +220,8 @@ function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void 
     if (e.kind === "issue") e.targetIds = e.targetIds.filter((id) => !removed.has(id));
   }
   sweepDesigns(draft, removed);
+  // ドメインモデル (0.6.0) からも、消えた要素への参照を掃除する (呼ぶ側が draft.elements から要素を消したあとに呼ぶ)
+  sweepDomain(draft);
 }
 
 /**
@@ -1131,12 +1134,18 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       else el.description = patch.description;
     }
     if (el.kind === "state" && patch.group !== undefined) {
+      const oldGroup = el.group;
       if (patch.group === "") delete el.group;
       else {
         el.group = patch.group;
         // 既にあるグループへ移したら、そのグループのコンテキストに合わせる
         const other = model.elements.find((e) => e.kind === "state" && e.group === patch.group && e.id !== el.id);
         if (other && other.kind === "state") el.contextId = other.contextId;
+      }
+      // もとの状態グループの状態が 1 つも残らなければ、集約 (ドメインモデル) の状態グループも付け替える (名前が無くなったら外す)
+      if (oldGroup !== undefined && oldGroup !== el.group && !draft.elements.some((e) => e.kind === "state" && e.group === oldGroup)) {
+        if (el.group !== undefined) renameDomainStateGroup(draft, oldGroup, el.group);
+        else sweepDomain(draft);
       }
     }
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];

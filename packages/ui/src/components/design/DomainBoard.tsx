@@ -2,7 +2,7 @@ import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, u
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cachedDomainScope } from "@untie/core/model/domainCache";
 import { DOMAIN_NOTICE_TITLES } from "@untie/core/model/domainNotices";
-import type { DomainScope, DomainTerm } from "@untie/core/model/domainScope";
+import type { DomainScope, ScopedTerm } from "@untie/core/model/domainScope";
 import { ELEMENT_KIND_LABELS } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
 import { El, ElementClickContext } from "../analysis/analysisParts";
@@ -152,7 +152,7 @@ const COLUMN_HINTS: Record<"aggregates" | "flow", string> = {
   flow: "操作とイベントを「次に」「発生」「きっかけ」でつなぎ、始まりから順に左から右へ並べます (破線はきっかけ = ポリシー)。つながりの無いものは右端の列",
 };
 
-function TermsTable({ terms }: { terms: DomainTerm[] }) {
+function TermsTable({ terms }: { terms: ScopedTerm[] }) {
   if (terms.length === 0) return <p className="hint">用語がありません。</p>;
   return (
     <table className="an-table domain-terms" aria-label="用語">

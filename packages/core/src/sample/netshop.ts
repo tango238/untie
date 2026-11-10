@@ -4,7 +4,7 @@
 // 人が担当しない処理 (在庫の引き当て・売掛金の計上) は作業にせず、イベントをきっかけにした自動の処理にする。
 // 画面と非機能要件もシステムに持たせる。検証のエラーも警告も出ない形にする (サンプルのテストで確かめる)
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -702,6 +702,7 @@ export const netshopSample: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain: emptyDomain(),
 };
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */

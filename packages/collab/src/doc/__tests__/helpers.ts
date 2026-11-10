@@ -20,6 +20,21 @@ import {
   setIssueTargets,
   updateElement,
   EDGE_SIDES,
+  addAggregate,
+  addBoundedContext,
+  addContextRelation,
+  addDomainCommand,
+  addDomainEvent,
+  addDomainPolicy,
+  CONTEXT_RELATION_KINDS,
+  removeAggregate,
+  removeBoundedContext,
+  removeDomainCommand,
+  removeDomainEvent,
+  setCandidateExcluded,
+  setDomainTerm,
+  updateAggregate,
+  updateBoundedContext,
   type CommandResult,
   type Element,
   type ElementKind,
@@ -110,7 +125,7 @@ function pickCommand(model: UntieModel, rng: Rng, name: { current: string }): Co
   const els = model.elements;
   const boards = model.boards;
   const board = rng.pick(boards);
-  const choice = rng.int(18);
+  const choice = rng.int(21);
   switch (choice) {
     case 0:
     case 1: {
@@ -217,8 +232,99 @@ function pickCommand(model: UntieModel, rng: Rng, name: { current: string }): Co
         return clearAll(model);
       }
       return setMeta(model, rng, name);
+    case 17:
+    case 18:
+    case 19:
+      return domainCommand(model, rng, name);
     default:
       return setMeta(model, rng, name);
+  }
+}
+
+/** ドメインモデル (0.6.0) のコマンドを 1 つ選んで当てる */
+function domainCommand(model: UntieModel, rng: Rng, name: { current: string }): CommandResult {
+  const d = model.domain;
+  const english = () => `Name${rng.int(1000)}`;
+  switch (rng.int(14)) {
+    case 0:
+    case 1:
+      name.current = "addBoundedContext";
+      return addBoundedContext(model, {
+        name: word(rng),
+        ...(rng.bool(0.5) ? { english: english() } : {}),
+        ...(rng.bool(0.4) ? { subdomain: rng.pick(["core", "supporting", "generic"] as const) } : {}),
+        ...(rng.bool(0.5) ? { contextIds: [rng.pick(ofKind(model, "context")).id] } : {}),
+        ...(rng.bool(0.5) ? { systemIds: [rng.pick(ofKind(model, "system")).id] } : {}),
+      });
+    case 2:
+      name.current = "updateBoundedContext";
+      return updateBoundedContext(model, { id: rng.pick(d.contexts).id, patch: { name: word(rng), description: rng.bool(0.3) ? "" : word(rng), team: rng.bool(0.5) ? word(rng) : null, subdomain: rng.bool(0.3) ? null : "core" } });
+    case 3:
+      name.current = "removeBoundedContext";
+      return rng.bool(0.4) ? removeBoundedContext(model, { id: rng.pick(d.contexts).id }) : { ok: false, reason: "skip" };
+    case 4:
+    case 5: {
+      name.current = "addAggregate";
+      const infos = ofKind(model, "information");
+      return addAggregate(model, {
+        boundedContextId: rng.pick(d.contexts).id,
+        rootInformationId: rng.pick(infos).id,
+        ...(rng.bool(0.4) ? { memberInformationIds: [rng.pick(infos).id] } : {}),
+        ...(rng.bool(0.4) ? { invariants: [{ text: word(rng) }] } : {}),
+      });
+    }
+    case 6: {
+      name.current = "updateAggregate";
+      const groups = ofKind(model, "state").map((s) => s.group).filter((g): g is string => !!g);
+      return updateAggregate(model, {
+        id: rng.pick(d.aggregates).id,
+        patch: { name: word(rng), english: rng.bool(0.5) ? english() : null, ...(groups.length > 0 && rng.bool(0.5) ? { stateGroup: rng.pick(groups) } : {}), invariants: rng.bool(0.5) ? [{ text: word(rng) }, { text: word(rng) }] : [] },
+      });
+    }
+    case 7:
+      name.current = "removeAggregate";
+      return rng.bool(0.4) ? removeAggregate(model, { id: rng.pick(d.aggregates).id }) : { ok: false, reason: "skip" };
+    case 8: {
+      name.current = "addDomainEvent";
+      const aggregate = rng.bool(0.6) && d.aggregates.length > 0 ? rng.pick(d.aggregates) : null;
+      const events = ofKind(model, "event");
+      return addDomainEvent(model, {
+        ...(aggregate ? { aggregateId: aggregate.id } : { boundedContextId: rng.pick(d.contexts).id }),
+        ...(rng.bool(0.5) && events.length > 0 ? { eventId: rng.pick(events).id } : { name: word(rng) }),
+        ...(rng.bool(0.3) ? { properties: [{ name: word(rng) }] } : {}),
+      });
+    }
+    case 9: {
+      name.current = "addDomainCommand";
+      const usecases = ofKind(model, "usecase");
+      return addDomainCommand(model, {
+        aggregateId: rng.pick(d.aggregates).id,
+        ...(rng.bool(0.5) && usecases.length > 0 ? { source: { usecaseId: rng.pick(usecases).id } } : { name: word(rng) }),
+        ...(d.events.length > 0 && rng.bool(0.5) ? { emits: [rng.pick(d.events).id] } : {}),
+      });
+    }
+    case 10:
+      name.current = "addDomainPolicy";
+      return addDomainPolicy(model, { eventId: rng.pick(d.events).id, commandId: rng.pick(d.commands).id, auto: rng.bool() });
+    case 11:
+      name.current = "addContextRelation";
+      return addContextRelation(model, { upstreamId: rng.pick(d.contexts).id, downstreamId: rng.pick(d.contexts).id, kind: rng.pick(CONTEXT_RELATION_KINDS), ...(rng.bool(0.5) ? { integration: "messaging" } : {}) });
+    case 12: {
+      name.current = "setDomainTerm";
+      return rng.bool(0.5)
+        ? setDomainTerm(model, { elementId: rng.pick(model.elements).id, english: rng.bool(0.3) ? "" : word(rng), definition: rng.bool(0.3) ? "" : word(rng) })
+        : setDomainTerm(model, { term: word(rng), definition: word(rng), boundedContextId: d.contexts.length > 0 && rng.bool(0.5) ? rng.pick(d.contexts).id : null });
+    }
+    default: {
+      if (rng.bool(0.5)) {
+        name.current = "setCandidateExcluded";
+        const usecases = ofKind(model, "usecase");
+        const key = `usecase:${rng.pick(usecases).id}`;
+        return setCandidateExcluded(model, { key, excluded: !d.excluded.includes(key) });
+      }
+      name.current = "removeDomainCommandOrEvent";
+      return rng.bool(0.5) ? removeDomainCommand(model, { id: rng.pick(d.commands).id }) : removeDomainEvent(model, { id: rng.pick(d.events).id });
+    }
   }
 }
 
@@ -284,5 +390,7 @@ export function allOrders(doc: Y.Doc): Record<string, string[]> {
     out[`nodes:${id}`] = [...(board.get("nodes") as Y.Map<{ order: string }>).values()].map((n) => n.order);
     out[`edges:${id}`] = [...(board.get("edges") as Y.Map<{ order: string }>).values()].map((n) => n.order);
   }
+  // ドメインモデルは 1 つのルートに部品の種類ごとに並ぶので、種類ごとに見る
+  for (const record of roots.domain.values()) (out[`domain:${record.part}`] ??= []).push(record.order);
   return out;
 }

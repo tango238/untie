@@ -2,7 +2,7 @@
 // 請求・入金・支払・経費精算・記帳・月次決算・年次決算の流れと、現場の困りごとを置く。
 // 1 つの業務の主担当は 1 人にする (業務に複数のアクターを結ぶと検証が警告を出す)。ほかの人は作業の担当にする。
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -509,6 +509,7 @@ export const accountingSample: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain: emptyDomain(),
 };
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */

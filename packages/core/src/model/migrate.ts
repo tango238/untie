@@ -84,6 +84,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.5.4",
     migrate: (json) => json,
   },
+  {
+    // 0.6.0: ドメインモデルの入れ物 (domain)。必須なので、空のものを足す
+    from: "0.5.4",
+    to: "0.6.0",
+    migrate: (json) => (typeof json.domain === "object" && json.domain !== null && !Array.isArray(json.domain) ? json : { ...json, domain: { contexts: [], aggregates: [], commands: [], events: [], policies: [], excluded: [], relations: [], terms: [] } }),
+  },
 ];
 
 /**

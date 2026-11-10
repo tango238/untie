@@ -2,6 +2,7 @@
 import type { ErrorObject } from "ajv";
 // 検証関数は事前に生成しておく (アプリの CSP が eval を許さないため、実行時に ajv.compile() できない)
 import * as generated from "./schemaValidator.gen.js";
+import { inspectDomain } from "./domain";
 import { relationKindFor, sameRelation } from "./relations";
 import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind, issueScopeOfKind } from "./types";
 import type { Element, UntieModel } from "./types";
@@ -110,7 +111,10 @@ export function isValidElementShape(json: unknown): json is Element {
 }
 
 /** 設計データの部品 (スキーマの $defs) */
-export type DesignPartKind = "designScreen" | "transition" | "layout" | "navGroup" | "database";
+export type DesignPartKind = "designScreen" | "transition" | "layout" | "navGroup" | "database" | DomainPartKind;
+
+/** ドメインモデルの部品 (スキーマの $defs。0.6.0) */
+export type DomainPartKind = "boundedContext" | "aggregate" | "domainCommand" | "domainEvent" | "domainPolicy" | "contextRelation" | "domainTerm";
 
 /**
  * 設計データの部品 1 つがスキーマに合うか。参照整合性は見ない。
@@ -272,6 +276,8 @@ export function checkIntegrity(model: UntieModel): string[] {
   }
 
   errors.push(...checkDesignIntegrity(model, byId));
+  // ドメインモデル (0.6.0) の参照整合性。規則は domain.ts の inspectDomain (修復と同じ)
+  for (const p of inspectDomain(model.domain, model.elements).problems) errors.push(`ドメインモデルの${p.what}`);
 
   return errors;
 }

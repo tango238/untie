@@ -1,10 +1,10 @@
 // モデルの項目を Y.Doc の値に変える書き込みの部品 (loadModel と applyModelDiff で共有する)。
 import * as Y from "yjs";
-import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, IssueAnalysis, Layout, NavGroup, Relation, SystemDesign, Transition } from "@untie/core";
+import type { Board, BoardEdge, BoardNode, Database, DesignScreen, DomainModel, Element, IssueAnalysis, Layout, NavGroup, Relation, SystemDesign, Transition } from "@untie/core";
 import { cloneJson } from "./json";
 import { initialOrders } from "./order";
-import { databaseKey, designKey, ORDER_KEY } from "./roots";
-import type { DesignLayoutRecord, DesignMetaRecord, DesignScreenRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
+import { databaseKey, designKey, excludedKey, ORDER_KEY } from "./roots";
+import type { DesignLayoutRecord, DesignMetaRecord, DesignScreenRecord, DomainExcludedRecord, DomainPart, DomainPartRecord, EdgeRecord, NavGroupRecord, NodeRecord, RelationRecord, TransitionRecord, UntieDocRoots } from "./roots";
 
 /** 要素の Y.Map に置かない項目 (id はキー、order は別に振る) */
 export const ELEMENT_SKIPPED_KEYS: ReadonlySet<string> = new Set(["id", ORDER_KEY]);
@@ -122,4 +122,37 @@ export function writeDatabase(roots: UntieDocRoots, db: Database, order: string)
   roots.databases.set(databaseKey(db.id, "dsl"), db.dsl);
   roots.databases.set(databaseKey(db.id, "tables"), cloneJson(db.tables));
   roots.databases.set(databaseKey(db.id, "order"), order);
+}
+
+// ---------------------------------------------------------------- ドメインモデル (0.6.0)
+
+/** ドメインモデルの配列と、Y.Doc での部品の種類 */
+export const DOMAIN_LISTS = [
+  ["contexts", "context"],
+  ["aggregates", "aggregate"],
+  ["commands", "command"],
+  ["events", "event"],
+  ["policies", "policy"],
+  ["relations", "relation"],
+  ["terms", "term"],
+] as const satisfies readonly (readonly [Exclude<keyof DomainModel, "excluded">, DomainPart])[];
+
+/** order を除いた値 (比較用)。部品の JSON に、部品の種類を足す */
+export function domainPartFields(part: DomainPart, item: { id: string }): Omit<DomainPartRecord, "order"> {
+  return { ...(cloneJson(item) as Record<string, unknown>), part, id: item.id };
+}
+
+export function excludedFields(key: string): Omit<DomainExcludedRecord, "order"> {
+  return { part: "excluded", key };
+}
+
+/** ドメインモデルを平らなキーに書く (loadModel) */
+export function writeDomain(roots: UntieDocRoots, domain: DomainModel): void {
+  for (const [list, part] of DOMAIN_LISTS) {
+    const items = domain[list] as readonly { id: string }[];
+    const orders = initialOrders(items.length);
+    items.forEach((item, i) => roots.domain.set(item.id, { ...domainPartFields(part, item), order: orders[i]! } as DomainPartRecord));
+  }
+  const orders = initialOrders(domain.excluded.length);
+  domain.excluded.forEach((key, i) => roots.domain.set(excludedKey(key), { ...excludedFields(key), order: orders[i]! }));
 }

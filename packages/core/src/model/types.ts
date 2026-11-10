@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, EventTiming, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, DomainModel, Element, EventTiming, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -34,6 +34,14 @@ export type {
   Layout,
   NavGroup,
   Database,
+  DomainModel,
+  BoundedContext,
+  Aggregate,
+  DomainCommand,
+  DomainEvent,
+  DomainPolicy,
+  ContextRelation,
+  DomainTerm,
   Event as EventElement,
   Screen,
   Nfr,
@@ -347,7 +355,12 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.5.4";
+export const MODEL_VERSION = "0.6.0";
+
+/** 空のドメインモデル (0.6.0) */
+export function emptyDomain(): DomainModel {
+  return { contexts: [], aggregates: [], commands: [], events: [], policies: [], excluded: [], relations: [], terms: [] };
+}
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {
@@ -359,5 +372,6 @@ export function emptyModel(name = "新しいモデル", boardId = "board_main"):
     boards: [{ id: boardId, name: "ボード 1", nodes: [] }],
     designs: [],
     databases: [],
+    domain: emptyDomain(),
   };
 }

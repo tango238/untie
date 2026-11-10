@@ -54,13 +54,13 @@ export interface ScopedContext {
   businesses: Business[];
 }
 
-export type DomainTermKind = "information" | "state" | "variation" | "condition" | "event" | "usecase";
+export type ScopedTermKind = "information" | "state" | "variation" | "condition" | "event" | "usecase";
 
-export const DOMAIN_TERM_KINDS: readonly DomainTermKind[] = ["information", "state", "variation", "condition", "event", "usecase"];
+export const DOMAIN_TERM_KINDS: readonly ScopedTermKind[] = ["information", "state", "variation", "condition", "event", "usecase"];
 
-export interface DomainTerm {
+export interface ScopedTerm {
   element: Element;
-  kind: DomainTermKind;
+  kind: ScopedTermKind;
   /** 属するコンテキスト (操作は書く情報か読む情報のコンテキスト) */
   context: Context | null;
   description: string;
@@ -80,7 +80,7 @@ export interface DomainScope {
   events: ScopedEvent[];
   contexts: ScopedContext[];
   notices: DomainNotice[];
-  terms: DomainTerm[];
+  terms: ScopedTerm[];
 }
 
 const EMPTY: Omit<DomainScope, "systemId"> = { commands: [], splitCommands: [], queries: [], events: [], contexts: [], notices: [], terms: [] };
@@ -225,14 +225,14 @@ function buildTerms(
   byId: Map<string, Element>,
   order: <T extends { id: string }>(xs: T[]) => T[],
   scope: Pick<DomainScope, "commands" | "queries" | "events" | "contexts" | "notices">,
-): DomainTerm[] {
+): ScopedTerm[] {
   const contextOf = (id: string | null | undefined): Context | null => {
     const c = id ? byId.get(id) : undefined;
     return c && c.kind === "context" ? c : null;
   };
   const homonymIds = new Set(scope.notices.filter((n) => n.type === "homonym").flatMap((n) => n.elementIds));
-  const terms = new Map<string, DomainTerm>();
-  const add = (element: Element, kind: DomainTermKind, context: Context | null, values: string[] = []) => {
+  const terms = new Map<string, ScopedTerm>();
+  const add = (element: Element, kind: ScopedTermKind, context: Context | null, values: string[] = []) => {
     if (terms.has(element.id)) return;
     terms.set(element.id, { element, kind, context, description: element.description ?? "", values, homonym: homonymIds.has(element.id) });
   };
@@ -260,7 +260,7 @@ function buildTerms(
   for (const c of scope.commands) add(c.usecase, "usecase", contextOf(commandContextId(c)));
   for (const q of scope.queries) add(q.usecase, "usecase", contextOf(q.reads[0]?.contextId));
   const contextRank = new Map<string | null, number>(scope.contexts.map((c, i) => [c.context?.id ?? null, i]));
-  const rank = (t: DomainTerm) => contextRank.get(t.context?.id ?? null) ?? contextRank.size;
+  const rank = (t: ScopedTerm) => contextRank.get(t.context?.id ?? null) ?? contextRank.size;
   const position = new Map(model.elements.map((e, i) => [e.id, i]));
   return [...terms.values()].sort(
     (a, b) => rank(a) - rank(b) || DOMAIN_TERM_KINDS.indexOf(a.kind) - DOMAIN_TERM_KINDS.indexOf(b.kind) || (position.get(a.element.id) ?? 0) - (position.get(b.element.id) ?? 0),

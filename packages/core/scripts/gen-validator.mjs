@@ -14,7 +14,7 @@ const refs = { validateModelSchema: schema.$id };
 for (const kind of schema.$defs.elementKind.enum) refs[`validate_${kind}`] = `${schema.$id}#/$defs/${kind}`;
 
 // 設計データの部品ごとの検証 (同時編集で Y.Doc から読むとき、壊れた項目を読み飛ばすのに使う)
-for (const def of ["designScreen", "transition", "layout", "navGroup", "database"]) refs[`validateDef_${def}`] = `${schema.$id}#/$defs/${def}`;
+for (const def of ["designScreen", "transition", "layout", "navGroup", "database", "boundedContext", "aggregate", "domainCommand", "domainEvent", "domainPolicy", "contextRelation", "domainTerm"]) refs[`validateDef_${def}`] = `${schema.$id}#/$defs/${def}`;
 
 // ajv の補助関数は require で書き出されるので、ESM の import に置き換える
 const imports = [];
