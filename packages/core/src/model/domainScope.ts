@@ -10,7 +10,10 @@ import { domainNotices, type DomainNotice } from "./domainNotices";
 import { informationPlaces } from "./placement";
 import type { Activity, Business, Condition, Context, Element, EventElement, Information, State, UntieModel, Variation } from "./types";
 
-/** ドメインボードで選んでいるもの (UI の状態。保存しない)。context の id が null は未分類。aggregate は情報、command・query は操作の id */
+/**
+ * ドメインボードで選んでいるもの (UI の状態。保存しない)。id は、保存したものならその id (bc_ / ag_ / cm_ / de_)、候補ならもとの分析の要素の id:
+ * context は分析のコンテキスト (null は未分類)、aggregate は情報、event は分析のイベント、command は操作 (作業で分けた候補は <操作の id>/<作業の id>)、query は操作
+ */
 export type DesignDomainSelection =
   | { kind: "context"; id: string | null }
   | { kind: "aggregate"; id: string }
@@ -276,11 +279,21 @@ export function domainSelectionExists(scope: DomainScope, sel: DesignDomainSelec
   return scope.commands.some((c) => c.usecase.id === sel.id);
 }
 
-/** 選んでいるものの要素が、モデルにまだあるか (種類も合うか)。範囲の中にあるかは見ない (ストアの整合で、毎回しぼり込みをやり直さないため) */
+/**
+ * 選んでいるものが、モデルにまだあるか。保存したもの (domain の id) か、候補のもとの分析の要素 (種類も合うか) を見る。
+ * このボードに出ているかは見ない (ストアの整合で、毎回しぼり込みをやり直さないため)
+ */
 export function domainSelectionElementExists(model: UntieModel, sel: DesignDomainSelection): boolean {
-  if (sel.kind === "context" && sel.id === null) return true;
-  const kind = sel.kind === "context" ? "context" : sel.kind === "aggregate" ? "information" : sel.kind === "event" ? "event" : "usecase";
-  return model.elements.some((e) => e.id === sel.id && e.kind === kind);
+  const d = model.domain;
+  const has = (id: string, kind: Element["kind"]) => model.elements.some((e) => e.id === id && e.kind === kind);
+  if (sel.kind === "context") return sel.id === null || d.contexts.some((c) => c.id === sel.id) || has(sel.id, "context");
+  if (sel.kind === "aggregate") return d.aggregates.some((a) => a.id === sel.id) || has(sel.id, "information");
+  if (sel.kind === "event") return d.events.some((e) => e.id === sel.id) || has(sel.id, "event");
+  if (sel.kind === "query") return has(sel.id, "usecase");
+  if (d.commands.some((c) => c.id === sel.id)) return true;
+  // 候補のコマンド: 操作の id か、作業で分けた候補の <操作の id>/<作業の id>
+  const [usecaseId, activityId] = sel.id.split("/");
+  return has(usecaseId ?? "", "usecase") && (activityId === undefined || has(activityId, "activity"));
 }
 
 /** 操作のコンテキスト: 集約 (書く情報のうち状態グループの持ち主) → 最初に書く情報 → 最初に読む情報 のコンテキスト */

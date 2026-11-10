@@ -2,6 +2,7 @@
 // 保存するのは人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い
 // (コマンド・イベント・ポリシー) だけで、分析から導ける候補は保存しない (domainModel.ts が毎回導く)。
 // 参照の規則は 1 か所 (inspectDomain) に書き、検証 (validateModel)・修復 (repairModel)・要素を消したときの掃除 (removeElement) が同じ規則を使う。
+import { current, isDraft } from "immer";
 import type { Aggregate, BoundedContext, ContextRelation, DomainCommand, DomainEvent, DomainModel, DomainPolicy, DomainTerm, Element, UntieModel } from "./types";
 
 export type Subdomain = NonNullable<BoundedContext["subdomain"]>;
@@ -83,6 +84,17 @@ export const policyCandidateKey = (relationId: string) => `policy:${relationId}`
 /** コマンドの出どころのキー (domainModel.ts の commandKey と同じ形) */
 export const commandSourceKey = (source: { usecaseId: string; activityId?: string }) => (source.activityId ? `usecase:${source.usecaseId}/activity:${source.activityId}` : `usecase:${source.usecaseId}`);
 
+const EXCLUDED_KEY = /^(?:usecase:([A-Za-z0-9_-]+)(?:\/activity:([A-Za-z0-9_-]+))?|event:([A-Za-z0-9_-]+)|policy:([A-Za-z0-9_-]+))$/;
+export type ExcludedKey = { kind: "command"; usecaseId: string; activityId?: string } | { kind: "event"; eventId: string } | { kind: "policy"; relationId: string };
+/** 外した候補のキーを読む (形が正しくなければ null) */
+export function parseExcludedKey(key: string): ExcludedKey | null {
+  const m = EXCLUDED_KEY.exec(key);
+  if (!m) return null;
+  if (m[1] !== undefined) return { kind: "command", usecaseId: m[1], ...(m[2] !== undefined ? { activityId: m[2] } : {}) };
+  if (m[3] !== undefined) return { kind: "event", eventId: m[3] };
+  return { kind: "policy", relationId: m[4]! };
+}
+
 /** ドメインモデルが空か (保存した判断が 1 つも無い) */
 export function isEmptyDomain(domain: DomainModel): boolean {
   return (
@@ -128,19 +140,23 @@ export interface DomainInspection {
  * - コンテキスト: 分析のコンテキスト・システムでないものを指す contextIds・systemIds は外す
  * - 集約: コンテキストが無い・ルートの情報が無いものは消す。情報でない中の情報・ルートと同じ中の情報は外す。
  *   どの状態にも無い状態グループは外す。不変条件のもとの条件が無ければ、その参照だけ外す
- * - イベント: コンテキストが無いものは消す。集約が無い・別のコンテキストの集約なら集約の参照を外す。分析のイベントが無ければその参照を外す。
- *   同じ分析のイベントを指すものが複数あれば後のものを消す。属性のもとの情報が無ければその参照を外す
+ * - イベント: コンテキストが無いものは消す。集約が無ければ集約の参照を外し、集約が別のコンテキストにあれば、イベントを集約のコンテキストへ移す
+ *   (同時編集で、集約の移動とイベントの編集が重なったとき)。分析のイベントが無ければその参照を外す。
+ *   同じ分析のイベントを指すものが複数あれば後のものを消す (消したものを指す emits とポリシーは、残したものへ付け替える)。属性のもとの情報が無ければその参照を外す
  * - コマンド: 集約が無いものは消す。出どころの操作が無ければ出どころを外し (あるべき姿のコマンドとして残す)、作業が無ければ作業だけ外す。
- *   同じ出どころのものが複数あれば後のものを消す。無いイベントは emits から外す
+ *   同じ出どころのものが複数あれば後のものを消す (消したものを指すポリシーは、残したものへ付け替える)。無いイベントは emits から外す
  * - ポリシー: イベントかコマンドが無いもの、同じ組のものは消す
- * - 関係: どちらかのコンテキストが無いもの、両端が同じもの、同じ向きの同じ組のものは消す
- * - 用語: コンテキストが無ければ全体で共通 (null) にする。分析の要素が無ければその参照を外す。同じ要素の用語が複数あれば後のものを消す
- * - excluded: 重複を除く
+ * - 関係: どちらかのコンテキストが無いもの、両端が同じもの、同じ向きの同じ組のものは消す。対等な関係 (パートナーシップなど) は、逆向きのものも同じ組として消す
+ * - 用語: コンテキストが無ければ全体で共通 (null) にする。分析の要素が無ければその参照を外す。同じ要素の用語が複数あれば後のものを消す。
+ *   要素の用語の term は、要素の名前の写しなので、名前と違えば合わせる (名前が空のときはそのまま)
+ * - excluded: 重複を除く。形の正しくないキー、もとの操作・作業・イベントが無いキーは外す (ポリシーのキーは、関係を見ないのでそのまま)
+ * 消した部品の id は、ほかの部品が使ってよい (重なりの判定から外す)。
  * 同じコンテキストの 2 つの集約に同じ情報が入っている、などの設計上の問題は、ここでは見ない (domainCheck.ts)。
  */
 export function inspectDomain(domain: DomainModel, elements: readonly Element[]): DomainInspection {
   const problems: DomainProblem[] = [];
   const kindOf = new Map<string, Element["kind"]>(elements.map((e) => [e.id, e.kind]));
+  const nameOf = new Map<string, string>(elements.map((e) => [e.id, e.name]));
   const groups = new Set<string>();
   for (const e of elements) if (e.kind === "state" && e.group) groups.add(e.group);
   const is = (id: string, kind: Element["kind"]) => kindOf.get(id) === kind;
@@ -173,10 +189,12 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
   for (const a of unique(domain.aggregates, "集約")) {
     if (!contextIds.has(a.boundedContextId)) {
       problems.push({ what: `集約 ${a.id} のコンテキスト ${a.boundedContextId} が無い`, fix: "集約を消した" });
+      seen.delete(a.id);
       continue;
     }
     if (!is(a.rootInformationId, "information")) {
       problems.push({ what: `集約 ${a.id} のルートの情報 ${a.rootInformationId} が無い`, fix: "集約を消した" });
+      seen.delete(a.id);
       continue;
     }
     let next = a;
@@ -214,10 +232,14 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
 
   // イベント
   const events: DomainEvent[] = [];
-  const eventSources = new Set<string>();
+  /** 分析のイベントの id → それを指す、残したイベントの id */
+  const eventSources = new Map<string, string>();
+  /** 重なりで消したイベントの id → 残したイベントの id (emits とポリシーを付け替える) */
+  const eventAlias = new Map<string, string>();
   for (const e of unique(domain.events, "イベント")) {
     if (!contextIds.has(e.boundedContextId)) {
       problems.push({ what: `イベント ${e.id} のコンテキスト ${e.boundedContextId} が無い`, fix: "イベントを消した" });
+      seen.delete(e.id);
       continue;
     }
     let next = e;
@@ -227,15 +249,22 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
         const { eventId: _drop, ...rest } = next;
         next = rest;
       } else if (eventSources.has(e.eventId)) {
-        problems.push({ what: `イベント ${e.id} と同じ分析のイベント ${e.eventId} を指すものが、ほかにある`, fix: "後のものを消した" });
+        problems.push({ what: `イベント ${e.id} と同じ分析のイベント ${e.eventId} を指すものが、ほかにある`, fix: "後のものを消した (それを指す参照は、残したものへ付け替えた)" });
         seen.delete(e.id);
+        eventAlias.set(e.id, eventSources.get(e.eventId)!);
         continue;
-      } else eventSources.add(e.eventId);
+      } else eventSources.set(e.eventId, e.id);
     }
-    if (e.aggregateId !== undefined && aggregateById.get(e.aggregateId)?.boundedContextId !== e.boundedContextId) {
-      problems.push({ what: `イベント ${e.id} の集約 ${e.aggregateId} が、同じコンテキストに無い`, fix: "集約の参照を外した" });
-      const { aggregateId: _drop, ...rest } = next;
-      next = rest;
+    if (e.aggregateId !== undefined) {
+      const owner = aggregateById.get(e.aggregateId);
+      if (!owner) {
+        problems.push({ what: `イベント ${e.id} の集約 ${e.aggregateId} が無い`, fix: "集約の参照を外した" });
+        const { aggregateId: _drop, ...rest } = next;
+        next = rest;
+      } else if (owner.boundedContextId !== e.boundedContextId) {
+        problems.push({ what: `イベント ${e.id} の集約 ${e.aggregateId} が、別のコンテキストにある`, fix: "イベントを集約のコンテキストへ移した" });
+        next = { ...next, boundedContextId: owner.boundedContextId };
+      }
     }
     if (e.properties?.some((p) => p.informationId !== undefined && !is(p.informationId, "information"))) {
       problems.push({ what: `イベント ${e.id} の属性のもとの情報が無い`, fix: "情報の参照を外した" });
@@ -254,10 +283,13 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
 
   // コマンド
   const commands: DomainCommand[] = [];
-  const commandSources = new Set<string>();
+  /** 出どころのキー → 残したコマンドの id */
+  const commandSources = new Map<string, string>();
+  const commandAlias = new Map<string, string>();
   for (const c of unique(domain.commands, "コマンド")) {
     if (!aggregateById.has(c.aggregateId)) {
       problems.push({ what: `コマンド ${c.id} の集約 ${c.aggregateId} が無い`, fix: "コマンドを消した" });
+      seen.delete(c.id);
       continue;
     }
     let next = c;
@@ -273,14 +305,15 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
         }
         const key = commandSourceKey(next.source!);
         if (commandSources.has(key)) {
-          problems.push({ what: `コマンド ${c.id} と同じ出どころのものが、ほかにある`, fix: "後のものを消した" });
+          problems.push({ what: `コマンド ${c.id} と同じ出どころのものが、ほかにある`, fix: "後のものを消した (それを指すポリシーは、残したものへ付け替えた)" });
           seen.delete(c.id);
+          commandAlias.set(c.id, commandSources.get(key)!);
           continue;
         }
-        commandSources.add(key);
+        commandSources.set(key, c.id);
       }
     }
-    const emits = [...new Set(c.emits)].filter((id) => eventIds.has(id));
+    const emits = [...new Set(c.emits.map((id) => eventAlias.get(id) ?? id))].filter((id) => eventIds.has(id));
     if (!same(emits, c.emits)) {
       problems.push({ what: `コマンド ${c.id} が発生させるイベントが無い (か重なっている)`, fix: "外した" });
       next = { ...next, emits };
@@ -291,33 +324,49 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
 
   // ポリシー
   const policyPairs = new Set<string>();
-  const policies: DomainPolicy[] = unique(domain.policies, "ポリシー").filter((p) => {
+  const policies: DomainPolicy[] = [];
+  for (const given of unique(domain.policies, "ポリシー")) {
+    let p = given;
+    const eventId = eventAlias.get(p.eventId) ?? p.eventId;
+    const commandId = commandAlias.get(p.commandId) ?? p.commandId;
+    if (eventId !== p.eventId || commandId !== p.commandId) {
+      problems.push({ what: `ポリシー ${p.id} が、重なって消したイベントかコマンドを指している`, fix: "残したものへ付け替えた" });
+      p = { ...p, eventId, commandId };
+    }
     if (!eventIds.has(p.eventId) || !commandIds.has(p.commandId)) {
       problems.push({ what: `ポリシー ${p.id} のイベントかコマンドが無い`, fix: "ポリシーを消した" });
-      return false;
+      seen.delete(p.id);
+      continue;
     }
     const key = `${p.eventId}\n${p.commandId}`;
     if (policyPairs.has(key)) {
       problems.push({ what: `ポリシー ${p.id} と同じイベントとコマンドの組のものが、ほかにある`, fix: "後のものを消した" });
-      return false;
+      seen.delete(p.id);
+      continue;
     }
     policyPairs.add(key);
-    return true;
-  });
+    policies.push(p);
+  }
 
   // 関係
   const relationPairs = new Set<string>();
+  const symmetricPairs = new Set<string>();
   const relations: ContextRelation[] = unique(domain.relations, "関係").filter((r) => {
     if (!contextIds.has(r.upstreamId) || !contextIds.has(r.downstreamId) || r.upstreamId === r.downstreamId) {
       problems.push({ what: `関係 ${r.id} のコンテキストが無い (か両端が同じ)`, fix: "関係を消した" });
+      seen.delete(r.id);
       return false;
     }
     const key = `${r.upstreamId}\n${r.downstreamId}`;
-    if (relationPairs.has(key)) {
-      problems.push({ what: `関係 ${r.id} と同じ向きの同じ組のものが、ほかにある`, fix: "後のものを消した" });
+    const reverse = `${r.downstreamId}\n${r.upstreamId}`;
+    // 対等な関係は向きを持たないので、逆向きのものも同じ組 (どちらかが対等なら重なり)
+    if (relationPairs.has(key) || (relationPairs.has(reverse) && (SYMMETRIC_RELATION_KINDS.has(r.kind) || symmetricPairs.has(reverse)))) {
+      problems.push({ what: `関係 ${r.id} と同じ組のものが、ほかにある`, fix: "後のものを消した" });
+      seen.delete(r.id);
       return false;
     }
     relationPairs.add(key);
+    if (SYMMETRIC_RELATION_KINDS.has(r.kind)) symmetricPairs.add(key);
     return true;
   });
 
@@ -328,6 +377,7 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
       if (t.elementId === undefined || !kindOf.has(t.elementId)) return true;
       if (termElements.has(t.elementId)) {
         problems.push({ what: `用語 ${t.id} と同じ分析の要素 ${t.elementId} の用語が、ほかにある`, fix: "後のものを消した" });
+        seen.delete(t.id);
         return false;
       }
       termElements.add(t.elementId);
@@ -343,12 +393,27 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
       problems.push({ what: `用語 ${t.id} の分析の要素 ${t.elementId} が無い`, fix: "要素の参照を外した" });
       const { elementId: _drop, ...rest } = next;
       next = rest;
+    } else if (t.elementId !== undefined) {
+      const name = nameOf.get(t.elementId)!.trim();
+      if (name !== "" && name !== t.term) {
+        problems.push({ what: `用語 ${t.id} の語が、分析の要素 ${t.elementId} の名前と違う`, fix: "要素の名前に合わせた" });
+        next = { ...next, term: name };
+      }
     }
     return next;
   });
 
-  const excluded = [...new Set(domain.excluded)];
-  if (excluded.length !== domain.excluded.length) problems.push({ what: "外した候補のキーが重なっている", fix: "重複を除いた" });
+  const excluded = [...new Set(domain.excluded)].filter((key) => {
+    const parsed = parseExcludedKey(key);
+    if (!parsed) {
+      problems.push({ what: "外した候補のキーの形が正しくない", fix: "外した" });
+      return false;
+    }
+    const alive = parsed.kind === "command" ? is(parsed.usecaseId, "usecase") && (parsed.activityId === undefined || is(parsed.activityId, "activity")) : parsed.kind === "event" ? is(parsed.eventId, "event") : true;
+    if (!alive) problems.push({ what: `外した候補 ${key} のもとの要素が無い`, fix: "外した" });
+    return alive;
+  });
+  if (new Set(domain.excluded).size !== domain.excluded.length) problems.push({ what: "外した候補のキーが重なっている", fix: "重複を除いた" });
 
   if (problems.length === 0) return { domain, problems };
   return { domain: { contexts, aggregates, commands, events, policies, excluded, relations, terms }, problems };
@@ -361,8 +426,18 @@ export function inspectDomain(domain: DomainModel, elements: readonly Element[])
  * 状態を消して状態グループが無くなれば、集約の状態グループも外れる
  */
 export function sweepDomain(draft: UntieModel): void {
-  const result = inspectDomain(draft.domain, draft.elements);
+  if (isEmptyDomain(draft.domain)) return;
+  // immer の draft (Proxy) のまま全体を読むと遅いので、ふつうの値にしてから検査する
+  const plain = isDraft(draft) ? current(draft) : draft;
+  const result = inspectDomain(plain.domain, plain.elements);
   if (result.problems.length > 0) draft.domain = result.domain;
+}
+
+/** 要素の名前が変わったとき、その要素の用語の語を合わせる (語は要素の名前の写し。名前が空になったときはそのまま) */
+export function renameDomainTerm(draft: UntieModel, elementId: string, name: string): void {
+  const next = name.trim();
+  if (next === "") return;
+  for (const t of draft.domain.terms) if (t.elementId === elementId) t.term = next;
 }
 
 /** 状態グループの名前が変わったとき、集約の状態グループを付け替える (もとの名前の状態が 1 つも残っていないときだけ呼ぶ) */
@@ -387,6 +462,8 @@ export function domainReferences(model: UntieModel, elementId: string): string[]
     const rootIds = new Set(roots.map((a) => a.id));
     push("集約 (ドメインモデル。コマンドも一緒に消えます)", roots.length);
     push("集約の中の情報", d.aggregates.filter((a) => !rootIds.has(a.id) && a.memberInformationIds.includes(target.id)).length);
+    push("ドメインイベントの集約 (イベントは残ります)", d.events.filter((e) => e.aggregateId !== undefined && rootIds.has(e.aggregateId)).length);
+    push("ドメインイベントの属性のもとの情報", d.events.filter((e) => e.properties?.some((p) => p.informationId === target.id)).length);
   } else if (target.kind === "context") {
     push("境界づけられたコンテキストの言語の範囲", d.contexts.filter((c) => c.contextIds.includes(target.id)).length);
   } else if (target.kind === "system") {
@@ -397,6 +474,17 @@ export function domainReferences(model: UntieModel, elementId: string): string[]
     push("ドメインイベントのもとのイベント (ドメインモデル。イベントは残ります)", d.events.filter((e) => e.eventId === target.id).length);
   } else if (target.kind === "condition") {
     push("不変条件のもとの条件", d.aggregates.reduce((n, a) => n + a.invariants.filter((i) => i.conditionId === target.id).length, 0));
+  } else if (target.kind === "state" && target.group) {
+    // その状態グループの最後の状態を消すと、集約の状態グループが外れる
+    const group = target.group;
+    if (!model.elements.some((e) => e.kind === "state" && e.id !== target.id && e.group === group)) push("集約の状態グループ (ドメインモデル)", d.aggregates.filter((a) => a.stateGroup === group).length);
+  }
+  if (target.kind === "usecase" || target.kind === "activity" || target.kind === "event") {
+    const hit = (key: string) => {
+      const k = parseExcludedKey(key);
+      return !!k && (k.kind === "command" ? k.usecaseId === target.id || k.activityId === target.id : k.kind === "event" && k.eventId === target.id);
+    };
+    push("外した候補 (ドメインモデル)", d.excluded.filter(hit).length);
   }
   push("用語の定義 (ドメインモデル。用語は残ります)", d.terms.filter((t) => t.elementId === target.id).length);
   return out;

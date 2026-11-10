@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { removeElement, removeRelation } from "@untie/core/model/commands";
-import { buildDomainScope } from "@untie/core/model/domainScope";
+import { resolveDomain } from "@untie/core/model/domainResolve";
+import { emptyDomain } from "@untie/core/model/types";
 import { createNetshopSample } from "@untie/core/sample";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -30,14 +31,15 @@ beforeEach(() => {
   (globalThis as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = DOMMatrixStub;
   localStorage.clear();
   useUntieStore.setState({ cloud: null });
-  resetStore(createNetshopSample());
+  // サンプルは保存したドメインモデルを持つ (下の「保存したドメインモデル」で見る)。ここは、保存が空のとき (分析から導いた候補だけ) の見え方
+  resetStore({ ...createNetshopSample(), domain: emptyDomain() });
   act(() => st().enterDesign("sys_oms"));
   act(() => st().setCurrentBoard("design:domain"));
 });
 
 describe("ドメインボードの図の計算", () => {
   it("集約とイベント: きっかけ → コマンド → 集約 → イベント → 受け手 の 5 列に並べ、ポリシーは破線", () => {
-    const scope = buildDomainScope(st().model, "sys_oms");
+    const scope = resolveDomain(st().model, "sys_oms");
     const { nodes, edges } = buildAggregateFlow(scope, undefined);
     const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
     expect(x("event:ev_payment_confirmed")).toBeLessThan(x("command:uc_issue_pick_list"));
@@ -59,7 +61,7 @@ describe("ドメインボードの図の計算", () => {
   });
 
   it("選ぶと、そこから線を辿れるものだけを残して薄くする (ポリシーの線は辿らない)", () => {
-    const scope = buildDomainScope(st().model, "sys_oms");
+    const scope = resolveDomain(st().model, "sys_oms");
     const { nodes, edges } = buildAggregateFlow(scope, { kind: "aggregate", id: "info_order" });
     const dim = (id: string) => nodes.find((n) => n.id === id)!.data.dim;
     expect(nodes.find((n) => n.id === "aggregate:info_order")!.data.selected).toBe(true);
@@ -77,7 +79,7 @@ describe("ドメインボードの図の計算", () => {
   });
 
   it("業務の流れ: 次に・発生・きっかけでつなぎ、始まりから幅優先で左から右へ並べる。つながりの無いものは右端", () => {
-    const scope = buildDomainScope(st().model, "sys_oms");
+    const scope = resolveDomain(st().model, "sys_oms");
     const { nodes, edges } = buildBusinessFlow(st().model, scope, undefined);
     const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
     expect(edges.find((e) => e.source === "command:uc_search_order" && e.target === "command:uc_confirm_order")!.label).toBe("次に");
@@ -99,7 +101,7 @@ describe("ドメインボード", () => {
     expect(st().ui.currentBoardId).toBe("design:domain");
     expect(screen.getByRole("region", { name: "設計ボード: ドメイン" })).toBeDefined();
     expect(screen.getByRole("complementary", { name: "ドメインの一覧" })).toBeDefined();
-    expect(screen.getByTestId("domain-overview").textContent).toContain("コマンドの候補 13");
+    expect(screen.getByTestId("domain-overview").textContent).toContain("コマンド 13 (保存 0)");
   });
 
   it("左の一覧で選ぶと右のペインに中身と根拠が出て、図でも強調する。選び直すと切り替わる", () => {
@@ -182,7 +184,7 @@ describe("ドメインボード", () => {
 
 describe("レビューを受けた振る舞い", () => {
   it("強調は出どころの操作で辿り、集約が束ねるほかの操作のイベントまでは広げない", () => {
-    const scope = buildDomainScope(st().model, "sys_oms");
+    const scope = resolveDomain(st().model, "sys_oms");
     const dim = (sel: Parameters<typeof buildAggregateFlow>[1], id: string) => buildAggregateFlow(scope, sel).nodes.find((n) => n.id === id)!.data.dim;
     const reg = { kind: "command", id: "uc_register_order" } as const;
     expect(dim(reg, "event:ev_order_received")).toBe(false);
@@ -199,13 +201,13 @@ describe("レビューを受けた振る舞い", () => {
   });
 
   it("このシステムが書く情報はすべて集約のノードにし、行はコンテキストごとの帯に分ける", () => {
-    const scope = buildDomainScope(st().model, "sys_oms");
+    const scope = resolveDomain(st().model, "sys_oms");
     const { nodes, edges } = buildAggregateFlow(scope, undefined);
     // 購入者は 注文を登録する が注文と一緒に書く (代表の集約ではない) が、ノードになり線も引く
     expect(nodes.some((n) => n.id === "aggregate:info_customer")).toBe(true);
     expect(edges.some((e) => e.source === "command:uc_register_order" && e.target === "aggregate:info_customer")).toBe(true);
     const bands = nodes.filter((n) => n.type === "band").map((n) => n.data.label);
-    expect(bands).toEqual(["注文", "商品・在庫", "顧客", "出荷"]);
+    expect(bands).toEqual(["注文 (候補)", "商品・在庫 (候補)", "顧客 (候補)", "出荷 (候補)"]);
     // 集約の帯の中に、そのコンテキストのコマンド・集約・イベントが入る
     const band = nodes.find((n) => n.id === "band:ctx_shipping")!;
     const y = (id: string) => nodes.find((n) => n.id === id)!.position.y;
@@ -213,16 +215,16 @@ describe("レビューを受けた振る舞い", () => {
       expect(y(id)).toBeGreaterThan(band.position.y);
       expect(y(id)).toBeLessThan(band.position.y + (band.height ?? 0));
     }
-    // 読むだけのコンテキスト (会計システムにとっての注文) は、図に書く集約が無いので帯にならない (左の一覧の「読むだけのコンテキスト (上流)」に出る)
-    const acc = buildAggregateFlow(buildDomainScope(st().model, "sys_accounting"), undefined);
-    expect(acc.nodes.filter((n) => n.type === "band").map((n) => n.data.label)).toEqual(["会計"]);
+    // 読むだけのコンテキスト (会計システムにとっての注文) は、図に書く集約が無いので帯にならない (左の一覧の「上流のコンテキスト」に出る)
+    const acc = buildAggregateFlow(resolveDomain(st().model, "sys_accounting"), undefined);
+    expect(acc.nodes.filter((n) => n.type === "band").map((n) => n.data.label)).toEqual(["会計 (候補)"]);
   });
 
   it("問い合わせだけのシステムでは、集約とイベントの図の代わりに案内を出し、業務の流れでは問い合わせを選べる", () => {
     act(() => st().enterDesign("sys_mall"));
     render(<DomainBoard />);
     expect(screen.getByText(/情報を書く操作 \(コマンド\) もイベントもありません。問い合わせ 1 件は/)).toBeDefined();
-    const flow = buildBusinessFlow(st().model, buildDomainScope(st().model, "sys_mall"), undefined);
+    const flow = buildBusinessFlow(st().model, resolveDomain(st().model, "sys_mall"), undefined);
     expect(flow.nodes.find((n) => n.id === "command:uc_check_mall_order")!.data).toMatchObject({ kind: "query", selection: { kind: "query", id: "uc_check_mall_order" } });
   });
 
@@ -269,11 +271,11 @@ describe("レビューを受けた振る舞い", () => {
 });
 
 describe("左の一覧", () => {
-  it("自分のコンテキストと読むだけのコンテキスト (上流) を分け、イベントの行にも問いの数を出し、問い合わせも選べる", () => {
+  it("自分のコンテキストと上流のコンテキスト (読むだけ) を分け、イベントの行にも問いの数を出し、問い合わせも選べる", () => {
     act(() => st().enterDesign("sys_accounting"));
     render(<DomainLeftPane />);
     const left = screen.getByRole("complementary", { name: "ドメインの一覧" });
-    expect(within(left).getByRole("heading", { name: "読むだけのコンテキスト (上流)" })).toBeDefined();
+    expect(within(left).getByRole("heading", { name: "上流のコンテキスト" })).toBeDefined();
     expect(left.querySelector('[data-domain-row="context:ctx_order"]')).not.toBeNull();
     fireEvent.click(within(left.querySelector('[data-domain-row="query:uc_view_pl"]') as HTMLElement).getByRole("button"));
     expect(st().ui.designDomain).toEqual({ kind: "query", id: "uc_view_pl" });

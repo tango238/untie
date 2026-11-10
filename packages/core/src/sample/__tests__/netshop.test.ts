@@ -1,6 +1,7 @@
 import { informationPlaces } from "../../model/placement";
 import { describe, expect, it } from "vitest";
 import { createNetshopSample, netshopSample, SAMPLES } from "..";
+import { checkDomain } from "../../model/domainCheck";
 import { traceToActors, traceWarnings } from "../../model/trace";
 import { checkIntegrity, DEFAULT_CARD_SIZE, DEFAULT_FRAME_SIZE, RELATION_KINDS, validateModel } from "../../model";
 import type { BoardNode } from "../../model";
@@ -167,5 +168,24 @@ describe("ネットショップサンプル", () => {
     expect(entry?.title).toBe("ネットショップの業務");
     expect(entry!.create()).toEqual(netshopSample);
     expect(entry!.create()).not.toBe(entry!.create());
+  });
+
+  it("ドメインモデル: 境界づけられたコンテキスト・集約・英語名・あるべき姿を持ち、検証のエラーも警告も無い", () => {
+    const d = netshopSample.domain;
+    expect(d.contexts.map((c) => [c.name, c.english, c.subdomain])).toEqual([
+      ["受注", "Ordering", "core"],
+      ["在庫", "Inventory", "supporting"],
+      ["出荷", "Shipping", "supporting"],
+      ["決済", "Payment", "generic"],
+      ["会計", "Accounting", "generic"],
+    ]);
+    expect(d.aggregates.map((a) => a.english)).toEqual(["Order", "ReturnRequest", "Stock", "Shipment", "Receivable", "Payout"]);
+    // 保存したものは、すべて英語名を持つ (distill-ddd の形式で書き出せる)
+    for (const x of [...d.contexts, ...d.aggregates, ...d.commands, ...d.events]) expect(x.english, x.name).toMatch(/^[A-Z][A-Za-z0-9]*$/);
+    // あるべき姿: 決済の「入金が確認された」を受けて、受注が注文を入金済にする (分析に無いコマンドとイベント)
+    expect(d.commands.find((c) => c.id === "cm_mark_paid")).toMatchObject({ aggregateId: "ag_order", emits: ["de_order_paid"] });
+    expect(d.commands.find((c) => c.id === "cm_mark_paid")!.source).toBeUndefined();
+    expect(d.policies).toEqual([{ id: "po_mark_paid", eventId: "de_payment_confirmed", commandId: "cm_mark_paid", auto: true }]);
+    expect(checkDomain(netshopSample)).toEqual([]);
   });
 });

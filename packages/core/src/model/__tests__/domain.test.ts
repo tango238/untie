@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removeElement, updateElement } from "../commands";
+import { clearAll, removeElement, updateElement } from "../commands";
 import { domainReferences, inspectDomain, isEmptyDomain, isEnglishName, usedDomainIds } from "../domain";
 import {
   addAggregate,
@@ -103,14 +103,17 @@ describe("ドメインモデルのコマンド", () => {
     expect(validateModel(moved)).toMatchObject({ ok: true });
   });
 
-  it("要素の用語は、英語も定義も空にすると消える。同じ要素の用語は 1 つ", () => {
+  it("要素の用語は、英語も定義もコンテキストも無くすと消える。同じ要素の用語は 1 つ", () => {
     let m = withDomain();
     const before = m.domain.terms.length;
     const again = setDomainTerm(m, { elementId: "info_reservation", definition: "予約 1 件" });
     m = okModel(again);
     expect(m.domain.terms).toHaveLength(before);
     expect(m.domain.terms[0]).toMatchObject({ definition: "予約 1 件", english: "Reservation" });
+    // コンテキストだけを付けた用語は残る
     m = okModel(setDomainTerm(m, { elementId: "info_reservation", definition: "", english: "" }));
+    expect(m.domain.terms.find((t) => t.elementId === "info_reservation")).toMatchObject({ definition: "", boundedContextId: "bc_res" });
+    m = okModel(setDomainTerm(m, { elementId: "info_reservation", boundedContextId: null }));
     expect(m.domain.terms.some((t) => t.elementId === "info_reservation")).toBe(false);
     // 無い用語を空で置いても何も足さない
     const none = setDomainTerm(m, { elementId: "info_room", definition: "" });
@@ -232,7 +235,8 @@ describe("inspectDomain と修復", () => {
     expect(fixed.commands.map((c) => c.id)).toEqual(["cm_register"]);
     expect(fixed.events.map((e) => e.id)).toEqual(["de_calc", "de_paid", "de_wrong"]);
     expect("aggregateId" in fixed.events[0]!).toBe(false);
-    expect("aggregateId" in fixed.events[2]!).toBe(false);
+    // 別のコンテキストの集約を指すイベントは、集約のコンテキストへ移す (集約の移動とイベントの編集が重なったとき)
+    expect(fixed.events[2]).toMatchObject({ aggregateId: "ag_res", boundedContextId: "bc_res" });
     expect(fixed.policies).toEqual([]);
     expect(fixed.relations.map((x) => x.id)).toEqual(["cr_pay"]);
     expect(fixed.terms.find((t) => t.id === "tm_x")!.boundedContextId).toBeNull();
@@ -271,5 +275,134 @@ describe("inspectDomain と修復", () => {
     expect(isEnglishName("Order Placed")).toBe(false);
     expect(isEnglishName("注文")).toBe(false);
     expect(isEnglishName("")).toBe(false);
+  });
+
+  it("検査は 1 回で直し切る (直したものをもう一度検査しても、問題は出ない)", () => {
+    const m = withDomain();
+    const d = m.domain;
+    const broken = {
+      ...d,
+      contexts: [...d.contexts, { ...d.contexts[0]!, name: "重複" }],
+      aggregates: [...d.aggregates, { id: "ag_x", boundedContextId: "bc_nope", name: "x", rootInformationId: "info_room", memberInformationIds: [], invariants: [] }],
+      events: [...d.events, { id: "de_dup", boundedContextId: "bc_bill", name: "x", eventId: "ev_charge_calculated" }],
+      policies: [...d.policies, { id: "po_dup", eventId: "de_dup", commandId: "cm_settle", auto: false }],
+      excluded: [...d.excluded, "bogus", "usecase:uc_nope", "event:ev_nope"],
+    };
+    const first = inspectDomain(broken, m.elements);
+    expect(first.problems.length).toBeGreaterThan(0);
+    expect(inspectDomain(first.domain, m.elements).problems).toEqual([]);
+    expect(first.domain.excluded).toEqual(["usecase:uc_cancel_reservation"]);
+  });
+
+  it("同じ候補を 2 人が採用して重なったら、後のものを消し、それを指す emits とポリシーは残したものへ付け替える", () => {
+    const m = withDomain();
+    const d = m.domain;
+    const merged = {
+      ...d,
+      events: [...d.events, { id: "de_dup", boundedContextId: "bc_bill", aggregateId: "ag_bill", name: "請求金額が計算された", eventId: "ev_charge_calculated" }],
+      commands: [
+        ...d.commands,
+        { id: "cm_dup", aggregateId: "ag_res", name: "予約を登録する", source: { usecaseId: "uc_register_reservation" }, emits: ["de_dup"] },
+        { id: "cm_other", aggregateId: "ag_bill", name: "別のコマンド", emits: ["de_dup"] },
+      ],
+      policies: [...d.policies, { id: "po_a", eventId: "de_dup", commandId: "cm_dup", auto: true }],
+    };
+    const fixed = inspectDomain(merged, m.elements).domain;
+    expect(fixed.events.map((e) => e.id)).toEqual(["de_calc", "de_paid"]);
+    expect(fixed.commands.map((c) => c.id)).toEqual(["cm_register", "cm_settle", "cm_other"]);
+    expect(fixed.commands.find((c) => c.id === "cm_other")!.emits).toEqual(["de_calc"]);
+    expect(fixed.policies.find((p) => p.id === "po_a")).toMatchObject({ eventId: "de_calc", commandId: "cm_register" });
+    expect(validateModel({ ...m, domain: fixed })).toMatchObject({ ok: true });
+  });
+
+  it("まるごとの置き換えは、形 (スキーマ) の誤りも断る", () => {
+    const m = withDomain();
+    const d = m.domain;
+    const bad = [
+      { ...d, contexts: d.contexts.map((c, i) => (i === 0 ? { ...c, english: "予約" } : c)) },
+      { ...d, aggregates: d.aggregates.map((a, i) => (i === 0 ? { ...a, name: "x".repeat(500) } : a)) },
+      { ...d, commands: d.commands.map((c, i) => (i === 0 ? { ...c, id: "has space" } : c)) },
+      { ...d, relations: d.relations.map((r) => ({ ...r, kind: "bogus" as never })) },
+      { ...d, excluded: ["なんでも"] },
+    ];
+    for (const domain of bad) {
+      const r = setDomainModel(m, { domain });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toContain("形が正しくありません");
+    }
+    expect(validateModel(okModel(setDomainModel(m, { domain: d })))).toMatchObject({ ok: true });
+  });
+
+  it("不変条件の id は、形が正しくないもの・集約の id と重なるものを作り直す", () => {
+    let m = withDomain();
+    m = okModel(addAggregate(m, { id: "ag_x", boundedContextId: "bc_res", rootInformationId: "info_room", invariants: [{ id: "ag_x", text: "a" }, { id: "", text: "b" }, { id: "has space", text: "c" }, { id: "inv_full", text: "d" }] }));
+    const ids = m.domain.aggregates.find((a) => a.id === "ag_x")!.invariants.map((i) => i.id);
+    expect(new Set(ids).size).toBe(4);
+    for (const id of ids) {
+      expect(id).toMatch(/^inv_/);
+      expect(id).not.toBe("inv_full");
+    }
+    expect(validateModel(m)).toMatchObject({ ok: true });
+  });
+
+  it("すべて消す (clearAll) と、ドメインモデルも空になる", () => {
+    const m = okModel(clearAll(withDomain()));
+    expect(isEmptyDomain(m.domain)).toBe(true);
+    expect(validateModel(m)).toMatchObject({ ok: true });
+  });
+
+  it("対等な関係 (パートナーシップなど) のある組には、逆向きの関係を足せない", () => {
+    let m = withDomain();
+    m = okModel(addContextRelation(m, { id: "cr_p", upstreamId: "bc_res", downstreamId: "bc_bill", kind: "partnership" }));
+    expect(addContextRelation(m, { upstreamId: "bc_bill", downstreamId: "bc_res", kind: "customerSupplier" }).ok).toBe(false);
+    // 向きのある関係どうしは、逆向きも持てる (互いに上流になる)
+    m = okModel(updateContextRelation(m, { id: "cr_p", patch: { kind: "customerSupplier" } }));
+    m = okModel(addContextRelation(m, { id: "cr_back", upstreamId: "bc_bill", downstreamId: "bc_res", kind: "conformist" }));
+    expect(updateContextRelation(m, { id: "cr_back", patch: { kind: "sharedKernel" } }).ok).toBe(false);
+    expect(validateModel(m)).toMatchObject({ ok: true });
+    // 同時編集で並んでしまったら、後のものを消す
+    const both = { ...m.domain, relations: m.domain.relations.map((r) => (r.id === "cr_back" ? { ...r, kind: "partnership" as const } : r)) };
+    expect(inspectDomain(both, m.elements).domain.relations.map((r) => r.id)).toEqual(["cr_pay", "cr_p"]);
+  });
+
+  it("要素の用語の語は要素の名前の写し: 名前を変えると追従し、term は渡しても使わない。id と elementId は一緒に渡せない", () => {
+    let m = withDomain();
+    m = okModel(updateElement(m, { id: "info_reservation", patch: { name: "宿泊予約" } }));
+    expect(m.domain.terms.find((t) => t.elementId === "info_reservation")!.term).toBe("宿泊予約");
+    expect(validateModel(m)).toMatchObject({ ok: true });
+    m = okModel(setDomainTerm(m, { elementId: "info_reservation", term: "別の語", definition: "x" }));
+    expect(m.domain.terms.find((t) => t.elementId === "info_reservation")).toMatchObject({ term: "宿泊予約", definition: "x" });
+    const term = m.domain.terms.find((t) => t.elementId === "info_reservation")!;
+    expect(setDomainTerm(m, { id: term.id, elementId: "info_room", definition: "y" }).ok).toBe(false);
+    // 同時編集で語が古くなったら、検査が合わせる
+    const stale = { ...m.domain, terms: m.domain.terms.map((t) => (t.id === term.id ? { ...t, term: "予約" } : t)) };
+    const r = inspectDomain(stale, m.elements);
+    expect(r.problems).toHaveLength(1);
+    expect(r.domain.terms.find((t) => t.id === term.id)!.term).toBe("宿泊予約");
+  });
+
+  it("外した候補のキーは形を見て、もとの操作・イベントを消すと一緒に外れる", () => {
+    let m = withDomain();
+    expect(setCandidateExcluded(m, { key: "なんでも", excluded: true }).ok).toBe(false);
+    m = okModel(setCandidateExcluded(m, { key: "event:ev_charge_calculated", excluded: true }));
+    expect(domainReferences(m, "uc_cancel_reservation")).toContain("外した候補 (ドメインモデル) 1");
+    m = okModel(removeElement(m, { id: "uc_cancel_reservation" }));
+    m = okModel(removeElement(m, { id: "ev_charge_calculated" }));
+    expect(m.domain.excluded).toEqual([]);
+    expect(validateModel(m)).toMatchObject({ ok: true });
+  });
+
+  it("削除の確認の要約に、状態グループが外れる集約と、属性のもとの情報が外れるイベントも出す", () => {
+    const m = withDomain();
+    const states = m.elements.filter((e) => e.kind === "state" && e.group === "予約の状態");
+    expect(states.length).toBeGreaterThan(1);
+    // 最後の 1 つでなければ出ない
+    expect(domainReferences(m, states[0]!.id)).toEqual([]);
+    let one = m;
+    for (const s of states.slice(1)) one = okModel(removeElement(one, { id: s.id }));
+    expect(domainReferences(one, states[0]!.id)).toEqual(["集約の状態グループ (ドメインモデル) 1"]);
+    const refs = domainReferences(m, "info_bill");
+    expect(refs.some((r) => r.startsWith("ドメインイベントの属性のもとの情報"))).toBe(true);
+    expect(refs.some((r) => r.startsWith("ドメインイベントの集約"))).toBe(true);
   });
 });

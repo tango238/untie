@@ -3,6 +3,7 @@ import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { traceToActors, traceWarnings } from "@untie/core/model/trace";
+import { cachedDomainCheck } from "@untie/core/model/domainCache";
 import { cachedCheckDesign } from "./design/checkCache";
 import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
@@ -44,7 +45,8 @@ export function Toolbar() {
   // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
   const traceCount = useMemo(() => {
-    if (designResult) return designResult.problems.length;
+    // 設計モードは、対象のシステムの設計のエラーと、ドメインモデルのエラー (全体) を合わせる
+    if (designResult) return designResult.problems.length + cachedDomainCheck(model).filter((p) => p.level === "error").length;
     const r = traceToActors(model);
     return r.problems.length + r.errors.length;
   }, [model, designResult]);

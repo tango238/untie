@@ -2,7 +2,7 @@
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
-import { renameDomainStateGroup, sweepDomain } from "./domain";
+import { renameDomainStateGroup, renameDomainTerm, sweepDomain } from "./domain";
 import { newUniqueId } from "./id";
 import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
@@ -11,6 +11,7 @@ import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
   DEFAULT_EDGE_SIDES,
+  emptyDomain,
   EDGE_SIDES,
   isFrameKind,
   isContextMemberKind,
@@ -1123,6 +1124,8 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     const el = draft.elements.find((e) => e.id === payload.id)!;
     if (patch.name !== undefined) {
       el.name = patch.name.trim();
+      // 要素の用語 (ドメインモデル) の語は、要素の名前の写し
+      renameDomainTerm(draft, el.id, el.name);
       // 既定 BUC の名前は業務名と同じに保つ
       if (el.kind === "business") {
         const def = draft.elements.find((e) => e.kind === "buc" && e.isDefault && e.businessId === el.id);
@@ -1758,6 +1761,7 @@ export function clearAll(model: UntieModel, payload: ClearAllPayload = {}): Comm
     draft.relations = [];
     draft.designs = [];
     draft.databases = [];
+    draft.domain = emptyDomain();
     draft.boards = [{ id: payload.boardId ?? newUniqueId("board", new Set()), name: "ボード 1", nodes: [] }];
   });
   return { ok: true, model: next };

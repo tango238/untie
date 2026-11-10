@@ -3,7 +3,8 @@
 //                   行はコンテキストごとの帯に分け、帯の中で各列を上から積む
 //   業務の流れ:     操作とイベントを「次に」「発生」「きっかけ」でつなぎ、入ってくる線の無いものから幅優先で層を決めて左から右へ並べる
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import { commandContextId, type DesignDomainSelection, type DomainScope } from "@untie/core/model/domainScope";
+import { resolvedCommandContextKey, type ResolvedDomain } from "@untie/core/model/domainResolve";
+import type { DesignDomainSelection, DomainScope } from "@untie/core/model/domainScope";
 import type { UntieModel } from "@untie/core/model/types";
 
 export type DomainNodeKind = "trigger" | "command" | "query" | "aggregate" | "event" | "consumer" | "activity";
@@ -14,8 +15,10 @@ export interface DomainNodeBase {
   label: string;
   /** 下に小さく出す補足 (コンテキスト・対象・担い手など) */
   sub?: string;
-  /** 印 (取得だけ・外・定期など) */
+  /** 印 (取得だけ・外・定期・候補など) */
   badges: string[];
+  /** まだ保存していない候補 (破線の枠で見せる) */
+  candidate?: boolean;
   /** 問いの数 (0 なら出さない) */
   questions: number;
   /** 押したときに選ぶもの (選べないノードは undefined) */
@@ -141,19 +144,13 @@ function finish(raw: RawNode[], edges: RawEdge[], bands: Node<DomainBandData, "b
 }
 
 /** 集約とイベント: きっかけ → コマンド → 集約 → イベント → 受け手。行はコンテキストごとの帯 */
-export function buildAggregateFlow(scope: DomainScope, selected: DesignDomainSelection | undefined): { nodes: DomainFlowNode[]; edges: Edge[] } {
-  const questions = questionCounts(scope);
-  const contextName = new Map<string | null, string>(scope.contexts.map((c) => [c.context?.id ?? null, c.context?.name ?? "未分類"]));
-  for (const e of scope.events) if (e.row.context && !contextName.has(e.row.context.id)) contextName.set(e.row.context.id, e.row.context.name);
-  const upstream = new Set(scope.contexts.filter((c) => c.role === "upstream").map((c) => c.context?.id ?? null));
-  // 帯の順: しぼった範囲のコンテキストの順 (自分 → 上流)、その後に出てきた順。未分類は最後
-  const bandOrder: (string | null)[] = scope.contexts.map((c) => c.context?.id ?? null).filter((id) => id !== null);
-  const bandOf = (cid: string | null | undefined): string | null => {
-    const id = cid ?? null;
-    if (id !== null && !bandOrder.includes(id)) bandOrder.push(id);
-    return id;
-  };
-  type Cell = { id: string; band: string | null; col: number; data: DomainNodeBase; context?: string | null };
+export function buildAggregateFlow(r: ResolvedDomain, selected: DesignDomainSelection | undefined): { nodes: DomainFlowNode[]; edges: Edge[] } {
+  const questions = questionCounts(r.scope);
+  const contextByKey = new Map(r.contexts.map((c) => [c.key, c]));
+  const eventByKey = new Map(r.events.map((e) => [e.key, e]));
+  // 帯の順: コンテキストの順 (自分 → 上流)。どのコンテキストにも入らないものは最後 (band = undefined)
+  type Band = string | null | undefined;
+  type Cell = { id: string; band: Band; col: number; data: DomainNodeBase; context?: string | null };
   const cells: Cell[] = [];
   const edges: RawEdge[] = [];
   const has = new Set<string>();
@@ -162,125 +159,134 @@ export function buildAggregateFlow(scope: DomainScope, selected: DesignDomainSel
     has.add(cell.id);
     cells.push(cell);
   };
+  const bandOf = (key: string | null | undefined): Band => (key !== undefined && contextByKey.has(key) ? key : undefined);
 
   // コマンド
-  const splitCount = new Map<string, number>();
-  for (const c of scope.splitCommands) splitCount.set(c.usecase.id, (splitCount.get(c.usecase.id) ?? 0) + 1);
-  const commandBand = new Map<string, string | null>();
-  for (const c of scope.commands) {
-    const band = bandOf(commandContextId(c));
-    commandBand.set(c.usecase.id, band);
-    const split = splitCount.get(c.usecase.id) ?? 1;
+  const commandBand = new Map<string, Band>();
+  for (const c of r.commands) {
+    const band = bandOf(resolvedCommandContextKey(r, c));
+    commandBand.set(c.key, band);
+    const cand = c.candidate;
+    const usecaseId = cand?.usecase.id;
+    const split = usecaseId && !cand?.activity ? r.scope.splitCommands.filter((x) => x.usecase.id === usecaseId).length : 1;
     push({
-      id: `command:${c.usecase.id}`,
+      id: `command:${c.key}`,
       band,
       col: 1,
-      context: band,
+      context: band ?? null,
       data: {
         kind: "command",
-        label: c.usecase.name,
-        sub: c.auto ? "自動" : c.actors.map((a) => a.name).join("・") || (c.activities.length === 0 ? "(作業なし)" : "(担当なし)"),
-        badges: [...(c.readOnly ? ["取得だけ"] : []), ...(split > 1 ? [`作業 ${split}`] : [])],
-        questions: questions.get(c.usecase.id) ?? 0,
-        selection: { kind: "command", id: c.usecase.id },
+        label: c.name,
+        sub: !cand ? "あるべき姿" : cand.auto ? "自動" : cand.actors.map((a) => a.name).join("・") || (cand.activities.length === 0 ? "(作業なし)" : "(担当なし)"),
+        badges: [...(cand?.readOnly ? ["取得だけ"] : []), ...(split > 1 ? [`作業 ${split}`] : []), ...(cand?.activity ? [`作業: ${cand.activity.name}`] : [])],
+        questions: usecaseId ? (questions.get(usecaseId) ?? 0) : 0,
+        selection: { kind: "command", id: c.key },
+        candidate: !c.saved,
       },
     });
   }
 
-  // 集約: このシステムが書く情報すべてと、読むだけで状態を変えるコマンドの持ち主
-  const aggregates = scope.contexts.flatMap((c) => c.aggregates);
-  const aggregateIds = new Set<string>();
-  for (const c of scope.commands) {
-    for (const w of c.writes) aggregateIds.add(w.id);
-    if (c.aggregate) aggregateIds.add(c.aggregate.id);
-  }
-  for (const a of aggregates) {
-    const info = a.candidate.information;
-    if (!aggregateIds.has(info.id)) continue;
-    const band = bandOf(info.contextId);
+  // 集約: このシステムが書くもの、コマンドの集約、保存した集約
+  const shownAggregates = new Set<string>();
+  for (const a of r.aggregates) if (a.writtenHere || (a.saved && contextByKey.get(a.contextKey)?.role === "own")) shownAggregates.add(a.key);
+  for (const c of r.commands) if (c.aggregateKey !== null) shownAggregates.add(c.aggregateKey);
+  for (const e of r.events) if (e.aggregateKey !== null && e.origin === "inside") shownAggregates.add(e.aggregateKey);
+  for (const a of r.aggregates) {
+    if (!shownAggregates.has(a.key)) continue;
     push({
-      id: `aggregate:${info.id}`,
-      band,
+      id: `aggregate:${a.key}`,
+      band: bandOf(a.contextKey),
       col: 2,
-      context: band,
+      context: a.contextKey,
       data: {
         kind: "aggregate",
-        label: info.name,
-        sub: a.candidate.stateGroups.length > 0 ? a.candidate.stateGroups.join("・") : undefined,
+        label: a.name,
+        sub: [a.members.length > 0 ? `中: ${a.members.map((m) => m.name).join("・")}` : "", a.stateGroups.join("・")].filter(Boolean).join(" ・ ") || undefined,
         badges: [...(a.writtenHere ? [] : ["参照"]), ...(a.otherWriterSystems.length > 0 ? ["ほかでも書く"] : [])],
-        questions: questions.get(info.id) ?? 0,
-        selection: { kind: "aggregate", id: info.id },
+        questions: [a.root, ...a.members].reduce((n, i) => n + (questions.get(i.id) ?? 0), 0),
+        selection: { kind: "aggregate", id: a.key },
+        candidate: !a.saved,
       },
     });
   }
-  for (const c of scope.commands) {
-    const from = `command:${c.usecase.id}`;
-    // 書く情報すべてへ線を引く。読むだけのコマンドは、変える状態の持ち主へ
-    const targets = c.writes.length > 0 ? c.writes : c.aggregate ? [c.aggregate] : [];
-    for (const t of targets) if (aggregateIds.has(t.id)) edges.push({ source: from, target: `aggregate:${t.id}`, via: c.usecase.id });
+  /** 情報 id → その情報が入っている集約のノード */
+  const aggregateNodeOfInfo = new Map<string, string>();
+  for (const a of r.aggregates) {
+    if (!shownAggregates.has(a.key)) continue;
+    for (const i of [a.root, ...a.members]) if (!aggregateNodeOfInfo.has(i.id)) aggregateNodeOfInfo.set(i.id, `aggregate:${a.key}`);
+  }
+  for (const c of r.commands) {
+    const from = `command:${c.key}`;
+    const targets = new Set<string>();
+    // 書く情報の集約すべてへ線を引く。読むだけのコマンド・あるべき姿のコマンドは、その集約へ
+    for (const w of c.candidate?.writes ?? []) {
+      const node = aggregateNodeOfInfo.get(w.id);
+      if (node) targets.add(node);
+    }
+    if (c.aggregateKey !== null && shownAggregates.has(c.aggregateKey)) targets.add(`aggregate:${c.aggregateKey}`);
+    for (const t of targets) edges.push({ source: from, target: t, via: c.key });
   }
 
   // イベント (内) と、きっかけ (外)
-  const eventIds = new Set(scope.events.map((e) => e.row.event.id));
   const firstCommandOf = new Map<string, string>();
-  for (const c of scope.commands) for (const ev of c.triggeredBy) if (!firstCommandOf.has(ev.id)) firstCommandOf.set(ev.id, c.usecase.id);
-  const emitterOf = new Map<string, string>();
-  for (const c of scope.commands) for (const ev of c.events) if (!emitterOf.has(ev.id)) emitterOf.set(ev.id, c.usecase.id);
-  for (const e of scope.events) {
-    const ev = e.row.event;
+  for (const p of r.policies) if (!firstCommandOf.has(p.eventKey)) firstCommandOf.set(p.eventKey, p.commandKey);
+  for (const e of r.events) {
     const inside = e.origin === "inside";
-    const band = inside
-      ? bandOf(ev.contextId ?? (emitterOf.has(ev.id) ? commandBand.get(emitterOf.get(ev.id)!) : null))
-      : bandOf(firstCommandOf.has(ev.id) ? commandBand.get(firstCommandOf.get(ev.id)!) : ev.contextId);
-    const scheduled = e.row.timed;
+    const scoped = e.scoped;
+    const band = inside ? bandOf(e.contextKey) : (commandBand.get(firstCommandOf.get(e.key) ?? "") ?? bandOf(e.contextKey));
+    const scheduled = scoped?.row.timed ?? false;
+    const sub = !scoped
+      ? "あるべき姿"
+      : inside
+        ? scoped.otherSources.length > 0
+          ? `ほかにも: ${scoped.otherSources.map((s) => s.name).join("・")}`
+          : undefined
+        : scoped.sources.length > 0
+          ? `発生元: ${scoped.sources.map((s) => s.name).join("・")}`
+          : scheduled
+            ? "定期 (発生元なし)"
+            : "発生元なし";
     push({
-      id: `event:${ev.id}`,
+      id: `event:${e.key}`,
       band,
       col: inside ? 3 : 0,
-      context: ev.contextId ?? null,
+      context: e.contextKey,
       data: {
         kind: inside ? "event" : "trigger",
-        label: ev.name,
-        sub: inside
-          ? e.otherSources.length > 0
-            ? `ほかにも: ${e.otherSources.map((s) => s.name).join("・")}`
-            : undefined
-          : e.sources.length > 0
-            ? `発生元: ${e.sources.map((s) => s.name).join("・")}`
-            : scheduled
-              ? "定期 (発生元なし)"
-              : "発生元なし",
+        label: e.name,
+        sub: !inside && e.contextKey !== null && contextByKey.get(e.contextKey)?.saved ? `${contextByKey.get(e.contextKey)!.name}${sub ? ` ・ ${sub}` : ""}` : sub,
         badges: [...(scheduled ? ["定期"] : []), ...(inside ? [] : ["外"])],
-        questions: questions.get(ev.id) ?? 0,
-        selection: { kind: "event", id: ev.id },
+        questions: scoped ? (questions.get(scoped.row.event.id) ?? 0) : 0,
+        selection: { kind: "event", id: e.key },
+        candidate: !e.saved,
       },
     });
   }
-  for (const c of scope.commands) {
-    const primary = c.aggregate && aggregateIds.has(c.aggregate.id) ? `aggregate:${c.aggregate.id}` : c.writes[0] && aggregateIds.has(c.writes[0].id) ? `aggregate:${c.writes[0].id}` : `command:${c.usecase.id}`;
-    for (const ev of c.events) if (eventIds.has(ev.id)) edges.push({ source: primary, target: `event:${ev.id}`, via: c.usecase.id });
-    for (const ev of c.triggeredBy) if (eventIds.has(ev.id)) edges.push({ source: `event:${ev.id}`, target: `command:${c.usecase.id}`, policy: true });
+  for (const c of r.commands) {
+    const primary = c.aggregateKey !== null && shownAggregates.has(c.aggregateKey) ? `aggregate:${c.aggregateKey}` : `command:${c.key}`;
+    for (const key of c.eventKeys) if (eventByKey.get(key)?.origin === "inside") edges.push({ source: primary, target: `event:${key}`, via: c.key });
   }
+  for (const p of r.policies) if (eventByKey.has(p.eventKey)) edges.push({ source: `event:${p.eventKey}`, target: `command:${p.commandKey}`, policy: true });
 
-  // 受け手 (このシステムの外の操作と、イベントを起点にする作業)。帯は最初につながるイベントの帯
-  for (const e of scope.events) {
-    if (e.origin !== "inside") continue;
-    const band = cells.find((x) => x.id === `event:${e.row.event.id}`)?.band ?? null;
-    for (const oc of e.outsideConsumers) {
+  // 受け手 (このシステムの外の操作と、イベントを起点にする作業)。帯はつながるイベントの帯
+  for (const e of r.events) {
+    if (e.origin !== "inside" || !e.scoped) continue;
+    const band = cells.find((x) => x.id === `event:${e.key}`)?.band;
+    for (const oc of e.scoped.outsideConsumers) {
       const id = `consumer:${oc.usecase.id}`;
       push({ id, band, col: 4, data: { kind: "consumer", label: oc.usecase.name, sub: oc.place ? `対象: ${oc.place.name}` : "(対象なし)", badges: ["外"], questions: 0 } });
       // 外の受け手は先へ続かないので、強調では辿る (破線だけ)
-      edges.push({ source: `event:${e.row.event.id}`, target: id, dashed: true });
+      edges.push({ source: `event:${e.key}`, target: id, dashed: true });
     }
-    for (const a of e.row.consumers.activities) {
+    for (const a of e.scoped.row.consumers.activities) {
       const id = `activity:${a.id}`;
       push({ id, band, col: 4, data: { kind: "activity", label: a.name, sub: "作業の起点", badges: [], questions: 0 } });
-      edges.push({ source: `event:${e.row.event.id}`, target: id });
+      edges.push({ source: `event:${e.key}`, target: id });
     }
   }
 
-  // 帯ごとに、各列を上から積む。未分類は最後
-  const order = [...bandOrder.filter((b) => b !== null), ...(cells.some((c) => c.band === null) ? [null] : [])];
+  // 帯ごとに、各列を上から積む。どのコンテキストにも入らないものは最後
+  const order: Band[] = [...r.contexts.map((c) => c.key as Band), undefined];
   const raw: RawNode[] = [];
   const bands: Node<DomainBandData, "band">[] = [];
   let top = 0;
@@ -289,9 +295,10 @@ export function buildAggregateFlow(scope: DomainScope, selected: DesignDomainSel
     if (inBand.length === 0) continue;
     const rows = Math.max(...[0, 1, 2, 3, 4].map((col) => inBand.filter((c) => c.col === col).length));
     const height = BAND_HEAD + rows * (DOMAIN_NODE_HEIGHT + GAP_Y) - GAP_Y + BAND_PAD;
-    const label = `${contextName.get(band) ?? "未分類"}${upstream.has(band) ? " (読むだけ・上流)" : ""}`;
+    const ctx = band !== undefined ? contextByKey.get(band) : undefined;
+    const label = !ctx ? "コンテキストなし" : `${ctx.name}${ctx.saved ? "" : " (候補)"}${ctx.role === "upstream" ? " (読むだけ・上流)" : ""}${ctx.unassigned ? " (未割り当て)" : ""}`;
     bands.push({
-      id: `band:${band ?? "none"}`,
+      id: `band:${band === undefined ? "?" : (band ?? "none")}`,
       type: "band",
       position: { x: -BAND_PAD, y: top },
       width: COLUMN_X(4) + DOMAIN_NODE_WIDTH + BAND_PAD * 2,
@@ -311,73 +318,79 @@ export function buildAggregateFlow(scope: DomainScope, selected: DesignDomainSel
 }
 
 /** 業務の流れ: 操作 (コマンド・問い合わせ) とイベントを、次に・発生・きっかけでつなぎ、幅優先で層を決めて並べる */
-export function buildBusinessFlow(model: UntieModel, scope: DomainScope, selected: DesignDomainSelection | undefined): { nodes: DomainFlowNode[]; edges: Edge[] } {
-  const questions = questionCounts(scope);
+export function buildBusinessFlow(model: UntieModel, r: ResolvedDomain, selected: DesignDomainSelection | undefined): { nodes: DomainFlowNode[]; edges: Edge[] } {
+  const questions = questionCounts(r.scope);
   const items: RawNode[] = [];
-  const usecaseIds = new Set<string>();
-  for (const c of scope.commands) {
-    usecaseIds.add(c.usecase.id);
+  /** 操作 id → コマンドのノード (作業で分けたコマンドは複数) */
+  const nodesOfUsecase = new Map<string, string[]>();
+  for (const c of r.commands) {
+    const id = `command:${c.key}`;
+    const cand = c.candidate;
+    if (cand) nodesOfUsecase.set(cand.usecase.id, [...(nodesOfUsecase.get(cand.usecase.id) ?? []), id]);
     items.push({
-      id: `command:${c.usecase.id}`,
+      id,
       x: 0,
       y: 0,
-      context: commandContextId(c),
+      context: resolvedCommandContextKey(r, c),
       data: {
         kind: "command",
-        label: c.usecase.name,
-        sub: c.auto ? "自動" : c.actors.map((a) => a.name).join("・") || undefined,
-        badges: c.readOnly ? ["取得だけ"] : [],
-        questions: questions.get(c.usecase.id) ?? 0,
-        selection: { kind: "command", id: c.usecase.id },
+        label: c.name,
+        sub: !cand ? "あるべき姿" : cand.auto ? "自動" : cand.actors.map((a) => a.name).join("・") || undefined,
+        badges: cand?.readOnly ? ["取得だけ"] : [],
+        questions: cand ? (questions.get(cand.usecase.id) ?? 0) : 0,
+        selection: { kind: "command", id: c.key },
+        candidate: !c.saved,
       },
     });
   }
-  for (const q of scope.queries) {
-    usecaseIds.add(q.usecase.id);
+  for (const q of r.scope.queries) {
+    nodesOfUsecase.set(q.usecase.id, [`command:${q.usecase.id}`]);
     items.push({
       id: `command:${q.usecase.id}`,
       x: 0,
       y: 0,
-      context: q.reads[0]?.contextId ?? null,
       data: { kind: "query", label: q.usecase.name, sub: q.screen ? `画面: ${q.screen.name}` : undefined, badges: ["問い合わせ"], questions: questions.get(q.usecase.id) ?? 0, selection: { kind: "query", id: q.usecase.id } },
     });
   }
-  const eventIds = new Set<string>();
-  for (const e of scope.events) {
-    eventIds.add(e.row.event.id);
+  for (const e of r.events) {
     items.push({
-      id: `event:${e.row.event.id}`,
+      id: `event:${e.key}`,
       x: 0,
       y: 0,
-      context: e.row.event.contextId ?? null,
+      context: e.contextKey,
       data: {
         kind: e.origin === "inside" ? "event" : "trigger",
-        label: e.row.event.name,
-        badges: [...(e.row.timed ? ["定期"] : []), ...(e.origin === "outside" ? ["外"] : [])],
-        questions: questions.get(e.row.event.id) ?? 0,
-        selection: { kind: "event", id: e.row.event.id },
+        label: e.name,
+        sub: e.scoped ? undefined : "あるべき姿",
+        badges: [...(e.scoped?.row.timed ? ["定期"] : []), ...(e.origin === "outside" ? ["外"] : [])],
+        questions: e.scoped ? (questions.get(e.scoped.row.event.id) ?? 0) : 0,
+        selection: { kind: "event", id: e.key },
+        candidate: !e.saved,
       },
     });
   }
   const edges: RawEdge[] = [];
-  for (const r of model.relations) {
-    if (r.kind === "usecaseNext" && usecaseIds.has(r.sourceId) && usecaseIds.has(r.targetId)) edges.push({ source: `command:${r.sourceId}`, target: `command:${r.targetId}`, label: "次に" });
-    else if (r.kind === "usecaseEvent" && usecaseIds.has(r.sourceId) && eventIds.has(r.targetId)) edges.push({ source: `command:${r.sourceId}`, target: `event:${r.targetId}` });
-    else if (r.kind === "eventUsecase" && eventIds.has(r.sourceId) && usecaseIds.has(r.targetId)) edges.push({ source: `event:${r.sourceId}`, target: `command:${r.targetId}`, policy: true });
+  for (const rel of model.relations) {
+    if (rel.kind !== "usecaseNext") continue;
+    for (const from of nodesOfUsecase.get(rel.sourceId) ?? []) for (const to of nodesOfUsecase.get(rel.targetId) ?? []) edges.push({ source: from, target: to, label: "次に" });
   }
+  for (const c of r.commands) for (const key of c.eventKeys) edges.push({ source: `command:${c.key}`, target: `event:${key}` });
+  for (const p of r.policies) edges.push({ source: `event:${p.eventKey}`, target: `command:${p.commandKey}`, policy: true });
 
   // 層: 入ってくる線の無いものから幅優先。輪だけのまとまりは、残った最初のものから始める。線の無いものは最後の列
   const out = new Map<string, string[]>();
   const indeg = new Map<string, number>(items.map((n) => [n.id, 0]));
-  for (const e of edges) {
+  const known = new Set(items.map((n) => n.id));
+  const valid = edges.filter((e) => known.has(e.source) && known.has(e.target));
+  for (const e of valid) {
     (out.get(e.source) ?? out.set(e.source, []).get(e.source)!).push(e.target);
     indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
   }
-  const connected = new Set(edges.flatMap((e) => [e.source, e.target]));
+  const connected = new Set(valid.flatMap((e) => [e.source, e.target]));
   const layer = new Map<string, number>();
   const bfs = (roots: string[]) => {
-    const queue = roots.filter((r) => !layer.has(r));
-    for (const r of queue) layer.set(r, 0);
+    const queue = roots.filter((x) => !layer.has(x));
+    for (const x of queue) layer.set(x, 0);
     for (let i = 0; i < queue.length; i++) {
       const id = queue[i]!;
       for (const next of out.get(id) ?? []) {
@@ -394,10 +407,10 @@ export function buildBusinessFlow(model: UntieModel, scope: DomainScope, selecte
   const rows = new Map<number, number>();
   for (const n of items) {
     const l = layer.get(n.id)!;
-    const r = rows.get(l) ?? 0;
-    rows.set(l, r + 1);
+    const row = rows.get(l) ?? 0;
+    rows.set(l, row + 1);
     n.x = COLUMN_X(l);
-    n.y = r * (DOMAIN_NODE_HEIGHT + GAP_Y);
+    n.y = row * (DOMAIN_NODE_HEIGHT + GAP_Y);
   }
-  return finish(items, edges, [], selected);
+  return finish(items, valid, [], selected);
 }

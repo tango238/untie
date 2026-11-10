@@ -9,6 +9,7 @@ import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
 import { NavigationLayoutPane } from "./components/design/NavigationLayoutPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
+import { ContextMapLegend } from "./components/design/ContextMapBoard";
 import { DomainLeftPane } from "./components/design/DomainLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
 import { DomainProperties } from "./components/design/DomainProperties";
@@ -64,6 +65,8 @@ export default function App() {
   const relation = design === "relation";
   // ドメインボードは、左にコンテキスト・集約・コマンド・イベントの一覧、右に選んだものの中身と根拠を出す
   const domain = design === "domain";
+  // コンテキストマップは、左のペインを出さず、右に関係の種類の説明を出す
+  const contextmap = design === "contextmap";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
@@ -143,6 +146,8 @@ export default function App() {
                 <RelationProperties />
               ) : domain ? (
                 <DomainProperties />
+              ) : contextmap ? (
+                <ContextMapLegend />
               ) : navigation ? (
                 <NavigationLayoutPane />
               ) : screenBoard ? (

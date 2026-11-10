@@ -48,7 +48,8 @@ function describeError(e: ErrorObject): string {
     case "minItems":
       return `${where}: ${String(p.limit)} 件以上必要です`;
     case "pattern":
-      return `${where}: 使えない文字が含まれています (英数字・_・- のみ)`;
+      // 英語名 (ドメインモデル。0.6.0) は、英字で始まる英数字と _ だけ
+      return /\/english$/.test(e.instancePath) ? `${where}: 英語名は、英字で始まる英数字と _ で書きます` : `${where}: 使えない文字が含まれています (英数字・_・- のみ)`;
     case "uniqueItems":
       return `${where}: 重複した値があります`;
     case "oneOf":

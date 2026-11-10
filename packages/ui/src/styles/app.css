@@ -732,7 +732,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 
 /* 設計モードの関連ボード */
 .relation-canvas { position: absolute; inset: 0; background: #efece6; }
-/* 設計モード: ドメインボード (分析から導いたドメインモデルの候補。読み取り専用) */
+/* 設計モード: ドメインボード (分析から導いた候補に、保存した判断を重ねる) */
 .domain-board { position: absolute; inset: 0; display: flex; flex-direction: column; background: #efece6; overflow: hidden; }
 .domain-toolbar { padding: 8px 12px 0; flex-wrap: wrap; row-gap: 6px; }
 .domain-hint { margin: 4px 12px 6px; }
@@ -767,6 +767,34 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .domain-left-pane .is-nested { padding-left: 14px; }
 .domain-left-pane .domain-context-group { margin-bottom: 4px; }
 .domain-terms th .an-note { margin-left: 4px; }
+/* ドメインボード: 保存したもの (実線) と、分析から導いた候補 (破線)。あるべき姿の印・編集の部品 */
+.domain-node.is-candidate { border-style: dashed; }
+.domain-node.is-candidate.is-command, .domain-node.is-candidate.is-aggregate, .domain-node.is-candidate.is-event { background: #fff; }
+.an-role.role-candidate { background: #fff; color: #6b6558; border: 1px dashed #b9b2a3; }
+.an-role.role-tobe { background: #e8f1e4; color: #3c6b2f; }
+.panel-title .domain-add { float: right; font-size: 11px; font-weight: 400; padding: 0 6px; }
+.domain-adopt-all { margin-left: auto; }
+.screen-pick-name.is-static { cursor: default; color: var(--muted); }
+.domain-add-line { display: flex; gap: 4px; align-items: center; }
+.domain-add-line input[type="text"], .domain-add-line select { flex: 1; min-width: 0; }
+.domain-item-row { display: flex; gap: 4px; align-items: flex-start; }
+.domain-item-row > :first-child { flex: 1; min-width: 0; }
+.domain-item-row .icon-button { flex: none; }
+.domain-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.check-row.is-inline { flex: none; font-size: 11px; }
+.domain-terms td.domain-term-english { min-width: 140px; }
+.domain-terms td textarea, .domain-terms td input, .contextmap-relations td textarea { width: 100%; box-sizing: border-box; }
+/* 表の中の入力欄は、見出しを見せない (aria-label は入力欄にある) */
+.domain-terms td .field-label, .contextmap-relations td .field-label { display: none; }
+.domain-terms td .field, .contextmap-relations td .field { margin: 0; }
+/* コンテキストマップ */
+.contextmap-title { margin: 12px 0 6px; font-size: 13px; }
+.contextmap-relations tr.is-undecided th { background: #fdf6e3; }
+.contextmap-relations select { max-width: 220px; }
+.contextmap-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.contextmap-legend { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.contextmap-legend dt { font-weight: 600; font-size: 12px; }
+.contextmap-legend dd { margin: 0; font-size: 12px; color: var(--muted); }
 .relation-canvas .react-flow__handle { opacity: 0; pointer-events: none; }
 .relation-node { box-sizing: border-box; background: #fff; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
 .relation-node:focus-visible { outline: 2px solid var(--selected); outline-offset: 2px; }

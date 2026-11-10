@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
-import { addAggregate, addBoundedContext, addDomainCommand, emptyDomain, removeBoundedContext, removeElement, setCandidateExcluded, setDomainTerm, updateAggregate, updateBoundedContext, validateModel } from "@untie/core";
+import { addAggregate, addBoundedContext, addDomainCommand, addDomainPolicy, adoptCommandCandidate, emptyDomain, updateDomainEvent, removeBoundedContext, removeElement, setCandidateExcluded, setDomainTerm, updateAggregate, updateBoundedContext, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { okModel, sampleWithDomain } from "@untie/core/testing";
 import { applyModelDiff, getRoots, loadModel, observeModelChanges, readModel, rebuildModel, repairDoc } from "..";
@@ -135,5 +135,46 @@ describe("ドメインモデル (0.6.0) の往復", () => {
     const m = { ...sampleWithDomain(), domain: emptyDomain() };
     expect(rebuildModel(fresh(m))).toStrictEqual(m);
     expect(getRoots(fresh(m)).domain.size).toBe(0);
+  });
+
+  it("同じ候補を 2 人が同時に採用したら 1 つにし、消した方を指すポリシーは残した方へ付け替える", () => {
+    const base = sampleWithDomain();
+    const a = fresh(base);
+    const b = cloneDoc(a);
+    // A も B も「請求金額を計算する」を採用する。B は、採用したコマンドへのポリシーも足す
+    const ra = adoptCommandCandidate(base, { systemId: "sys_pms", key: "uc_calc_charge", patch: { english: "CalculateCharge" } });
+    const rb = adoptCommandCandidate(base, { systemId: "sys_pms", key: "uc_calc_charge", patch: { name: "請求を計算する" } });
+    if (!ra.ok || !rb.ok) throw new Error("採用に失敗した");
+    const byB = okModel(addDomainPolicy(rb.model, { id: "po_b", eventId: "de_paid", commandId: rb.id, auto: true }));
+    applyModelDiff(a, base, ra.model, "a");
+    applyModelDiff(b, base, byB, "b");
+    sync(a, b);
+    // 合流した直後は、同じ出どころのコマンドが 2 つある (検証に通らない)。読むときに 1 つにして見せ、repairDoc が Y.Doc も直す
+    const shown = rebuildModel(a);
+    expect(rebuildModel(b)).toStrictEqual(shown);
+    const kept = shown.domain.commands.filter((c) => c.source?.usecaseId === "uc_calc_charge");
+    expect(kept).toHaveLength(1);
+    expect(shown.domain.policies.find((p) => p.id === "po_b")).toMatchObject({ eventId: "de_paid", commandId: kept[0]!.id });
+    expect(validateModel(shown)).toMatchObject({ ok: true });
+    expect(repairDoc(a, "repair").length).toBeGreaterThan(0);
+    expect(getRoots(a).domain.has(kept[0]!.id === ra.id ? rb.id : ra.id)).toBe(false);
+    expect(repairDoc(a, "repair")).toEqual([]);
+  });
+
+  it("集約を別のコンテキストへ移すのと、その集約のイベントの編集が重なったら、イベントは集約のコンテキストへ付いていく", () => {
+    const base = sampleWithDomain();
+    const a = fresh(base);
+    const b = cloneDoc(a);
+    // A は請求の集約を予約のコンテキストへ移す (イベントも一緒に移る)。B は同じイベントの名前を変える (古いコンテキストのまま書き戻す)
+    const byA = okModel(updateAggregate(base, { id: "ag_bill", patch: { boundedContextId: "bc_res" } }));
+    const byB = okModel(updateDomainEvent(base, { id: "de_calc", patch: { name: "請求が確定した" } }));
+    applyModelDiff(a, base, byA, "a");
+    applyModelDiff(b, base, byB, "b");
+    sync(a, b);
+    const merged = rebuildModel(a);
+    expect(rebuildModel(b)).toStrictEqual(merged);
+    const event = merged.domain.events.find((e) => e.id === "de_calc")!;
+    expect(event).toMatchObject({ aggregateId: "ag_bill", boundedContextId: "bc_res" });
+    expect(validateModel(merged)).toMatchObject({ ok: true });
   });
 });

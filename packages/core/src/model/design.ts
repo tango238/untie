@@ -1,9 +1,9 @@
-// 設計モードの設計ボード (サイトマップ・ナビゲーション・画面・データ・関連・ドメイン)。モデルには保存せず、id と順序とラベルだけをここに置く。
+// 設計モードの設計ボード (サイトマップ・ナビゲーション・画面・データ・関連・ドメイン・コンテキストマップ)。モデルには保存せず、id と順序とラベルだけをここに置く。
 // 固定ボード (fixedBoards.ts)・分析ボード (analysis.ts) と同じ流儀。
 import type { DesignScreen, SystemDesign, UntieModel } from "./types";
 
 /** ボードの選択肢に並べる順 */
-export const DESIGN_BOARD_KINDS = ["sitemap", "navigation", "screen", "data", "relation", "domain"] as const;
+export const DESIGN_BOARD_KINDS = ["sitemap", "navigation", "screen", "data", "relation", "domain", "contextmap"] as const;
 export type DesignBoardKind = (typeof DESIGN_BOARD_KINDS)[number];
 
 export const DESIGN_BOARD_LABELS: Record<DesignBoardKind, string> = {
@@ -13,6 +13,7 @@ export const DESIGN_BOARD_LABELS: Record<DesignBoardKind, string> = {
   data: "データ",
   relation: "関連",
   domain: "ドメイン",
+  contextmap: "コンテキストマップ",
 };
 
 const PREFIX = "design:";

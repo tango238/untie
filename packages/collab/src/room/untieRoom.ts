@@ -373,6 +373,9 @@ export class UntieRoom extends YServer<Env> {
       roots.elements.clear();
       roots.relations.clear();
       roots.boards.clear();
+      roots.designs.clear();
+      roots.databases.clear();
+      roots.domain.clear();
     }, "destroy");
     for (const connection of this.getConnections()) connection.close(1008, "ファイルは削除されました");
   }

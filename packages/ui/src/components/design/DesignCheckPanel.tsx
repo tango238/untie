@@ -1,8 +1,21 @@
 import { useMemo } from "react";
 import { DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
 import { designBoardId, type DesignBoardKind } from "@untie/core/model/design";
+import { cachedDomainCheck } from "@untie/core/model/domainCache";
+import { DOMAIN_CHECK_ORDER, DOMAIN_CHECK_TITLES, type DomainCheckProblem } from "@untie/core/model/domainCheck";
 import { useUntieStore } from "../../store";
 import { cachedCheckDesign } from "./checkCache";
+import { revealDomainSelection } from "./domainElementClick";
+
+/** 検証パネルで、ドメインモデルの問題の行を押したときの移動先 */
+export function revealDomainProblem(problem: DomainCheckProblem): void {
+  const target = problem.target;
+  if (!target) return;
+  const st = useUntieStore.getState();
+  if (target.board === "contextmap") st.setCurrentBoard(designBoardId("contextmap"));
+  else revealDomainSelection(target.selection, target.systemId);
+  useUntieStore.getState().setRightPanel("properties");
+}
 
 /** 検証パネルで、設計の問題の行を押したときの移動先 */
 export function revealDesignProblem(problem: DesignProblem): void {
@@ -43,6 +56,9 @@ export function DesignCheckPanel() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const result = useMemo(() => (systemId ? cachedCheckDesign(model, systemId) : { problems: [], warnings: [] }), [model, systemId]);
+  const domain = cachedDomainCheck(model);
+  const domainErrors = domain.filter((p) => p.level === "error");
+  const domainWarnings = domain.filter((p) => p.level === "warning");
   const hasDesign = model.designs.some((d) => d.systemId === systemId);
   const systemName = model.elements.find((e) => e.id === systemId)?.name || "(名前なし)";
   return (
@@ -58,11 +74,21 @@ export function DesignCheckPanel() {
       {result.warnings.length > 0 && <p className="hint">警告が {result.warnings.length} 件あります (エラーではありません)。</p>}
       <Groups list={result.problems} warning={false} />
       <Groups list={result.warnings} warning />
+      {domain.length > 0 && (
+        <>
+          <h2 className="panel-title">検証: ドメインモデル</h2>
+          {domainErrors.length === 0 ? <p className="trace-summary is-ok">ドメインモデルに、エラーはありません。</p> : <p className="trace-summary">ドメインモデルに、エラーが {domainErrors.length} 件あります。</p>}
+          {domainWarnings.length > 0 && <p className="hint">警告が {domainWarnings.length} 件あります (まだ決めていないこと)。</p>}
+          <DomainGroups list={domainErrors} warning={false} />
+          <DomainGroups list={domainWarnings} warning />
+        </>
+      )}
       <details className="trace-rule">
         <summary>調べること</summary>
         <ul>
           <li>エラー: システムが使う情報がテーブルに対応しているか／対応のあるテーブルが DSL にあるか／DSL に解析エラーが無いか／画面の項目の対応が無い列を指していないか／使うデータベースがあるか</li>
           <li>警告: 遷移のきっかけが未定／メニューからも遷移からも辿れない画面／画面 UI がまだ無い画面／画面 UI の項目に列の対応が無い</li>
+          <li>ドメインモデル (保存した判断があるとき。すべてのシステムの分): 同じコンテキストの 2 つの集約に同じ情報が入っていないか (エラー)／集約に入っていない情報・関係を決めていないコンテキストの組・実装するシステムや分類が未定のコンテキスト・不変条件の無い集約・英語名の無いもの (警告)</li>
         </ul>
       </details>
     </aside>
@@ -85,6 +111,37 @@ function Groups({ list, warning }: { list: DesignProblem[]; warning: boolean }) 
                 <li key={`${type}:${i}`} className={`trace-row${warning ? " is-warning" : ""}`}>
                   {p.target ? (
                     <button type="button" className="chip-link design-problem-link" onClick={() => revealDesignProblem(p)}>
+                      {p.message}
+                    </button>
+                  ) : (
+                    <div className="trace-reason">{p.message}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+function DomainGroups({ list, warning }: { list: DomainCheckProblem[]; warning: boolean }) {
+  return (
+    <>
+      {DOMAIN_CHECK_ORDER.map((type) => {
+        const rows = list.filter((p) => p.type === type);
+        if (rows.length === 0) return null;
+        return (
+          <section key={type} className={warning ? "trace-warnings" : undefined} aria-label={`${warning ? "警告" : "エラー"}: ${DOMAIN_CHECK_TITLES[type]}`} data-testid={`domain-${warning ? "warnings" : "problems"}-${type}`}>
+            <h3 className={warning ? "trace-warning-title" : "trace-info-title"}>
+              {warning ? "警告" : "エラー"}: {DOMAIN_CHECK_TITLES[type]} ({rows.length})
+            </h3>
+            <ul className="trace-rows">
+              {rows.map((p, i) => (
+                <li key={`${type}:${i}`} className={`trace-row${warning ? " is-warning" : ""}`}>
+                  {p.target ? (
+                    <button type="button" className="chip-link design-problem-link" onClick={() => revealDomainProblem(p)}>
                       {p.message}
                     </button>
                   ) : (

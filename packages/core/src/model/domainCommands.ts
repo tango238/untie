@@ -2,9 +2,10 @@
 // 参照の規則は domain.ts の inspectDomain と同じ (コマンドは、壊れた参照を作る入力を断る)。
 import { produce } from "immer";
 import type { CommandResult, Fail } from "./commands";
-import { aggregateInformationIds, commandSourceKey, CONTEXT_RELATION_KINDS, inspectDomain, INTEGRATIONS, isEnglishName, SUBDOMAINS, usedDomainIds, type ContextRelationKind, type Integration, type Subdomain } from "./domain";
+import { aggregateInformationIds, commandSourceKey, CONTEXT_RELATION_KINDS, inspectDomain, INTEGRATIONS, isEnglishName, parseExcludedKey, SUBDOMAINS, SYMMETRIC_RELATION_KINDS, usedDomainIds, type ContextRelationKind, type Integration, type Subdomain } from "./domain";
 import { newUniqueId, type IdKind } from "./id";
 import { checkLength, EXCLUDED_KEY_MAX_LENGTH, type LimitKey } from "./limits";
+import { isValidDesignShape, type DomainPartKind } from "./validate";
 import type { Aggregate, BoundedContext, ContextRelation, DomainCommand, DomainEvent, DomainModel, DomainTerm, Element, UntieModel } from "./types";
 
 const fail = (reason: string): Fail => ({ ok: false, reason });
@@ -13,11 +14,13 @@ const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null &&
 const elementOf = (model: UntieModel, id: string): Element | undefined => model.elements.find((e) => e.id === id);
 const nameOrNone = (name: string) => name || "(名前なし)";
 
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+
 /** 新しい id (渡された id があれば、使われていないことを確かめる) */
 function takeId(model: UntieModel, kind: IdKind, given: string | undefined): string | Fail {
   const used = usedDomainIds(model.domain);
   if (given !== undefined) {
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(given)) return fail(`id に使えない文字があります: ${given}`);
+    if (!ID.test(given)) return fail(`id に使えない文字があります: ${given}`);
     return used.has(given) ? fail(`id がすでに使われています: ${given}`) : given;
   }
   return newUniqueId(kind, used);
@@ -173,7 +176,7 @@ export interface AggregateInput {
   invariants?: InvariantInput[];
 }
 
-function aggregateFields(model: UntieModel, input: AggregateInput, base: Aggregate | null): Aggregate | Fail {
+function aggregateFields(model: UntieModel, input: AggregateInput, base: Aggregate | null, selfId: string): Aggregate | Fail {
   const next: Aggregate = base ? { ...base } : { id: "", boundedContextId: "", name: "", rootInformationId: "", memberInformationIds: [], invariants: [] };
   if (input.boundedContextId !== undefined || !base) {
     const bc = model.domain.contexts.find((c) => c.id === input.boundedContextId);
@@ -210,7 +213,9 @@ function aggregateFields(model: UntieModel, input: AggregateInput, base: Aggrega
     setOptional(next, "stateGroup", group === "" ? undefined : group);
   }
   if (input.invariants !== undefined) {
+    // id は domain の中で一意。この集約の id (足すときは、これから使う id) とも重ねない
     const used = usedDomainIds(model.domain);
+    used.add(selfId);
     const own = new Set((base?.invariants ?? []).map((i) => i.id));
     const seen = new Set<string>();
     const invariants: Aggregate["invariants"] = [];
@@ -219,7 +224,8 @@ function aggregateFields(model: UntieModel, input: AggregateInput, base: Aggrega
       if (isFail(text)) return text;
       if (inv.conditionId !== undefined && elementOf(model, inv.conditionId)?.kind !== "condition") return fail(`条件が存在しません: ${inv.conditionId}`);
       let id = inv.id;
-      if (id === undefined || seen.has(id) || (used.has(id) && !own.has(id))) id = newUniqueId("invariant", new Set([...used, ...seen]));
+      // 形の正しくない id・重なる id は、作り直す
+      if (id === undefined || !ID.test(id) || seen.has(id) || (used.has(id) && !own.has(id))) id = newUniqueId("invariant", new Set([...used, ...seen]));
       seen.add(id);
       invariants.push({ id, text, ...(inv.conditionId !== undefined ? { conditionId: inv.conditionId } : {}) });
     }
@@ -239,7 +245,7 @@ function aggregateFields(model: UntieModel, input: AggregateInput, base: Aggrega
 export function addAggregate(model: UntieModel, payload: AggregateInput & { id?: string; boundedContextId: string; rootInformationId: string }): CommandResult<{ id: string }> {
   const id = takeId(model, "aggregate", payload.id);
   if (isFail(id)) return id;
-  const fields = aggregateFields(model, payload, null);
+  const fields = aggregateFields(model, payload, null, id);
   if (isFail(fields)) return fields;
   const next = produce(model, (draft) => {
     draft.domain.aggregates.push({ ...fields, id });
@@ -252,7 +258,7 @@ export function updateAggregate(model: UntieModel, payload: { id: string; patch:
   const index = model.domain.aggregates.findIndex((a) => a.id === payload.id);
   if (index < 0) return fail(`集約が存在しません: ${payload.id}`);
   const before = model.domain.aggregates[index]!;
-  const fields = aggregateFields(model, payload.patch, before);
+  const fields = aggregateFields(model, payload.patch, before, before.id);
   if (isFail(fields)) return fields;
   const next = produce(model, (draft) => {
     draft.domain.aggregates[index] = fields;
@@ -507,6 +513,9 @@ function relationFields(model: UntieModel, input: ContextRelationInput, base: Co
     if (input.kind === undefined || !CONTEXT_RELATION_KINDS.includes(input.kind)) return fail(`関係の種類が正しくありません: ${String(input.kind)}`);
     next.kind = input.kind;
   }
+  // 対等な関係 (パートナーシップなど) は向きを持たないので、逆向きのものとは並べない
+  const reverse = model.domain.relations.find((r) => r.id !== base?.id && r.upstreamId === next.downstreamId && r.downstreamId === next.upstreamId);
+  if (reverse && (SYMMETRIC_RELATION_KINDS.has(next.kind) || SYMMETRIC_RELATION_KINDS.has(reverse.kind))) return fail("この組には、対等な関係 (向きを持たない関係) があるので、逆向きの関係は足せません");
   if (input.integration !== undefined) {
     if (input.integration !== null && !INTEGRATIONS.includes(input.integration)) return fail(`統合の方式が正しくありません: ${String(input.integration)}`);
     setOptional(next, "integration", input.integration ?? undefined);
@@ -566,19 +575,24 @@ export interface DomainTermInput {
 }
 
 /**
- * 用語を置く。id か elementId で既にある用語を見つけたら変え、無ければ足す。
- * 要素の用語で、英語も定義も空になったら消す (分析の名前と説明から導けるので、持つ意味が無い)
+ * 用語を置く。id か elementId (どちらか一方) で既にある用語を見つけたら変え、無ければ足す。
+ * 要素の用語の語は、いつも要素の名前 (写し。term は見ない)。英語も定義もコンテキストも無くなったら消す (分析の名前と説明から導けるので、持つ意味が無い)
  */
 export function setDomainTerm(model: UntieModel, payload: DomainTermInput): CommandResult<{ id: string | null }> {
   const terms = model.domain.terms;
+  if (payload.id !== undefined && payload.elementId !== undefined) return fail("用語は、id か elementId のどちらか一方で指してください");
   const element = payload.elementId === undefined ? undefined : elementOf(model, payload.elementId);
   if (payload.elementId !== undefined && !element) return fail(`要素が存在しません: ${payload.elementId}`);
   const index = payload.id !== undefined ? terms.findIndex((t) => t.id === payload.id) : element ? terms.findIndex((t) => t.elementId === element.id) : -1;
   if (payload.id !== undefined && index < 0) return fail(`用語が存在しません: ${payload.id}`);
   const base = index >= 0 ? terms[index]! : null;
   const next: DomainTerm = base ? { ...base } : { id: "", term: "", definition: "", boundedContextId: null, ...(element ? { elementId: element.id } : {}) };
-  if (payload.term !== undefined || !base) {
-    const term = requiredText(payload.term?.trim() ? payload.term : (element?.name ?? ""), "term", "用語");
+  const owner = next.elementId === undefined ? undefined : elementOf(model, next.elementId);
+  if (owner && owner.name.trim() !== "") {
+    // 要素の用語の語は、要素の名前の写し
+    next.term = owner.name.trim();
+  } else if (payload.term !== undefined || !base) {
+    const term = requiredText(payload.term ?? "", "term", "用語");
     if (isFail(term)) return term;
     next.term = term;
   }
@@ -596,7 +610,7 @@ export function setDomainTerm(model: UntieModel, payload: DomainTermInput): Comm
     if (payload.boundedContextId !== null && !model.domain.contexts.some((c) => c.id === payload.boundedContextId)) return fail(`境界づけられたコンテキストが存在しません: ${payload.boundedContextId}`);
     next.boundedContextId = payload.boundedContextId;
   }
-  const empty = next.elementId !== undefined && next.english === undefined && next.definition === "";
+  const empty = next.elementId !== undefined && next.english === undefined && next.definition === "" && next.boundedContextId === null;
   if (empty) {
     if (!base) return { ok: true, model, id: null };
     const removed = produce(model, (draft) => {
@@ -630,7 +644,7 @@ export function removeDomainTerm(model: UntieModel, payload: { id: string }): Co
 /** 分析から導いた候補を、あるべき姿から外す (excluded: true) か、戻す (false)。key は候補の出どころのキー */
 export function setCandidateExcluded(model: UntieModel, payload: { key: string; excluded: boolean }): CommandResult {
   const key = payload.key.trim();
-  if (key === "" || key.length > EXCLUDED_KEY_MAX_LENGTH) return fail("候補のキーが正しくありません");
+  if (key === "" || key.length > EXCLUDED_KEY_MAX_LENGTH || !parseExcludedKey(key)) return fail("候補のキーが正しくありません");
   const has = model.domain.excluded.includes(key);
   if (has === payload.excluded) return { ok: true, model };
   const next = produce(model, (draft) => {
@@ -640,15 +654,84 @@ export function setCandidateExcluded(model: UntieModel, payload: { key: string; 
   return { ok: true, model: next };
 }
 
+const DOMAIN_PARTS: readonly [keyof Omit<DomainModel, "excluded">, DomainPartKind, string][] = [
+  ["contexts", "boundedContext", "コンテキスト"],
+  ["aggregates", "aggregate", "集約"],
+  ["commands", "domainCommand", "コマンド"],
+  ["events", "domainEvent", "イベント"],
+  ["policies", "domainPolicy", "ポリシー"],
+  ["relations", "contextRelation", "関係"],
+  ["terms", "domainTerm", "用語"],
+];
+
+/** ドメインモデルの形 (スキーマ) の最初の問題。無ければ null。参照は見ない */
+export function domainShapeProblem(domain: DomainModel): string | null {
+  for (const [key, kind, label] of DOMAIN_PARTS) {
+    const list: unknown = domain[key];
+    if (!Array.isArray(list)) return `${label}の一覧がありません`;
+    for (const part of list as { id?: unknown }[]) {
+      if (!isValidDesignShape(kind, part)) return `${label} ${typeof part?.id === "string" ? part.id : "(id なし)"} の形が正しくありません (名前が空・英語名に使えない文字・種類の誤りなど)`;
+    }
+  }
+  if (!Array.isArray(domain.excluded) || domain.excluded.some((k) => typeof k !== "string" || k.length > EXCLUDED_KEY_MAX_LENGTH || !parseExcludedKey(k))) return "外した候補のキーが正しくありません";
+  return null;
+}
+
 /**
- * ドメインモデルをまるごと置き換える (AI の下書き・候補からの作成)。壊れた参照があれば失敗する (理由に最初の問題を出す)。
+ * ドメインモデルをまるごと置き換える (AI の下書き・候補からの作成)。形 (スキーマ) が正しくないか、壊れた参照があれば失敗する (理由に最初の問題を出す)。
  * 一部だけを置き換えたいときは、呼ぶ側が残す分と合わせたドメインモデルを渡す
  */
 export function setDomainModel(model: UntieModel, payload: { domain: DomainModel }): CommandResult {
+  const shape = domainShapeProblem(payload.domain);
+  if (shape) return fail(`ドメインモデルの形が正しくありません: ${shape}`);
   const result = inspectDomain(payload.domain, model.elements);
   if (result.problems.length > 0) return fail(`ドメインモデルの参照が正しくありません: ${result.problems[0]!.what}`);
   const next = produce(model, (draft) => {
     draft.domain = payload.domain;
+  });
+  return { ok: true, model: next };
+}
+
+// ---------------------------------------------------------------- 情報を集約へ入れる・外す
+
+/**
+ * 情報を集約の中の情報にする。同じコンテキストのほかの集約のルートなら、その集約を畳んでから入れる
+ * (畳む集約のコマンドとイベントはこの集約へ移り、中の情報と不変条件もこの集約へ移る)。ほかの集約の中の情報なら、そちらから外して入れる
+ */
+export function includeInformation(model: UntieModel, payload: { aggregateId: string; informationId: string }): CommandResult {
+  const target = model.domain.aggregates.find((a) => a.id === payload.aggregateId);
+  if (!target) return fail(`集約が存在しません: ${payload.aggregateId}`);
+  if (elementOf(model, payload.informationId)?.kind !== "information") return fail(`情報が存在しません: ${payload.informationId}`);
+  if (aggregateInformationIds(target).includes(payload.informationId)) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const d = draft.domain;
+    const into = d.aggregates.find((a) => a.id === target.id)!;
+    for (const other of d.aggregates) {
+      if (other.id === target.id || other.boundedContextId !== target.boundedContextId) continue;
+      if (other.rootInformationId === payload.informationId) {
+        // ルートにしている集約は畳む: 中の情報・不変条件・コマンド・イベントをこの集約へ移す
+        for (const id of other.memberInformationIds) if (!aggregateInformationIds(into).includes(id)) into.memberInformationIds.push(id);
+        into.invariants.push(...other.invariants);
+        for (const c of d.commands) if (c.aggregateId === other.id) c.aggregateId = into.id;
+        for (const e of d.events) if (e.aggregateId === other.id) e.aggregateId = into.id;
+        d.aggregates = d.aggregates.filter((a) => a.id !== other.id);
+        break;
+      }
+      other.memberInformationIds = other.memberInformationIds.filter((id) => id !== payload.informationId);
+    }
+    into.memberInformationIds.push(payload.informationId);
+  });
+  return { ok: true, model: next };
+}
+
+/** 集約の中の情報から外す (ルートは外せない) */
+export function excludeInformation(model: UntieModel, payload: { aggregateId: string; informationId: string }): CommandResult {
+  const index = model.domain.aggregates.findIndex((a) => a.id === payload.aggregateId);
+  if (index < 0) return fail(`集約が存在しません: ${payload.aggregateId}`);
+  if (model.domain.aggregates[index]!.rootInformationId === payload.informationId) return fail("ルートの情報は外せません (ルートを変えるか、集約を消してください)");
+  const next = produce(model, (draft) => {
+    const a = draft.domain.aggregates[index]!;
+    a.memberInformationIds = a.memberInformationIds.filter((id) => id !== payload.informationId);
   });
   return { ok: true, model: next };
 }
