@@ -151,6 +151,7 @@ export function domainDesignSystemPrompt(): string {
 - 対象のシステムが書く情報は、必ずどれかの集約 (ルートか中の情報) に入れる。読むだけの情報は集約にしない (上流のものとして残す)
 - 「気づき」の問いに、下書きで答えを出す (どの集約のものか・分けるか・イベントが要るか)。決め切れないものは、分析の候補のまま残してよい (書かなければ候補として残る)
 - 「残すコンテキスト」は、ほかのシステムのものなので作り直さない。関係とポリシーでは英語名で指せる
+- 「今のドメインモデル」で同じものを指すコンテキスト・コマンド・イベントは、英語名を変えない (ほかのコンテキストとの関係やポリシーを、英語名で付け直すため)。名前を変えると、その関係やポリシーは消える
 - 結果は submit_domain_model で提出する。当てられないところがあると理由が返るので、直して全体を出し直す`;
 }
 
@@ -214,8 +215,27 @@ export function domainDesignRequest(model: UntieModel, systemId: string): string
       english: c.english ?? null,
       aggregates: model.domain.aggregates
         .filter((a) => a.boundedContextId === c.id)
-        .map((a) => ({ name: a.name, english: a.english ?? null, rootInformationId: a.rootInformationId, memberInformationIds: a.memberInformationIds, invariants: a.invariants.map((i) => i.text) })),
+        .map((a) => ({
+          name: a.name,
+          english: a.english ?? null,
+          rootInformationId: a.rootInformationId,
+          memberInformationIds: a.memberInformationIds,
+          invariants: a.invariants.map((i) => i.text),
+          commands: model.domain.commands.filter((x) => x.aggregateId === a.id).map((x) => ({ name: x.name, english: x.english ?? null, ...(x.source ? { usecaseId: x.source.usecaseId } : {}) })),
+          events: model.domain.events.filter((x) => x.aggregateId === a.id).map((x) => ({ name: x.name, english: x.english ?? null, ...(x.eventId ? { eventId: x.eventId } : {}) })),
+        })),
     }));
+  // 置き換えるコンテキストに結ばれている関係とポリシー (英語名)。下書きで同じ英語名を使えば、書かなくても付け直される
+  const contextEnglish = (id: string) => model.domain.contexts.find((c) => c.id === id)?.english ?? model.domain.contexts.find((c) => c.id === id)?.name ?? "?";
+  const eventEnglish = (id: string) => model.domain.events.find((e) => e.id === id)?.english ?? model.domain.events.find((e) => e.id === id)?.name ?? "?";
+  const commandEnglish = (id: string) => model.domain.commands.find((c) => c.id === id)?.english ?? model.domain.commands.find((c) => c.id === id)?.name ?? "?";
+  const ownAggregates = new Set(model.domain.aggregates.filter((a) => own.has(a.boundedContextId)).map((a) => a.id));
+  const ownCommands = new Set(model.domain.commands.filter((c) => ownAggregates.has(c.aggregateId)).map((c) => c.id));
+  const ownEvents = new Set(model.domain.events.filter((e) => own.has(e.boundedContextId)).map((e) => e.id));
+  const links = {
+    relations: model.domain.relations.filter((r) => own.has(r.upstreamId) || own.has(r.downstreamId)).map((r) => ({ upstream: contextEnglish(r.upstreamId), downstream: contextEnglish(r.downstreamId), kind: r.kind, ...(r.integration ? { integration: r.integration } : {}) })),
+    policies: model.domain.policies.filter((p) => ownEvents.has(p.eventId) || ownCommands.has(p.commandId)).map((p) => ({ event: eventEnglish(p.eventId), command: commandEnglish(p.commandId), auto: p.auto })),
+  };
   return `システム「${nameOf(system)}」のドメインモデルの下書きを作ってください。
 
 <分析のコンテキストと情報>
@@ -245,6 +265,10 @@ ${JSON.stringify(kept)}
 <今のドメインモデル (このシステムだけが実装するコンテキスト。下書きで置き換える。良いところは引き継ぐ)>
 ${current.length > 0 ? JSON.stringify(current, null, 1) : "(まだ無い)"}
 </今のドメインモデル>
+
+<今の関係とポリシー (置き換えるコンテキストに結ばれているもの。同じ英語名を使えば、書かなくても引き継ぐ。変えるなら relations・policies に書く)>
+${links.relations.length + links.policies.length > 0 ? JSON.stringify(links, null, 1) : "(まだ無い)"}
+</今の関係とポリシー>
 
 下書きを submit_domain_model で提出してください。`;
 }
@@ -292,6 +316,8 @@ export async function generateDomainDraft(model: UntieModel, systemId: string, o
     if (name !== SUBMIT_DOMAIN_TOOL.name) return { ok: false, content: JSON.stringify({ error: `不明な道具です: ${name}` }), changed: false };
     const draft = readDomainDraft(input);
     if (!draft) return { ok: false, content: JSON.stringify({ error: "contexts (配列) が必要です" }), changed: false };
+    // 上限を超えた提出は受け付けない (受け付けた下書きがあれば、それを使う)
+    if (attempts >= DOMAIN_DRAFT_MAX_ATTEMPTS || box.value) return { ok: false, content: JSON.stringify({ error: "これ以上は受け付けません" }), changed: false };
     attempts++;
     const reason = evaluate(draft);
     if (reason === null) return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };

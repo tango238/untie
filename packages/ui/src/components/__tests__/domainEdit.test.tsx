@@ -272,6 +272,21 @@ describe("コンテキストマップ", () => {
     expect(screen.getByTestId("contextmap-flow-bc_ordering-bc_payment").textContent).toContain("逆向きに「腐敗防止層 (Anticorruption Layer)」があります");
   });
 
+  it("逆向きに保存した対等な関係を、向きのある種類に変えると、導いたつながりの向きにそろえる", () => {
+    start(true);
+    // 在庫 → 受注 の向きで、対等な関係 (パートナーシップ) として保存し直す
+    act(() => {
+      st().dispatch((m) => removeContextRelation(m, { id: "cr_ordering_inventory" }));
+      st().dispatch((m) => addContextRelation(m, { id: "cr_peer", upstreamId: "bc_inventory", downstreamId: "bc_ordering", kind: "partnership" }));
+    });
+    render(<ContextMapBoard />);
+    const row = screen.getByTestId("contextmap-flow-bc_ordering-bc_inventory");
+    const select = within(row).getByLabelText("受注 → 在庫 の関係の種類") as HTMLSelectElement;
+    expect(select.value).toBe("partnership");
+    fireEvent.change(select, { target: { value: "customerSupplier" } });
+    expect(domain().relations.find((r) => r.id === "cr_peer")).toMatchObject({ upstreamId: "bc_ordering", downstreamId: "bc_inventory", kind: "customerSupplier" });
+  });
+
   it("つながりの無い組にも関係を足せ、コンテキストの名前から、実装するシステムのドメインボードへ移れる", () => {
     start(true);
     render(<ContextMapBoard />);

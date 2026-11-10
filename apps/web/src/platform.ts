@@ -274,7 +274,7 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       return { path: null, name: suggestedName };
     },
 
-    async saveTextFiles(files, { zipName, zipFolder }) {
+    async saveTextFiles(files, { zipName, zipFolder, keep = [] }) {
       const picker = pickerWindow();
       if (picker.showDirectoryPicker) {
         let dir: FileSystemDirectoryHandle;
@@ -284,8 +284,22 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
           if (isAbort(e)) return null;
           throw e;
         }
-        for (const f of files) await writeHandle(await dir.getFileHandle(f.name, { create: true }), f.text);
-        return { where: dir.name, count: files.length };
+        const kept: string[] = [];
+        for (const f of files) {
+          if (keep.includes(f.name)) {
+            // 既にあれば残す (無ければ getFileHandle が失敗するので、作る)
+            const exists = await dir.getFileHandle(f.name).then(
+              () => true,
+              () => false,
+            );
+            if (exists) {
+              kept.push(f.name);
+              continue;
+            }
+          }
+          await writeHandle(await dir.getFileHandle(f.name, { create: true }), f.text);
+        }
+        return { where: dir.name, count: files.length - kept.length, kept };
       }
       // フォルダを選べないブラウザでは、zip にまとめてダウンロードする
       const zip = makeZip(files.map((f) => ({ path: `${zipFolder}/${f.name}`, text: f.text })));
@@ -295,7 +309,7 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       a.download = zipName;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return { where: zipName, count: files.length };
+      return { where: zipName, count: files.length, kept: [] };
     },
 
     canReopenFiles,

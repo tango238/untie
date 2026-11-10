@@ -77,9 +77,10 @@ export interface Platform {
   /**
    * 複数のテキストファイルを、選んだフォルダへ書き出す (ドメインモデルの書き出し。同じ名前のファイルは上書きする)。
    * フォルダを選べない環境 (File System Access API の無いブラウザ) では、zipName の zip にまとめてダウンロードする (中のフォルダは zipFolder)。
-   * where は書き出した先の名前 (フォルダか zip)。取り消したら null
+   * keep に挙げた名前のファイルは、フォルダに既にあれば上書きしない (書き出し先のツールが持つ状態のファイル。zip のときは、いつも入れる)。
+   * where は書き出した先の名前 (フォルダか zip)、count は書いた数、kept は既にあって残した名前。取り消したら null
    */
-  saveTextFiles(files: readonly TextFile[], options: { zipName: string; zipFolder: string }): Promise<{ where: string; count: number } | null>;
+  saveTextFiles(files: readonly TextFile[], options: { zipName: string; zipFolder: string; keep?: readonly string[] }): Promise<{ where: string; count: number; kept: string[] } | null>;
   /** 開く・保存する場所をあとから指し直せるか (最近開いたファイルを持てるか) */
   canReopenFiles(): boolean;
   /** 未保存の変更を捨ててよいかを聞く */

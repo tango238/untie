@@ -279,7 +279,9 @@ function AggregateDetail({ r, a, model, systemId, edit, get }: { r: ResolvedDoma
   const events = r.events.filter((e) => e.aggregateKey === a.key);
   const elsewhere = a.scoped.flatMap((s) => s.commandsElsewhere);
   const stores = [...new Map(a.scoped.flatMap((s) => s.stores).map((s) => [s.id, s])).values()];
-  const related = [...new Map(a.scoped.flatMap((s) => [...s.candidate.related, ...s.candidate.coWritten]).map((i) => [i.id, i])).values()].filter((i) => i.id !== a.root.id && !a.members.some((m) => m.id === i.id));
+  // 同じコンテキストのほかの集約のルートは、中の情報の選択肢に出さない (入れると、その集約が畳まれて名前や状態グループが消える。まとめたいときは、先にその集約を消す)
+  const otherRoots = new Set(saved ? model.domain.aggregates.filter((x) => x.id !== saved.id && x.boundedContextId === saved.boundedContextId).map((x) => x.rootInformationId) : []);
+  const related = [...new Map(a.scoped.flatMap((s) => [...s.candidate.related, ...s.candidate.coWritten]).map((i) => [i.id, i])).values()].filter((i) => i.id !== a.root.id && !a.members.some((m) => m.id === i.id) && !otherRoots.has(i.id));
   const facts = (
     <>
       <Field label="区分">
@@ -455,7 +457,7 @@ function AggregateDetail({ r, a, model, systemId, edit, get }: { r: ResolvedDoma
             )}
             <optgroup label="そのほかの情報">
               {model.elements
-                .filter((e) => e.kind === "information" && e.id !== a.root.id && !a.members.some((m) => m.id === e.id) && !related.some((x) => x.id === e.id))
+                .filter((e) => e.kind === "information" && e.id !== a.root.id && !a.members.some((m) => m.id === e.id) && !related.some((x) => x.id === e.id) && !otherRoots.has(e.id))
                 .map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.name || "(名前なし)"}

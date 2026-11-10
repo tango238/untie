@@ -3,7 +3,7 @@ import type { CommandResult } from "./commands";
 import { setDatabaseDesign } from "./commands";
 import { effectiveDatabaseIds } from "./design";
 import { placeInformations } from "./placement";
-import { isPrismaIdent } from "./prisma";
+import { isPrismaIdent, PRISMA_SCALAR_TYPES } from "./prisma";
 import { parsePrismaDslCached } from "./prismaCache";
 import type { Aggregate, BoundedContext, Database, Element, UntieModel } from "./types";
 
@@ -95,6 +95,10 @@ export function aggregateOfInformation(model: UntieModel, systemId: string, info
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+/** DSL のコメントに入れる文字列 (改行があるとコメントが切れて解析エラーになる) */
+const inComment = (text: string) => text.replace(/[\r\n]+/g, " ");
+/** Prisma が model の名前に使わせない名前 (型の名前など)。集約の英語名がこれなら、連番の名前にする */
+const RESERVED_MODEL_NAMES: ReadonlySet<string> = new Set([...PRISMA_SCALAR_TYPES, "Unsupported", "Boolean", "PrismaClient"].map((n) => n.toLowerCase()));
 
 /**
  * 対象システムが使う情報のうち、このデータベースのどのテーブルにも対応していないものについて、
@@ -131,7 +135,7 @@ export function addScaffold(model: UntieModel, systemId: string, databaseId: str
   for (const id of infoIds) {
     const o = owner.get(id);
     const english = o?.role === "root" ? o.aggregate.english : undefined;
-    if (english && isPrismaIdent(english) && !used.has(english)) {
+    if (english && isPrismaIdent(english) && !used.has(english) && !RESERVED_MODEL_NAMES.has(english.toLowerCase())) {
       names.set(id, english);
       used.add(english);
     }
@@ -146,7 +150,7 @@ export function addScaffold(model: UntieModel, systemId: string, databaseId: str
     const lines: string[] = [];
     const columns: string[] = ["  id String @id"];
     if (o) {
-      const label = `${o.aggregate.english ?? o.aggregate.name}${o.context ? ` (${o.context.name})` : ""}`;
+      const label = inComment(`${o.aggregate.english ?? o.aggregate.name}${o.context ? ` (${o.context.name})` : ""}`);
       if (o.role === "root") {
         lines.push(`// 集約 ${label} のルート`);
         // ほかの集約との関連は、@relation を張らずに ID で参照する
@@ -157,7 +161,7 @@ export function addScaffold(model: UntieModel, systemId: string, databaseId: str
           const other = model.domain.aggregates.find((a) => a.id !== o.aggregate.id && (a.rootInformationId === (inside.has(r.sourceId) ? r.targetId : r.sourceId) || a.memberInformationIds.includes(inside.has(r.sourceId) ? r.targetId : r.sourceId)));
           if (other) others.add(other.english ?? other.name);
         }
-        if (others.size > 0) lines.push(`// ほかの集約 (${[...others].join("・")}) は、ID の列で参照する (@relation を張らない)`);
+        if (others.size > 0) lines.push(`// ほかの集約 (${inComment([...others].join("・"))}) は、ID の列で参照する (@relation を張らない)`);
       } else {
         lines.push(`// 集約 ${label} の中の情報 (ルートと同じトランザクションで整合させる)`);
         const root = rootModel(o.aggregate);

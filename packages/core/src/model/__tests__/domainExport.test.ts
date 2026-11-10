@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createNetshopSample } from "../../sample";
+import { adoptAggregateCandidate } from "../domainAdopt";
 import { adoptDomainCandidates } from "../domainResolve";
 import { exportDomainDocs } from "../domainExport";
 import { updateAggregate, updateBoundedContext } from "../domainCommands";
@@ -73,6 +74,35 @@ describe("exportDomainDocs: distill-ddd の形式で書き出す", () => {
     expect(session.lastUpdated).toBe("2026-11-10");
     expect(session.openQuestions.length).toBeGreaterThan(0);
     expect(file(docs, "context-map.md")).toContain("## 未解決の問い\n- 「");
+  });
+
+  it("distill-ddd が区切りと読む記号 (** ` / , 、 { }) は、名前でも本文でも全角にする", () => {
+    let m = createNetshopSample();
+    m = okModel(updateBoundedContext(m, { id: "bc_inventory", patch: { name: "在庫/倉庫, 物流", description: "**操作**: `x()` を書かない" } }));
+    m = okModel(updateAggregate(m, { id: "ag_order", patch: { invariants: [{ text: "**操作**: 出荷済の注文は取り消せない" }] } }));
+    m = okModel(updateBoundedContext(m, { id: "bc_payment", patch: { name: "決済 --{x}--> y" } }));
+    const docs = exportDomainDocs(m);
+    const contexts = file(docs, "bounded-contexts.md");
+    expect(contexts).toContain("### 在庫／倉庫・ 物流 (Supporting)");
+    expect(contexts).toContain("- **責務**: ＊＊操作＊＊: ｀x()｀ を書かない");
+    // 不変条件に「**操作**:」があっても、操作の節は 1 つだけ (コマンドが消えない)
+    const aggregates = file(docs, "aggregates.md");
+    const order = aggregates.slice(aggregates.indexOf("### Order "), aggregates.indexOf("### ReturnRequest "));
+    expect(order.match(/\*\*操作\*\*/g)).toHaveLength(1);
+    expect(order).toContain("- ＊＊操作＊＊: 出荷済の注文は取り消せない");
+    expect(order).toContain("- `placeOrder()`: 注文を受け付ける → 発行: `OrderPlaced`");
+    // Consumer と Event Flow は、同じ (置き換えた) 名前で結ぶ
+    const events = file(docs, "domain-events.md");
+    expect(events).toContain("- **Consumer**: 在庫／倉庫・ 物流");
+    expect(events).toContain("受注 --{OrderConfirmed}--> 在庫／倉庫・ 物流");
+    expect(events).toContain("決済 --｛x｝--> y --{PaymentConfirmed}--> 受注");
+  });
+
+  it("コンテキストが 1 つだけなら、関係を決めるフェーズ (mapping) は済みにしない", () => {
+    const m = okModel(adoptAggregateCandidate(sample(), { systemId: "sys_pms", key: "info_reservation" }));
+    const session = JSON.parse(file(exportDomainDocs(m), ".ddd-session.json")) as { completedPhases: string[] };
+    expect(session.completedPhases).not.toContain("mapping");
+    expect(session.completedPhases).toContain("contexts");
   });
 
   it("書式を壊す文字 (括弧・縦線・改行) は置き換え、同じ名前が重なれば知らせる", () => {

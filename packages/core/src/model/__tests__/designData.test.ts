@@ -245,6 +245,28 @@ describe("addScaffold: 集約の境界に合わせる", () => {
   });
 });
 
+describe("addScaffold: 名前の改行と、model に使えない英語名", () => {
+  it("集約やコンテキストの名前に改行があっても、DSL のコメントが切れない。英語名が型の名前 (String・Json など) なら、連番の名前にする", () => {
+    let m = okModel(addDatabase(createNetshopSample(), { id: "db_x", name: "販売" }));
+    m = {
+      ...m,
+      domain: {
+        ...m.domain,
+        contexts: m.domain.contexts.map((c) => (c.id === "bc_ordering" ? { ...c, name: "受注\n(本店)" } : c)),
+        aggregates: m.domain.aggregates.map((a) => (a.id === "ag_stock" ? { ...a, english: "Json" } : a.id === "ag_shipment" ? { ...a, english: "string" } : a)),
+      },
+    };
+    const db = okModel(addScaffold(m, "sys_oms", "db_x")).databases.find((d) => d.id === "db_x")!;
+    const schema = parsePrismaDsl(db.dsl);
+    expect(schema.errors).toEqual([]);
+    expect(db.dsl).toContain("// 集約 Order (受注 (本店)) のルート");
+    const names = schema.models.map((x) => x.name);
+    expect(names).not.toContain("Json");
+    expect(names).not.toContain("string");
+    expect(db.tables.find((t) => t.informationIds.includes("info_stock"))!.table).toMatch(/^Table\d+$/);
+  });
+});
+
 describe("checkDesign", () => {
   const prep = (dsl: string, tables: { table: string; informationIds: string[] }[]) => {
     let m = withDb(base());

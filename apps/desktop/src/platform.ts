@@ -316,15 +316,31 @@ export function desktopPlatform(): Platform {
       return { path: target, name: baseName(target) };
     },
 
-    async saveTextFiles(files) {
+    async saveTextFiles(files, { keep = [] }) {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const dir = await open({ multiple: false, directory: true, title: "書き出すフォルダを選ぶ" });
       if (typeof dir !== "string") return null;
       // 選ばれたフォルダの区切りに合わせる (Windows は \)
       const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
       const base = dir.endsWith(sep) ? dir : dir + sep;
-      for (const f of files) await invoke("write_model_file", { path: base + f.name, contents: f.text });
-      return { where: dir, count: files.length };
+      const kept: string[] = [];
+      for (const f of files) {
+        // ファイル名だけを受ける (フォルダの外へ書かない)
+        if (/[\\/]/.test(f.name) || f.name === ".." || f.name === ".") throw new Error(`書き出せない名前です: ${f.name}`);
+        if (keep.includes(f.name)) {
+          // 既にあれば残す (読めれば、ある)
+          const exists = await invoke<string>("read_model_file", { path: base + f.name }).then(
+            () => true,
+            () => false,
+          );
+          if (exists) {
+            kept.push(f.name);
+            continue;
+          }
+        }
+        await invoke("write_model_file", { path: base + f.name, contents: f.text });
+      }
+      return { where: dir, count: files.length - kept.length, kept };
     },
 
     canReopenFiles: () => true,

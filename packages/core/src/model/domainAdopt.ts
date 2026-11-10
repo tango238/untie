@@ -3,7 +3,16 @@
 import type { CommandResult, Fail } from "./commands";
 import { addAggregate, addBoundedContext, addDomainCommand, addDomainEvent, addDomainPolicy, type DomainCommandInput, type DomainEventInput } from "./domainCommands";
 import { resolveDomain, type ResolvedDomain } from "./domainResolve";
+import { NAME_MAX_LENGTH } from "./limits";
 import type { UntieModel } from "./types";
+
+/** 採用するときの名前: 空なら「(名前なし)」、長すぎれば切る (分析の名前は空でもよいが、ドメインモデルの名前は要る) */
+const adoptedName = (name: string): string => (name.trim() || "(名前なし)").slice(0, NAME_MAX_LENGTH);
+/** 作業で分けた候補の名前 (操作の名前に、作業の名前を添える) */
+const splitName = (usecase: string, activity: string): string => {
+  const suffix = ` (${activity.trim() || "(名前なし)"})`.slice(0, NAME_MAX_LENGTH / 2);
+  return `${(usecase.trim() || "(名前なし)").slice(0, NAME_MAX_LENGTH - suffix.length)}${suffix}`;
+};
 
 const fail = (reason: string): Fail => ({ ok: false, reason });
 
@@ -26,7 +35,7 @@ export function adoptAggregateCandidate(model: UntieModel, payload: { systemId: 
   if (a.saved) return { ok: true, model, id: a.saved.id };
   const ctx = payload.boundedContextId !== undefined ? ({ ok: true, model, id: payload.boundedContextId } as const) : ensureContext(model, payload.systemId, r, a.contextKey);
   if (!ctx.ok) return ctx;
-  return addAggregate(ctx.model, { boundedContextId: ctx.id, rootInformationId: a.root.id, ...(a.stateGroups[0] !== undefined ? { stateGroup: a.stateGroups[0] } : {}) });
+  return addAggregate(ctx.model, { boundedContextId: ctx.id, rootInformationId: a.root.id, name: adoptedName(a.root.name), ...(a.stateGroups[0] !== undefined ? { stateGroup: a.stateGroups[0] } : {}) });
 }
 
 /**
@@ -47,7 +56,7 @@ export function adoptCommandCandidate(model: UntieModel, payload: { systemId: st
     aggregateId: aggregate.id,
     source: { usecaseId: cand.usecase.id, ...(cand.activity ? { activityId: cand.activity.id } : {}) },
     // 作業ごとに分けた候補は、名前で見分けられるように作業の名前を添える
-    name: payload.patch?.name ?? (cand.activity ? `${cand.usecase.name} (${cand.activity.name})` : cand.usecase.name),
+    name: payload.patch?.name ?? (cand.activity ? splitName(cand.usecase.name, cand.activity.name) : adoptedName(cand.usecase.name)),
     ...(payload.patch?.english !== undefined ? { english: payload.patch.english } : {}),
   });
 }
@@ -65,7 +74,7 @@ export function splitCommandByActivity(model: UntieModel, payload: { systemId: s
   let next = aggregate.model;
   const ids: string[] = [];
   for (const s of splits) {
-    const added = addDomainCommand(next, { aggregateId: aggregate.id, source: { usecaseId: s.usecase.id, activityId: s.activity!.id }, name: `${s.usecase.name} (${s.activity!.name})` });
+    const added = addDomainCommand(next, { aggregateId: aggregate.id, source: { usecaseId: s.usecase.id, activityId: s.activity!.id }, name: splitName(s.usecase.name, s.activity!.name) });
     if (!added.ok) return added;
     next = added.model;
     ids.push(added.id);
@@ -84,18 +93,19 @@ export function adoptEventCandidate(model: UntieModel, payload: { systemId: stri
   if (e.saved) return { ok: true, model, id: e.saved.id };
   if (!e.scoped) return fail("イベントの候補ではありません");
   const eventId = e.scoped.row.event.id;
-  if (payload.boundedContextId !== undefined) return addDomainEvent(model, { boundedContextId: payload.boundedContextId, eventId, ...payload.patch });
+  const named = { name: adoptedName(e.scoped.row.event.name), ...payload.patch };
+  if (payload.boundedContextId !== undefined) return addDomainEvent(model, { boundedContextId: payload.boundedContextId, eventId, ...named });
   if (e.aggregateKey !== null) {
     const aggregate = adoptAggregateCandidate(model, { systemId: payload.systemId, key: e.aggregateKey });
     if (!aggregate.ok) return aggregate;
-    return addDomainEvent(aggregate.model, { aggregateId: aggregate.id, eventId, ...payload.patch });
+    return addDomainEvent(aggregate.model, { aggregateId: aggregate.id, eventId, ...named });
   }
   if (e.origin === "outside" && (e.contextKey === null || !r.contexts.find((c) => c.key === e.contextKey)?.saved)) {
     return fail("別のところで発生するイベントです。発生元の境界づけられたコンテキストを選んでください (無ければ、先に作ってください)");
   }
   const ctx = ensureContext(model, payload.systemId, r, e.contextKey);
   if (!ctx.ok) return ctx;
-  return addDomainEvent(ctx.model, { boundedContextId: ctx.id, eventId, ...payload.patch });
+  return addDomainEvent(ctx.model, { boundedContextId: ctx.id, eventId, ...named });
 }
 
 /** イベントが起きたらコマンドを実行するポリシーを足す。イベントとコマンドがまだ候補なら、一緒に保存する */

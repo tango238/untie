@@ -250,7 +250,10 @@ export function ContextMapBoard() {
                             value={relation?.kind ?? ""}
                             disabled={edit.readOnly}
                             onChange={(k) =>
-                              relation ? edit.run((m) => updateContextRelation(m, { id: relation.id, patch: { kind: k } })) : edit.run((m) => addContextRelation(m, { upstreamId: f.upstreamId, downstreamId: f.downstreamId, kind: k }))
+                              relation
+                                ? // 対等な関係は逆向きに保存してあることがある。種類を変えるときは、この行の向き (導いた上流 → 下流) にそろえる
+                                  edit.run((m) => updateContextRelation(m, { id: relation.id, patch: { kind: k, ...(relation.upstreamId !== f.upstreamId ? { upstreamId: f.upstreamId, downstreamId: f.downstreamId } : {}) } }))
+                                : edit.run((m) => addContextRelation(m, { upstreamId: f.upstreamId, downstreamId: f.downstreamId, kind: k }))
                             }
                           />
                         </td>

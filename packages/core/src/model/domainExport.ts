@@ -31,11 +31,27 @@ export interface DomainDocs {
 
 /** distill-ddd の成果物を置くフォルダ (リポジトリからの相対) */
 export const DOMAIN_DOCS_DIR = "docs/domain";
+/** distill-ddd が進み具合 (済んだフェーズ・キュー・食い違い) を持つファイル。既にあれば、書き出しで上書きしない */
+export const DOMAIN_SESSION_FILE = ".ddd-session.json";
 
-/** 表のセル・見出しに入れる文字列 (改行と、書式を壊す記号を外す) */
-const cell = (text: string) => text.replace(/\s*\n\s*/g, " ").replace(/\|/g, "／").trim();
-/** 見出しの名前 (末尾の括弧をコンテキストや分類と読み違えられないよう、半角の括弧を全角にする) */
-const heading = (text: string) => cell(text).replace(/\(/g, "（").replace(/\)/g, "）").replace(/[`*#]/g, "");
+/**
+ * 表のセル・本文に入れる文字列 (改行と、書式を壊す記号を置き換える)。
+ * `*` と `` ` `` は全角にする: 説明や不変条件に `**操作**:` のような文字列があると、distill-ddd がそこを節の区切りと読むため
+ */
+const cell = (text: string) => text.replace(/\s*\n\s*/g, " ").replace(/\|/g, "／").replace(/\*/g, "＊").replace(/`/g, "｀").trim();
+/**
+ * 見出しの名前 (コンテキスト・集約・イベント)。ファイルをまたいで文字列の一致で結ぶので、distill-ddd が区切りと読む記号を全角にする:
+ * 括弧 (末尾の括弧は分類やコンテキストと読まれる)、`/` `,` `、` (Consumer を分ける)、`{` `}` (Event Flow の書式)、`#`
+ */
+const heading = (text: string) =>
+  cell(text)
+    .replace(/\(/g, "（")
+    .replace(/\)/g, "）")
+    .replace(/\//g, "／")
+    .replace(/[,、]/g, "・")
+    .replace(/\{/g, "｛")
+    .replace(/\}/g, "｝")
+    .replace(/#/g, "＃");
 /** コマンドのメソッド名 (英語名の先頭を小文字にする。distill-ddd の例と同じ lowerCamelCase) */
 const methodName = (english: string) => english.charAt(0).toLowerCase() + english.slice(1);
 const orNone = (lines: string[]) => (lines.length > 0 ? lines : ["- なし"]);
@@ -342,7 +358,8 @@ export function exportDomainDocs(model: UntieModel, options: { today?: string } 
   const completed = [
     ...(commands.size + events.size > 0 ? ["storming"] : []),
     "contexts",
-    ...(map.flows.every((f) => f.relation || f.reverseRelation) ? ["mapping"] : []),
+    // 関係を決める相手がいて (コンテキストが 2 つ以上)、つながりのある組をすべて決めてあるとき
+    ...(d.contexts.length >= 2 && map.flows.every((f) => f.relation || f.reverseRelation) ? ["mapping"] : []),
     ...(d.aggregates.length > 0 ? ["aggregates"] : []),
     ...(events.size > 0 ? ["events"] : []),
     ...(glossarySections.length > 0 ? ["glossary"] : []),
@@ -362,7 +379,7 @@ export function exportDomainDocs(model: UntieModel, options: { today?: string } 
       { name: "aggregates.md", text: aggregates },
       { name: "domain-events.md", text: domainEvents },
       { name: "glossary.md", text: glossary },
-      { name: ".ddd-session.json", text: `${JSON.stringify(session, null, 2)}\n` },
+      { name: DOMAIN_SESSION_FILE, text: `${JSON.stringify(session, null, 2)}\n` },
     ],
     warnings,
   };

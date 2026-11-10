@@ -26,7 +26,7 @@ vi.mock("../chat", async (importOriginal) => {
   };
 });
 
-const { DOMAIN_DRAFT_MAX_ATTEMPTS, domainDesignRequest, generateDomainDraft, readDomainDraft, SUBMIT_DOMAIN_TOOL } = await import("../designDomain");
+const { DOMAIN_DRAFT_MAX_ATTEMPTS, domainDesignRequest, domainDesignSystemPrompt, generateDomainDraft, readDomainDraft, SUBMIT_DOMAIN_TOOL } = await import("../designDomain");
 
 const opts = { provider: "claude" as const, model: "m", apiKey: "k" };
 const reset = () => {
@@ -69,6 +69,14 @@ describe("ドメインモデルの下書きの依頼", () => {
     const current = text.slice(text.indexOf("<今のドメインモデル"), text.indexOf("</今のドメインモデル>"));
     expect(current).toContain('"english": "Ordering"');
     expect(current).toContain("出荷済の注文は取り消せない。");
+    // 置き換えるコンテキストに結ばれている関係とポリシー (英語名)。同じ英語名を使えば引き継がれる
+    const links = text.slice(text.indexOf("<今の関係とポリシー"), text.indexOf("</今の関係とポリシー>"));
+    expect(links).toContain('"upstream": "Payment"');
+    expect(links).toContain('"downstream": "Ordering"');
+    expect(links).toContain('"event": "PaymentConfirmed"');
+    expect(links).toContain('"command": "MarkOrderPaid"');
+    expect(current).toContain('"english": "ShipOrder"');
+    expect(domainDesignSystemPrompt()).toContain("英語名を変えない");
     // 保存した判断が無ければ、その旨
     expect(domainDesignRequest(sample(), "sys_pms")).toContain("(まだ無い)");
   });
@@ -111,6 +119,20 @@ describe("generateDomainDraft", () => {
     await expect(generateDomainDraft(sample(), "sys_pms", opts)).rejects.toThrow(/当てられないところが残ったため、保存しませんでした[\s\S]*英語名/);
     expect(fake.toolResults).toHaveLength(DOMAIN_DRAFT_MAX_ATTEMPTS);
     expect(fake.toolResults[fake.toolResults.length - 1]!.content).toContain("これ以上は受け付けません");
+  });
+
+  it("上限を超えた提出・受け付けたあとの提出は、受け付けない (受け付けた下書きを使う)", async () => {
+    reset();
+    const other: DomainDraft = { contexts: [{ name: "別", english: "Other", aggregates: [] }] };
+    fake.tool = [good];
+    const r = await generateDomainDraft(sample(), "sys_pms", opts);
+    // 受け付けたあとに、もう一度道具を呼んでも変わらない
+    expect(r.draft).toBe(good);
+    reset();
+    // 偽の send は ok になるまで流すので、上限の次も流して確かめる
+    fake.tool = [bad, bad, bad, other];
+    await expect(generateDomainDraft(sample(), "sys_pms", opts)).rejects.toThrow(/保存しませんでした/);
+    expect(fake.toolResults.map((t) => t.ok)).toEqual([false, false, false, false]);
   });
 
   it("文章で返された JSON も読む。何も提出しなければ、もう一度頼んでから失敗にする", async () => {

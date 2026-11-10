@@ -117,10 +117,106 @@ export interface DomainDraftSummary {
   relations: number;
   terms: number;
   excluded: number;
+  /** 置き換えたコンテキストに結ばれていた関係・ポリシー・発生させるイベントのうち、英語名が同じものへ付け直した数 */
+  reattached: number;
+  /** 付け直せずに消えたもの (下書きに、同じ英語名のコンテキスト・コマンド・イベントが無かった)。画面で知らせる */
+  lost: string[];
 }
 
 /** 一度に返す、直すところの数の上限 */
 const MAX_PROBLEMS = 20;
+
+/**
+ * AI が出した下書きの型をそろえる (配列でないもの・文字列でないものは、直すところとして知らせて捨てる)。
+ * あとの処理が、型の違う値で例外を出さないようにする
+ */
+function sanitizeDraft(raw: unknown, note: (text: string) => void): DomainDraft {
+  const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  const list = (v: unknown, where: string): unknown[] => {
+    if (v === undefined || v === null) return [];
+    if (!Array.isArray(v)) {
+      note(`${where}: 配列で書いてください`);
+      return [];
+    }
+    return v;
+  };
+  const text = (v: unknown, where: string): string | undefined => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== "string") {
+      note(`${where}: 文字列で書いてください`);
+      return undefined;
+    }
+    return v;
+  };
+  const texts = (v: unknown, where: string): string[] => list(v, where).flatMap((x) => (typeof x === "string" ? [x] : (note(`${where}: 文字列の配列で書いてください`), [])));
+  const fields = <K extends string>(source: Record<string, unknown>, where: string, keys: readonly K[]): Partial<Record<K, string>> => {
+    const out: Partial<Record<K, string>> = {};
+    for (const k of keys) {
+      const v = text(source[k], `${where} の ${k}`);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  };
+  const event = (v: unknown, where: string): DraftEvent => {
+    const e = obj(v);
+    return { ...fields(e, where, ["eventId", "name"] as const), english: text(e.english, `${where} の english`) ?? "", properties: texts(e.properties, `${where} の properties`) };
+  };
+  const root = obj(raw);
+  const contexts = list(root.contexts, "contexts").map((cv, ci): DraftContext => {
+    const c = obj(cv);
+    const cWhere = `コンテキスト ${typeof c.english === "string" && c.english ? c.english : ci + 1}`;
+    return {
+      ...fields(c, cWhere, ["description", "team"] as const),
+      name: text(c.name, `${cWhere} の name`) ?? "",
+      english: text(c.english, `${cWhere} の english`) ?? "",
+      ...(c.subdomain !== undefined && c.subdomain !== null ? { subdomain: c.subdomain as Subdomain } : {}),
+      contextIds: texts(c.contextIds, `${cWhere} の contextIds`),
+      aggregates: list(c.aggregates, `${cWhere} の aggregates`).map((av, ai): DraftAggregate => {
+        const a = obj(av);
+        const aWhere = `${cWhere} の集約 ${typeof a.english === "string" && a.english ? a.english : ai + 1}`;
+        return {
+          ...fields(a, aWhere, ["name", "stateGroup"] as const),
+          english: text(a.english, `${aWhere} の english`) ?? "",
+          rootInformationId: text(a.rootInformationId, `${aWhere} の rootInformationId`) ?? "",
+          memberInformationIds: texts(a.memberInformationIds, `${aWhere} の memberInformationIds`),
+          invariants: list(a.invariants, `${aWhere} の invariants`).flatMap((iv) => {
+            // 文だけを書いたものも受ける
+            if (typeof iv === "string") return [{ text: iv }];
+            const i = obj(iv);
+            const t = text(i.text, `${aWhere} の不変条件の text`);
+            return t === undefined ? [] : [{ text: t, ...fields(i, `${aWhere} の不変条件`, ["conditionId"] as const) }];
+          }),
+          commands: list(a.commands, `${aWhere} の commands`).map((mv, mi): DraftCommand => {
+            const m = obj(mv);
+            const mWhere = `${aWhere} のコマンド ${typeof m.english === "string" && m.english ? m.english : mi + 1}`;
+            return { ...fields(m, mWhere, ["usecaseId", "activityId", "name"] as const), english: text(m.english, `${mWhere} の english`) ?? "", emits: texts(m.emits, `${mWhere} の emits`) };
+          }),
+          events: list(a.events, `${aWhere} の events`).map((ev, ei) => event(ev, `${aWhere} のイベント ${ei + 1}`)),
+        };
+      }),
+      events: list(c.events, `${cWhere} の events`).map((ev, ei) => event(ev, `${cWhere} のイベント ${ei + 1}`)),
+    };
+  });
+  return {
+    contexts,
+    policies: list(root.policies, "policies").map((pv, i): DraftPolicy => {
+      const p = obj(pv);
+      return { event: text(p.event, `ポリシー ${i + 1} の event`) ?? "", command: text(p.command, `ポリシー ${i + 1} の command`) ?? "", ...(typeof p.auto === "boolean" ? { auto: p.auto } : {}) };
+    }),
+    relations: list(root.relations, "relations").map((rv, i): DraftRelation => {
+      const r = obj(rv);
+      return {
+        upstream: text(r.upstream, `関係 ${i + 1} の upstream`) ?? "",
+        downstream: text(r.downstream, `関係 ${i + 1} の downstream`) ?? "",
+        kind: r.kind as ContextRelationKind,
+        ...(r.integration !== undefined && r.integration !== null ? { integration: r.integration as Integration } : {}),
+        ...fields(r, `関係 ${i + 1}`, ["note"] as const),
+      };
+    }),
+    terms: list(root.terms, "terms").map((tv, i): DraftTerm => fields(obj(tv), `用語 ${i + 1}`, ["elementId", "term", "english", "definition"] as const)),
+    excluded: texts(root.excluded, "excluded"),
+  };
+}
 
 /** そのシステムだけが実装するコンテキスト (下書きで置き換える範囲) */
 export function draftScopeContextIds(model: UntieModel, systemId: string): string[] {
@@ -132,18 +228,38 @@ export function draftScopeContextIds(model: UntieModel, systemId: string): strin
  * 英語名は必須 (コンテキスト・集約・コマンド・イベント)。下書きの中と、残すコンテキスト・コマンド・イベントとで重ならないこと
  */
 export function applyDomainDraft(model: UntieModel, payload: { systemId: string; draft: DomainDraft }): CommandResult<{ summary: DomainDraftSummary }> {
-  const { systemId, draft } = payload;
+  try {
+    return applyDraft(model, payload);
+  } catch (e) {
+    // 型をそろえてから当てるので起きないはずだが、AI の出力は何でもありうるので、例外にせず出し直させる
+    return { ok: false, reason: `下書きの形が正しくありません (${e instanceof Error ? e.message : String(e)})` };
+  }
+}
+
+function applyDraft(model: UntieModel, payload: { systemId: string; draft: DomainDraft }): CommandResult<{ summary: DomainDraftSummary }> {
+  const { systemId } = payload;
   const system = model.elements.find((e) => e.id === systemId);
   if (!system || system.kind !== "system") return { ok: false, reason: `システムが存在しません: ${systemId}` };
   const problems: string[] = [];
   const note = (text: string) => {
     if (problems.length < MAX_PROBLEMS) problems.push(text);
   };
-  if (!draft || !Array.isArray(draft.contexts) || draft.contexts.length === 0) return { ok: false, reason: "境界づけられたコンテキストが 1 つもありません (contexts)" };
+  const draft = sanitizeDraft(payload.draft, note);
+  if (draft.contexts.length === 0) return { ok: false, reason: ["境界づけられたコンテキストが 1 つもありません (contexts)", ...problems].join("\n") };
 
-  // 置き換える範囲を消す
+  // 置き換える範囲を消す。その前に、範囲の外と結ばれているもの (ほかのコンテキストとの関係、ポリシー、ほかのコマンドが発生させるイベント) を
+  // 英語名で控えておき、当てたあとで同じ英語名のものへ付け直す (コンテキストを消すと、関係やポリシーも一緒に消えるため)
   let next = model;
   const scope = draftScopeContextIds(model, systemId);
+  const before = model.domain;
+  const inScope = new Set(scope);
+  const goneAggregates = new Set(before.aggregates.filter((a) => inScope.has(a.boundedContextId)).map((a) => a.id));
+  const goneEvents = new Map(before.events.filter((e) => inScope.has(e.boundedContextId)).map((e) => [e.id, e]));
+  const goneCommands = new Map(before.commands.filter((c) => goneAggregates.has(c.aggregateId)).map((c) => [c.id, c]));
+  const contextById = new Map(before.contexts.map((c) => [c.id, c]));
+  const keptRelations = before.relations.filter((r) => inScope.has(r.upstreamId) || inScope.has(r.downstreamId));
+  const keptPolicies = before.policies.filter((p) => goneEvents.has(p.eventId) || goneCommands.has(p.commandId));
+  const keptEmits = before.commands.filter((c) => !goneCommands.has(c.id)).flatMap((c) => c.emits.filter((id) => goneEvents.has(id)).map((eventId) => ({ command: c, event: goneEvents.get(eventId)! })));
   for (const id of scope) {
     const r = removeBoundedContext(next, { id });
     if (r.ok) next = r.model;
@@ -177,12 +293,24 @@ export function applyDomainDraft(model: UntieModel, payload: { systemId: string;
   for (const c of next.domain.contexts) if (c.english) contextByEnglish.set(c.english, c.id);
   for (const e of next.domain.events) if (e.english) eventByEnglish.set(e.english, e.id);
   for (const c of next.domain.commands) if (c.english) commandByEnglish.set(c.english, c.id);
+  /** 種類ごとに、使った英語名 (大文字・小文字の違いだけのものも重なりとする) */
+  const taken = new Map<Map<string, string>, Set<string>>();
   const claim = (map: Map<string, string>, where: string, name: string, id: string) => {
-    if (map.has(name)) note(`${where}: 英語名 ${name} が重なっています (ほかのものと別の名前にしてください)`);
-    else map.set(name, id);
+    let lower = taken.get(map);
+    if (!lower) {
+      lower = new Set([...map.keys()].map((k) => k.toLowerCase()));
+      taken.set(map, lower);
+    }
+    if (lower.has(name.toLowerCase())) note(`${where}: 英語名 ${name} が重なっています (ほかのものと別の名前にしてください)`);
+    else {
+      map.set(name, id);
+      lower.add(name.toLowerCase());
+    }
   };
+  const aggregateByEnglish = new Map<string, string>();
+  for (const a of next.domain.aggregates) if (a.english) aggregateByEnglish.set(a.english, a.id);
 
-  const summary: DomainDraftSummary = { replaced: scope.length, contexts: 0, aggregates: 0, commands: 0, events: 0, policies: 0, relations: 0, terms: 0, excluded: 0 };
+  const summary: DomainDraftSummary = { replaced: scope.length, contexts: 0, aggregates: 0, commands: 0, events: 0, policies: 0, relations: 0, terms: 0, excluded: 0, reattached: 0, lost: [] };
   /** 発生させるイベントは、すべてのイベントを足したあとでつなぐ */
   const pendingEmits: { where: string; commandId: string; emits: string[] }[] = [];
 
@@ -241,6 +369,7 @@ export function applyDomainDraft(model: UntieModel, payload: { systemId: string;
         }),
       );
       if (!aggregate) return;
+      claim(aggregateByEnglish, aWhere, aEn, aggregate.id);
       summary.aggregates++;
       (a.events ?? []).forEach((e, ei) => addEvent(`${aWhere} のイベント ${e?.english || e?.name || ei + 1}`, e, { aggregateId: aggregate.id }));
       (a.commands ?? []).forEach((cmd, mi) => {
@@ -337,5 +466,42 @@ export function applyDomainDraft(model: UntieModel, payload: { systemId: string;
   });
 
   if (problems.length > 0) return { ok: false, reason: problems.join("\n") };
+
+  // 控えておいたものを、同じ英語名のものへ付け直す。下書きが同じ組を書いていれば、そちらを使う
+  const newContext = (id: string): string | undefined => (inScope.has(id) ? (contextById.get(id)?.english ? contextByEnglish.get(contextById.get(id)!.english!) : undefined) : next.domain.contexts.some((c) => c.id === id) ? id : undefined);
+  const newEvent = (id: string): string | undefined => (goneEvents.has(id) ? (goneEvents.get(id)!.english ? eventByEnglish.get(goneEvents.get(id)!.english!) : undefined) : next.domain.events.some((e) => e.id === id) ? id : undefined);
+  const newCommand = (id: string): string | undefined => (goneCommands.has(id) ? (goneCommands.get(id)!.english ? commandByEnglish.get(goneCommands.get(id)!.english!) : undefined) : next.domain.commands.some((c) => c.id === id) ? id : undefined);
+  const nameOf = (x: { name: string } | undefined) => x?.name || "(名前なし)";
+  const reattach = <T>(label: string, r: CommandResult<T> | null) => {
+    if (r?.ok) {
+      next = r.model;
+      summary.reattached++;
+    } else summary.lost.push(label);
+  };
+  for (const r of keptRelations) {
+    const upstreamId = newContext(r.upstreamId);
+    const downstreamId = newContext(r.downstreamId);
+    const label = `関係「${nameOf(contextById.get(r.upstreamId))} → ${nameOf(contextById.get(r.downstreamId))}」`;
+    // 置き換えたコンテキストどうしの関係は、下書きが決める (書いていなければ消える)
+    if (inScope.has(r.upstreamId) && inScope.has(r.downstreamId) && (!upstreamId || !downstreamId)) {
+      summary.lost.push(label);
+      continue;
+    }
+    if (upstreamId && downstreamId && next.domain.relations.some((x) => (x.upstreamId === upstreamId && x.downstreamId === downstreamId) || (x.upstreamId === downstreamId && x.downstreamId === upstreamId))) continue;
+    reattach(label, upstreamId && downstreamId ? addContextRelation(next, { upstreamId, downstreamId, kind: r.kind, ...(r.integration ? { integration: r.integration } : {}), ...(r.note ? { note: r.note } : {}) }) : null);
+  }
+  for (const p of keptPolicies) {
+    const eventId = newEvent(p.eventId);
+    const commandId = newCommand(p.commandId);
+    if (eventId && commandId && next.domain.policies.some((x) => x.eventId === eventId && x.commandId === commandId)) continue;
+    const label = `ポリシー「${nameOf(before.events.find((e) => e.id === p.eventId))} → ${nameOf(before.commands.find((c) => c.id === p.commandId))}」`;
+    reattach(label, eventId && commandId ? addDomainPolicy(next, { eventId, commandId, auto: p.auto }) : null);
+  }
+  for (const { command, event } of keptEmits) {
+    const eventId = newEvent(event.id);
+    const current = next.domain.commands.find((c) => c.id === command.id);
+    if (!current || (eventId && current.emits.includes(eventId))) continue;
+    reattach(`コマンド「${nameOf(command)}」が発生させるイベント「${nameOf(event)}」`, eventId ? updateDomainCommand(next, { id: command.id, patch: { emits: [...current.emits, eventId] } }) : null);
+  }
   return { ok: true, model: next, summary };
 }

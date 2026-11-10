@@ -130,6 +130,41 @@ describe("ドメインモデルの対話の道具", () => {
     expect(validateModel(e.model)).toMatchObject({ ok: true });
   });
 
+  it("作業ごとのコマンドを足せる。不変条件を置き換えても、もとの条件は引き継ぐ。型の違う入力でも、検証に通らないモデルを作らない", () => {
+    const e = editorOf(createNetshopSample());
+    // 在庫数を更新する は 3 つの作業が使う。その 1 つの分を、意図の名前で保存する
+    const activityId = e.model.relations.find((r) => r.kind === "activityUsecase" && r.targetId === "uc_update_stock")!.sourceId;
+    const cmd = call(e, "save_command", { usecase_id: "uc_update_stock", activity_id: activityId, name: "在庫を補充する", english: "RestockItem" }, "sys_oms");
+    expect(cmd.ok).toBe(true);
+    expect(e.model.domain.commands.find((c) => c.id === cmd.data.id)).toMatchObject({ aggregateId: "ag_stock", name: "在庫を補充する", source: { usecaseId: "uc_update_stock", activityId } });
+    // 同じ文の不変条件は、id ともとの条件を引き継ぐ
+    const before = e.model.domain.aggregates.find((a) => a.id === "ag_stock")!.invariants[0]!;
+    call(e, "save_aggregate", { id: "ag_stock", invariants: [{ text: before.text }, { text: "在庫の数は 0 より小さくならない" }] }, "sys_oms");
+    expect(e.model.domain.aggregates.find((a) => a.id === "ag_stock")!.invariants[0]).toEqual(before);
+    expect(before.conditionId).toBe("cond_out_of_stock");
+    // 型の違う入力・無い要素
+    const bad: [string, unknown][] = [
+      ["exclude_candidate", { key: "usecase:zz" }],
+      ["save_context", { id: "bc_ordering", subdomain: "main" }],
+      ["save_context", { id: "bc_ordering", english: "受注" }],
+      ["save_context", { id: "bc_ordering", context_ids: ["nope"] }],
+      ["set_relation", { upstream_id: "bc_ordering", downstream_id: "bc_inventory", kind: "friend" }],
+      ["set_relation", { upstream_id: "bc_ordering", downstream_id: "bc_inventory", kind: "acl", integration: "smoke" }],
+      ["save_event", { id: "de_shipped", context_id: "bc_nope" }],
+      ["save_command", { id: "cm_ship", emits: ["de_nope"] }],
+      ["add_policy", { event_id: "de_nope", command_id: "cm_ship" }],
+    ];
+    for (const [name, input] of bad) {
+      const snapshot = e.model;
+      expect(call(e, name, input, "sys_oms").ok, `${name} ${JSON.stringify(input)}`).toBe(false);
+      expect(e.model).toBe(snapshot);
+    }
+    // 数値や文字列でない値は、渡さなかったものとして扱う (何も壊さない)
+    call(e, "save_context", { id: "bc_ordering", team: 3, name: 5, context_ids: "x" }, "sys_oms");
+    call(e, "add_issue", { name: "x", target_ids: "uc_ship" }, "sys_oms");
+    expect(validateModel(e.model)).toMatchObject({ ok: true });
+  });
+
   it("足りない引数・無い id・形の誤りは、理由を返して何も変えない", () => {
     const e = editorOf(sample());
     const before = e.model;

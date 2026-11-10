@@ -298,7 +298,9 @@ export function DomainBoard() {
       if (!r.ok) pushToast(`下書きを保存できませんでした (作っているあいだに、分析かドメインモデルが変わりました): ${r.reason.split("\n")[0]}`, "error");
       else {
         const n = r.summary;
-        pushToast(`下書きを作りました (コンテキスト ${n.contexts}・集約 ${n.aggregates}・コマンド ${n.commands}・イベント ${n.events})。名前と境界を確かめて、直してください`, "info");
+        // 置き換えたコンテキストに結ばれていた関係・ポリシーのうち、同じ英語名のものが無くて付け直せなかったものを知らせる
+        const lost = n.lost.length > 0 ? `。付け直せずに消えたもの: ${n.lost.slice(0, 5).join("、")}${n.lost.length > 5 ? ` ほか ${n.lost.length - 5} 件` : ""} (元に戻すで戻せます)` : "";
+        pushToast(`下書きを作りました (コンテキスト ${n.contexts}・集約 ${n.aggregates}・コマンド ${n.commands}・イベント ${n.events})。名前と境界を確かめて、直してください${lost}`, n.lost.length > 0 ? "error" : "info");
       }
     } catch (e) {
       pushToast(describeChatError(e), "error");
@@ -404,7 +406,7 @@ export function DomainBoard() {
       {confirmAi && (
         <ConfirmDialog
           title="AI で下書き"
-          message={`このシステムだけが実装する境界づけられたコンテキスト ${replaced} つ (と、その集約・コマンド・イベント・関係) を、AI が作った下書きに置き換えます。ほかのシステムのコンテキストと、分析は変えません。`}
+          message={`このシステムだけが実装する境界づけられたコンテキスト ${replaced} つ (と、その集約・コマンド・イベント・関係) を、AI が作った下書きに置き換えます。ほかのシステムのコンテキストと、分析は変えません。ほかのコンテキストとの関係やポリシーは、下書きに同じ英語名のものがあれば付け直します (無ければ消えます)。`}
           confirmLabel="置き換える"
           danger
           onCancel={() => setConfirmAi(false)}

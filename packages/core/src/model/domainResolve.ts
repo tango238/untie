@@ -149,7 +149,7 @@ export function resolveDomain(model: UntieModel, systemId: string, givenScope?: 
     if (!ctx) {
       const sc = scopedContextOf.get(contextId);
       const el = contextId ? byId.get(contextId) : undefined;
-      ctx = { key: contextId, saved: null, name: sc?.context?.name ?? el?.name ?? "未分類", role: sc?.role ?? "own", unassigned: false, candidates: sc ? [sc] : [], aggregates: [] };
+      ctx = { key: contextId, saved: null, name: (sc?.context?.name || el?.name) || (contextId ? "(名前なし)" : "未分類"), role: sc?.role ?? "own", unassigned: false, candidates: sc ? [sc] : [], aggregates: [] };
       contextByKey.set(contextId, ctx);
       contexts.push(ctx);
     }
@@ -354,7 +354,7 @@ export function resolveDomain(model: UntieModel, systemId: string, givenScope?: 
       scoped: se,
       sourceKey,
       // 保存したイベントが、このシステムの外のコンテキストのものなら外
-      origin: saved ? (bcById.get(saved.boundedContextId) && relevant(bcById.get(saved.boundedContextId)!) && se.origin === "inside" ? "inside" : se.origin) : se.origin,
+      origin: saved && !(bcById.get(saved.boundedContextId) && relevant(bcById.get(saved.boundedContextId)!)) ? "outside" : se.origin,
       contextKey,
       aggregateKey,
     };
@@ -503,14 +503,15 @@ export function adoptDomainCandidates(model: UntieModel, payload: { systemId: st
     let bcId = ctx.saved?.id;
     if (bcId === undefined) {
       const r = addBoundedContext(next, { name: ctx.name, contextIds: [ctx.key!], systemIds: [payload.systemId] });
-      if (!r.ok) return r;
+      // 1 つ作れなくても、ほかは進める
+      if (!r.ok) continue;
       next = r.model;
       bcId = r.id;
       contexts++;
     }
     for (const a of ctx.aggregates) {
       if (a.saved || !a.writtenHere) continue;
-      const r = addAggregate(next, { boundedContextId: bcId, rootInformationId: a.root.id, ...(a.stateGroups[0] !== undefined ? { stateGroup: a.stateGroups[0] } : {}) });
+      const r = addAggregate(next, { boundedContextId: bcId, rootInformationId: a.root.id, name: a.root.name.trim() || "(名前なし)", ...(a.stateGroups[0] !== undefined ? { stateGroup: a.stateGroups[0] } : {}) });
       // ほかの集約に入っているなどで足せないものは飛ばす
       if (!r.ok) continue;
       next = r.model;

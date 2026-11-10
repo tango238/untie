@@ -1,5 +1,5 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
-import { DOMAIN_DOCS_DIR, exportDomainDocs } from "@untie/core/model/domainExport";
+import { DOMAIN_DOCS_DIR, DOMAIN_SESSION_FILE, exportDomainDocs } from "@untie/core/model/domainExport";
 import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
 import { SAMPLES, type SampleEntry } from "@untie/core/sample";
@@ -166,10 +166,12 @@ export async function exportDomainDocsToFolder(): Promise<boolean> {
     return false;
   }
   try {
-    const saved = await getPlatform().saveTextFiles(docs.files, { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-domain.zip`, zipFolder: DOMAIN_DOCS_DIR });
+    const saved = await getPlatform().saveTextFiles(docs.files, { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-domain.zip`, zipFolder: DOMAIN_DOCS_DIR, keep: [DOMAIN_SESSION_FILE] });
     if (!saved) return false;
     const note = docs.warnings.length > 0 ? `。英語名が無いなど、distill-ddd の図に出ないものが ${docs.warnings.length} 件あります (設計モードの検証で確かめられます)` : "";
-    st.pushToast(`ドメインモデルを「${saved.where}」に書き出しました (${saved.count} ファイル)${note}`, "info");
+    // distill-ddd が進み具合を書いているセッションのファイルは、既にあれば上書きしない
+    const kept = saved.kept.length > 0 ? `。${saved.kept.join("・")} は既にあるので、そのままにしました` : "";
+    st.pushToast(`ドメインモデルを「${saved.where}」に書き出しました (${saved.count} ファイル)${kept}${note}`, "info");
     return true;
   } catch (e) {
     st.pushToast(`書き出せませんでした: ${String(e)}`, "error");

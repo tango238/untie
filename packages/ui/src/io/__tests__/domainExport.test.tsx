@@ -26,11 +26,21 @@ describe("ドメインモデルの書き出し (distill-ddd)", () => {
     expect(saved.folder).toBe("/repo/docs/domain");
     expect(saved.files.map((f) => f.name)).toEqual(["event-storming.md", "bounded-contexts.md", "context-map.md", "aggregates.md", "domain-events.md", "glossary.md", ".ddd-session.json"]);
     expect(saved.files.find((f) => f.name === "aggregates.md")!.text).toContain("### Order (Bounded Context: 受注)");
-    expect(saved.options).toEqual({ zipName: "ネットショップの業務 (サンプル)-domain.zip", zipFolder: "docs/domain" });
+    expect(saved.options).toEqual({ zipName: "ネットショップの業務 (サンプル)-domain.zip", zipFolder: "docs/domain", keep: [".ddd-session.json"] });
     // セッションの日付は今日
     expect(JSON.parse(saved.files.find((f) => f.name === ".ddd-session.json")!.text).lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(lastToast().message).toContain("ドメインモデルを「/repo/docs/domain」に書き出しました (7 ファイル)");
     expect(lastToast().message).toContain("distill-ddd の図に出ないものが");
+  });
+
+  it("distill-ddd のセッションのファイルが既にあれば、上書きせずに残して、その旨を知らせる", async () => {
+    memory().existingFiles.add(".ddd-session.json");
+    expect(await exportDomainDocsToFolder()).toBe(true);
+    const saved = memory().savedFolders[0]!;
+    expect(saved.files.map((f) => f.name)).not.toContain(".ddd-session.json");
+    expect(saved.files).toHaveLength(6);
+    expect(lastToast().message).toContain("(6 ファイル)。.ddd-session.json は既にあるので、そのままにしました");
+    memory().existingFiles.clear();
   });
 
   it("フォルダを選ぶのを取り消したら何もしない。保存したドメインモデルが無ければ、その旨を知らせる", async () => {

@@ -644,9 +644,21 @@ export function removeDomainTerm(model: UntieModel, payload: { id: string }): Co
 /** 分析から導いた候補を、あるべき姿から外す (excluded: true) か、戻す (false)。key は候補の出どころのキー */
 export function setCandidateExcluded(model: UntieModel, payload: { key: string; excluded: boolean }): CommandResult {
   const key = payload.key.trim();
-  if (key === "" || key.length > EXCLUDED_KEY_MAX_LENGTH || !parseExcludedKey(key)) return fail("候補のキーが正しくありません");
+  const parsed = key === "" || key.length > EXCLUDED_KEY_MAX_LENGTH ? null : parseExcludedKey(key);
+  if (!parsed) return fail("候補のキーが正しくありません");
   const has = model.domain.excluded.includes(key);
   if (has === payload.excluded) return { ok: true, model };
+  if (payload.excluded) {
+    // もとの操作・作業・イベント・関係が無いキーは外せない (検証に通らないモデルを作らない)
+    const kindOf = (id: string) => elementOf(model, id)?.kind;
+    const alive =
+      parsed.kind === "command"
+        ? kindOf(parsed.usecaseId) === "usecase" && (parsed.activityId === undefined || kindOf(parsed.activityId) === "activity")
+        : parsed.kind === "event"
+          ? kindOf(parsed.eventId) === "event"
+          : model.relations.some((r) => r.id === parsed.relationId);
+    if (!alive) return fail(`外す候補のもとの要素がありません: ${key}`);
+  }
   const next = produce(model, (draft) => {
     if (payload.excluded) draft.domain.excluded.push(key);
     else draft.domain.excluded = draft.domain.excluded.filter((k) => k !== key);

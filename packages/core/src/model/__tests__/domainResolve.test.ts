@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createNetshopSample } from "../../sample";
 import { adoptAggregateCandidate, adoptCommandCandidate, adoptEventCandidate, addPolicyBetween, splitCommandByActivity } from "../domainAdopt";
 import { checkDomain } from "../domainCheck";
-import { excludeInformation, includeInformation, removeContextRelation, removeDomainCommand, setCandidateExcluded } from "../domainCommands";
+import { excludeInformation, includeInformation, removeContextRelation, removeDomainCommand, setCandidateExcluded, updateDomainEvent } from "../domainCommands";
 import { deriveContextMap } from "../domainMap";
 import { adoptDomainCandidates, normalizeDomainSelection, resolveDomain } from "../domainResolve";
 import { emptyDomain, type UntieModel } from "../types";
@@ -260,5 +260,58 @@ describe("checkDomain: ドメインモデルの検証", () => {
     const problems = checkDomain(overlap);
     expect(problems.filter((p) => p.level === "error").map((p) => p.type)).toEqual(["aggregateOverlap"]);
     expect(problems.some((p) => p.type === "contextUnassigned" && p.message.includes("決済 (外部)"))).toBe(true);
+  });
+});
+
+describe("レビューを受けた振る舞い (2a-2 以降)", () => {
+  it("保存したイベントを、ほかのシステムのコンテキストへ移すと、このシステムにとっては外のイベントになる", () => {
+    let m = netshop();
+    expect(resolveDomain(m, "sys_oms").events.find((e) => e.key === "de_shipped")!.origin).toBe("inside");
+    // 出荷した を、会計 (会計システム) のコンテキストへ移す
+    m = okModel(updateDomainEvent(m, { id: "de_shipped", patch: { boundedContextId: "bc_accounting", aggregateId: null } }));
+    expect(resolveDomain(m, "sys_oms").events.find((e) => e.key === "de_shipped")).toMatchObject({ origin: "outside", contextKey: "bc_accounting" });
+  });
+
+  it("名前の空な分析のコンテキスト・情報・操作があっても、採用できる (「(名前なし)」にする)。1 つ作れなくても、ほかは進める", () => {
+    const base = sample();
+    const m = { ...base, elements: base.elements.map((e) => (e.id === "ctx_room" || e.id === "info_reservation" || e.id === "uc_calc_charge" ? { ...e, name: "" } : e)) } as UntieModel;
+    const r = adoptDomainCandidates(m, { systemId: "sys_pms" });
+    if (!r.ok) throw new Error(r.reason);
+    expect([r.contexts, r.aggregates]).toEqual([4, 4]);
+    expect(r.model.domain.contexts.map((c) => c.name)).toContain("(名前なし)");
+    expect(r.model.domain.aggregates.find((a) => a.rootInformationId === "info_reservation")!.name).toBe("(名前なし)");
+    const cmd = adoptCommandCandidate(r.model, { systemId: "sys_pms", key: "uc_calc_charge", patch: { english: "CalculateCharge" } });
+    if (!cmd.ok) throw new Error(cmd.reason);
+    expect(cmd.model.domain.commands[0]!.name).toBe("(名前なし)");
+    expect(validateModel(cmd.model)).toMatchObject({ ok: true });
+    // 作業で分けた名前が長すぎても、切って保存する
+    const long = netshop();
+    const stretched = { ...long, elements: long.elements.map((e) => (e.id === "uc_update_stock" ? { ...e, name: "あ".repeat(200) } : e)) } as UntieModel;
+    const split = splitCommandByActivity(stretched, { systemId: "sys_oms", usecaseId: "uc_update_stock" });
+    if (!split.ok) throw new Error(split.reason);
+    expect(split.model.domain.commands.filter((c) => split.ids.includes(c.id)).every((c) => c.name.length <= 200 && c.name.endsWith(")"))).toBe(true);
+    expect(validateModel(split.model)).toMatchObject({ ok: true });
+  });
+
+  it("もとの操作・作業・イベント・関係が無いキーは、外した候補にできない (検証に通らないモデルを作らない)", () => {
+    const m = netshop();
+    for (const key of ["usecase:zz", "usecase:uc_update_stock/activity:zz", "event:zz", "policy:zz"]) {
+      const r = setCandidateExcluded(m, { key, excluded: true });
+      expect(r.ok, key).toBe(false);
+    }
+    const policy = m.relations.find((r) => r.kind === "eventUsecase")!;
+    const ok = okModel(setCandidateExcluded(m, { key: `policy:${policy.id}`, excluded: true }));
+    expect(validateModel(ok)).toMatchObject({ ok: true });
+    // 戻すのは、もとの要素が無くなっていてもできる
+    expect(setCandidateExcluded(ok, { key: `policy:${policy.id}`, excluded: false }).ok).toBe(true);
+  });
+
+  it("作業で分けた操作を、操作ごとまとめて外すと、コンテキストマップの根拠からも外れる", () => {
+    const m = netshop();
+    const before = deriveContextMap(m).flows.find((f) => f.upstreamId === "bc_ordering" && f.downstreamId === "bc_inventory")!;
+    expect(before.events).toEqual(["注文が確定した"]);
+    const excluded = okModel(setCandidateExcluded(okModel(removeDomainCommand(m, { id: "cm_allocate_stock" })), { key: "usecase:uc_allocate_stock", excluded: true }));
+    const after = deriveContextMap(excluded).flows.find((f) => f.upstreamId === "bc_ordering" && f.downstreamId === "bc_inventory");
+    expect(after?.events ?? []).toEqual([]);
   });
 });

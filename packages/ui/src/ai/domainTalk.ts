@@ -348,7 +348,11 @@ export function executeDomainTalkTool(editor: ModelEditor, systemId: string, nam
         const saved = d().aggregates.find((a) => a.id === id);
         if (!saved) return fail(`集約が存在しません: ${id} (候補を採用するなら、id を省いて root_information_id を渡してください)`);
         // 不変条件は、同じ文のものの id を引き継いで置き換える
-        const next = invariants?.map((i) => ({ ...i, ...(saved.invariants.find((x) => x.text === i.text) ? { id: saved.invariants.find((x) => x.text === i.text)!.id } : {}) }));
+        // 同じ文のものは id と、もとの条件 (渡されなければ) を引き継ぐ
+        const next = invariants?.map((i) => {
+          const same = saved.invariants.find((x) => x.text === i.text);
+          return same ? { ...(same.conditionId !== undefined ? { conditionId: same.conditionId } : {}), ...i, id: same.id } : i;
+        });
         return run((m) => updateAggregate(m, { id, patch: { ...fields, ...(contextId ? { boundedContextId: contextId } : {}), ...(str(input.root_information_id) ? { rootInformationId: str(input.root_information_id)! } : {}), ...(next ? { invariants: next } : {}) } }));
       }
       const root = str(input.root_information_id);
@@ -374,9 +378,16 @@ export function executeDomainTalkTool(editor: ModelEditor, systemId: string, nam
       if (usecaseId) {
         return run(
           (m) => {
-            const added = aggregateId
-              ? addDomainCommand(m, { aggregateId, source: { usecaseId, ...(activityId ? { activityId } : {}) } })
-              : adoptCommandCandidate(m, { systemId, key: activityId ? `${usecaseId}/${activityId}` : usecaseId });
+            const source = { usecaseId, ...(activityId ? { activityId } : {}) };
+            let added: CommandResult<{ id: string }>;
+            if (aggregateId) added = addDomainCommand(m, { aggregateId, source });
+            else if (activityId) {
+              // 作業ごとのコマンド: 操作の候補の集約 (まだ候補なら採用する) に、その作業の分として足す
+              const candidate = resolveDomain(m, systemId).commands.find((c) => c.candidate?.usecase.id === usecaseId && c.aggregateKey !== null);
+              if (!candidate) return { ok: false, reason: `操作 ${usecaseId} の候補が見つかりません (集約が決まらない操作なら、aggregate_id を渡してください)` };
+              const aggregate = adoptAggregateCandidate(m, { systemId, key: candidate.aggregateKey! });
+              added = aggregate.ok ? addDomainCommand(aggregate.model, { aggregateId: aggregate.id, source }) : aggregate;
+            } else added = adoptCommandCandidate(m, { systemId, key: usecaseId });
             if (!added.ok) return added;
             if (Object.keys(fields).length === 0) return added;
             const updated = updateDomainCommand(added.model, { id: added.id, patch: fields });

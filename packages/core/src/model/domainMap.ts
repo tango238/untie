@@ -46,6 +46,8 @@ export function deriveContextMap(model: UntieModel, derivation: DomainDerivation
     systemId === undefined ? undefined : d.contexts.find((c) => !withAggregates.has(c.id) && c.systemIds.includes(systemId))?.id;
   const savedBySource = new Map(d.commands.filter((c) => c.source).map((c) => [commandSourceKey(c.source!), c]));
   const excluded = new Set(d.excluded);
+  /** 外した候補か (作業で分けた候補は、操作ごとまとめて外したものも)。 */
+  const isExcluded = (c: CommandCandidate) => excluded.has(c.key) || excluded.has(commandSourceKey({ usecaseId: c.usecase.id }));
 
   /** コマンド候補のコンテキスト: 保存したコマンドの集約 → 書く情報の集約 (対象のシステムが実装するものを優先) → 対象のシステムの外部のコンテキスト */
   const contextOfCandidate = (c: CommandCandidate): string | undefined => {
@@ -104,7 +106,7 @@ export function deriveContextMap(model: UntieModel, derivation: DomainDerivation
     const up = contextOfEvent(p.event.id);
     if (!up) continue;
     for (const c of candidatesOfUsecase.get(p.usecase.id) ?? []) {
-      if (excluded.has(c.key)) continue;
+      if (isExcluded(c)) continue;
       const down = contextOfCandidate(c);
       if (down && down !== up) push(flow(up, down).events, savedByEvent.get(p.event.id)?.name ?? p.event.name);
     }
@@ -120,7 +122,7 @@ export function deriveContextMap(model: UntieModel, derivation: DomainDerivation
   }
   // 取得: コマンドが、別のコンテキストの集約の情報を読む
   for (const c of derivation.commands) {
-    if (excluded.has(c.key)) continue;
+    if (isExcluded(c)) continue;
     const down = contextOfCandidate(c);
     if (!down) continue;
     for (const r of c.reads) {
