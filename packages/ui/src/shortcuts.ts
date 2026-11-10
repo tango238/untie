@@ -47,7 +47,7 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
   nfr: "n",
 };
 
-export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l" };
+export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
 
 export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", screen: "g", data: "t", relation: "r" };
 

@@ -488,6 +488,24 @@ textarea { resize: vertical; width: 100%; }
 .an-bar-fill.sev-4 { background: var(--sev-4); }
 .an-bar-fill.sev-5 { background: var(--sev-5); }
 .an-matrix thead .an-sub, .an-matrix tbody th .an-sub { display: block; margin: 0; }
+/* イベントストーミング (分析ボード): 気づきと候補の表 */
+.an-storming .an-sub { display: block; margin-left: 0; }
+.an-storming td .an-sub { white-space: normal; }
+.an-notices { margin-bottom: 16px; }
+.an-notice-group { border: 1px solid var(--border); border-left: 4px solid #b9c6d6; border-radius: 6px; background: #fff; padding: 4px 10px; margin-bottom: 6px; }
+.an-notice-group.level-question { border-left-color: #2d5d8a; }
+.an-notice-group > summary { cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.an-notice-hint { margin: 4px 0 6px; }
+.an-notice-items li { flex-direction: column; align-items: flex-start; gap: 2px; padding: 3px 0; border-top: 1px dashed var(--border); }
+.an-notice-message { font-size: 12px; }
+.an-note { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 8px; margin: 1px; background: #eef1f5; color: #4a5568; }
+.an-note.level-question { background: #e3eef8; color: #2d5d8a; }
+.an-role.role-auto { background: #e6f0e4; color: #2f5d2a; }
+.an-role.role-timed { background: #f6ecd9; color: #7a5a1f; }
+.an-role.role-agg-lifecycle { background: #f3e8d6; color: #7a4e12; }
+.an-role.role-agg-written { background: #e8f2e6; color: #3c6b34; }
+.an-role.role-agg-reference { background: #eeeeee; color: #555; }
+.an-storming-table th:first-child { width: 16%; }
 .hours-label { font-size: 11px; color: #5d6b4a; margin-left: 4px; white-space: nowrap; }
 .hours-label.is-block { display: block; margin-left: 0; }
 .fixed-card .hours-label { margin-left: 0; }

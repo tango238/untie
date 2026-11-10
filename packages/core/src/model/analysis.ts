@@ -13,13 +13,14 @@ import {
 } from "./types";
 
 /** ボードの選択肢に並べる順。課題から紐解くので、課題の分布を先頭に置く */
-export const ANALYSIS_KINDS = ["issues", "people", "informationLocation"] as const;
+export const ANALYSIS_KINDS = ["issues", "people", "informationLocation", "storming"] as const;
 export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {
   people: "担当別の作業一覧",
   informationLocation: "情報の所在",
   issues: "課題の分布",
+  storming: "イベントストーミング",
 };
 
 const PREFIX = "analysis:";
