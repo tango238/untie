@@ -5,8 +5,7 @@ import { applyModelDiff, rebuildModel } from "@untie/collab";
 import type { CommandResult } from "@untie/core/model/commands";
 import type { UntieModel } from "@untie/core/model/types";
 import { relationInformationIds, type DesignRelationSelection } from "@untie/core/model/designRelation";
-import { cachedDomainScope } from "@untie/core/model/domainCache";
-import { domainSelectionExists, type DesignDomainSelection } from "@untie/core/model/domainScope";
+import { domainSelectionElementExists, type DesignDomainSelection } from "@untie/core/model/domainScope";
 import { moveNode, type Position, type Size } from "@untie/core/model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { analysisBoardId, parseAnalysisBoardId } from "@untie/core/model/analysis";
@@ -44,7 +43,7 @@ export interface UiState {
   designTableName?: string;
   /** 関連ボードで選んでいるもの (情報・テーブル・画面)。保存せず・履歴に積まない。モード・対象のシステムが変わるか、指す先が無くなると消える */
   designRelation?: DesignRelationSelection;
-  /** ドメインボードで選んでいるもの (コンテキスト・集約・イベント・コマンド)。保存せず・履歴に積まない。モード・対象のシステムが変わるか、指す先が無くなると消える */
+  /** ドメインボードで選んでいるもの (コンテキスト・集約・イベント・コマンド・問い合わせ)。保存せず・履歴に積まない。モード・対象のシステムが変わるか、指す要素が無くなると消える */
   designDomain?: DesignDomainSelection;
   /** 固定ボードごとの絞り込みの文字列 (履歴に積まない) */
   fixedFilters?: Partial<Record<FixedLayer, string>>;
@@ -212,7 +211,7 @@ export interface UntieState {
   selectDesignTable: (table: string | undefined, databaseId?: string) => void;
   /** 関連ボードで情報・テーブル・画面を選ぶ (undefined で外す)。右のペインを開いてプロパティを出す */
   selectDesignRelation: (selection: DesignRelationSelection | undefined) => void;
-  /** ドメインボードでコンテキスト・集約・イベント・コマンドを選ぶ (undefined で外す)。右のペインを開いてプロパティを出す */
+  /** ドメインボードでコンテキスト・集約・イベント・コマンド・問い合わせを選ぶ (undefined で外す)。右のペインを開いてプロパティを出す */
   selectDesignDomain: (selection: DesignDomainSelection | undefined) => void;
   setFixedFilter: (layer: FixedLayer, query: string) => void;
   setGuideOpen: (open: boolean) => void;
@@ -334,9 +333,10 @@ function reconcileUi(ui: UiState, model: UntieModel): UiState {
   // 関連ボードで選んだ情報・テーブル・画面が無くなったら消す
   let designRelation = ui.designRelation;
   if (designRelation !== undefined && !relationSelectionExists(model, mode === "design" ? designSystemId : undefined, designRelation)) designRelation = undefined;
-  // ドメインボードで選んだものが、対象のシステムにしぼった範囲から無くなったら消す
+  // ドメインボードで選んだものの要素が無くなったら消す。しぼった範囲から外れただけなら残し、ボードの側で選ばれていないものとして扱う
+  // (ここでしぼり込みをやり直すと、ほかのボードでの編集や同時編集のたびに導出を全部やり直すことになるため)
   let designDomain = ui.designDomain;
-  if (designDomain !== undefined && (mode !== "design" || designSystemId === undefined || !domainSelectionExists(cachedDomainScope(model, designSystemId), designDomain))) designDomain = undefined;
+  if (designDomain !== undefined && (mode !== "design" || designSystemId === undefined || !domainSelectionElementExists(model, designDomain))) designDomain = undefined;
   if (designDatabaseId !== ui.designDatabaseId || designTableName !== ui.designTableName || designRelation !== ui.designRelation || designDomain !== ui.designDomain) {
     return { ...ui, currentBoardId, selection, mode, designSystemId, designScreenId, designTransitionId, designDatabaseId, designTableName, designRelation, designDomain };
   }

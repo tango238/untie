@@ -83,7 +83,7 @@ export interface DomainEventRow {
   usecases: Usecase[];
   /** 直接発生させるシステム */
   systems: Element[];
-  /** 発生タイミングを持つ (時間のイベント。コマンド無しで発生元はシステム) */
+  /** 定期 (scheduled) の発生タイミングを持つ時間のイベント (コマンド無しで、発生元はシステム)。不定期 (adhoc) は外からの呼び出しなので時間のイベントにしない */
   timed: boolean;
   /** 属性の候補 = 発生させる操作が書く情報 */
   properties: Information[];
@@ -348,7 +348,7 @@ export function deriveDomainModel(model: UntieModel): DomainDerivation {
       event,
       usecases,
       systems: related(ix, ix.sources("systemEvent", event.id), "source", "system"),
-      timed: !!event.timing,
+      timed: event.timing?.type === "scheduled",
       properties: ix.order(uniq(usecases.flatMap((u) => informationAccess(ix, u.id).writes))),
       consumers: {
         usecases: related(ix, ix.targets("eventUsecase", event.id), "target", "usecase"),

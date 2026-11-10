@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { removeElement } from "@untie/core/model/commands";
+import { removeElement, removeRelation } from "@untie/core/model/commands";
 import { buildDomainScope } from "@untie/core/model/domainScope";
 import { createNetshopSample } from "@untie/core/sample";
 import { useUntieStore } from "../../store";
@@ -49,7 +49,7 @@ describe("ドメインボードの図の計算", () => {
     expect(edges.some((e) => e.source === "command:uc_confirm_order" && e.target === "aggregate:info_order")).toBe(true);
     expect(edges.some((e) => e.source === "aggregate:info_order" && e.target === "event:ev_order_confirmed")).toBe(true);
     const policy = edges.find((e) => e.source === "event:ev_payment_confirmed" && e.target === "command:uc_issue_pick_list")!;
-    expect(policy.label).toBe("ポリシー");
+    expect(policy.label).toBeUndefined();
     expect(policy.style).toMatchObject({ strokeDasharray: "5 4" });
     // 読むだけのコマンドは「取得だけ」、作業で分かれる操作は作業の数
     expect(nodes.find((n) => n.id === "command:uc_issue_pick_list")!.data.badges).toContain("取得だけ");
@@ -177,5 +177,105 @@ describe("ドメインボード", () => {
     act(() => st().selectDesignDomain({ kind: "context", id: "ctx_accounting" }));
     act(() => st().setMode("analysis"));
     expect(st().ui.designDomain).toBeUndefined();
+  });
+});
+
+describe("レビューを受けた振る舞い", () => {
+  it("強調は出どころの操作で辿り、集約が束ねるほかの操作のイベントまでは広げない", () => {
+    const scope = buildDomainScope(st().model, "sys_oms");
+    const dim = (sel: Parameters<typeof buildAggregateFlow>[1], id: string) => buildAggregateFlow(scope, sel).nodes.find((n) => n.id === id)!.data.dim;
+    const reg = { kind: "command", id: "uc_register_order" } as const;
+    expect(dim(reg, "event:ev_order_received")).toBe(false);
+    expect(dim(reg, "event:ev_order_confirmed")).toBe(true);
+    expect(dim(reg, "event:ev_order_cancelled")).toBe(true);
+    // イベントを選ぶと、それを出す操作だけが光る (同じ集約を書くほかの操作は光らない)
+    const alloc = { kind: "event", id: "ev_stock_allocated" } as const;
+    expect(dim(alloc, "command:uc_allocate_stock")).toBe(false);
+    expect(dim(alloc, "command:uc_register_receiving")).toBe(true);
+    // 外のきっかけを選ぶと、ポリシーを 1 歩辿って、きっかけにするコマンドとその先が光る
+    const paid = { kind: "event", id: "ev_payment_confirmed" } as const;
+    expect(dim(paid, "command:uc_issue_pick_list")).toBe(false);
+    expect(dim(paid, "event:ev_pick_listed")).toBe(false);
+  });
+
+  it("このシステムが書く情報はすべて集約のノードにし、行はコンテキストごとの帯に分ける", () => {
+    const scope = buildDomainScope(st().model, "sys_oms");
+    const { nodes, edges } = buildAggregateFlow(scope, undefined);
+    // 購入者は 注文を登録する が注文と一緒に書く (代表の集約ではない) が、ノードになり線も引く
+    expect(nodes.some((n) => n.id === "aggregate:info_customer")).toBe(true);
+    expect(edges.some((e) => e.source === "command:uc_register_order" && e.target === "aggregate:info_customer")).toBe(true);
+    const bands = nodes.filter((n) => n.type === "band").map((n) => n.data.label);
+    expect(bands).toEqual(["注文", "商品・在庫", "顧客", "出荷"]);
+    // 集約の帯の中に、そのコンテキストのコマンド・集約・イベントが入る
+    const band = nodes.find((n) => n.id === "band:ctx_shipping")!;
+    const y = (id: string) => nodes.find((n) => n.id === id)!.position.y;
+    for (const id of ["command:uc_issue_label", "aggregate:info_shipment", "event:ev_shipped"]) {
+      expect(y(id)).toBeGreaterThan(band.position.y);
+      expect(y(id)).toBeLessThan(band.position.y + (band.height ?? 0));
+    }
+    // 読むだけのコンテキスト (会計システムにとっての注文) は、図に書く集約が無いので帯にならない (左の一覧の「読むだけのコンテキスト (上流)」に出る)
+    const acc = buildAggregateFlow(buildDomainScope(st().model, "sys_accounting"), undefined);
+    expect(acc.nodes.filter((n) => n.type === "band").map((n) => n.data.label)).toEqual(["会計"]);
+  });
+
+  it("問い合わせだけのシステムでは、集約とイベントの図の代わりに案内を出し、業務の流れでは問い合わせを選べる", () => {
+    act(() => st().enterDesign("sys_mall"));
+    render(<DomainBoard />);
+    expect(screen.getByText(/情報を書く操作 \(コマンド\) もイベントもありません。問い合わせ 1 件は/)).toBeDefined();
+    const flow = buildBusinessFlow(st().model, buildDomainScope(st().model, "sys_mall"), undefined);
+    expect(flow.nodes.find((n) => n.id === "command:uc_check_mall_order")!.data).toMatchObject({ kind: "query", selection: { kind: "query", id: "uc_check_mall_order" } });
+  });
+
+  it("問い合わせを選ぶと右のペインに中身が出て、範囲の外の要素名には「↗」と行き先が付く", () => {
+    act(() => st().selectDesignDomain({ kind: "query", id: "uc_search_order" }));
+    render(<DomainProperties />);
+    const q = screen.getByTestId("domain-query");
+    expect(q.textContent).toContain("受注一覧");
+    // 作業は範囲の外なので、押すと分析へ移る印と行き先が付く。読む情報 (注文) は範囲の中なので付かない
+    expect(within(q).getByRole("button", { name: "注文内容を確認する" }).getAttribute("title")).toContain("分析の作業ボードで見る");
+    expect(within(q).getByRole("button", { name: "注文" }).getAttribute("title")).not.toContain("分析の");
+    expect(within(q).getByRole("button", { name: "分析の操作ボードで見る ↗" })).toBeDefined();
+  });
+
+  it("イベントの中身: 分析へのリンクは操作ボード、ほかにも発生させるところを添える", () => {
+    act(() => st().selectDesignDomain({ kind: "event", id: "ev_order_received" }));
+    render(<DomainProperties />);
+    const ev = screen.getByTestId("domain-event");
+    expect(ev.textContent).toContain("ほかにも 自社サイトのカート が発生させる");
+    expect(within(ev).getByRole("button", { name: /^分析の.+ボードで見る ↗$/ })).toBeDefined();
+  });
+
+  it("範囲から外れても要素があれば選択は残り (ボードは選んでいないものとして見せる)、要素が消えると選択も消える", () => {
+    act(() => st().selectDesignDomain({ kind: "command", id: "uc_confirm_order" }));
+    act(() => st().enterDesign("sys_oms"));
+    expect(st().ui.designDomain).toEqual({ kind: "command", id: "uc_confirm_order" });
+    // 操作の対象を別のシステムへ移す代わりに、対象を外す (範囲の外になる)
+    const rel = st().model.relations.find((r) => r.kind === "usecaseScreen" && r.sourceId === "uc_confirm_order")!;
+    act(() => st().dispatch((m) => removeRelation(m, { id: rel.id })));
+    expect(st().ui.designDomain).toEqual({ kind: "command", id: "uc_confirm_order" });
+    render(<DomainProperties />);
+    expect(screen.getByTestId("domain-overview")).toBeDefined();
+  });
+
+  it("分析ボードの要素名は、これまでどおり選んでプロパティ欄に出す (差し替えは設計のドメインボードだけ)", async () => {
+    const { El } = await import("../analysis/analysisParts");
+    const el = st().model.elements.find((e) => e.id === "uc_confirm_order")!;
+    render(<El element={el} />);
+    const button = screen.getByRole("button", { name: "注文を確定する" });
+    expect(button.textContent).not.toContain("↗");
+    fireEvent.click(button);
+    expect(st().ui.selection).toEqual({ type: "element", id: "uc_confirm_order" });
+  });
+});
+
+describe("左の一覧", () => {
+  it("自分のコンテキストと読むだけのコンテキスト (上流) を分け、イベントの行にも問いの数を出し、問い合わせも選べる", () => {
+    act(() => st().enterDesign("sys_accounting"));
+    render(<DomainLeftPane />);
+    const left = screen.getByRole("complementary", { name: "ドメインの一覧" });
+    expect(within(left).getByRole("heading", { name: "読むだけのコンテキスト (上流)" })).toBeDefined();
+    expect(left.querySelector('[data-domain-row="context:ctx_order"]')).not.toBeNull();
+    fireEvent.click(within(left.querySelector('[data-domain-row="query:uc_view_pl"]') as HTMLElement).getByRole("button"));
+    expect(st().ui.designDomain).toEqual({ kind: "query", id: "uc_view_pl" });
   });
 });

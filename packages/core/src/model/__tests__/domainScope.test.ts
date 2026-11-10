@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createAccountingSample, createNetshopSample } from "../../sample";
+import { createAccountingSample, createHotelSample, createNetshopSample, createRetailSample } from "../../sample";
 import { addElement, addRelation } from "../commands";
 import { cachedDomainModel, cachedDomainScope } from "../domainCache";
-import { buildDomainScope, domainSelectionExists, noticesAbout } from "../domainScope";
+import { buildDomainScope, domainSelectionElementExists, domainSelectionExists, noticesAbout } from "../domainScope";
 import { okModel } from "./helpers";
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name);
@@ -124,5 +124,65 @@ describe("選択と覚えておく結果", () => {
     const b = cachedDomainScope(m, "sys_oms");
     expect(b).not.toBe(a);
     expect(b.events.some((e) => e.row.event.id === "ev_new")).toBe(true);
+  });
+});
+
+describe("レビューを受けた振る舞い", () => {
+  it("作業で分けたコマンドの代表は、使う作業と担い手を和にする (キーは操作の id)", () => {
+    const s = buildDomainScope(createNetshopSample(), "sys_oms");
+    const inquiry = s.commands.find((c) => c.usecase.id === "uc_record_inquiry")!;
+    expect(inquiry.key).toBe("usecase:uc_record_inquiry");
+    expect(inquiry.activity).toBeNull();
+    expect(names(inquiry.activities)).toEqual(["問い合わせに答える", "配送状況を調べる", "対応を記録する"]);
+    expect(names(inquiry.actors)).toEqual(["カスタマーサポート", "購入者", "配送業者"]);
+  });
+
+  it("ほかのシステムでも書く集約は、書くシステムを持つ (帳票は入れない)", () => {
+    const hotel = createHotelSample();
+    const pms = buildDomainScope(hotel, "sys_pms");
+    const bill = pms.contexts.flatMap((c) => c.aggregates).find((a) => a.candidate.information.name === "請求")!;
+    expect(bill.writtenHere).toBe(true);
+    expect(bill.otherWriterSystems.length).toBeGreaterThanOrEqual(1);
+    const oms = buildDomainScope(createNetshopSample(), "sys_oms");
+    // 在庫は帳票 (入荷検品表) でも書くが、帳票はシステムではないので入れない
+    expect(oms.contexts.flatMap((c) => c.aggregates).find((a) => a.candidate.information.id === "info_stock")!.otherWriterSystems).toEqual([]);
+  });
+
+  it("読むだけのコンテキストは上流 (upstream) として後に並べ、関わる業務はこのシステムの操作の作業の業務だけにする", () => {
+    const acc = buildDomainScope(createNetshopSample(), "sys_accounting");
+    expect(acc.contexts.map((c) => [c.context?.name, c.role])).toEqual([
+      ["会計", "own"],
+      ["注文", "upstream"],
+    ]);
+    const order = acc.contexts.find((c) => c.context?.id === "ctx_order")!;
+    expect(names(order.businesses)).not.toContain("受注処理");
+    const oms = buildDomainScope(createNetshopSample(), "sys_oms");
+    expect(oms.contexts.every((c) => c.role === "own")).toBe(true);
+  });
+
+  it("内のイベントで、ほかにも発生させるところがあれば添える", () => {
+    const oms = buildDomainScope(createNetshopSample(), "sys_oms");
+    expect(names(oms.events.find((e) => e.row.event.id === "ev_order_received")!.otherSources)).toEqual(["自社サイトのカート"]);
+    expect(oms.events.find((e) => e.row.event.id === "ev_order_confirmed")!.otherSources).toEqual([]);
+  });
+
+  it("気づきは主役の要素が範囲にあるものだけ。モデル全体の数の気づきは「モデル全体で」と添える", () => {
+    const mall = buildDomainScope(createNetshopSample(), "sys_mall");
+    // モールの管理画面は問い合わせ 1 つだけ。ほかのシステムが主役の問いは出さない
+    expect(mall.notices.every((n) => n.elementIds[0] === "uc_check_mall_order" || n.elementIds[0] === "info_order" || n.elementIds[0] === "ctx_order")).toBe(true);
+    const retail = buildDomainScope(createRetailSample(), "sys_pos");
+    const few = retail.notices.find((n) => n.type === "fewEvents")!;
+    expect(few.message.startsWith("モデル全体で、")).toBe(true);
+  });
+
+  it("選択の要素がモデルにあるか (範囲は見ない)", () => {
+    const m = createNetshopSample();
+    expect(domainSelectionElementExists(m, { kind: "command", id: "uc_record_payment" })).toBe(true);
+    expect(domainSelectionElementExists(m, { kind: "aggregate", id: "uc_record_payment" })).toBe(false);
+    expect(domainSelectionElementExists(m, { kind: "context", id: null })).toBe(true);
+    expect(domainSelectionElementExists(m, { kind: "event", id: "nope" })).toBe(false);
+    const oms = buildDomainScope(m, "sys_oms");
+    expect(domainSelectionExists(oms, { kind: "query", id: "uc_search_order" })).toBe(true);
+    expect(domainSelectionExists(oms, { kind: "query", id: "uc_confirm_order" })).toBe(false);
   });
 });

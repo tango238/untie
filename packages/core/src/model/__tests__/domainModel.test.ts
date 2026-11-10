@@ -104,7 +104,9 @@ describe("ドメインイベントとポリシー", () => {
     expect(names(row("ev_order_confirmed").properties)).toEqual(["注文"]);
     expect(names(row("ev_order_confirmed").consumers.usecases)).toEqual(["在庫を引き当てる"]);
     expect(row("ev_order_confirmed").context?.name).toBe("注文");
-    expect(row("ev_payment_confirmed").timed).toBe(true);
+    // 不定期 (adhoc。Webhook など外からの呼び出し) は時間のイベントにしない。定期 (scheduled) だけ
+    expect(row("ev_payment_confirmed").timed).toBe(false);
+    expect(deriveDomainModel(sample()).events.find((e) => e.event.id === "ev_checkout_day")!.timed).toBe(true);
     expect(names(row("ev_month_closed").systems)).toEqual(["会計システム"]);
     expect(names(row("ev_received").consumers.activities)).toEqual(["商品を棚に収める"]);
     expect(row("ev_stock_changed").consumers).toEqual({ usecases: [], activities: [] });

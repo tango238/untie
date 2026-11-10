@@ -1,14 +1,14 @@
-import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type NodeProps } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Node, type NodeProps } from "@xyflow/react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cachedDomainScope } from "@untie/core/model/domainCache";
 import { DOMAIN_NOTICE_TITLES } from "@untie/core/model/domainNotices";
 import type { DomainScope, DomainTerm } from "@untie/core/model/domainScope";
-import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
+import { ELEMENT_KIND_LABELS } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
-import { revealOnFixedBoard } from "../actions";
 import { El, ElementClickContext } from "../analysis/analysisParts";
 import { StormingTable } from "../analysis/StormingView";
-import { buildAggregateFlow, buildBusinessFlow, type DomainFlowNode } from "./domainFlow";
+import { useDomainElementClick } from "./domainElementClick";
+import { buildAggregateFlow, buildBusinessFlow, type DomainBandData, type DomainFlowNode, type DomainNodeData, type DomainNodeKind } from "./domainFlow";
 
 /** ドメインボードの中央の見せ方。端末ごとに覚える */
 export type DomainView = "aggregates" | "flow" | "table" | "terms";
@@ -37,24 +37,6 @@ function saveDomainView(view: DomainView) {
   }
 }
 
-/**
- * ボードの中で要素名を押したとき: しぼった範囲にある操作・情報・イベント・コンテキストなら、ボードの中で選ぶ。
- * それ以外 (作業・アクター・状態など) は、分析のその要素の固定ボードへ移る
- */
-export function useDomainElementClick(scope: DomainScope): (element: Element) => void {
-  const select = useUntieStore((s) => s.selectDesignDomain);
-  return useCallback(
-    (element: Element) => {
-      if (element.kind === "usecase" && scope.commands.some((c) => c.usecase.id === element.id)) return select({ kind: "command", id: element.id });
-      if (element.kind === "information" && scope.contexts.some((c) => c.aggregates.some((a) => a.candidate.information.id === element.id))) return select({ kind: "aggregate", id: element.id });
-      if (element.kind === "event" && scope.events.some((e) => e.row.event.id === element.id)) return select({ kind: "event", id: element.id });
-      if (element.kind === "context" && scope.contexts.some((c) => c.context?.id === element.id)) return select({ kind: "context", id: element.id });
-      revealOnFixedBoard(element.id);
-    },
-    [scope, select],
-  );
-}
-
 const onActivate = (select: () => void) => (e: React.KeyboardEvent) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -62,7 +44,7 @@ const onActivate = (select: () => void) => (e: React.KeyboardEvent) => {
   }
 };
 
-const NODE_KIND_LABELS: Record<DomainFlowNode["data"]["kind"], string> = {
+const NODE_KIND_LABELS: Record<DomainNodeKind, string> = {
   trigger: "きっかけ (外のイベント)",
   command: "コマンド",
   query: "問い合わせ",
@@ -72,14 +54,14 @@ const NODE_KIND_LABELS: Record<DomainFlowNode["data"]["kind"], string> = {
   activity: "作業",
 };
 
-function DomainNode({ data }: NodeProps<DomainFlowNode>) {
+function DomainNode({ data }: NodeProps<Node<DomainNodeData, "domain">>) {
   const select = () => {
     if (data.selection) useUntieStore.getState().selectDesignDomain(data.selection);
   };
   return (
     <div
       className={`nokey domain-node is-${data.kind}${data.selected ? " is-selected" : ""}${data.dim ? " is-dim" : ""}`}
-      role={data.selection ? "button" : undefined}
+      role={data.selection ? "button" : "group"}
       tabIndex={data.selection ? 0 : undefined}
       aria-label={`${NODE_KIND_LABELS[data.kind]} ${data.label}${data.badges.length > 0 ? ` (${data.badges.join("、")})` : ""}${data.questions > 0 ? `、問い ${data.questions}` : ""}`}
       aria-pressed={data.selection ? data.selected : undefined}
@@ -105,7 +87,21 @@ function DomainNode({ data }: NodeProps<DomainFlowNode>) {
   );
 }
 
-const nodeTypes = { domain: DomainNode };
+/** コンテキストの帯 (図の行のまとまり。選べない) */
+function BandNode({ data }: NodeProps<Node<DomainBandData, "band">>) {
+  return (
+    <div className="domain-band" data-domain-band>
+      <div className="domain-band-name" title={data.label}>
+        {data.label}
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { domain: DomainNode, band: BandNode };
+
+/** 図の最初の倍率の下限。これより小さくしないと全体が入らないときは、左上から見せて残りはスクロール (パン) で見る */
+const MIN_INITIAL_ZOOM = 0.75;
 
 function DomainCanvasInner({ view, scope }: { view: "aggregates" | "flow"; scope: DomainScope }) {
   const model = useUntieStore((s) => s.model);
@@ -116,7 +112,12 @@ function DomainCanvasInner({ view, scope }: { view: "aggregates" | "flow"; scope
   const rf = useReactFlow();
   const fitKey = `${view}:${scope.systemId}:${flow.nodes.map((n) => n.id).join(",")}`;
   useEffect(() => {
-    const handle = window.requestAnimationFrame(() => void rf.fitView({ padding: 0.15, maxZoom: 1 }));
+    const handle = window.requestAnimationFrame(() => {
+      void rf.fitView({ padding: 0.15, maxZoom: 1 }).then(() => {
+        // 小さくなりすぎて字が読めないときは、読める倍率で左上から見せる
+        if (rf.getZoom() < MIN_INITIAL_ZOOM) void rf.setViewport({ x: 24, y: 16, zoom: MIN_INITIAL_ZOOM });
+      });
+    });
     return () => window.cancelAnimationFrame(handle);
   }, [fitKey, rf]);
   return (
@@ -133,7 +134,10 @@ function DomainCanvasInner({ view, scope }: { view: "aggregates" | "flow"; scope
       fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
       minZoom={0.15}
       proOptions={{ hideAttribution: true }}
-      onNodeClick={(_, node) => selectDesignDomain(node.data.selection)}
+      onNodeClick={(_, node) => {
+        // 選べないノード (帯・外の受け手・作業) を押しても、いまの選択は外さない
+        if (node.type === "domain" && node.data.selection) selectDesignDomain(node.data.selection);
+      }}
       onPaneClick={() => selectDesignDomain(undefined)}
     >
       <Background />
@@ -143,8 +147,9 @@ function DomainCanvasInner({ view, scope }: { view: "aggregates" | "flow"; scope
 }
 
 const COLUMN_HINTS: Record<"aggregates" | "flow", string> = {
-  aggregates: "左から、きっかけ (別のところで発生するイベント) → コマンド → 集約 → イベント → 受け手 (このシステムの外の操作・イベントを起点にする作業)。破線はポリシー (イベントをきっかけに動く操作)",
-  flow: "操作とイベントを「次に」「発生」「きっかけ」でつなぎ、始まりから順に左から右へ並べます。つながりの無いものは右端の列",
+  aggregates:
+    "左から、きっかけ (別のところで発生するイベント) → コマンド → 集約 → イベント → 受け手 (このシステムの外の操作・イベントを起点にする作業)。行はコンテキストごとの帯。破線はポリシー (イベントをきっかけに動く操作) と外の受け手",
+  flow: "操作とイベントを「次に」「発生」「きっかけ」でつなぎ、始まりから順に左から右へ並べます (破線はきっかけ = ポリシー)。つながりの無いものは右端の列",
 };
 
 function TermsTable({ terms }: { terms: DomainTerm[] }) {
@@ -198,9 +203,17 @@ export function DomainBoard() {
     saveDomainView(next);
   };
   const empty = scope.commands.length === 0 && scope.queries.length === 0 && scope.events.length === 0;
+  // 集約とイベントの図は、コマンドもイベントも無いと空になる (問い合わせだけのシステム)
+  const noAggregateFlow = view === "aggregates" && scope.commands.length === 0 && scope.events.length === 0;
   let body: ReactNode;
   if (empty) {
     body = <p className="hint domain-empty">このシステムを対象にした操作も、このシステムが発生させるイベントもまだありません。分析で操作の対象 (このシステムか、その画面) を結ぶと、ここに候補が出ます</p>;
+  } else if (noAggregateFlow) {
+    body = (
+      <p className="hint domain-empty">
+        このシステムには、情報を書く操作 (コマンド) もイベントもありません。問い合わせ {scope.queries.length} 件は「業務の流れ」と「用語」で見られます
+      </p>
+    );
   } else if (view === "aggregates" || view === "flow") {
     body = (
       <div className="domain-canvas">
@@ -212,7 +225,11 @@ export function DomainBoard() {
   } else {
     body = (
       <div className="domain-scroll an-storming">
-        {view === "table" ? <StormingTable commands={scope.splitCommands} events={scope.events.map((e) => e.row)} notices={scope.notices} /> : <TermsTable terms={scope.terms} />}
+        {view === "table" ? (
+          <StormingTable commands={scope.splitCommands} events={scope.events.filter((e) => e.origin === "inside").map((e) => e.row)} notices={scope.notices} />
+        ) : (
+          <TermsTable terms={scope.terms} />
+        )}
       </div>
     );
   }
@@ -229,7 +246,8 @@ export function DomainBoard() {
         </div>
       </div>
       <p className="hint domain-hint">
-        分析から導いた候補です (保存はしません)。{!empty && (view === "aggregates" || view === "flow") ? COLUMN_HINTS[view] : "要素名を押すと、ボードの中で選ぶか、分析のボードへ移ります"}
+        分析から導いた候補です (保存はしません)。
+        {!empty && !noAggregateFlow && (view === "aggregates" || view === "flow") ? COLUMN_HINTS[view] : "要素名を押すと、ボードの中で選びます (「↗」の付いた名前は、分析のボードへ移ります)"}
       </p>
       <ElementClickContext.Provider value={onElementClick}>{body}</ElementClickContext.Provider>
     </section>

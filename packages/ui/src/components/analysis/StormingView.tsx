@@ -199,7 +199,7 @@ export function StormingTable({ commands, events, notices }: { commands: Command
                     {e.systems.map((s) => (
                       <El key={s.id} element={s} plain />
                     ))}
-                    {e.timed && <span className="an-role role-timed">時間</span>}
+                    {e.timed && <span className="an-role role-timed">定期</span>}
                   </span>
                 </td>
                 <td>
@@ -213,7 +213,7 @@ export function StormingTable({ commands, events, notices }: { commands: Command
                   {e.event.timing && <span className="an-sub">{describeEventTiming(e.event.timing)}</span>}
                 </td>
                 <td>
-                  <span className="an-sub">{e.timed ? "時間のイベント (コマンド無し、発生元はシステム)" : "システムが直接発生させる"}</span>
+                  <span className="an-sub">{e.timed ? "定期の時間のイベント (コマンド無し、発生元はシステム)" : "システムが直接発生させる"}</span>
                 </td>
               </tr>
             ))}
