@@ -26,6 +26,7 @@ export * from "./domainNotices";
 export * from "./domainScope";
 export * from "./domainResolve";
 export * from "./domainAdopt";
+export * from "./domainDraft";
 export * from "./domainMap";
 export * from "./domainCheck";
 export * from "./domainCache";

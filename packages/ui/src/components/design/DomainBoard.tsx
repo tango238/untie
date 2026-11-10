@@ -1,16 +1,23 @@
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cachedResolvedDomain } from "@untie/core/model/domainCache";
 import { setDomainTerm } from "@untie/core/model/domainCommands";
+import { applyDomainDraft, draftScopeContextIds } from "@untie/core/model/domainDraft";
 import { DOMAIN_NOTICE_TITLES } from "@untie/core/model/domainNotices";
 import { adoptDomainCandidates, normalizeDomainSelection, type ResolvedDomain } from "@untie/core/model/domainResolve";
 import type { ScopedTerm } from "@untie/core/model/domainScope";
 import { DESCRIPTION_MAX_LENGTH, ENGLISH_MAX_LENGTH } from "@untie/core/model/limits";
 import { ELEMENT_KIND_LABELS, type DomainTerm } from "@untie/core/model/types";
+import { useAgentStore } from "../../ai/agentStore";
+import { describeChatError } from "../../ai/chat";
+import { generateDomainDraft } from "../../ai/designDomain";
+import { getApiKey } from "../../ai/keys";
+import { PROVIDERS } from "../../ai/providers";
 import { useUntieStore } from "../../store";
 import { El, ElementClickContext } from "../analysis/analysisParts";
 import { StormingTable } from "../analysis/StormingView";
 import { CommitField } from "../CommitField";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { useDomainEdit, useDomainElementClick } from "./domainElementClick";
 import { buildAggregateFlow, buildBusinessFlow, type DomainBandData, type DomainFlowNode, type DomainNodeData, type DomainNodeKind } from "./domainFlow";
 
@@ -240,6 +247,72 @@ export function DomainBoard() {
     const done = edit.run((m) => adoptDomainCandidates(m, { systemId }));
     if (done) pushToast(done.contexts + done.aggregates === 0 ? "保存できる候補はありませんでした" : `候補から、コンテキスト ${done.contexts}・集約 ${done.aggregates} を作りました`, "info");
   };
+
+  // AI で下書き (データボードの「情報から作る (AI)」と同じ流儀)
+  const provider = useAgentStore((s) => s.settings.provider);
+  const aiModels = useAgentStore((s) => s.settings.models);
+  const settingsOpen = useAgentStore((s) => s.settingsOpen);
+  const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
+  const startDomainTalk = useAgentStore((s) => s.startDomainTalk);
+  const agentRunning = useAgentStore((s) => s.running);
+  const [hasKey, setHasKey] = useState<boolean | undefined>(undefined);
+  const [confirmAi, setConfirmAi] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  // マウントした文書の世代。別のファイルを開いたあとに、前のファイルの下書きを書かないために覚える
+  const docSeq = useRef(useUntieStore.getState().docSeq);
+  useEffect(() => {
+    let alive = true;
+    setHasKey(undefined);
+    getApiKey(provider).then(
+      (k) => alive && setHasKey(!!k),
+      () => alive && setHasKey(false),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [provider, settingsOpen]);
+  useEffect(() => () => abortRef.current?.abort(), []);
+  const replaced = systemId ? draftScopeContextIds(model, systemId).length : 0;
+  const generate = async () => {
+    if (!systemId) return;
+    let apiKey: string | null;
+    try {
+      apiKey = await getApiKey(provider);
+    } catch {
+      apiKey = null;
+    }
+    if (!apiKey) {
+      pushToast("API キーが設定されていません。「AI の設定」で入れてください", "error");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setGenerating(true);
+    try {
+      const result = await generateDomainDraft(useUntieStore.getState().model, systemId, { provider, model: aiModels[provider] || PROVIDERS[provider].defaultModel, apiKey, signal: controller.signal });
+      // 生成のあいだに別の文書を開いていたら、結果は捨てる
+      if (useUntieStore.getState().docSeq !== docSeq.current) return;
+      // 生成のあいだに変わったモデル (同時編集など) に当て直す
+      const r = useUntieStore.getState().dispatch((m) => applyDomainDraft(m, { systemId, draft: result.draft }));
+      if (!r.ok) pushToast(`下書きを保存できませんでした (作っているあいだに、分析かドメインモデルが変わりました): ${r.reason.split("\n")[0]}`, "error");
+      else {
+        const n = r.summary;
+        pushToast(`下書きを作りました (コンテキスト ${n.contexts}・集約 ${n.aggregates}・コマンド ${n.commands}・イベント ${n.events})。名前と境界を確かめて、直してください`, "info");
+      }
+    } catch (e) {
+      pushToast(describeChatError(e), "error");
+    } finally {
+      abortRef.current = null;
+      setGenerating(false);
+    }
+  };
+  const requestGenerate = () => {
+    if (replaced > 0) setConfirmAi(true);
+    else void generate();
+  };
+  const aiDisabled = edit.readOnly || !systemId || generating || hasKey !== true || empty;
+
   let body: ReactNode;
   if (empty) {
     body = <p className="hint domain-empty">このシステムを対象にした操作も、このシステムが発生させるイベントもまだありません。分析で操作の対象 (このシステムか、その画面) を結ぶと、ここに候補が出ます</p>;
@@ -280,12 +353,43 @@ export function DomainBoard() {
             </button>
           ))}
         </div>
-        {!edit.readOnly && unadopted > 0 && (
-          <button type="button" className="domain-adopt-all" onClick={adoptAll} title="このシステムが書く情報のある分析のコンテキストを境界づけられたコンテキストに、書く情報を 1 情報 1 集約にして保存する (AI は使わない)">
-            候補から作る
-          </button>
-        )}
+        <span className="domain-toolbar-actions">
+          {!edit.readOnly && unadopted > 0 && (
+            <button type="button" onClick={adoptAll} disabled={generating} title="このシステムが書く情報のある分析のコンテキストを境界づけられたコンテキストに、書く情報を 1 情報 1 集約にして保存する (AI は使わない)">
+              候補から作る
+            </button>
+          )}
+          {!edit.readOnly && (
+            <button
+              type="button"
+              onClick={() => systemId && void startDomainTalk(systemId)}
+              disabled={!systemId || generating || agentRunning || hasKey !== true || empty}
+              title={hasKey === false ? "「AI の設定」で API キーを入れると使えます" : "AI の質問に答えながら、コンテキスト・集約・名前を 1 つずつ決めて保存する (分析は変えない)"}
+            >
+              AI と決める
+            </button>
+          )}
+          {!edit.readOnly && (
+            <button
+              type="button"
+              onClick={requestGenerate}
+              disabled={aiDisabled}
+              title={hasKey === false ? "「AI の設定」で API キーを入れると使えます" : "候補と気づきから、コンテキスト・集約と不変条件・コマンドとイベントの名前と英語名の下書きを作る (分析は変えない)"}
+            >
+              {generating ? "作っています…" : "AI で下書き"}
+            </button>
+          )}
+        </span>
       </div>
+      {hasKey === false && !edit.readOnly && (
+        <p className="hint domain-hint">
+          「AI と決める」「AI で下書き」を使うには、
+          <button type="button" className="link" onClick={() => setSettingsOpen(true)}>
+            AI の設定
+          </button>
+          で API キーを入れてください
+        </p>
+      )}
       <p className="hint domain-hint">
         {savedCount === 0 ? "分析から導いた候補です (破線。まだ保存していません)。" : "実線は保存したもの、破線は分析から導いた候補です。"}
         {view === "table"
@@ -297,6 +401,19 @@ export function DomainBoard() {
               : ""}
       </p>
       <ElementClickContext.Provider value={onElementClick}>{body}</ElementClickContext.Provider>
+      {confirmAi && (
+        <ConfirmDialog
+          title="AI で下書き"
+          message={`このシステムだけが実装する境界づけられたコンテキスト ${replaced} つ (と、その集約・コマンド・イベント・関係) を、AI が作った下書きに置き換えます。ほかのシステムのコンテキストと、分析は変えません。`}
+          confirmLabel="置き換える"
+          danger
+          onCancel={() => setConfirmAi(false)}
+          onConfirm={() => {
+            setConfirmAi(false);
+            void generate();
+          }}
+        />
+      )}
     </section>
   );
 }

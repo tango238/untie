@@ -4,6 +4,7 @@ import { ELEMENT_KIND_LABELS, isPersonaOwnerKind } from "@untie/core/model/types
 import { FIXED_LAYER_LABELS, parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { selectReadOnly, useUntieStore } from "../store";
 import { createChatSession, describeChatError, type ChatSession, type SeedTurn } from "./chat";
+import { DOMAIN_TALK_TOOLS, domainTalkOpening, domainTalkSystemPrompt, executeDomainTalkTool } from "./domainTalk";
 import { executeGrillTool, GRILL_TOOLS, grillOpening, grillSystemPrompt } from "./grill";
 import { executeHearingTool, HEARING_TOOLS, hearingOpening, hearingSystemPrompt, type HearingAnswerer } from "./hearing";
 import { getApiKey } from "./keys";
@@ -27,8 +28,9 @@ export interface ChatItem {
  * - grill: 1 つの課題を深掘りする。AI はその課題の分析・重要度・対象だけを変えられる
  * - hearing: 1 人のアクター・外部アクターに困りごとをヒアリングする。AI はそのペルソナと、課題の登録・追記だけを変えられる。
  *   answerer が persona なら AI がペルソナになりきって答え、self なら AI がAI が聞いて、人間が答える
+ * - domain: 1 つのシステムのドメインモデルを、AI の問いに答えながら決める。AI はドメインモデル (domain) と、課題の登録だけを変えられる (分析は変えない)
  */
-export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string } | { kind: "hearing"; actorId: string; answerer: HearingAnswerer };
+export type AgentMode = { kind: "edit" } | { kind: "grill"; issueId: string } | { kind: "hearing"; actorId: string; answerer: HearingAnswerer } | { kind: "domain"; systemId: string };
 
 interface AgentState {
   /** 下のペインを開いているか */
@@ -56,6 +58,10 @@ interface AgentState {
   startHearing: (actorId: string, answerer: HearingAnswerer) => Promise<void>;
   /** ヒアリングを終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
   endHearing: () => void;
+  /** ドメインモデルの対話を始める。新しい会話にし、対象のシステムを渡して最初の質問をもらう */
+  startDomainTalk: (systemId: string) => Promise<void>;
+  /** ドメインモデルの対話を終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
+  endDomainTalk: () => void;
 }
 
 let seq = 0;
@@ -86,6 +92,16 @@ const TOOL_LABELS: Record<string, string> = {
   add_issue: "課題を登録",
   update_issue_analysis: "課題の分析を更新",
   set_issue_targets: "課題の対象を変更",
+  get_domain: "ドメインモデルを読む",
+  save_context: "コンテキストを保存",
+  save_aggregate: "集約を保存",
+  save_command: "コマンドを保存",
+  save_event: "イベントを保存",
+  add_policy: "ポリシーを追加",
+  set_relation: "コンテキストの関係を決める",
+  set_term: "用語を決める",
+  exclude_candidate: "候補を外す・戻す",
+  remove_domain_part: "ドメインモデルから削除",
 };
 
 /** 道具がアプリのストアを通してモデルを読み書きする口 */
@@ -121,6 +137,14 @@ function modeSetup(mode: AgentMode): { key: string; system: string; tools: ToolD
       system: hearingSystemPrompt(mode.answerer),
       tools: HEARING_TOOLS,
       runTool: (name, input) => executeHearingTool(storeEditor, mode.actorId, name, input, { created: hearingCreated, answerer: mode.answerer }),
+    };
+  }
+  if (mode.kind === "domain") {
+    return {
+      key: `domain:${mode.systemId}`,
+      system: domainTalkSystemPrompt(),
+      tools: DOMAIN_TALK_TOOLS,
+      runTool: (name, input) => executeDomainTalkTool(storeEditor, mode.systemId, name, input),
     };
   }
   return { key: "edit", system: agentSystemPrompt(), tools: MODEL_TOOLS, runTool: (name, input) => executeToolAsync(storeEditor, name, input) };
@@ -207,6 +231,25 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       set({ mode: { kind: "edit" } });
       push("info", "ヒアリングを終えました。ここからは通常の会話です。");
     },
+    startDomainTalk: async (systemId) => {
+      if (get().running) return;
+      const st = useUntieStore.getState();
+      const system = st.model.elements.find((e) => e.id === systemId);
+      if (!system || system.kind !== "system") return;
+      resetSession();
+      set({ open: true, mode: { kind: "domain", systemId }, items: [] });
+      push("info", `「${system.name || "(名前なし)"}」のドメインモデルを、AI と決めていきます。AI の質問に答えると (「はい」で推奨を採ります)、境界づけられたコンテキスト・集約と不変条件・コマンドとイベントの名前を決めて保存します。分析は変えません (分析の誤りに気づいたら、課題として残します)。`);
+      await run(domainTalkOpening(st.model, systemId), false);
+      // 最初の発言が届かなかった (キーが無い・中断など) ら、通常に戻してやり直せるようにする
+      if (!session) set({ mode: { kind: "edit" } });
+    },
+    endDomainTalk: () => {
+      if (get().mode.kind !== "domain") return;
+      get().cancel();
+      resetSession();
+      set({ mode: { kind: "edit" } });
+      push("info", "ドメインモデルの対話を終えました。ここからは通常の会話です。");
+    },
     send: (text) => run(text, true),
   };
 
@@ -222,6 +265,11 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       const actor = useUntieStore.getState().model.elements.find((e) => e.id === mode.actorId);
       if (!actor) return [];
       return [{ role: "user", text: hearingOpening(useUntieStore.getState().model, actor, mode.answerer) }, ...turns];
+    }
+    if (mode.kind === "domain") {
+      const model = useUntieStore.getState().model;
+      if (!model.elements.some((e) => e.id === mode.systemId && e.kind === "system")) return [];
+      return [{ role: "user", text: domainTalkOpening(model, mode.systemId) }, ...turns];
     }
     if (mode.kind !== "grill") return [];
     const st = useUntieStore.getState();

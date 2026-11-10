@@ -24,6 +24,17 @@ vi.mock("../chat", async (importOriginal) => {
         fake.systems.push(o.system);
         fake.toolNames.push(o.tools.map((t) => t.name));
         if (/^エラー/.test(text)) throw new Error("API に接続できませんでした");
+        if (o.tools.some((t) => t.name === "get_domain")) {
+          // ドメインモデルの対話: 最初は質問を返し、「はい」が来たら集約とコンテキストを保存する
+          if (!/^はい/.test(text)) {
+            events?.onText?.("Q1 予約を 1 つの集約にしますか");
+            return "Q1 予約を 1 つの集約にしますか";
+          }
+          events?.onTool?.("save_aggregate", await o.runTool("save_aggregate", { root_information_id: "info_reservation", english: "Reservation" }));
+          events?.onTool?.("add_element", await o.runTool("add_element", { kind: "usecase", name: "勝手に足す操作" }));
+          events?.onText?.("保存しました");
+          return "保存しました";
+        }
         if (o.tools.some((t) => t.name === "add_issue")) {
           // ヒアリング: 最初は発話を返し、「はい」が来たら課題を登録する
           if (!/^はい/.test(text)) {
@@ -118,6 +129,40 @@ describe("AI エージェント", () => {
     await useAgentStore.getState().send("作業を足して");
     expect(fake.toolNames.slice(-1)[0]).toContain("add_element");
     expect(fake.systems.slice(-1)[0]).not.toContain("深掘り");
+  });
+
+  it("ドメインモデルの対話: システムを渡して質問をもらい、了承後の保存は 1 件の履歴になる。分析は変えられず、終えると通常の会話に戻る", async () => {
+    await useAgentStore.getState().startDomainTalk("sys_pms");
+    expect(useAgentStore.getState().mode).toEqual({ kind: "domain", systemId: "sys_pms" });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(fake.sent[0]).toContain("システム「宿泊管理システム」のドメインモデル");
+    expect(fake.systems[0]).toContain("ドメイン駆動設計");
+    expect(fake.toolNames[0]).toContain("get_domain");
+    expect(fake.toolNames[0]).not.toContain("add_element");
+    expect(useAgentStore.getState().items.map((i) => i.role)).toEqual(["info", "assistant"]);
+    expect(st().history.past).toHaveLength(0);
+
+    const elements = st().model.elements;
+    await useAgentStore.getState().send("はい");
+    expect(st().model.domain.aggregates.map((a) => [a.name, a.english])).toEqual([["予約", "Reservation"]]);
+    expect(st().model.domain.contexts).toHaveLength(1);
+    // 分析を変える道具は使えない (断られる)
+    expect(st().model.elements).toBe(elements);
+    expect(st().history.past).toHaveLength(1);
+    const items = useAgentStore.getState().items;
+    expect(items.slice(-3).map((i) => [i.role, i.text, i.ok])).toEqual([
+      ["tool", "集約を保存", true],
+      ["tool", "要素を追加", false],
+      ["assistant", "保存しました", undefined],
+    ]);
+    st().undo();
+    expect(st().model.domain.aggregates).toEqual([]);
+
+    useAgentStore.getState().endDomainTalk();
+    expect(useAgentStore.getState().mode).toEqual({ kind: "edit" });
+    // システムでない id では始めない
+    await useAgentStore.getState().startDomainTalk("info_reservation");
+    expect(useAgentStore.getState().mode).toEqual({ kind: "edit" });
   });
 
   it("深掘りの途中でエラーになったら、作り直す会話に課題の JSON とやり取りを引き継ぐ", async () => {
