@@ -1,0 +1,238 @@
+// 設計モードのドメインボード (5.7) の計算。分析から導いたドメインモデルの候補 (domainModel.ts) と気づき (domainNotices.ts) を、
+// 設計の対象のシステムにしぼる。モデルには保存せず、毎回組み立てる純粋関数だけを置く。
+//   コマンド・クエリ = 対象がそのシステムの操作 (直接か、そのシステムの画面を使う)
+//   イベント       = そのシステムの操作かシステム自身が発生させるもの (内) と、そのシステムの操作のきっかけになる別のところのもの (外)
+//   コンテキスト   = そのシステムの操作が扱う情報と、内のイベントが属するコンテキスト。集約はそのシステムの操作が扱う情報だけ
+//   用語           = 上に出る情報・状態・バリエーション (と値)・条件・イベント・操作の名前と説明
+// 段階 1b では保存するものは無く、しぼり込みは操作の対象から導く (境界づけられたコンテキストのシステムへの割り当ては将来)。
+import { deriveDomainModel, type AggregateCandidate, type CommandCandidate, type DomainDerivation, type DomainEventRow, type QueryCandidate } from "./domainModel";
+import { domainNotices, type DomainNotice } from "./domainNotices";
+import { informationPlaces } from "./placement";
+import type { Business, Condition, Context, Element, EventElement, Information, State, UntieModel, Variation } from "./types";
+
+/** ドメインボードで選んでいるもの (UI の状態。保存しない)。context の id が null は未分類 */
+export type DesignDomainSelection =
+  | { kind: "context"; id: string | null }
+  | { kind: "aggregate"; id: string }
+  | { kind: "event"; id: string }
+  | { kind: "command"; id: string };
+
+export interface ScopedAggregate {
+  candidate: AggregateCandidate;
+  /** このシステムの操作が書く (書かないなら、ほかのところが書く情報を読むだけ) */
+  writtenHere: boolean;
+  /** この情報を書くこのシステムのコマンド候補 (操作ごとに 1 つ) */
+  commandsHere: CommandCandidate[];
+  /** この情報を書くほかのシステム・帳票の操作 */
+  commandsElsewhere: CommandCandidate[];
+  /** 保存先 (システム・帳票) */
+  stores: Element[];
+}
+
+export interface ScopedEvent {
+  row: DomainEventRow;
+  /** 内: このシステムの操作かシステム自身が発生させる。外: 別のところで発生し、このシステムの操作のきっかけになる */
+  origin: "inside" | "outside";
+  /** 発生元の操作の対象 (システム・帳票。外のイベントの出どころを示す) */
+  sources: Element[];
+  /** 受け手のうち、このシステムの外の操作 (対象の名前つき) */
+  outsideConsumers: { usecase: CommandCandidate["usecase"]; place: Element | null }[];
+}
+
+export interface ScopedContext {
+  context: Context | null;
+  aggregates: ScopedAggregate[];
+  events: EventElement[];
+  stateGroups: string[];
+  businesses: Business[];
+}
+
+export type DomainTermKind = "information" | "state" | "variation" | "condition" | "event" | "usecase";
+
+export const DOMAIN_TERM_KINDS: readonly DomainTermKind[] = ["information", "state", "variation", "condition", "event", "usecase"];
+
+export interface DomainTerm {
+  element: Element;
+  kind: DomainTermKind;
+  /** 属するコンテキスト (操作は書く情報か読む情報のコンテキスト) */
+  context: Context | null;
+  description: string;
+  /** バリエーションの値 */
+  values: string[];
+  /** 同じ語が別のコンテキストに出ている (問い「同じ語が別のコンテキストに出ている」に入っている) */
+  homonym: boolean;
+}
+
+export interface DomainScope {
+  systemId: string;
+  /** 操作ごとに 1 つ (作業で分けた候補は先頭を代表にする)。分けた候補はすべて splitCommands に入る */
+  commands: CommandCandidate[];
+  /** 作業で分けた候補を含むすべて (表で使う) */
+  splitCommands: CommandCandidate[];
+  queries: QueryCandidate[];
+  events: ScopedEvent[];
+  contexts: ScopedContext[];
+  notices: DomainNotice[];
+  terms: DomainTerm[];
+}
+
+const EMPTY: Omit<DomainScope, "systemId"> = { commands: [], splitCommands: [], queries: [], events: [], contexts: [], notices: [], terms: [] };
+
+/** 設計の対象のシステムにしぼる。derivation と notices を渡せば使い回す */
+export function buildDomainScope(
+  model: UntieModel,
+  systemId: string,
+  derivation: DomainDerivation = deriveDomainModel(model),
+  notices: DomainNotice[] = domainNotices(model, derivation),
+): DomainScope {
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const system = byId.get(systemId);
+  if (!system || system.kind !== "system") return { systemId, ...EMPTY };
+  const position = new Map(model.elements.map((e, i) => [e.id, i]));
+  const order = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+
+  // コマンド・クエリ (対象がこのシステム)
+  const splitCommands = derivation.commands.filter((c) => c.place?.id === systemId);
+  const seenUsecase = new Set<string>();
+  const commands = splitCommands.filter((c) => (seenUsecase.has(c.usecase.id) ? false : (seenUsecase.add(c.usecase.id), true)));
+  const queries = derivation.queries.filter((q) => q.place?.id === systemId);
+  const scopeUsecaseIds = new Set([...commands.map((c) => c.usecase.id), ...queries.map((q) => q.usecase.id)]);
+
+  // 操作 id → 対象 (受け手・発生元の場所を示す)
+  const placeOfUsecase = new Map<string, Element | null>();
+  for (const c of derivation.commands) placeOfUsecase.set(c.usecase.id, c.place);
+  for (const q of derivation.queries) placeOfUsecase.set(q.usecase.id, q.place);
+
+  // イベント
+  const insideIds = new Set<string>();
+  for (const c of commands) for (const e of c.events) insideIds.add(e.id);
+  const outsideIds = new Set<string>();
+  for (const c of commands) for (const e of c.triggeredBy) if (!insideIds.has(e.id)) outsideIds.add(e.id);
+  const events: ScopedEvent[] = [];
+  for (const row of derivation.events) {
+    const direct = row.systems.some((s) => s.id === systemId);
+    const inside = direct || insideIds.has(row.event.id);
+    if (!inside && !outsideIds.has(row.event.id)) continue;
+    const sources = order(
+      [...new Map([...row.usecases.map((u) => placeOfUsecase.get(u.id)), ...row.systems].filter((p): p is Element => !!p).map((p) => [p.id, p])).values()],
+    );
+    events.push({
+      row,
+      origin: inside ? "inside" : "outside",
+      sources,
+      outsideConsumers: row.consumers.usecases.filter((u) => !scopeUsecaseIds.has(u.id)).map((usecase) => ({ usecase, place: placeOfUsecase.get(usecase.id) ?? null })),
+    });
+  }
+
+  // 集約 (このシステムの操作が扱う情報だけ)
+  const handled = new Set<string>();
+  for (const c of commands) for (const i of [...c.writes, ...c.reads]) handled.add(i.id);
+  for (const q of queries) for (const i of q.reads) handled.add(i.id);
+  // 読むだけで状態を変える操作の集約 (持ち主) も入れる
+  for (const c of commands) if (c.aggregate) handled.add(c.aggregate.id);
+  const places = informationPlaces(model);
+  const scopedAggregates = new Map<string, ScopedAggregate>();
+  for (const candidate of derivation.aggregates) {
+    if (!handled.has(candidate.information.id)) continue;
+    const here: CommandCandidate[] = [];
+    const elsewhere: CommandCandidate[] = [];
+    const seen = new Set<string>();
+    for (const c of candidate.commands) {
+      if (seen.has(c.usecase.id)) continue;
+      seen.add(c.usecase.id);
+      (c.place?.id === systemId ? here : elsewhere).push(c);
+    }
+    const stores = (places.get(candidate.information.id) ?? [])
+      .filter((d) => d.roles.includes("store"))
+      .map((d) => byId.get(d.id))
+      .filter((e): e is Element => !!e);
+    scopedAggregates.set(candidate.information.id, { candidate, writtenHere: here.length > 0, commandsHere: here, commandsElsewhere: elsewhere, stores: order(stores) });
+  }
+
+  // コンテキスト (分析のコンテキストの並び順。未分類は最後)
+  const insideEventIds = new Set(events.filter((e) => e.origin === "inside").map((e) => e.row.event.id));
+  const contexts: ScopedContext[] = [];
+  for (const c of derivation.contexts) {
+    const aggregates = c.aggregates.map((a) => scopedAggregates.get(a.information.id)).filter((a): a is ScopedAggregate => !!a);
+    const ctxEvents = c.events.filter((e) => insideEventIds.has(e.id));
+    if (aggregates.length === 0 && ctxEvents.length === 0) continue;
+    const groups = new Set(aggregates.flatMap((a) => a.candidate.stateGroups));
+    contexts.push({ context: c.context, aggregates, events: ctxEvents, stateGroups: c.stateGroups.filter((g) => groups.has(g)), businesses: c.businesses });
+  }
+
+  // 気づき (しぼった操作・情報・イベント・コンテキストのどれかが入っているもの)
+  const scopeIds = new Set<string>([...scopeUsecaseIds, ...scopedAggregates.keys(), ...events.map((e) => e.row.event.id), ...contexts.map((c) => c.context?.id).filter((id): id is string => !!id)]);
+  const scopedNotices = notices.filter((n) => n.elementIds.some((id) => scopeIds.has(id)));
+
+  return {
+    systemId,
+    commands,
+    splitCommands,
+    queries,
+    events,
+    contexts,
+    notices: scopedNotices,
+    terms: buildTerms(model, byId, order, { commands, queries, events, contexts, notices: scopedNotices }),
+  };
+}
+
+/** 用語: しぼった範囲に出る要素の名前と説明。コンテキストの並び順 → 種類の順 → 要素の並び順 */
+function buildTerms(
+  model: UntieModel,
+  byId: Map<string, Element>,
+  order: <T extends { id: string }>(xs: T[]) => T[],
+  scope: Pick<DomainScope, "commands" | "queries" | "events" | "contexts" | "notices">,
+): DomainTerm[] {
+  const contextOf = (id: string | null | undefined): Context | null => {
+    const c = id ? byId.get(id) : undefined;
+    return c && c.kind === "context" ? c : null;
+  };
+  const homonymIds = new Set(scope.notices.filter((n) => n.type === "homonym").flatMap((n) => n.elementIds));
+  const terms = new Map<string, DomainTerm>();
+  const add = (element: Element, kind: DomainTermKind, context: Context | null, values: string[] = []) => {
+    if (terms.has(element.id)) return;
+    terms.set(element.id, { element, kind, context, description: element.description ?? "", values, homonym: homonymIds.has(element.id) });
+  };
+  const infos: Information[] = scope.contexts.flatMap((c) => c.aggregates.map((a) => a.candidate.information));
+  for (const i of infos) add(i, "information", contextOf(i.contextId));
+  const states: State[] = [
+    ...scope.contexts.flatMap((c) => c.aggregates.flatMap((a) => a.candidate.states)),
+    ...scope.commands.flatMap((c) => [...c.preStates, ...c.postStates]),
+  ];
+  for (const s of order(states)) add(s, "state", contextOf(s.contextId));
+  // バリエーション: 情報の種別と、条件が参照する種別
+  const infoIds = new Set(infos.map((i) => i.id));
+  const conditions: Condition[] = order(scope.commands.flatMap((c) => c.conditions));
+  const conditionIds = new Set(conditions.map((c) => c.id));
+  const variations: Variation[] = [];
+  for (const r of model.relations) {
+    if ((r.kind === "informationVariation" && infoIds.has(r.sourceId)) || (r.kind === "conditionVariation" && conditionIds.has(r.sourceId))) {
+      const v = byId.get(r.targetId);
+      if (v && v.kind === "variation") variations.push(v);
+    }
+  }
+  for (const v of order(variations)) add(v, "variation", contextOf(v.contextId), v.values);
+  for (const c of conditions) add(c, "condition", contextOf(c.contextId));
+  for (const e of scope.events) add(e.row.event, "event", e.row.context);
+  for (const c of scope.commands) add(c.usecase, "usecase", contextOf((c.aggregate ?? c.writes[0] ?? c.reads[0])?.contextId));
+  for (const q of scope.queries) add(q.usecase, "usecase", contextOf(q.reads[0]?.contextId));
+  const contextRank = new Map<string | null, number>(scope.contexts.map((c, i) => [c.context?.id ?? null, i]));
+  const rank = (t: DomainTerm) => contextRank.get(t.context?.id ?? null) ?? contextRank.size;
+  const position = new Map(model.elements.map((e, i) => [e.id, i]));
+  return [...terms.values()].sort(
+    (a, b) => rank(a) - rank(b) || DOMAIN_TERM_KINDS.indexOf(a.kind) - DOMAIN_TERM_KINDS.indexOf(b.kind) || (position.get(a.element.id) ?? 0) - (position.get(b.element.id) ?? 0),
+  );
+}
+
+/** 選んでいるものが、しぼった範囲にあるか */
+export function domainSelectionExists(scope: DomainScope, sel: DesignDomainSelection): boolean {
+  if (sel.kind === "context") return scope.contexts.some((c) => (c.context?.id ?? null) === sel.id);
+  if (sel.kind === "aggregate") return scope.contexts.some((c) => c.aggregates.some((a) => a.candidate.information.id === sel.id));
+  if (sel.kind === "event") return scope.events.some((e) => e.row.event.id === sel.id);
+  return scope.commands.some((c) => c.usecase.id === sel.id);
+}
+
+/** 気づきのうち、この要素 (操作・情報・イベント・コンテキスト) が入っているもの */
+export function noticesAbout(scope: DomainScope, elementId: string): DomainNotice[] {
+  return scope.notices.filter((n) => n.elementIds.includes(elementId));
+}

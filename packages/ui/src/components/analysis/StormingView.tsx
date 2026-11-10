@@ -1,12 +1,12 @@
 // 分析ボード「イベントストーミング」: 分析からドメインモデル (DDD) の候補を導いて見せる。モデルには保存しない (段階 1a: 読むだけ)
 import { useMemo } from "react";
-import { AGGREGATE_ROLE_LABELS, deriveDomainModel, type AggregateCandidate, type CommandCandidate, type DomainDerivation } from "@untie/core/model/domainModel";
+import { cachedDomainModel } from "@untie/core/model/domainCache";
+import { AGGREGATE_ROLE_LABELS, type AggregateCandidate, type CommandCandidate, type DomainDerivation, type DomainEventRow } from "@untie/core/model/domainModel";
 import {
   DOMAIN_NOTICE_HINTS,
   DOMAIN_NOTICE_LEVEL_LABELS,
   DOMAIN_NOTICE_LEVELS,
   DOMAIN_NOTICE_TITLES,
-  domainNotices,
   groupDomainNotices,
   type DomainNotice,
   type DomainNoticeType,
@@ -15,14 +15,13 @@ import { describeEventTiming, type Element, type UntieModel } from "@untie/core/
 import { El } from "./analysisParts";
 
 export function StormingView({ model }: { model: UntieModel }) {
-  const derivation = useMemo(() => deriveDomainModel(model), [model]);
-  const notices = useMemo(() => domainNotices(model, derivation), [model, derivation]);
+  const { derivation, notices } = cachedDomainModel(model);
   const byId = useMemo(() => new Map(model.elements.map((e) => [e.id, e])), [model]);
   const get = (id: string) => byId.get(id);
   return (
     <div className="an-scroll an-storming">
       <NoticeList notices={notices} get={get} />
-      <StormingTable derivation={derivation} notices={notices} />
+      <StormingTable commands={derivation.commands} events={derivation.events} notices={notices} />
       <AggregateTable derivation={derivation} />
       <PolicyTable derivation={derivation} />
       <QueryTable derivation={derivation} />
@@ -32,7 +31,8 @@ export function StormingView({ model }: { model: UntieModel }) {
 
 // ---------------------------------------------------------------- 気づき
 
-function NoticeList({ notices, get }: { notices: DomainNotice[]; get: (id: string) => Element | undefined }) {
+/** 気づきの一覧 (種類ごとに畳む。問いは開いて出す)。設計モードのドメインボードの右のペインでも使う */
+export function NoticeList({ notices, get }: { notices: DomainNotice[]; get: (id: string) => Element | undefined }) {
   const groups = useMemo(() => groupDomainNotices(notices), [notices]);
   const questions = notices.filter((n) => n.level === "question").length;
   return (
@@ -110,7 +110,8 @@ function Actors({ c }: { c: CommandCandidate }) {
   );
 }
 
-function StormingTable({ derivation, notices }: { derivation: DomainDerivation; notices: DomainNotice[] }) {
+/** 担い手 | コマンド | 集約 | イベント | 備考 の表。設計モードのドメインボードは、対象のシステムにしぼった候補を渡す */
+export function StormingTable({ commands, events, notices }: { commands: CommandCandidate[]; events: DomainEventRow[]; notices: DomainNotice[] }) {
   // コマンド候補のキー → 気づきの種類 (行ごとに一覧を回さない)
   const notesByKey = useMemo(() => {
     const map = new Map<string, DomainNoticeType[]>();
@@ -124,14 +125,14 @@ function StormingTable({ derivation, notices }: { derivation: DomainDerivation; 
   }, [notices]);
   const notesOf = (key: string) => notesByKey.get(key) ?? [];
   // 操作から出ないイベント (システムが直接出す・時間のイベント) は、コマンド無しの行にする
-  const systemRows = derivation.events.filter((e) => e.usecases.length === 0 && (e.systems.length > 0 || e.timed));
+  const systemRows = events.filter((e) => e.usecases.length === 0 && (e.systems.length > 0 || e.timed));
   return (
     <section aria-label="イベントストーミングの表">
       <h3 className="an-subtitle">
         イベントストーミングの表
-        <span className="an-count">コマンド候補 {derivation.commands.length} 件・イベント {derivation.events.length} 件</span>
+        <span className="an-count">コマンド候補 {commands.length} 件・イベント {events.length} 件</span>
       </h3>
-      {derivation.commands.length === 0 && systemRows.length === 0 ? (
+      {commands.length === 0 && systemRows.length === 0 ? (
         <p className="hint">情報を書く操作がまだありません。操作に扱う情報 (保存) を結ぶと、コマンドの候補が出ます。</p>
       ) : (
         <table className="an-table an-storming-table">
@@ -145,7 +146,7 @@ function StormingTable({ derivation, notices }: { derivation: DomainDerivation; 
             </tr>
           </thead>
           <tbody>
-            {derivation.commands.map((c) => (
+            {commands.map((c) => (
               <tr key={c.key} data-testid={`storming-${c.key}`}>
                 <td>
                   <Actors c={c} />

@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import type { DesignBoardKind } from "@untie/core/model/design";
+import { DomainBoard } from "./DomainBoard";
 import { DslEditor } from "./DslEditor";
 import { RelationCanvas } from "./RelationCanvas";
 import { SitemapCanvas } from "./SitemapCanvas";
@@ -9,11 +10,12 @@ const NavigationBoard = lazy(() => import("./NavigationBoard").then((m) => ({ de
 const ScreenBoard = lazy(() => import("./ScreenBoard").then((m) => ({ default: m.ScreenBoard })));
 
 /**
- * 設計ボード。サイトマップは SitemapCanvas。レイアウトは NavigationBoard。画面は ScreenBoard。関連は RelationCanvas。データは DslEditor
+ * 設計ボード。サイトマップは SitemapCanvas。レイアウトは NavigationBoard。画面は ScreenBoard。関連は RelationCanvas。ドメインは DomainBoard。データは DslEditor
  */
 export function DesignBoard({ kind }: { kind: DesignBoardKind }) {
   if (kind === "sitemap") return <SitemapCanvas />;
   if (kind === "relation") return <RelationCanvas />;
+  if (kind === "domain") return <DomainBoard />;
   if (kind === "navigation") {
     return (
       <Suspense fallback={<p className="hint layout-loading">プレビューを読み込んでいます…</p>}>

@@ -23,3 +23,5 @@ export * from "./designView";
 export * from "./designRelation";
 export * from "./domainModel";
 export * from "./domainNotices";
+export * from "./domainScope";
+export * from "./domainCache";

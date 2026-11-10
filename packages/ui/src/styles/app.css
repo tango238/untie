@@ -498,7 +498,7 @@ textarea { resize: vertical; width: 100%; }
 .an-notice-hint { margin: 4px 0 6px; }
 .an-notice-items li { flex-direction: column; align-items: flex-start; gap: 2px; padding: 3px 0; border-top: 1px dashed var(--border); }
 .an-notice-message { font-size: 12px; }
-.an-note { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 8px; margin: 1px; background: #eef1f5; color: #4a5568; }
+.an-note { display: inline-block; flex: none; white-space: nowrap; font-size: 10px; padding: 0 6px; border-radius: 8px; margin: 1px; background: #eef1f5; color: #4a5568; }
 .an-note.level-question { background: #e3eef8; color: #2d5d8a; }
 .an-role.role-auto { background: #e6f0e4; color: #2f5d2a; }
 .an-role.role-human { background: #ece6f5; color: #5a4685; }
@@ -732,6 +732,34 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 
 /* 設計モードの関連ボード */
 .relation-canvas { position: absolute; inset: 0; background: #efece6; }
+/* 設計モード: ドメインボード (分析から導いたドメインモデルの候補。読み取り専用) */
+.domain-board { position: absolute; inset: 0; display: flex; flex-direction: column; background: #efece6; overflow: hidden; }
+.domain-toolbar { padding: 8px 12px 0; }
+.domain-hint { margin: 4px 12px 6px; }
+.domain-empty { margin: 24px 12px; }
+.domain-canvas { position: relative; flex: 1; min-height: 0; }
+.domain-canvas .react-flow__handle { opacity: 0; pointer-events: none; }
+.domain-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 12px; }
+.domain-node { box-sizing: border-box; width: 100%; height: 100%; padding: 5px 8px; background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; justify-content: center; gap: 2px; transition: opacity 0.15s; }
+.domain-node[role="button"] { cursor: pointer; }
+.domain-node:focus-visible { outline: 2px solid var(--selected); outline-offset: 2px; }
+.domain-node.is-selected { border-color: var(--selected); box-shadow: 0 0 0 2px var(--selected); }
+.domain-node.is-dim { opacity: 0.3; }
+.domain-node.is-command { border-left-color: #4a7fb5; background: #f3f8fd; }
+.domain-node.is-query { border-left-color: #8aa0b8; background: #f7f9fb; border-style: dashed; }
+.domain-node.is-aggregate { border-left-color: #c9962b; background: #fdf8ec; }
+.domain-node.is-event { border-left-color: #d0703a; background: #fdf3ec; }
+.domain-node.is-trigger { border-left-color: #d0703a; background: #fff; border-style: dashed; }
+.domain-node.is-consumer, .domain-node.is-activity { border-left-color: #6a8f5f; background: #f5f9f3; }
+.domain-node-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.domain-node-name { flex: 1; min-width: 0; font-weight: 600; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.domain-node-sub { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 10px; color: var(--muted); }
+.domain-node-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.domain-node-badge { flex: none; padding: 0 5px; border-radius: 8px; background: #eeeae2; color: #5b564c; }
+.relation-badge.is-question { background: #e3eef8; color: #2d5d8a; }
+.domain-left-pane .is-nested { padding-left: 14px; }
+.domain-left-pane .domain-context-group { margin-bottom: 4px; }
+.domain-terms th .an-note { margin-left: 4px; }
 .relation-canvas .react-flow__handle { opacity: 0; pointer-events: none; }
 .relation-node { box-sizing: border-box; background: #fff; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
 .relation-node:focus-visible { outline: 2px solid var(--selected); outline-offset: 2px; }

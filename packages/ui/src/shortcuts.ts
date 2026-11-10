@@ -49,7 +49,7 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
 
 export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
 
-export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", screen: "g", data: "t", relation: "r" };
+export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", screen: "g", data: "t", relation: "r", domain: "m" };
 
 export interface ShortcutEntry {
   /** 押すキー (Cmd+B のあと)。大文字で表示する */
