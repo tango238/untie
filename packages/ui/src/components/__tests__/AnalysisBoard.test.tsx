@@ -128,6 +128,12 @@ describe("イベントストーミング", () => {
     expect(within(alloc).getByRole("button", { name: "注文が確定した" })).toBeDefined();
     expect(within(alloc).getByText("条件を満たさないときの結果が無い")).toBeDefined();
     expect(within(table).getByTestId("storming-usecase:uc_update_stock/activity:act_restock")).toBeDefined();
+    // 読むだけでも状態を変える・イベントを出す操作は表に行があり、「取得だけ」の印と備考 (境界の問い) が付く。読み取りモデルには並ばない
+    const payment = within(table).getByTestId("storming-usecase:uc_record_payment");
+    expect(within(payment).getByText("取得だけ")).toBeDefined();
+    expect(within(payment).getByRole("button", { name: "入金が確認された" })).toBeDefined();
+    expect(within(payment).getByText("別のシステムの操作が状態を変えている")).toBeDefined();
+    expect(within(screen.getByRole("region", { name: "読み取りモデルの候補" })).queryByTestId("query-uc_record_payment")).toBeNull();
     // 操作から出ないイベントはコマンド無しの行
     const closed = within(table).getByTestId("storming-event-ev_month_closed");
     expect(within(closed).getByRole("button", { name: "会計システム" })).toBeDefined();

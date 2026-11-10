@@ -4,10 +4,12 @@ import { AGGREGATE_ROLE_LABELS, deriveDomainModel, type AggregateCandidate, type
 import {
   DOMAIN_NOTICE_HINTS,
   DOMAIN_NOTICE_LEVEL_LABELS,
+  DOMAIN_NOTICE_LEVELS,
   DOMAIN_NOTICE_TITLES,
   domainNotices,
   groupDomainNotices,
   type DomainNotice,
+  type DomainNoticeType,
 } from "@untie/core/model/domainNotices";
 import { describeEventTiming, type Element, type UntieModel } from "@untie/core/model/types";
 import { El } from "./analysisParts";
@@ -52,13 +54,9 @@ function NoticeList({ notices, get }: { notices: DomainNotice[]; get: (id: strin
             <p className="hint an-notice-hint">{DOMAIN_NOTICE_HINTS[g.type]}</p>
             <ul className="an-sublist an-notice-items">
               {g.notices.map((n, i) => (
-                <li key={i}>
+                <li key={`${n.elementIds[0] ?? ""}-${i}`}>
                   <span className="an-notice-message">{n.message}</span>
-                  <span className="an-list">
-                    {n.elementIds.map((id) => (
-                      <El key={id} element={get(id)} />
-                    ))}
-                  </span>
+                  <NoticeElements notice={n} get={get} />
                 </li>
               ))}
             </ul>
@@ -66,6 +64,21 @@ function NoticeList({ notices, get }: { notices: DomainNotice[]; get: (id: strin
         ))
       )}
     </section>
+  );
+}
+
+/** 気づきの要素のボタン。主役 (先頭) と、メッセージに名前が出ていない要素だけを出し、多ければ畳む */
+const MAX_NOTICE_ELEMENTS = 6;
+function NoticeElements({ notice, get }: { notice: DomainNotice; get: (id: string) => Element | undefined }) {
+  const elements = notice.elementIds.map((id, i) => ({ id, element: get(id), i })).filter(({ element, i }) => element && (i === 0 || !notice.message.includes(element.name)));
+  const shown = elements.slice(0, MAX_NOTICE_ELEMENTS);
+  return (
+    <span className="an-list">
+      {shown.map(({ id, element }) => (
+        <El key={id} element={element} />
+      ))}
+      {elements.length > shown.length && <span className="an-sub">ほか {elements.length - shown.length} 件</span>}
+    </span>
   );
 }
 
@@ -87,7 +100,7 @@ function Actors({ c }: { c: CommandCandidate }) {
       </span>
     );
   }
-  if (c.actors.length === 0) return <span className="an-sub">(担当なし)</span>;
+  if (c.actors.length === 0) return <span className="an-sub">{c.activities.length === 0 ? "(作業なし)" : "(担当なし)"}</span>;
   return (
     <span className="an-list">
       {c.actors.map((a) => (
@@ -98,7 +111,18 @@ function Actors({ c }: { c: CommandCandidate }) {
 }
 
 function StormingTable({ derivation, notices }: { derivation: DomainDerivation; notices: DomainNotice[] }) {
-  const notesOf = (key: string) => [...new Set(notices.filter((n) => n.commandKey === key).map((n) => n.type))];
+  // コマンド候補のキー → 気づきの種類 (行ごとに一覧を回さない)
+  const notesByKey = useMemo(() => {
+    const map = new Map<string, DomainNoticeType[]>();
+    for (const n of notices) {
+      if (!n.commandKey) continue;
+      const list = map.get(n.commandKey) ?? [];
+      if (!list.includes(n.type)) list.push(n.type);
+      map.set(n.commandKey, list);
+    }
+    return map;
+  }, [notices]);
+  const notesOf = (key: string) => notesByKey.get(key) ?? [];
   // 操作から出ないイベント (システムが直接出す・時間のイベント) は、コマンド無しの行にする
   const systemRows = derivation.events.filter((e) => e.usecases.length === 0 && (e.systems.length > 0 || e.timed));
   return (
@@ -113,7 +137,7 @@ function StormingTable({ derivation, notices }: { derivation: DomainDerivation; 
         <table className="an-table an-storming-table">
           <thead>
             <tr>
-              <th>Actor</th>
+              <th>担い手 (Actor)</th>
               <th>コマンド (候補)</th>
               <th>集約 (候補)</th>
               <th>イベント</th>
@@ -128,6 +152,7 @@ function StormingTable({ derivation, notices }: { derivation: DomainDerivation; 
                 </td>
                 <td>
                   <El element={c.usecase} />
+                  {c.readOnly && <span className="an-role role-readonly">取得だけ</span>}
                   {c.activity && (
                     <span className="an-sub">
                       作業: <El element={c.activity} plain />
@@ -158,7 +183,7 @@ function StormingTable({ derivation, notices }: { derivation: DomainDerivation; 
                 <td>
                   <span className="an-list">
                     {notesOf(c.key).map((t) => (
-                      <span key={t} className="an-note level-question" title={DOMAIN_NOTICE_HINTS[t]}>
+                      <span key={t} className={`an-note level-${DOMAIN_NOTICE_LEVELS[t]}`} title={DOMAIN_NOTICE_HINTS[t]}>
                         {DOMAIN_NOTICE_TITLES[t]}
                       </span>
                     ))}
@@ -211,9 +236,9 @@ function AggregateRow({ a }: { a: AggregateCandidate }) {
         <span className={`an-role role-agg-${a.role}`}>{AGGREGATE_ROLE_LABELS[a.role]}</span>
       </td>
       <td>
-        {a.stateGroup ? (
+        {a.stateGroups.length > 0 ? (
           <>
-            {a.stateGroup}
+            {a.stateGroups.join("・")}
             <span className="an-sub">{a.states.map((s) => s.name).join(" → ")}</span>
           </>
         ) : (
@@ -346,7 +371,7 @@ function PolicyTable({ derivation }: { derivation: DomainDerivation }) {
                     <span className="an-role role-auto">自動</span>
                   ) : (
                     <span className="an-list">
-                      <span className="an-role role-usecase">人</span>
+                      <span className="an-role role-human">人</span>
                       {p.activities.map((a) => (
                         <El key={a.id} element={a} plain />
                       ))}

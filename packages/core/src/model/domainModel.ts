@@ -1,12 +1,14 @@
 // 分析からドメインモデル (DDD) の候補を導く。モデルには保存せず、毎回モデルから組み立てる純粋関数だけを置く。
 // 分析 (RDRA) の要素は変えず、「導けるものは導き、決めるのは人」の線で候補と根拠を出す。
-//   コマンド候補  = 情報を書く (access が write か省略) 操作。複数の作業が使う操作は (作業 × 操作) の組ごとに分ける (意図が違いうる)
-//   クエリ候補    = 扱う情報がすべて read の操作と、その画面 (読み取りモデルの表示先)
+//   コマンド候補  = 情報を書く (access が write か省略) か、イベントを発生させるか、次の状態へ遷移させる操作。
+//                   複数の作業が使う操作は (作業 × 操作) の組ごとに分ける (意図が違いうる)
+//   クエリ候補    = 情報を読むだけで、イベントも状態の遷移も持たない操作と、その画面 (読み取りモデルの表示先)
 //   ドメインイベント = 分析のイベント。発生元 (操作・システム・時間)、属性候補 (発生元が書く情報)、受け手
 //   ポリシー候補  = イベント → 操作 (eventUsecase)。起こされる操作が作業に属さなければ自動
 //   集約候補      = 状態グループの持ち主の情報 (ルート候補)、書かれる情報 (1 情報 1 集約の仮置き)、書かれない情報 (参照データ)
-//   コンテキスト候補 = 分析のコンテキストごとの所属要素と、関わる業務・担当
+//   コンテキスト候補 = 分析のコンテキストごとの所属要素と、関わる業務
 // 気づき (問い・情報) は domainNotices.ts で、ここの結果から組み立てる。
+// 要素 数千・関係 数万でも使えるよう、関係は種類ごとの索引を 1 回作って引く (O(要素 + 関係))。
 import { accessRoles, usecasePlaces } from "./placement";
 import type {
   Activity,
@@ -38,12 +40,14 @@ export interface CommandCandidate {
   usecase: Usecase;
   /** 作業ごとに分けたときの作業。分けていなければ null */
   activity: Activity | null;
-  /** この操作を使う作業 (分けたときはその 1 つ)。作業に属さない自動の処理なら空 */
+  /** この操作を使う作業 (分けたときはその 1 つ)。作業に属さなければ空 */
   activities: Activity[];
-  /** 実行する人 (作業の担当。アクター・外部アクター)。自動の処理なら空 */
+  /** 実行する人 (作業の担当。アクター・外部アクター)。作業に属さなければ空 */
   actors: Element[];
-  /** 作業に属さず、イベントをきっかけに動く自動の処理 */
+  /** 作業に属さず、イベントをきっかけに動く自動の処理 (作業にもきっかけにも結んでいない書きかけの操作は自動にしない) */
   auto: boolean;
+  /** 情報を書かない (読むだけでイベントを発生させる、または状態を変える) */
+  readOnly: boolean;
   /** 書く情報 (access が write か省略) */
   writes: Information[];
   /** 読む情報 (access が read か省略) */
@@ -60,19 +64,17 @@ export interface CommandCandidate {
   triggeredBy: EventElement[];
   /** 対象 (システム・帳票。画面ならその画面のシステム) */
   place: Element | null;
-  /** 集約の候補 (書く情報のうち、状態グループの持ち主を優先。無ければ最初に書く情報) */
+  /** 集約の候補 (書く情報のうち、状態グループの持ち主を優先。書かない操作なら、変える状態グループの持ち主。無ければ最初に書く情報) */
   aggregate: Information | null;
 }
 
+/** 読むだけで、イベントも状態の遷移も持たない操作 (純粋な問い合わせ) */
 export interface QueryCandidate {
   usecase: Usecase;
   reads: Information[];
   screen: Screen | null;
   activities: Activity[];
-  /** 読むだけなのに発生させるイベント (純粋な問い合わせではない) */
-  events: EventElement[];
-  /** 読むだけなのに遷移させる状態 */
-  postStates: State[];
+  place: Element | null;
 }
 
 export interface DomainEventRow {
@@ -115,8 +117,9 @@ export interface AggregateCandidate {
   information: Information;
   role: AggregateRole;
   context: Context | null;
-  /** 持ち主になっている状態グループ (lifecycle のとき) */
-  stateGroup: string | null;
+  /** 持ち主になっている状態グループ (lifecycle のとき。ふつう 1 つ) */
+  stateGroups: string[];
+  /** 持ち主になっている状態グループの状態 (グループの順) */
   states: State[];
   /** 書くコマンド候補 */
   commands: CommandCandidate[];
@@ -129,7 +132,7 @@ export interface AggregateCandidate {
 export interface StateGroupOwner {
   group: string;
   states: State[];
-  /** 持ち主の情報 (遷移させる操作が最も多く書く情報。決まらなければ null) */
+  /** 持ち主の情報 (次の状態へ遷移させる操作が最も多く書く情報。決まらなければ null) */
   owner: Information | null;
   /** 候補 (書かれる回数の多い順) */
   candidates: { information: Information; count: number }[];
@@ -161,22 +164,49 @@ export interface DomainDerivation {
   contexts: ContextCandidate[];
 }
 
-// ---------------------------------------------------------------- 共通
+// ---------------------------------------------------------------- 索引
 
 type Lookup = <T extends Element = Element>(id: string) => T | undefined;
 
-function lookup(model: UntieModel): Lookup {
-  const byId = new Map(model.elements.map((e) => [e.id, e]));
-  return <T extends Element = Element>(id: string) => byId.get(id) as T | undefined;
+interface Index {
+  get: Lookup;
+  /** 要素の並び順で並べ替える */
+  order: <T extends Element>(xs: T[]) => T[];
+  targets: (kind: Relation["kind"], sourceId: string) => Relation[];
+  sources: (kind: Relation["kind"], targetId: string) => Relation[];
+  /** 種類 K の要素 */
+  ofKind: <K extends Element["kind"]>(kind: K) => Extract<Element, { kind: K }>[];
 }
 
-function byKind<K extends Element["kind"]>(model: UntieModel, kind: K): Extract<Element, { kind: K }>[] {
-  return model.elements.filter((e): e is Extract<Element, { kind: K }> => e.kind === kind);
-}
-
-function orderOf(model: UntieModel) {
-  const order = new Map(model.elements.map((e, i) => [e.id, i]));
-  return <T extends Element>(xs: T[]): T[] => [...xs].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+function buildIndex(model: UntieModel): Index {
+  const byId = new Map<string, Element>();
+  const position = new Map<string, number>();
+  const kinds = new Map<Element["kind"], Element[]>();
+  model.elements.forEach((e, i) => {
+    byId.set(e.id, e);
+    position.set(e.id, i);
+    const list = kinds.get(e.kind);
+    if (list) list.push(e);
+    else kinds.set(e.kind, [e]);
+  });
+  const bySource = new Map<string, Relation[]>();
+  const byTarget = new Map<string, Relation[]>();
+  const add = (map: Map<string, Relation[]>, key: string, r: Relation) => {
+    const list = map.get(key);
+    if (list) list.push(r);
+    else map.set(key, [r]);
+  };
+  for (const r of model.relations) {
+    add(bySource, `${r.kind}:${r.sourceId}`, r);
+    add(byTarget, `${r.kind}:${r.targetId}`, r);
+  }
+  return {
+    get: <T extends Element = Element>(id: string) => byId.get(id) as T | undefined,
+    order: <T extends Element>(xs: T[]) => [...xs].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
+    targets: (kind, sourceId) => bySource.get(`${kind}:${sourceId}`) ?? [],
+    sources: (kind, targetId) => byTarget.get(`${kind}:${targetId}`) ?? [],
+    ofKind: <K extends Element["kind"]>(kind: K) => (kinds.get(kind) ?? []) as Extract<Element, { kind: K }>[],
+  };
 }
 
 function uniq<T extends { id: string }>(xs: T[]): T[] {
@@ -184,57 +214,46 @@ function uniq<T extends { id: string }>(xs: T[]): T[] {
   return xs.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
 }
 
-/** 関係を種類ごとに引く索引 */
-function index(model: UntieModel) {
-  const bySource = new Map<string, Relation[]>();
-  const byTarget = new Map<string, Relation[]>();
-  for (const r of model.relations) {
-    bySource.set(`${r.kind}:${r.sourceId}`, [...(bySource.get(`${r.kind}:${r.sourceId}`) ?? []), r]);
-    byTarget.set(`${r.kind}:${r.targetId}`, [...(byTarget.get(`${r.kind}:${r.targetId}`) ?? []), r]);
-  }
-  return {
-    targets: (kind: Relation["kind"], sourceId: string) => bySource.get(`${kind}:${sourceId}`) ?? [],
-    sources: (kind: Relation["kind"], targetId: string) => byTarget.get(`${kind}:${targetId}`) ?? [],
-  };
+/** 関係の相手を、種類で絞って並び順で返す (存在しない id・別の種類は捨てる。同じ相手が 2 本あっても 1 つ) */
+function related<K extends Element["kind"]>(ix: Index, rels: Relation[], side: "source" | "target", kind: K): Extract<Element, { kind: K }>[] {
+  type T = Extract<Element, { kind: K }>;
+  return ix.order(uniq(rels.map((r) => ix.get<T>(side === "source" ? r.sourceId : r.targetId)).filter((e): e is T => !!e && e.kind === kind)));
 }
 
-/** 操作が扱う情報を、書く (write か省略) と読む (read か省略) に分ける */
-function informationAccess(get: Lookup, rels: ReturnType<typeof index>, usecaseId: string) {
+/** 操作が扱う情報を、書く (write か省略) と読む (read か省略) に分ける (同じ情報が複数の関係で結ばれていても 1 つ) */
+function informationAccess(ix: Index, usecaseId: string): { writes: Information[]; reads: Information[] } {
   const writes: Information[] = [];
   const reads: Information[] = [];
-  for (const r of rels.targets("usecaseInformation", usecaseId)) {
-    const info = get<Information>(r.targetId);
+  for (const r of ix.targets("usecaseInformation", usecaseId)) {
+    const info = ix.get<Information>(r.targetId);
     if (!info || info.kind !== "information") continue;
     const roles = accessRoles(r.access);
     if (roles.includes("store")) writes.push(info);
     if (roles.includes("source")) reads.push(info);
   }
-  return { writes, reads };
+  return { writes: ix.order(uniq(writes)), reads: ix.order(uniq(reads)) };
 }
 
 // ---------------------------------------------------------------- 導出
 
-/** 状態グループごとに、遷移させる操作と持ち主の候補を集める */
-export function stateGroupOwners(model: UntieModel): StateGroupOwner[] {
-  const get = lookup(model);
-  const rels = index(model);
-  const order = orderOf(model);
+function stateGroupOwnersWith(ix: Index): StateGroupOwner[] {
   const groups = new Map<string, State[]>();
-  for (const s of byKind(model, "state")) {
+  for (const s of ix.ofKind("state")) {
     if (!s.group) continue;
-    groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
+    const list = groups.get(s.group);
+    if (list) list.push(s);
+    else groups.set(s.group, [s]);
   }
   const result: StateGroupOwner[] = [];
   for (const [group, states] of groups) {
     // 持ち主は「次の状態」(usecaseState) へ遷移させる操作が書く情報で決める。「実行できる状態」(stateUsecase) は前提なので数えない
-    const usecaseIds = new Set<string>();
-    for (const s of states) for (const r of rels.sources("usecaseState", s.id)) usecaseIds.add(r.sourceId);
-    const usecases = order([...usecaseIds].map((id) => get<Usecase>(id)).filter((u): u is Usecase => !!u && u.kind === "usecase"));
+    const usecases = related(ix, states.flatMap((s) => ix.sources("usecaseState", s.id)), "source", "usecase");
     const counts = new Map<string, { information: Information; count: number }>();
     for (const u of usecases) {
-      for (const info of informationAccess(get, rels, u.id).writes) {
-        const cur = counts.get(info.id) ?? { information: info, count: 0 };
-        counts.set(info.id, { information: info, count: cur.count + 1 });
+      for (const info of informationAccess(ix, u.id).writes) {
+        const cur = counts.get(info.id);
+        if (cur) cur.count += 1;
+        else counts.set(info.id, { information: info, count: 1 });
       }
     }
     const candidates = [...counts.values()].sort((a, b) => b.count - a.count);
@@ -244,73 +263,74 @@ export function stateGroupOwners(model: UntieModel): StateGroupOwner[] {
   return result;
 }
 
+/** 状態グループごとに、遷移させる操作と持ち主の候補を集める */
+export function stateGroupOwners(model: UntieModel): StateGroupOwner[] {
+  return stateGroupOwnersWith(buildIndex(model));
+}
+
 /** 分析からドメインモデルの候補を導く */
 export function deriveDomainModel(model: UntieModel): DomainDerivation {
-  const get = lookup(model);
-  const rels = index(model);
-  const order = orderOf(model);
+  const ix = buildIndex(model);
   const places = usecasePlaces(model);
-  const stateGroups = stateGroupOwners(model);
-  const ownerOf = new Map<string, string>(); // 情報 id → 持ち主になっている状態グループ
-  for (const g of stateGroups) if (g.owner && !ownerOf.has(g.owner.id)) ownerOf.set(g.owner.id, g.group);
+  const stateGroups = stateGroupOwnersWith(ix);
+  const ownerOf = new Map<string, string[]>(); // 情報 id → 持ち主になっている状態グループ
+  for (const g of stateGroups) {
+    if (!g.owner) continue;
+    const list = ownerOf.get(g.owner.id);
+    if (list) list.push(g.group);
+    else ownerOf.set(g.owner.id, [g.group]);
+  }
+  const ownerByGroup = new Map(stateGroups.map((g) => [g.group, g]));
 
-  const activitiesOf = (usecaseId: string): Activity[] =>
-    order(rels.sources("activityUsecase", usecaseId).map((r) => get<Activity>(r.sourceId)).filter((a): a is Activity => !!a && a.kind === "activity"));
+  const activitiesOf = (usecaseId: string) => related(ix, ix.sources("activityUsecase", usecaseId), "source", "activity");
   const actorsOf = (activities: Activity[]): Element[] =>
-    uniq(
-      order(
+    ix.order(
+      uniq(
         activities.flatMap((a) =>
-          rels.sources("actorActivity", a.id).map((r) => get(r.sourceId)).filter((e): e is Element => !!e && (e.kind === "actor" || e.kind === "externalActor")),
+          ix.sources("actorActivity", a.id).map((r) => ix.get(r.sourceId)).filter((e): e is Element => !!e && (e.kind === "actor" || e.kind === "externalActor")),
         ),
       ),
     );
-  const eventsOf = (usecaseId: string): EventElement[] =>
-    order(rels.targets("usecaseEvent", usecaseId).map((r) => get<EventElement>(r.targetId)).filter((e): e is EventElement => !!e && e.kind === "event"));
-  const triggersOf = (usecaseId: string): EventElement[] =>
-    order(rels.sources("eventUsecase", usecaseId).map((r) => get<EventElement>(r.sourceId)).filter((e): e is EventElement => !!e && e.kind === "event"));
-  const statesOf = (kind: "stateUsecase" | "usecaseState", usecaseId: string): State[] => {
-    const ids = kind === "stateUsecase" ? rels.sources(kind, usecaseId).map((r) => r.sourceId) : rels.targets(kind, usecaseId).map((r) => r.targetId);
-    return order(ids.map((id) => get<State>(id)).filter((s): s is State => !!s && s.kind === "state"));
-  };
-  const conditionsOf = (usecaseId: string): Condition[] =>
-    order(rels.targets("usecaseCondition", usecaseId).map((r) => get<Condition>(r.targetId)).filter((c): c is Condition => !!c && c.kind === "condition"));
-  const screenOf = (usecaseId: string): Screen | null => {
-    const r = rels.targets("usecaseScreen", usecaseId)[0];
-    const s = r ? get<Screen>(r.targetId) : undefined;
-    return s && s.kind === "screen" ? s : null;
+  const placeOf = (usecaseId: string): Element | null => {
+    const p = places.get(usecaseId);
+    return p ? (ix.get(p) ?? null) : null;
   };
   const contextOf = (id: string | null | undefined): Context | null => {
-    const c = id ? get<Context>(id) : undefined;
+    const c = id ? ix.get<Context>(id) : undefined;
     return c && c.kind === "context" ? c : null;
   };
 
   // コマンド候補とクエリ候補
   const commands: CommandCandidate[] = [];
   const queries: QueryCandidate[] = [];
-  for (const u of byKind(model, "usecase")) {
-    const { writes, reads } = informationAccess(get, rels, u.id);
+  for (const u of ix.ofKind("usecase")) {
+    const { writes, reads } = informationAccess(ix, u.id);
     const activities = activitiesOf(u.id);
-    const events = eventsOf(u.id);
-    const postStates = statesOf("usecaseState", u.id);
-    if (writes.length === 0) {
-      if (reads.length > 0) queries.push({ usecase: u, reads, screen: screenOf(u.id), activities, events, postStates });
+    const events = related(ix, ix.targets("usecaseEvent", u.id), "target", "event");
+    const postStates = related(ix, ix.targets("usecaseState", u.id), "target", "state");
+    const place = placeOf(u.id);
+    if (writes.length === 0 && events.length === 0 && postStates.length === 0) {
+      if (reads.length > 0) {
+        const screen = ix.targets("usecaseScreen", u.id).map((r) => ix.get<Screen>(r.targetId)).find((s): s is Screen => !!s && s.kind === "screen") ?? null;
+        queries.push({ usecase: u, reads, screen, activities, place });
+      }
       continue;
     }
-    const aggregate = writes.find((w) => ownerOf.has(w.id)) ?? writes[0] ?? null;
+    const triggeredBy = related(ix, ix.sources("eventUsecase", u.id), "source", "event");
+    const postGroupOwner = postStates.map((s) => (s.group ? ownerByGroup.get(s.group)?.owner : undefined)).find((o): o is Information => !!o);
+    const aggregate = writes.find((w) => ownerOf.has(w.id)) ?? (writes.length > 0 ? writes[0]! : (postGroupOwner ?? null));
     const base = {
       usecase: u,
-      auto: activities.length === 0,
+      auto: activities.length === 0 && triggeredBy.length > 0,
+      readOnly: writes.length === 0,
       writes,
       reads,
-      preStates: statesOf("stateUsecase", u.id),
+      preStates: related(ix, ix.sources("stateUsecase", u.id), "source", "state"),
       postStates,
-      conditions: conditionsOf(u.id),
+      conditions: related(ix, ix.targets("usecaseCondition", u.id), "target", "condition"),
       events,
-      triggeredBy: triggersOf(u.id),
-      place: (() => {
-        const p = places.get(u.id);
-        return p ? (get(p) ?? null) : null;
-      })(),
+      triggeredBy,
+      place,
       aggregate,
     };
     if (activities.length >= 2) {
@@ -322,19 +342,18 @@ export function deriveDomainModel(model: UntieModel): DomainDerivation {
   }
 
   // ドメインイベント
-  const events: DomainEventRow[] = byKind(model, "event").map((event) => {
-    const usecases = order(rels.sources("usecaseEvent", event.id).map((r) => get<Usecase>(r.sourceId)).filter((u): u is Usecase => !!u && u.kind === "usecase"));
-    const systems = order(rels.sources("systemEvent", event.id).map((r) => get(r.sourceId)).filter((s): s is Element => !!s && s.kind === "system"));
-    const properties = uniq(order(usecases.flatMap((u) => informationAccess(get, rels, u.id).writes)));
-    const consumerUsecases = order(rels.targets("eventUsecase", event.id).map((r) => get<Usecase>(r.targetId)).filter((u): u is Usecase => !!u && u.kind === "usecase"));
-    const consumerActivities = order(rels.targets("eventActivity", event.id).map((r) => get<Activity>(r.targetId)).filter((a): a is Activity => !!a && a.kind === "activity"));
+  const events: DomainEventRow[] = ix.ofKind("event").map((event) => {
+    const usecases = related(ix, ix.sources("usecaseEvent", event.id), "source", "usecase");
     return {
       event,
       usecases,
-      systems,
+      systems: related(ix, ix.sources("systemEvent", event.id), "source", "system"),
       timed: !!event.timing,
-      properties,
-      consumers: { usecases: consumerUsecases, activities: consumerActivities },
+      properties: ix.order(uniq(usecases.flatMap((u) => informationAccess(ix, u.id).writes))),
+      consumers: {
+        usecases: related(ix, ix.targets("eventUsecase", event.id), "target", "usecase"),
+        activities: related(ix, ix.targets("eventActivity", event.id), "target", "activity"),
+      },
       context: contextOf(event.contextId),
     };
   });
@@ -343,72 +362,105 @@ export function deriveDomainModel(model: UntieModel): DomainDerivation {
   const policies: PolicyCandidate[] = [];
   for (const r of model.relations) {
     if (r.kind !== "eventUsecase") continue;
-    const event = get<EventElement>(r.sourceId);
-    const usecase = get<Usecase>(r.targetId);
+    const event = ix.get<EventElement>(r.sourceId);
+    const usecase = ix.get<Usecase>(r.targetId);
     if (!event || event.kind !== "event" || !usecase || usecase.kind !== "usecase") continue;
     const activities = activitiesOf(usecase.id);
-    const writes = informationAccess(get, rels, usecase.id).writes;
-    const writeContexts = new Set(writes.map((w) => w.contextId).filter((c): c is string => !!c));
+    const writeContexts = new Set(informationAccess(ix, usecase.id).writes.map((w) => w.contextId).filter((c): c is string => !!c));
     const crossesContext = !!event.contextId && writeContexts.size > 0 && !writeContexts.has(event.contextId);
     policies.push({ key: r.id, event, usecase, auto: activities.length === 0, activities, crossesContext });
   }
 
-  // 集約候補
-  const writesByUsecase = new Map(commands.map((c) => [c.usecase.id, c.writes]));
-  const aggregates: AggregateCandidate[] = byKind(model, "information").map((info) => {
-    const writers = commands.filter((c) => c.writes.some((w) => w.id === info.id));
-    const group = ownerOf.get(info.id) ?? null;
-    const role: AggregateRole = group ? "lifecycle" : writers.length > 0 ? "written" : "reference";
-    const related = order(
+  // 集約候補 (情報 id → 書くコマンド候補 の索引を先に作る)
+  const writersOf = new Map<string, CommandCandidate[]>();
+  for (const c of commands) {
+    for (const w of c.writes) {
+      const list = writersOf.get(w.id);
+      if (list) list.push(c);
+      else writersOf.set(w.id, [c]);
+    }
+  }
+  const aggregates: AggregateCandidate[] = ix.ofKind("information").map((info) => {
+    const writers = writersOf.get(info.id) ?? [];
+    const groups = ownerOf.get(info.id) ?? [];
+    const role: AggregateRole = groups.length > 0 ? "lifecycle" : writers.length > 0 ? "written" : "reference";
+    const relatedInfos = ix.order(
       uniq(
-        [...rels.targets("informationRelated", info.id).map((r) => r.targetId), ...rels.sources("informationRelated", info.id).map((r) => r.sourceId)]
-          .map((id) => get<Information>(id))
-          .filter((i): i is Information => !!i && i.kind === "information"),
+        [
+          ...ix.targets("informationRelated", info.id).map((r) => ix.get<Information>(r.targetId)),
+          ...ix.sources("informationRelated", info.id).map((r) => ix.get<Information>(r.sourceId)),
+        ].filter((i): i is Information => !!i && i.kind === "information"),
       ),
     );
-    const coWritten = order(uniq(uniq(writers.map((c) => c.usecase)).flatMap((u) => (writesByUsecase.get(u.id) ?? []).filter((w) => w.id !== info.id))));
+    const coWritten = ix.order(uniq(writers.flatMap((c) => c.writes).filter((w) => w.id !== info.id)));
     return {
       information: info,
       role,
       context: contextOf(info.contextId),
-      stateGroup: group,
-      states: group ? (stateGroups.find((g) => g.group === group)?.states ?? []) : [],
+      stateGroups: groups,
+      states: groups.flatMap((g) => ownerByGroup.get(g)?.states ?? []),
       commands: writers,
-      related,
+      related: relatedInfos,
       coWritten,
     };
   });
 
-  // コンテキスト候補 (分析のコンテキストごと + 未分類)
-  const contextIds: (string | null)[] = [...byKind(model, "context").map((c) => c.id), null];
+  // コンテキスト候補 (分析のコンテキストごと + 未分類)。所属要素は 1 回の走査で contextId 別に振り分ける
+  interface Members {
+    informations: Information[];
+    states: State[];
+    conditions: Condition[];
+    variations: Variation[];
+    events: EventElement[];
+  }
+  const members = new Map<string | null, Members>();
+  const bucket = (cid: string | null): Members => {
+    let b = members.get(cid);
+    if (!b) {
+      b = { informations: [], states: [], conditions: [], variations: [], events: [] };
+      members.set(cid, b);
+    }
+    return b;
+  };
+  for (const e of model.elements) {
+    if (e.kind === "information") bucket(e.contextId).informations.push(e);
+    else if (e.kind === "state") bucket(e.contextId).states.push(e);
+    else if (e.kind === "condition") bucket(e.contextId).conditions.push(e);
+    else if (e.kind === "variation") bucket(e.contextId).variations.push(e);
+    else if (e.kind === "event") bucket(e.contextId).events.push(e);
+  }
+  // 情報 id → 扱う操作を使う業務
+  const businessOfActivity = (a: Activity): Business | null => {
+    const buc = a.bucId ? ix.get(a.bucId) : undefined;
+    const biz = buc && buc.kind === "buc" ? ix.get<Business>(buc.businessId) : undefined;
+    return biz && biz.kind === "business" ? biz : null;
+  };
+  const businessesOfInfo = new Map<string, Business[]>();
+  for (const u of ix.ofKind("usecase")) {
+    const bizs = activitiesOf(u.id).map(businessOfActivity).filter((b): b is Business => !!b);
+    if (bizs.length === 0) continue;
+    for (const r of ix.targets("usecaseInformation", u.id)) {
+      const list = businessesOfInfo.get(r.targetId);
+      if (list) list.push(...bizs);
+      else businessesOfInfo.set(r.targetId, [...bizs]);
+    }
+  }
+  const aggregatesByContext = new Map<string | null, AggregateCandidate[]>();
+  for (const a of aggregates) {
+    const list = aggregatesByContext.get(a.information.contextId);
+    if (list) list.push(a);
+    else aggregatesByContext.set(a.information.contextId, [a]);
+  }
+  const contextIds: (string | null)[] = [...ix.ofKind("context").map((c) => c.id), null];
   const contexts: ContextCandidate[] = contextIds
     .map((cid) => {
-      const inCtx = <T extends { contextId: string | null }>(xs: T[]) => xs.filter((x) => x.contextId === cid);
-      const informations = inCtx(byKind(model, "information"));
-      const states = inCtx(byKind(model, "state"));
-      const infoIds = new Set(informations.map((i) => i.id));
-      const businesses = uniq(
-        order(
-          byKind(model, "usecase")
-            .filter((u) => rels.targets("usecaseInformation", u.id).some((r) => infoIds.has(r.targetId)))
-            .flatMap((u) => activitiesOf(u.id))
-            .flatMap((a) => {
-              const buc = a.bucId ? get(a.bucId) : undefined;
-              const biz = buc && buc.kind === "buc" ? get<Business>(buc.businessId) : undefined;
-              return biz && biz.kind === "business" ? [biz] : [];
-            }),
-        ),
-      );
+      const b = members.get(cid) ?? { informations: [], states: [], conditions: [], variations: [], events: [] };
       return {
         context: contextOf(cid),
-        informations,
-        states,
-        stateGroups: [...new Set(states.map((s) => s.group).filter((g): g is string => !!g))],
-        conditions: inCtx(byKind(model, "condition")),
-        variations: inCtx(byKind(model, "variation")),
-        events: inCtx(byKind(model, "event")),
-        businesses,
-        aggregates: aggregates.filter((a) => a.information.contextId === cid),
+        ...b,
+        stateGroups: [...new Set(b.states.map((s) => s.group).filter((g): g is string => !!g))],
+        businesses: ix.order(uniq(b.informations.flatMap((i) => businessesOfInfo.get(i.id) ?? []))),
+        aggregates: aggregatesByContext.get(cid) ?? [],
       };
     })
     // 未分類は、入るものがあるときだけ

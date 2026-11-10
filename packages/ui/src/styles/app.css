@@ -501,6 +501,8 @@ textarea { resize: vertical; width: 100%; }
 .an-note { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 8px; margin: 1px; background: #eef1f5; color: #4a5568; }
 .an-note.level-question { background: #e3eef8; color: #2d5d8a; }
 .an-role.role-auto { background: #e6f0e4; color: #2f5d2a; }
+.an-role.role-human { background: #ece6f5; color: #5a4685; }
+.an-role.role-readonly { background: #e3eef8; color: #2d5d8a; margin-left: 4px; }
 .an-role.role-timed { background: #f6ecd9; color: #7a5a1f; }
 .an-role.role-agg-lifecycle { background: #f3e8d6; color: #7a4e12; }
 .an-role.role-agg-written { background: #e8f2e6; color: #3c6b34; }
