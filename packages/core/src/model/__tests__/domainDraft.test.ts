@@ -211,7 +211,9 @@ describe("applyDomainDraft: AI の下書きをドメインモデルへ当てる"
     expect(lost.model.domain.relations).toEqual([]);
     expect(lost.summary.lost).toContain("関係「決済 → 受注」");
     expect(lost.summary.lost).toContain("ポリシー「入金が確認された → 注文を入金済にする」");
-    expect(lost.summary.lost).toHaveLength(6);
+    expect(lost.summary.lost).toContain("用語「注文」の境界 (受注)");
+    // 関係 4・ポリシー 1・発生させるイベント 1 と、用語の境界 3
+    expect(lost.summary.lost).toHaveLength(9);
     // 下書きが同じ組の関係を書いていれば、そちらを使う (二重にしない)
     const restated = applyDomainDraft(m, { systemId: "sys_oms", draft: { ...same, relations: [{ upstream: "Payment", downstream: "Ordering", kind: "conformist" }] } });
     if (!restated.ok) throw new Error(restated.reason);
