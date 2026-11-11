@@ -49,7 +49,7 @@ describe("設計ボード「業務ルール (Souther)」", () => {
     const { unmount } = render(<SoutherBoard />);
     const source = screen.getByTestId("souther-source").textContent!;
     expect(source).toContain("module untie.sys_pms");
-    expect(source).toContain("behavior 予約を取り消す : (前の予約の状態: 確定, 取消料が発生する: Bool) -> 取消 | 予約を取り消す_取消料が発生する");
+    expect(source).toContain("behavior 予約を取り消す : (今の予約の状態: 予約の状態, 取消料が発生する: Bool) -> 取消 | 予約を取り消す_取消料が発生する | 予約を取り消す_状態が違う");
     expect(Number(screen.getByTestId("souther-behaviors").textContent)).toBeGreaterThan(5);
     expect(screen.getByTestId("souther-owed").textContent).toBe("0");
     expect(screen.queryByTestId("souther-open")).toBeNull();

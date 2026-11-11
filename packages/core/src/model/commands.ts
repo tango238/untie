@@ -10,8 +10,12 @@ import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
+  ALTERNATE_AFTER_TYPES,
   ALTERNATE_ERROR_TYPES,
   ALTERNATE_WHENS,
+  stateGroupKey,
+  type AlternateAfter,
+  type AlternateAfterType,
   HTTP_STATUS_MAX,
   HTTP_STATUS_MIN,
   isHttpErrorStatus,
@@ -219,6 +223,14 @@ function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void 
   draft.relations = draft.relations.filter((r) => !removed.has(r.sourceId) && !removed.has(r.targetId));
   // 代替パターン (0.6.1) の、そのとき起きる出来事が消えたら、出来事の参照だけ外す (どうなるかの文は残す)
   for (const r of draft.relations) if (r.alternate?.eventId !== undefined && removed.has(r.alternate.eventId)) delete r.alternate.eventId;
+  // そのあとの状態 (0.6.3) の状態が消えたら、その状態を外す。1 つも残らなければ、まだ決めていないことに戻す
+  for (const r of draft.relations) {
+    const after = r.alternate?.after;
+    if (!after?.stateIds?.some((id) => removed.has(id))) continue;
+    const rest = after.stateIds.filter((id) => !removed.has(id));
+    if (rest.length > 0) after.stateIds = rest;
+    else delete r.alternate!.after;
+  }
   const relationIds = new Set(draft.relations.map((r) => r.id));
   for (const board of draft.boards) {
     board.nodes = board.nodes.filter((n) => !removed.has(n.elementId));
@@ -1423,7 +1435,14 @@ export const ALTERNATE_ERROR_EVENT_REASON = "代替パターンの「起きる�
 export interface SetRelationAlternatePayload {
   id: string;
   /** null で、まだ決めていない状態に戻す */
-  alternate: { when: AlternateWhen; then: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null } | null;
+  alternate: {
+    when: AlternateWhen;
+    then: string;
+    eventId?: string | null;
+    error?: { type: AlternateErrorType; status?: number | null } | null;
+    /** そのあとの状態。null か省略は、まだ決めていない。エラーのときは持てない (状態は変わらない) ので、渡しても捨てる */
+    after?: { type: AlternateAfterType; stateIds?: readonly string[] } | null;
+  } | null;
 }
 
 /**
@@ -1453,11 +1472,30 @@ export function setRelationAlternate(model: UntieModel, payload: SetRelationAlte
         error = { type: a.error.type, status };
       } else error = { type: a.error.type };
     }
-    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}), ...(error ? { error } : {}) };
+    // そのあとの状態 (0.6.3)。エラーのときは状態を変えないので、持たない
+    let after: AlternateAfter | undefined;
+    if (!error && a.after !== undefined && a.after !== null) {
+      if (!ALTERNATE_AFTER_TYPES.includes(a.after.type)) return fail(`代替パターンの「そのあとの状態」が正しくありません: ${String(a.after.type)}`);
+      if (a.after.type === "states") {
+        const ids = [...new Set(a.after.stateIds ?? [])];
+        if (ids.length === 0) return fail("そのあとの状態を、1 つ以上選んでください");
+        const groups = new Set<string>();
+        for (const id of ids) {
+          const state = model.elements.find((e) => e.id === id);
+          if (state?.kind !== "state") return fail(`状態が存在しません: ${id}`);
+          const key = stateGroupKey(state);
+          if (groups.has(key)) return fail(`そのあとの状態は、1 つの状態グループから 1 つまでです: ${state.group ?? state.name}`);
+          groups.add(key);
+        }
+        after = { type: "states", stateIds: ids };
+      } else after = { type: a.after.type };
+    }
+    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}), ...(error ? { error } : {}), ...(after ? { after } : {}) };
   }
   const before = r.alternate ?? null;
   const sameError = (x: AlternateError | undefined, y: AlternateError | undefined) => x?.type === y?.type && x?.status === y?.status;
-  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId && sameError(before.error, next.error)) return { ok: true, model };
+  const sameAfter = (x: AlternateAfter | undefined, y: AlternateAfter | undefined) => x?.type === y?.type && (x?.stateIds ?? []).join("\n") === (y?.stateIds ?? []).join("\n");
+  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId && sameError(before.error, next.error) && sameAfter(before.after, next.after)) return { ok: true, model };
   const out = produce(model, (draft) => {
     const d = draft.relations.find((x) => x.id === payload.id)!;
     if (next === null) delete d.alternate;

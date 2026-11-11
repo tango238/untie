@@ -5,7 +5,7 @@
 //   分岐:     操作が判断する条件ごとに 1 つ。代替パターンが決まっていなければ「未定」(開発を始める前に決めること)
 //   出来事:   操作が発生させる出来事 → それをきっかけに動く操作の対象へ。人が担当しない操作 (自動) は、その場で続けて書く
 import type { Activity, Business, Condition, Element, EventElement, RelationAlternate, Screen, UntieModel, Usecase } from "./types";
-import { ALTERNATE_WHEN_LABELS, alternateErrorLabel } from "./types";
+import { ALTERNATE_AFTER_LABELS, ALTERNATE_WHEN_LABELS, alternateErrorLabel } from "./types";
 
 /** 図の縦の線 (登場するもの) */
 export interface SequenceParticipant {
@@ -28,11 +28,34 @@ export type SequenceStep =
   /** 操作が扱う情報と、状態の変化 */
   | { type: "note"; key: string; on: string; usecase: Usecase; writes: string[]; reads: string[]; states: string | null }
   /** 分岐 (代替パターン)。alternate が null なら未定 */
-  | { type: "alternate"; key: string; from: string; to: string; usecase: Usecase; condition: Condition; relationId: string; alternate: RelationAlternate | null; event: EventElement | null }
+  | {
+      type: "alternate";
+      key: string;
+      from: string;
+      to: string;
+      usecase: Usecase;
+      condition: Condition;
+      relationId: string;
+      alternate: RelationAlternate | null;
+      event: EventElement | null;
+      /** 操作がふだん変える状態 (次の状態) があるか。あれば、分岐のあとの状態も決める */
+      changesState: boolean;
+      /** そのあとの状態の表示 (変えない / ふだんと同じ / 状態の名前)。まだ決めていなければ null。エラーのときは「変えない」 */
+      after: string | null;
+    }
   /** 出来事: from (発生させた操作の対象) → to (きっかけにする操作の対象。無ければ null) */
   | { type: "event"; key: string; from: string; to: string | null; event: EventElement; consumers: Usecase[] };
 
-export type SequenceGapType = "alternateUndecided" | "noPlace" | "noActor";
+export type SequenceGapType = "alternateUndecided" | "alternateAfterUndecided" | "noPlace" | "noActor";
+
+/** 代替パターンの、そのあとの状態の表示。決めていなければ null。エラーのときは、状態を変えない */
+export function alternateAfterLabel(alternate: RelationAlternate | null, stateName: (id: string) => string): string | null {
+  if (!alternate) return null;
+  if (alternate.error) return ALTERNATE_AFTER_LABELS.unchanged;
+  const after = alternate.after;
+  if (!after) return null;
+  return after.type === "states" ? (after.stateIds ?? []).map(stateName).join("・") : ALTERNATE_AFTER_LABELS[after.type];
+}
 
 /** 開発を始める前に決めておくこと */
 export interface SequenceGap {
@@ -174,8 +197,12 @@ export function deriveSequences(model: UntieModel, systemId?: string): BusinessS
         const condition = element(r.targetId, "condition");
         if (!condition) continue;
         const alternate = r.alternate ?? null;
-        steps.push({ type: "alternate", key: key("alt"), from, to, usecase, condition, relationId: r.id, alternate, event: element(alternate?.eventId, "event") ?? null });
+        const changesState = (postStates.get(usecase.id) ?? []).length > 0;
+        const after = alternateAfterLabel(alternate, (id) => nameOf(byId.get(id)));
+        steps.push({ type: "alternate", key: key("alt"), from, to, usecase, condition, relationId: r.id, alternate, event: element(alternate?.eventId, "event") ?? null, changesState, after });
         if (!alternate) gaps.push({ type: "alternateUndecided", usecaseId: usecase.id, relationId: r.id, message: `操作「${nameOf(usecase)}」で、条件「${nameOf(condition)}」のときにどうなるかが決まっていません` });
+        // 操作がふだん状態を変えるなら、分岐のあとの状態 (変えないのか、ふだんと同じか、別の状態か) も決める
+        else if (changesState && after === null) gaps.push({ type: "alternateAfterUndecided", usecaseId: usecase.id, relationId: r.id, message: `操作「${nameOf(usecase)}」で、条件「${nameOf(condition)}」のときに、そのあとの状態がどうなるかが決まっていません` });
       }
       for (const eventId of eventsOfUsecase.get(usecase.id) ?? []) {
         const event = element(eventId, "event");
@@ -269,7 +296,9 @@ export function sequenceAlternateOutcome(step: Extract<SequenceStep, { type: "al
 export function sequenceAlternateLines(step: Extract<SequenceStep, { type: "alternate" }>): [string, string] {
   const a = step.alternate;
   const when = a ? (a.when === "met" ? "のとき" : "でないとき") : "のとき / でないとき";
-  return [`［${nameOf(step.condition)}］${when}`, a ? `→ ${a.then}${sequenceAlternateOutcome(step)}` : "→ 未定 (どうなるかを決める)"];
+  // そのあとの状態は、1 行目に添える (2 行目の文は長いと切れるので)。操作が状態を変えないなら、書かない
+  const after = !a || (!step.changesState && step.after === null) ? "" : ` (そのあと: ${step.after ?? "未定"})`;
+  return [`［${nameOf(step.condition)}］${when}${after}`, a ? `→ ${a.then}${sequenceAlternateOutcome(step)}` : "→ 未定 (どうなるかを決める)"];
 }
 
 /** 設計の対象のシステムが登場する業務の、開発を始める前に決めておくこと */
@@ -301,6 +330,7 @@ export function sequenceToMermaid(sequence: BusinessSequence): string {
       const a = step.alternate;
       lines.push(`  alt ${mermaidText(`${nameOf(step.condition)} (${a ? ALTERNATE_WHEN_LABELS[a.when] : "未定"})`)}`);
       lines.push(`    ${alias.get(step.to)}-->>${alias.get(step.from)}: ${mermaidText(a ? a.then : "未定")}`);
+      if (a && (step.changesState || step.after !== null)) lines.push(`    Note right of ${alias.get(step.to)}: そのあとの状態 ${mermaidText(step.after ?? "未定")}`);
       if (a?.error) lines.push(`    Note right of ${alias.get(step.to)}: ${mermaidText(alternateErrorLabel(a.error))}`);
       else if (step.event) lines.push(`    Note right of ${alias.get(step.to)}: 出来事 ${mermaidText(nameOf(step.event))}`);
       lines.push("  end");

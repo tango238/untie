@@ -37,7 +37,7 @@ import { isTooLong, VIEW_JSON_MAX_LENGTH } from "./limits";
 import { newUniqueId } from "./id";
 import { isUndirected, relationKindFor } from "./relations";
 import { truncateModelStrings } from "./truncate";
-import { ELEMENT_KIND_LABELS, isContextMemberKind, isPersonaItSkill, normalizeEventTiming, normalizePersona } from "./types";
+import { ELEMENT_KIND_LABELS, isContextMemberKind, isPersonaItSkill, normalizeEventTiming, normalizePersona, stateGroupKey } from "./types";
 import type { Board, Buc, Element, UntieModel } from "./types";
 
 export interface RepairResult {
@@ -248,6 +248,32 @@ export function repairModel(input: UntieModel): RepairResult {
           if (r.alternate.error.status !== undefined && r.alternate.error.type !== "server") {
             changes.push(`関係 ${r.id} の代替パターンのエラーから HTTP ステータスを外した (サーバーエラーにだけ付けられる)`);
             delete r.alternate.error.status;
+          }
+        }
+        // そのあとの状態 (0.6.3): エラーと両方あれば外す。無い状態と、同じ状態グループの 2 つめ以降を外し、1 つも残らなければ、まだ決めていないことに戻す
+        const after = r.alternate?.after;
+        if (r.alternate && after !== undefined) {
+          if (r.alternate.error !== undefined) {
+            changes.push(`関係 ${r.id} の代替パターンの「そのあとの状態」を外した (エラーのときは状態を変えない)`);
+            delete r.alternate.after;
+          } else if (after.type !== "states") {
+            if (after.stateIds !== undefined) {
+              changes.push(`関係 ${r.id} の代替パターンの「そのあとの状態」から、状態を外した (${after.type} には付けられない)`);
+              delete after.stateIds;
+            }
+          } else {
+            const groups = new Set<string>();
+            const kept = (after.stateIds ?? []).filter((id) => {
+              const state = draft.elements.find((e) => e.id === id);
+              if (state?.kind !== "state" || groups.has(stateGroupKey(state))) return false;
+              groups.add(stateGroupKey(state));
+              return true;
+            });
+            if (kept.length !== (after.stateIds ?? []).length || after.stateIds === undefined) {
+              changes.push(`関係 ${r.id} の代替パターンの「そのあとの状態」を直した (無い状態・同じ状態グループの重なりを外した)`);
+              if (kept.length > 0) after.stateIds = kept;
+              else delete r.alternate.after;
+            }
           }
         }
       }

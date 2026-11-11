@@ -149,6 +149,16 @@ export const COMMON_HTTP_STATUSES: readonly { status: number; label: string }[] 
 export function isHttpErrorStatus(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= HTTP_STATUS_MIN && value <= HTTP_STATUS_MAX;
 }
+/** 代替パターンの、そのあとの状態 (0.6.3)。unchanged: 変えない、normal: ふだんと同じ、states: 選んだ状態になる */
+export type AlternateAfter = NonNullable<RelationAlternate["after"]>;
+export type AlternateAfterType = AlternateAfter["type"];
+export const ALTERNATE_AFTER_TYPES: readonly AlternateAfterType[] = ["unchanged", "normal", "states"];
+export const ALTERNATE_AFTER_LABELS: Record<AlternateAfterType, string> = { unchanged: "変えない", normal: "ふだんと同じ", states: "状態を選ぶ" };
+/** 状態のグループを見分けるキー (グループの無い状態は、それぞれが 1 つのグループ) */
+export function stateGroupKey(state: { id: string; group?: string }): string {
+  return state.group?.trim() ? `g:${state.group.trim()}` : `s:${state.id}`;
+}
+
 /** エラーの表示名 (例: 入力エラー / サーバーエラー / サーバーエラー 404) */
 export function alternateErrorLabel(error: AlternateError): string {
   return `${ALTERNATE_ERROR_LABELS[error.type] ?? error.type}${error.status !== undefined ? ` ${error.status}` : ""}`;
@@ -392,7 +402,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.6.2";
+export const MODEL_VERSION = "0.6.3";
 
 /** 空のドメインモデル (0.6.0) */
 export function emptyDomain(): DomainModel {

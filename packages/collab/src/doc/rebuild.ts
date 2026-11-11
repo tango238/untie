@@ -59,9 +59,18 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
       typeof e === "object" && e !== null && (e.type === "input" || e.type === "server")
         ? { error: { type: e.type, ...(isHttpErrorStatus(e.status) ? { status: e.status } : {}) } }
         : {};
+    // そのあとの状態 (0.6.3) も、形が合うものだけ読む (states は、状態の id が 1 つ以上あるときだけ)
+    const f = typeof a === "object" && a !== null ? a.after : undefined;
+    const stateIds = typeof f === "object" && f !== null && Array.isArray(f.stateIds) ? f.stateIds.filter(isString) : [];
+    const after =
+      typeof f === "object" && f !== null && (f.type === "unchanged" || f.type === "normal")
+        ? { after: { type: f.type } }
+        : typeof f === "object" && f !== null && f.type === "states" && stateIds.length > 0
+          ? { after: { type: f.type, stateIds } }
+          : {};
     const alternate =
       typeof a === "object" && a !== null && (a.when === "met" || a.when === "unmet") && isString(a.then)
-        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}), ...error } }
+        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}), ...error, ...after } }
         : {};
     items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access, ...alternate } as Relation });
   });

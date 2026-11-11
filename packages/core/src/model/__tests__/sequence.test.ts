@@ -68,7 +68,7 @@ describe("deriveSequences: 業務ごとの流れを分析から導く", () => {
       ["予約を登録する", "満室である", "met"],
       ["予約を取り消す", "取消料が発生する", "met"],
     ]);
-    expect(sequenceAlternateLines(alternates[0]!)).toEqual(["［満室である］のとき", "→ 予約を受けず、別の日か別の部屋タイプを案内する。"]);
+    expect(sequenceAlternateLines(alternates[0]!)).toEqual(["［満室である］のとき (そのあと: 変えない)", "→ 予約を受けず、別の日か別の部屋タイプを案内する。"]);
     // 未定に戻す
     const undecided = okModel(setRelationAlternate(m, { id: cond(m, "uc_cancel_reservation", "cond_cancel_fee").id, alternate: null }));
     const again = deriveSequences(undecided, "sys_pms")[0]!;
@@ -103,7 +103,7 @@ describe("deriveSequences: 業務ごとの流れを分析から導く", () => {
     const text = sequenceToMermaid(deriveSequences(createHotelSample(), "sys_pms")[0]!);
     expect(text.startsWith("sequenceDiagram\n  actor p0 as 予約担当\n  participant p1 as 予約サイト\n  participant p2 as 宿泊管理システム\n")).toBe(true);
     expect(text).toContain("  p0->>p1: 予約を登録する\n");
-    expect(text).toContain("  alt 満室である (条件を満たすとき)\n    p1-->>p0: 予約を受けず、別の日か別の部屋タイプを案内する。\n  end\n");
+    expect(text).toContain("  alt 満室である (条件を満たすとき)\n    p1-->>p0: 予約を受けず、別の日か別の部屋タイプを案内する。\n    Note right of p1: そのあとの状態 変えない\n  end\n");
     expect(text).toContain("  p0->>p2: 予約を確定する [予約の確定画面]\n  Note right of p2: 書く 予約 / 状態 仮予約 → 確定\n");
   });
 });
@@ -112,7 +112,7 @@ describe("代替パターン (操作 → 条件 の関係の alternate。0.6.1)"
   it("決める・直す・未定に戻す。条件の関係にだけ付けられ、起きる出来事は分析のイベント", () => {
     let m = createNetshopSample();
     const r = cond(m, "uc_allocate_stock", "cond_out_of_stock");
-    expect(r.alternate).toEqual({ when: "met", then: "引き当てずに、入荷を待つ注文として残す。" });
+    expect(r.alternate).toEqual({ when: "met", then: "引き当てずに、入荷を待つ注文として残す。", after: { type: "unchanged" } });
     m = okModel(setRelationAlternate(m, { id: r.id, alternate: { when: "met", then: "  引き当てずに待つ  ", eventId: "ev_stock_changed" } }));
     expect(cond(m, "uc_allocate_stock", "cond_out_of_stock").alternate).toEqual({ when: "met", then: "引き当てずに待つ", eventId: "ev_stock_changed" });
     expect(validateModel(m)).toMatchObject({ ok: true });
@@ -132,6 +132,59 @@ describe("代替パターン (操作 → 条件 の関係の alternate。0.6.1)"
     const other = m.relations.find((x) => x.kind === "usecaseInformation")!;
     expect(setRelationAlternate(m, { id: other.id, alternate: { when: "met", then: "x" } }).ok).toBe(false);
     expect(setRelationAlternate(m, { id: "rel_nope", alternate: null }).ok).toBe(false);
+  });
+
+  it("そのあとの状態 (0.6.3): 変えない・ふだんと同じ・選んだ状態。操作がふだん状態を変えるのに決めていなければ、決まっていないこととして出す", () => {
+    let m = createHotelSample();
+    const id = cond(m, "uc_cancel_reservation", "cond_cancel_fee").id;
+    const alt = () => cond(m, "uc_cancel_reservation", "cond_cancel_fee").alternate;
+    const step = () => steps(deriveSequences(m, "sys_pms")[0]!.steps, "alternate").find((s) => s.relationId === id)!;
+    // サンプルは「ふだんと同じ」(取消料を足してから、取り消す)
+    expect(alt()!.after).toEqual({ type: "normal" });
+    expect(step()).toMatchObject({ changesState: true, after: "ふだんと同じ" });
+    expect(sequenceAlternateLines(step())[0]).toBe("［取消料が発生する］のとき (そのあと: ふだんと同じ)");
+    // 決めていない: 予約を取り消す は状態を変える操作なので、決まっていないこととして出す
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "取消料を伝える", after: null } }));
+    expect("after" in alt()!).toBe(false);
+    expect(step().after).toBeNull();
+    expect(sequenceAlternateLines(step())[0]).toBe("［取消料が発生する］のとき (そのあと: 未定)");
+    expect(sequenceGaps(m, "sys_pms").map((g) => [g.gap.type, g.gap.message])).toEqual([["alternateAfterUndecided", "操作「予約を取り消す」で、条件「取消料が発生する」のときに、そのあとの状態がどうなるかが決まっていません"]]);
+    expect(sequenceToMermaid(deriveSequences(m, "sys_pms")[0]!)).toContain("そのあとの状態 未定");
+    // 選んだ状態 (状態グループごとに 1 つまで)
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "取消料を伝える", after: { type: "states", stateIds: ["st_res_tentative", "st_room_waiting"] } } }));
+    expect(alt()!.after).toEqual({ type: "states", stateIds: ["st_res_tentative", "st_room_waiting"] });
+    expect(step().after).toBe("仮予約・清掃待ち");
+    expect(sequenceGaps(m, "sys_pms")).toEqual([]);
+    expect(validateModel(m)).toMatchObject({ ok: true });
+    const same = setRelationAlternate(m, { id, alternate: { when: "met", then: "取消料を伝える", after: { type: "states", stateIds: ["st_res_tentative", "st_room_waiting"] } } });
+    expect(same.ok && same.model).toBe(m);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", after: { type: "states", stateIds: ["st_res_tentative", "st_res_confirmed"] } } }), /1 つの状態グループから 1 つまで/);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", after: { type: "states", stateIds: [] } } }), /1 つ以上/);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", after: { type: "states", stateIds: ["info_reservation"] } } }), /状態が存在しません/);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", after: { type: "later" as never } } }), /そのあとの状態/);
+    // エラーのときは、状態を変えない (渡しても持たない)。図には「変えない」と出る
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 }, after: { type: "normal" } } }));
+    expect(alt()).toEqual({ when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 } });
+    expect(step().after).toBe("変えない");
+    expect(sequenceGaps(m, "sys_pms")).toEqual([]);
+    // 状態を消すと、選んだ状態から外れる。1 つも残らなければ、決めていないことに戻る
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "取消料を伝える", after: { type: "states", stateIds: ["st_res_tentative", "st_room_waiting"] } } }));
+    m = okModel(removeElement(m, { id: "st_room_waiting" }));
+    expect(alt()!.after).toEqual({ type: "states", stateIds: ["st_res_tentative"] });
+    m = okModel(removeElement(m, { id: "st_res_tentative" }));
+    expect("after" in alt()!).toBe(false);
+    // 状態を変えない操作の分岐は、そのあとの状態を決めなくてよい
+    const shop = createNetshopSample();
+    const gift = cond(shop, "uc_issue_pick_list", "cond_gift");
+    const cleared = okModel(setRelationAlternate(shop, { id: gift.id, alternate: { when: "met", then: gift.alternate!.then, after: null } }));
+    expect(sequenceGaps(cleared, "sys_oms")).toEqual([]);
+    // 壊れたものは、修復で直す
+    const broken = JSON.parse(JSON.stringify(createHotelSample())) as UntieModel;
+    broken.relations.find((x) => x.id === id)!.alternate = { when: "met", then: "x", after: { type: "states", stateIds: ["st_res_tentative", "st_res_confirmed", "nothing"] } };
+    expect(validateModel(broken).ok).toBe(false);
+    const repaired = repairModel(broken);
+    expect(repaired.model.relations.find((x) => x.id === id)!.alternate).toEqual({ when: "met", then: "x", after: { type: "states", stateIds: ["st_res_tentative"] } });
+    expect(validateModel(repaired.model)).toMatchObject({ ok: true });
   });
 
   it("エラー (0.6.2): 入力エラーか、サーバーエラー (HTTP ステータスを持てる)。起きる出来事とは、どちらか一方", () => {

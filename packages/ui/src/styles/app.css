@@ -1133,3 +1133,6 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .seq-caption { display: none; }
 .seq-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); }
 .seq-status input { width: 72px; }
+
+/* シーケンス図の分岐: そのあとの状態がまだ決まっていない */
+.seq-alternates select.is-undecided { border-color: #c0392b; background: #fbeee9; }
