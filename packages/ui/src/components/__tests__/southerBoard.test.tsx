@@ -83,6 +83,21 @@ describe("設計ボード「業務ルール (Souther)」", () => {
     expect(screen.getByTestId("acceptance-cases").textContent).toContain("(保留 1)");
   });
 
+  it("「設計書を書き出す…」で、操作のあるシステムの分を Markdown で書き出し、決まっていないことの数を知らせる", async () => {
+    render(<SoutherBoard />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "設計書を書き出す…" }));
+    });
+    const saved = memory().savedFolders;
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.files.map((f) => f.name)).toContain("sys_pms.design.md");
+    expect(saved[0]!.options).toMatchObject({ zipFolder: "design" });
+    const pms = saved[0]!.files.find((f) => f.name === "sys_pms.design.md")!.text;
+    expect(pms).toContain("# 宿泊管理システム の設計");
+    expect(pms).toContain("| 仮予約 | 「予約を登録する」(ほかのシステム「予約サイト」) | 「予約を確定する」 |");
+    expect(st().toasts.some((t) => t.message.includes("設計書を") && t.message.includes("まだ決まっていないことが"))).toBe(true);
+  });
+
   it("「書き出す…」で、すべてのシステムの分を .sou のファイルで書き出す", async () => {
     render(<SoutherBoard />);
     await act(async () => {

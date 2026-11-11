@@ -32,6 +32,7 @@ export * from "./sequence";
 export * from "./readiness";
 export * from "./southerExport";
 export * from "./acceptance";
+export * from "./designBrief";
 export * from "./domainMap";
 export * from "./domainCheck";
 export * from "./domainCache";

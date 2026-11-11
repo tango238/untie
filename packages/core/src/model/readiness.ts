@@ -3,6 +3,7 @@
 // 条件は業務の言葉で書く (利用者に見せる)。内部のドメインモデルは、実装を始めたあとに裏で作って確かめるので、ここには入れない。純粋関数だけを置く。
 import { checkDesign, type DesignProblem, type DesignProblemType } from "./designCheck";
 import type { DesignBoardKind } from "./design";
+import { stateGroupOwners } from "./domainModel";
 import { usecasePlaces } from "./placement";
 import { sequenceGaps } from "./sequence";
 import { effectiveDatabaseIds } from "./design";
@@ -58,7 +59,7 @@ export const READINESS_CONDITIONS: readonly { id: ReadinessConditionId; title: s
   { id: "information", title: "操作が扱う情報が決まっている", hint: "操作ごとに、取得する情報・保存する情報を結ぶ。何も扱わない操作は、作る中身が決まらない" },
   { id: "origins", title: "情報と出来事の出どころが決まっている", hint: "取得するだけの情報には、それを保存する操作が要る (ほかのシステムや帳票の操作でもよい)。操作のきっかけの出来事には、起こす操作か、起きる時期が要る" },
   { id: "rules", title: "条件と区分の中身が決まっている", hint: "条件は、何で判断するか (説明か、区分・状態との結びつき)。区分は、取りうる値" },
-  { id: "states", title: "状態の移り変わりがつながっている", hint: "操作の前提にしている状態には、その状態になる操作が要る。無いと、その操作は永久に行えない" },
+  { id: "states", title: "状態の移り変わりがつながっている", hint: "操作の前提にしている状態には、その状態になる操作が要る (無いと、その操作は永久に行えない)。状態は、どの情報のものかが決まっていて、2 つの情報の状態に関わる操作では、その情報どうしが結ばれている" },
   { id: "flow", title: "業務の流れが決まっている", hint: "条件で流れが変わるときにどうなるか・そのあとの状態、作業の担当、操作の対象。シーケンス図で決める" },
   { id: "data", title: "データの置き場所が決まっている", hint: "このシステムが使う情報が、すべてデータベースのテーブルに対応していて、テーブルに名前と列がある" },
   { id: "screens", title: "画面がそろっている", hint: "操作が使う画面がサイトマップにあり、画面 UI と、項目とデータの対応がある (データを先に作ってから、画面を作る)" },
@@ -150,6 +151,44 @@ export function checkReadiness(model: UntieModel, systemId: string): Readiness {
       message: `状態「${nameOf(byId.get(stateId))}」になる操作がありません (操作「${users.map((id) => nameOf(byId.get(id))).join("」「")}」の前提)`,
       target: element(stateId),
     });
+  }
+
+  // 状態: このシステムの操作が関わる状態グループ (前提か、次の状態) が、どの情報の状態かが決まらない。
+  // 持ち主は、その状態へ移す操作が保存する情報から導く (決まらないと、作る側が「どのものの状態か」を勝手に決めてしまう)
+  const groupOf = new Map<string, string>(); // 状態 id → グループの名前 (グループの無い状態は入れない)
+  for (const e of model.elements) if (e.kind === "state" && e.group?.trim()) groupOf.set(e.id, e.group);
+  const groupsOfUsecase = new Map<string, Set<string>>();
+  for (const r of model.relations) {
+    const [usecaseId, stateId] = r.kind === "stateUsecase" ? [r.targetId, r.sourceId] : r.kind === "usecaseState" ? [r.sourceId, r.targetId] : [null, null];
+    const group = stateId ? groupOf.get(stateId) : undefined;
+    if (!usecaseId || !group || !usecaseIds.has(usecaseId)) continue;
+    groupsOfUsecase.set(usecaseId, (groupsOfUsecase.get(usecaseId) ?? new Set()).add(group));
+  }
+  const touched = new Set([...groupsOfUsecase.values()].flatMap((g) => [...g]));
+  const owners = new Map(stateGroupOwners(model).map((g) => [g.group, g]));
+  for (const group of touched) {
+    const g = owners.get(group);
+    if (!g || g.owner) continue;
+    const why =
+      g.candidates.length === 0
+        ? "この状態へ移す操作に、保存する情報がありません"
+        : `この状態へ移す操作が保存する情報が複数あって、決められません: ${g.candidates.map((c) => nameOf(c.information)).join("・")}`;
+    add("states", { message: `「${group}」が、どの情報の状態かが決まりません (${why})`, target: g.states[0] ? element(g.states[0].id) : undefined });
+  }
+  // 状態: 1 つの操作が、2 つの情報の状態に関わるのに、その情報どうしが結ばれていない (どれとどれの組かが決まらない)
+  const relatedPairs = new Set(model.relations.filter((r) => r.kind === "informationRelated").flatMap((r) => [`${r.sourceId}|${r.targetId}`, `${r.targetId}|${r.sourceId}`]));
+  for (const u of usecases) {
+    const groups = [...(groupsOfUsecase.get(u.id) ?? [])].filter((g) => owners.get(g)?.owner);
+    for (let i = 0; i < groups.length; i++) {
+      for (let k = i + 1; k < groups.length; k++) {
+        const [a, b] = [owners.get(groups[i]!)!.owner!, owners.get(groups[k]!)!.owner!];
+        if (a.id === b.id || relatedPairs.has(`${a.id}|${b.id}`)) continue;
+        add("states", {
+          message: `操作「${nameOf(u)}」は「${groups[i]}」と「${groups[k]}」に関わりますが、情報「${nameOf(a)}」と「${nameOf(b)}」が結ばれていません (どの${nameOf(a)}の、どの${nameOf(b)}かが決まらない)`,
+          target: element(u.id),
+        });
+      }
+    }
   }
 
   // 業務の流れ: 分岐のときにどうなるか・担当や対象の抜け

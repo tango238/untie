@@ -62,7 +62,7 @@ describe("境界と状態の持ち主", () => {
     expect(mismatch[0]!.message).toContain("書くのは「出荷」で、持ち主の「注文」は書きません");
     expect(mismatch[0]!.commandKey).toBe("usecase:uc_record_shipment");
     const unknown = ofType(createRetailSample(), "stateGroupOwnerUnknown");
-    expect(unknown.map((n) => n.message)).toEqual([expect.stringContaining("「発注の状態」"), expect.stringContaining("「1 日の締めの状態」")]);
+    expect(unknown.map((n) => n.message)).toEqual([expect.stringContaining("「1 日の締めの状態」")]);
     // 人が見て決めるのは操作の側なので、遷移させる操作も要素に入れる
     expect(unknown[0]!.elementIds.some((id) => id.startsWith("uc_"))).toBe(true);
   });

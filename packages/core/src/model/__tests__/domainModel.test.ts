@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAccountingSample, createNetshopSample, createRetailSample } from "../../sample";
 import { addElement, addRelation, setRelationAccess } from "../commands";
-import { commandKey, deriveDomainModel, stateGroupOwners } from "../domainModel";
+import { commandKey, deriveDomainModel, stateGroupOwners, stateGroupSubject } from "../domainModel";
 import { okModel, sample } from "./helpers";
 
 const names = (xs: { name: string }[]) => xs.map((x) => x.name);
@@ -83,7 +83,7 @@ describe("コマンド候補", () => {
 });
 
 describe("状態グループの持ち主", () => {
-  it("次の状態へ遷移させる操作が最も多く書く情報を持ち主にし、同数なら決めない", () => {
+  it("名前の合う情報か、次の状態へ遷移させる操作が最も多く書く情報を持ち主にし、同数なら決めない", () => {
     const groups = stateGroupOwners(createNetshopSample());
     const order = groups.find((g) => g.group === "注文の状態")!;
     expect(order.owner?.name).toBe("注文");
@@ -91,7 +91,14 @@ describe("状態グループの持ち主", () => {
     // 「実行できる状態」(stateUsecase) だけの操作は数えない (在庫を引き当てるは確定で実行できるが、注文の状態を変えない)
     expect(names(order.usecases)).not.toContain("在庫を引き当てる");
     const retail = stateGroupOwners(createRetailSample());
-    expect(retail.find((g) => g.group === "発注の状態")!.owner).toBeNull();
+    // 書く回数は「発注」「入荷」で同数だが、グループの名前に合う「発注」が持ち主
+    const purchase = retail.find((g) => g.group === "発注の状態")!;
+    expect(purchase.candidates.map((c) => `${c.information.name}:${c.count}`)).toEqual(["発注:1", "入荷:1"]);
+    expect(purchase.owner?.name).toBe("発注");
+    // 名前の合う情報が無く、書く回数も同数なら、決めない
+    expect(retail.find((g) => g.group === "1 日の締めの状態")!.owner).toBeNull();
+    expect(stateGroupSubject("部屋状態")).toBe("部屋");
+    expect(stateGroupSubject(" 注文のステータス ")).toBe("注文");
     expect(retail.find((g) => g.group === "売掛金の状態")!.owner?.name).toBe("売掛金");
   });
 });

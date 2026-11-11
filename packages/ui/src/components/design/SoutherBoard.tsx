@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { deriveAcceptanceCases } from "@untie/core/model/acceptance";
 import { exportSouther } from "@untie/core/model/southerExport";
-import { exportAcceptanceToFolder, exportSoutherToFolder } from "../../io/document";
+import { exportAcceptanceToFolder, exportDesignBriefToFolder, exportSoutherToFolder } from "../../io/document";
 import { useUntieStore } from "../../store";
 
 /**
@@ -28,6 +28,13 @@ export function SoutherBoard() {
         </button>
         <button type="button" onClick={() => void exportAcceptanceToFolder()} title="設計から導いた受け入れテスト (ケースと、テストの本体) を、選んだフォルダへ書き出す。実装する側は、同じフォルダに driver.ts を書く">
           受け入れテストを書き出す…
+        </button>
+        <button
+          type="button"
+          onClick={() => void exportDesignBriefToFolder()}
+          title="実装する側が読む設計書 (操作・状態・情報・条件・業務の流れ・画面とデータ・まだ決まっていないこと) を、システムごとの Markdown で、選んだフォルダへ書き出す"
+        >
+          設計書を書き出す…
         </button>
       </div>
       <p className="hint domain-hint">

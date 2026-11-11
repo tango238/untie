@@ -118,6 +118,29 @@ describe("checkReadiness: 実装を始める準備", () => {
     expect(messages(m, "sys_pms", "states")).toEqual(["状態「仮予約」になる操作がありません (操作「予約を確定する」の前提)"]);
   });
 
+  it("状態: どの情報の状態かが決まらないグループと、結ばれていない 2 つの情報の状態に関わる操作を挙げる", () => {
+    // 店舗の「1 日の締めの状態」は、移す操作が保存する情報が 売上・現金・支払・在庫 に分かれ、名前の合う情報も無い
+    expect(messages(createRetailSample(), "sys_pos", "states")).toEqual([
+      "「1 日の締めの状態」が、どの情報の状態かが決まりません (この状態へ移す操作が保存する情報が複数あって、決められません: 売上・現金・支払・在庫)",
+    ]);
+    // 発注の状態は、名前の合う「発注」が持ち主なので挙げない
+    expect(messages(createRetailSample(), "sys_ordering", "states")).toEqual([]);
+    // 宿泊のチェックアウトは、予約と部屋の両方の状態を変える。予約と部屋が結ばれていれば挙げない
+    const hotel = createHotelSample();
+    expect(messages(hotel, "sys_pms", "states")).toEqual([]);
+    const cut = okModel(removeRelation(hotel, { id: relation(hotel, "informationRelated", "info_reservation", "info_room").id }));
+    expect(messages(cut, "sys_pms", "states")).toEqual([
+      "操作「チェックアウトを記録する」は「予約の状態」と「部屋の状態」に関わりますが、情報「予約」と「部屋」が結ばれていません (どの予約の、どの部屋かが決まらない)",
+    ]);
+    // 移す操作が保存する情報を持たなければ、持ち主は決まらない
+    const m = minimal();
+    const usecase = m.elements.find((e) => e.kind === "usecase")!;
+    const withStates = withElement(withElement(m, { id: "st_a", kind: "state", name: "受付", group: "申込の状態" }), { id: "st_b", kind: "state", name: "完了", group: "申込の状態" });
+    const linked = okModel(addRelation(okModel(addRelation(withStates, { sourceId: "st_a", targetId: usecase.id })), { sourceId: usecase.id, targetId: "st_b" }));
+    const readOnly = { ...linked, relations: linked.relations.map((r) => (r.kind === "usecaseInformation" ? { ...r, access: "read" as const } : r)) };
+    expect(messages(readOnly, "sys", "states").some((x) => x.startsWith("「申込の状態」が、どの情報の状態かが決まりません (この状態へ移す操作に、保存する情報がありません)"))).toBe(true);
+  });
+
   it("設計: 設計が無い・画面がサイトマップに無い・情報がテーブルに無い・テーブルがひな形のまま", () => {
     let m = createHotelSample();
     expect(open(m, "sys_pms")).toEqual(["origins", "data", "screens"]);
@@ -135,7 +158,7 @@ describe("checkReadiness: 実装を始める準備", () => {
 
   it("設計のあるサンプル: 画面 UI の無い画面を画面ごとに数え、設計の検証の警告も条件に数える", () => {
     const r = checkReadiness(createRetailSample(), "sys_pos");
-    expect(r.conditions.filter((c) => !c.done).map((c) => c.id)).toEqual(["screens", "navigation"]);
+    expect(r.conditions.filter((c) => !c.done).map((c) => c.id)).toEqual(["states", "screens", "navigation"]);
     const screens = r.conditions.find((c) => c.id === "screens")!;
     expect(screens.items.every((i) => i.message.endsWith("の画面 UI がまだありません"))).toBe(true);
     expect(screens.items.length).toBeGreaterThan(1);

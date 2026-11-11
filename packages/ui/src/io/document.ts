@@ -1,6 +1,7 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { DOMAIN_DOCS_DIR, DOMAIN_SESSION_FILE, exportDomainDocs } from "@untie/core/model/domainExport";
 import { ACCEPTANCE_DIR, exportAcceptanceTests } from "@untie/core/model/acceptance";
+import { exportDesignBriefAll } from "@untie/core/model/designBrief";
 import { exportSoutherAll } from "@untie/core/model/southerExport";
 import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
@@ -170,6 +171,37 @@ export async function exportAcceptanceToFolder(): Promise<boolean> {
     const saved = await getPlatform().saveTextFiles(out.files, { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-acceptance.zip`, zipFolder: ACCEPTANCE_DIR });
     if (!saved) return false;
     st.pushToast(`受け入れテストを「${saved.where}」に書き出しました (ケース ${out.cases} 件)${out.pending > 0 ? `。設計で決まっていないことが ${out.pending} 件あり、そのぶんはケースになっていません` : ""}`, "info");
+    return true;
+  } catch (e) {
+    st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
+    return false;
+  }
+}
+
+/** 書き出す設計書を入れるフォルダの名前 (zip の中) */
+export const DESIGN_BRIEF_DIR = "design";
+
+/**
+ * 実装に渡す設計書を書き出す (開発モード)。操作のあるシステムごとに 1 ファイル (<システムの id>.design.md)。
+ * 実装を作る側 (AI のエージェント) が、作る前に読む。決まっていないことが残っていれば、その数を知らせる
+ */
+export async function exportDesignBriefToFolder(): Promise<boolean> {
+  const st = useUntieStore.getState();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const { model } = useUntieStore.getState();
+  const briefs = exportDesignBriefAll(model);
+  if (briefs.length === 0) {
+    st.pushToast("書き出せるシステムがありません。分析で、操作の対象にシステム (か、その画面) を結んでください", "error");
+    return false;
+  }
+  try {
+    const saved = await getPlatform().saveTextFiles(
+      briefs.map((b) => ({ name: b.fileName, text: b.text })),
+      { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-design.zip`, zipFolder: DESIGN_BRIEF_DIR },
+    );
+    if (!saved) return false;
+    const remaining = briefs.reduce((n, b) => n + b.remaining, 0);
+    st.pushToast(`設計書を「${saved.where}」に書き出しました (${saved.count} ファイル)${remaining > 0 ? `。まだ決まっていないことが ${remaining} 件あります (実装を始める準備)` : ""}`, "info");
     return true;
   } catch (e) {
     st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
