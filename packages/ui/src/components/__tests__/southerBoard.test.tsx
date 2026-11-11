@@ -63,6 +63,26 @@ describe("設計ボード「業務ルール (Souther)」", () => {
     expect(screen.getByTestId("souther-source").querySelectorAll(".souther-line.is-owed")).toHaveLength(1);
   });
 
+  it("受け入れテストのケースの数を出し、「受け入れテストを書き出す…」で、ケースとテストの本体を書き出す", async () => {
+    const { unmount } = render(<SoutherBoard />);
+    expect(Number(screen.getByTestId("acceptance-cases").textContent)).toBeGreaterThan(20);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "受け入れテストを書き出す…" }));
+    });
+    const saved = memory().savedFolders;
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.files.map((f) => f.name)).toEqual(["sys_pms.cases.json", "sys_booking_site.cases.json", "run.test.ts", "README.md"]);
+    expect(saved[0]!.options).toMatchObject({ zipFolder: "acceptance" });
+    expect(JSON.parse(saved[0]!.files[0]!.text)).toMatchObject({ system: "宿泊管理システム", pending: [] });
+    expect(st().toasts.some((t) => t.message.includes("受け入れテストを") && t.message.includes("ケース"))).toBe(true);
+    unmount();
+    // 設計で決まっていないことがあると、そのぶんは保留として出す
+    const rel = st().model.relations.find((r) => r.kind === "usecaseCondition" && r.sourceId === "uc_cancel_reservation")!;
+    act(() => void st().dispatch((m) => setRelationAlternate(m, { id: rel.id, alternate: null })));
+    render(<SoutherBoard />);
+    expect(screen.getByTestId("acceptance-cases").textContent).toContain("(保留 1)");
+  });
+
   it("「書き出す…」で、すべてのシステムの分を .sou のファイルで書き出す", async () => {
     render(<SoutherBoard />);
     await act(async () => {

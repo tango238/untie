@@ -1,5 +1,6 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { DOMAIN_DOCS_DIR, DOMAIN_SESSION_FILE, exportDomainDocs } from "@untie/core/model/domainExport";
+import { ACCEPTANCE_DIR, exportAcceptanceTests } from "@untie/core/model/acceptance";
 import { exportSoutherAll } from "@untie/core/model/southerExport";
 import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
@@ -145,6 +146,30 @@ export async function exportModelToFile(): Promise<boolean> {
     const saved = await getPlatform().saveTextFile(serializeModel(model), null, name);
     if (!saved) return false;
     st.pushToast(`「${saved.name}」に書き出しました`, "info");
+    return true;
+  } catch (e) {
+    st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
+    return false;
+  }
+}
+
+/**
+ * 受け入れテストを書き出す (開発モード)。設計から導いたケース (システムごと) と、それを流すテストの本体と、説明。
+ * 実装を作る側は、同じフォルダに driver.ts だけを書く。既にある driver.ts は、消さない (書き出すのは、ほかのファイルだけ)
+ */
+export async function exportAcceptanceToFolder(): Promise<boolean> {
+  const st = useUntieStore.getState();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const { model } = useUntieStore.getState();
+  const out = exportAcceptanceTests(model);
+  if (out.files.length === 0) {
+    st.pushToast("書き出せるケースがありません。分析で、操作に前提の状態か、判断する条件を結んでください", "error");
+    return false;
+  }
+  try {
+    const saved = await getPlatform().saveTextFiles(out.files, { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-acceptance.zip`, zipFolder: ACCEPTANCE_DIR });
+    if (!saved) return false;
+    st.pushToast(`受け入れテストを「${saved.where}」に書き出しました (ケース ${out.cases} 件)${out.pending > 0 ? `。設計で決まっていないことが ${out.pending} 件あり、そのぶんはケースになっていません` : ""}`, "info");
     return true;
   } catch (e) {
     st.pushToast(`書き出せませんでした: ${String(e)}`, "error");

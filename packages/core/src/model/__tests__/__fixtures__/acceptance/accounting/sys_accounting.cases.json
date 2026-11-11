@@ -1,0 +1,410 @@
+{
+  "format": 1,
+  "systemId": "sys_accounting",
+  "system": "会計システム",
+  "cases": [
+    {
+      "id": "uc_clear_receivable#1",
+      "usecaseId": "uc_clear_receivable",
+      "operation": "売掛金を消し込む",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 消込済 では行えない",
+      "given": {
+        "states": {
+          "売掛金の状態": "消込済"
+        },
+        "conditions": {
+          "入金額が請求額と違う": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "売掛金の状態": "消込済"
+        }
+      }
+    },
+    {
+      "id": "uc_approve_payment#1",
+      "usecaseId": "uc_approve_payment",
+      "operation": "支払を承認する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 受領済 から",
+      "given": {
+        "states": {
+          "支払の状態": "受領済"
+        },
+        "conditions": {
+          "支払が承認の上限を超えている": false
+        }
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "支払の状態": "承認済"
+        }
+      }
+    },
+    {
+      "id": "uc_approve_payment#2",
+      "usecaseId": "uc_approve_payment",
+      "operation": "支払を承認する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 承認済 では行えない",
+      "given": {
+        "states": {
+          "支払の状態": "承認済"
+        },
+        "conditions": {
+          "支払が承認の上限を超えている": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "支払の状態": "承認済"
+        }
+      }
+    },
+    {
+      "id": "uc_approve_payment#3",
+      "usecaseId": "uc_approve_payment",
+      "operation": "支払を承認する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 支払済 では行えない",
+      "given": {
+        "states": {
+          "支払の状態": "支払済"
+        },
+        "conditions": {
+          "支払が承認の上限を超えている": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "支払の状態": "支払済"
+        }
+      }
+    },
+    {
+      "id": "uc_approve_payment#4",
+      "usecaseId": "uc_approve_payment",
+      "operation": "支払を承認する",
+      "kind": "alternate",
+      "title": "支払が承認の上限を超えているとき: 経営者の承認をもらってから、支払を承認する。",
+      "given": {
+        "states": {
+          "支払の状態": "受領済"
+        },
+        "conditions": {
+          "支払が承認の上限を超えている": true
+        }
+      },
+      "expect": {
+        "outcome": "alternate",
+        "condition": "支払が承認の上限を超えている",
+        "states": {
+          "支払の状態": "承認済"
+        }
+      }
+    },
+    {
+      "id": "uc_adjust_entry#1",
+      "usecaseId": "uc_adjust_entry",
+      "operation": "調整仕訳を登録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 調整中 から",
+      "given": {
+        "states": {
+          "月次決算の状態": "調整中"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "月次決算の状態": "調整中"
+        }
+      }
+    },
+    {
+      "id": "uc_adjust_entry#2",
+      "usecaseId": "uc_adjust_entry",
+      "operation": "調整仕訳を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 試算表作成済 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        }
+      }
+    },
+    {
+      "id": "uc_adjust_entry#3",
+      "usecaseId": "uc_adjust_entry",
+      "operation": "調整仕訳を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_issue_trial#1",
+      "usecaseId": "uc_issue_trial",
+      "operation": "試算表を出力する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 調整中 から",
+      "given": {
+        "states": {
+          "月次決算の状態": "調整中"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        }
+      }
+    },
+    {
+      "id": "uc_issue_trial#2",
+      "usecaseId": "uc_issue_trial",
+      "operation": "試算表を出力する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 試算表作成済 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        }
+      }
+    },
+    {
+      "id": "uc_issue_trial#3",
+      "usecaseId": "uc_issue_trial",
+      "operation": "試算表を出力する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_close_month#1",
+      "usecaseId": "uc_close_month",
+      "operation": "月次決算を確定する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 試算表作成済 から",
+      "given": {
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_close_month#2",
+      "usecaseId": "uc_close_month",
+      "operation": "月次決算を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 調整中 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "調整中"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "調整中"
+        }
+      }
+    },
+    {
+      "id": "uc_close_month#3",
+      "usecaseId": "uc_close_month",
+      "operation": "月次決算を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_view_pl#1",
+      "usecaseId": "uc_view_pl",
+      "operation": "損益計算書を見る",
+      "kind": "normal",
+      "title": "ふだんの流れ: 試算表作成済 から",
+      "given": {
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        }
+      }
+    },
+    {
+      "id": "uc_view_pl#2",
+      "usecaseId": "uc_view_pl",
+      "operation": "損益計算書を見る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 調整中 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "調整中"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "調整中"
+        }
+      }
+    },
+    {
+      "id": "uc_view_pl#3",
+      "usecaseId": "uc_view_pl",
+      "operation": "損益計算書を見る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_view_bs#1",
+      "usecaseId": "uc_view_bs",
+      "operation": "貸借対照表を見る",
+      "kind": "normal",
+      "title": "ふだんの流れ: 試算表作成済 から",
+      "given": {
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "月次決算の状態": "試算表作成済"
+        }
+      }
+    },
+    {
+      "id": "uc_view_bs#2",
+      "usecaseId": "uc_view_bs",
+      "operation": "貸借対照表を見る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 調整中 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "調整中"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "調整中"
+        }
+      }
+    },
+    {
+      "id": "uc_view_bs#3",
+      "usecaseId": "uc_view_bs",
+      "operation": "貸借対照表を見る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "月次決算の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "月次決算の状態": "確定"
+        }
+      }
+    }
+  ],
+  "pending": [
+    {
+      "usecaseId": "uc_clear_receivable",
+      "operation": "売掛金を消し込む",
+      "reason": "次の状態が、同じ「売掛金の状態」に複数あります (一部入金 か 消込済)。どのときにどれになるかが決まっていません"
+    },
+    {
+      "usecaseId": "uc_clear_receivable",
+      "operation": "売掛金を消し込む",
+      "reason": "条件「入金額が請求額と違う」のときの、そのあとの状態は「ふだんと同じ」ですが、ふだんの次の状態が決まっていません"
+    }
+  ]
+}

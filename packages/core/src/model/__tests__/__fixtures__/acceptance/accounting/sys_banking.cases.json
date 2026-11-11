@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "systemId": "sys_banking",
+  "system": "インターネットバンキング",
+  "cases": [
+    {
+      "id": "uc_issue_transfer#1",
+      "usecaseId": "uc_issue_transfer",
+      "operation": "振込データを作る",
+      "kind": "normal",
+      "title": "ふだんの流れ: 承認済 から",
+      "given": {
+        "states": {
+          "支払の状態": "承認済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "支払の状態": "支払済"
+        }
+      }
+    },
+    {
+      "id": "uc_issue_transfer#2",
+      "usecaseId": "uc_issue_transfer",
+      "operation": "振込データを作る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 受領済 では行えない",
+      "given": {
+        "states": {
+          "支払の状態": "受領済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "支払の状態": "受領済"
+        }
+      }
+    },
+    {
+      "id": "uc_issue_transfer#3",
+      "usecaseId": "uc_issue_transfer",
+      "operation": "振込データを作る",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 支払済 では行えない",
+      "given": {
+        "states": {
+          "支払の状態": "支払済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "支払の状態": "支払済"
+        }
+      }
+    }
+  ],
+  "pending": []
+}

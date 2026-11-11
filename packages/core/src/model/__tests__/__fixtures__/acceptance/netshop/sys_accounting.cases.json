@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "systemId": "sys_accounting",
+  "system": "会計システム",
+  "cases": [
+    {
+      "id": "uc_clear_receivable#1",
+      "usecaseId": "uc_clear_receivable",
+      "operation": "売掛金を消し込む",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 消込済 では行えない",
+      "given": {
+        "states": {
+          "売掛金の状態": "消込済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "売掛金の状態": "消込済"
+        }
+      }
+    }
+  ],
+  "pending": [
+    {
+      "usecaseId": "uc_clear_receivable",
+      "operation": "売掛金を消し込む",
+      "reason": "次の状態が、同じ「売掛金の状態」に複数あります (一部入金 か 消込済)。どのときにどれになるかが決まっていません"
+    }
+  ]
+}

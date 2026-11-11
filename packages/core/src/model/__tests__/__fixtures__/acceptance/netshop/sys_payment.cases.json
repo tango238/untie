@@ -1,0 +1,160 @@
+{
+  "format": 1,
+  "systemId": "sys_payment",
+  "system": "決済サービス",
+  "cases": [
+    {
+      "id": "uc_record_payment#1",
+      "usecaseId": "uc_record_payment",
+      "operation": "入金を記録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 確定 から",
+      "given": {
+        "states": {
+          "注文の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "注文の状態": "入金済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_payment#2",
+      "usecaseId": "uc_record_payment",
+      "operation": "入金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 受付済 では行えない",
+      "given": {
+        "states": {
+          "注文の状態": "受付済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "注文の状態": "受付済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_payment#3",
+      "usecaseId": "uc_record_payment",
+      "operation": "入金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 入金済 では行えない",
+      "given": {
+        "states": {
+          "注文の状態": "入金済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "注文の状態": "入金済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_payment#4",
+      "usecaseId": "uc_record_payment",
+      "operation": "入金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 出荷済 では行えない",
+      "given": {
+        "states": {
+          "注文の状態": "出荷済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "注文の状態": "出荷済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_payment#5",
+      "usecaseId": "uc_record_payment",
+      "operation": "入金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "注文の状態": "取消"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "注文の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_record_refund#1",
+      "usecaseId": "uc_record_refund",
+      "operation": "返金を記録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 検品済 から",
+      "given": {
+        "states": {
+          "返品の状態": "検品済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "返品の状態": "返金済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_refund#2",
+      "usecaseId": "uc_record_refund",
+      "operation": "返金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 返品受付 では行えない",
+      "given": {
+        "states": {
+          "返品の状態": "返品受付"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "返品の状態": "返品受付"
+        }
+      }
+    },
+    {
+      "id": "uc_record_refund#3",
+      "usecaseId": "uc_record_refund",
+      "operation": "返金を記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 返金済 では行えない",
+      "given": {
+        "states": {
+          "返品の状態": "返金済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "返品の状態": "返金済"
+        }
+      }
+    }
+  ],
+  "pending": []
+}
