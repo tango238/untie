@@ -548,7 +548,10 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .menu-empty { padding: 6px 10px; color: var(--muted); }
 
 /* AI エージェント (下のペイン) */
-.agent-pane { height: 300px; flex: none; display: flex; flex-direction: column; border-top: 2px solid var(--border); background: var(--panel); min-height: 0; }
+.agent-pane { position: relative; height: 300px; flex: none; display: flex; flex-direction: column; border-top: 2px solid var(--border); background: var(--panel); min-height: 0; }
+/* 上端の取っ手。上の枠線に重ねて、引くと高さが変わる */
+.agent-resize { position: absolute; top: -5px; left: 0; right: 0; height: 9px; cursor: row-resize; z-index: 5; touch-action: none; }
+.agent-resize:hover, .agent-resize:focus-visible { background: var(--accent); opacity: 0.35; outline: none; }
 .agent-head { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
 .agent-title { margin: 0; font-size: 13px; }
 .agent-model { font-size: 12px; color: var(--accent); }
@@ -881,6 +884,8 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 
   /* AI エージェントは下に出す。画面の半分までにして、キャンバスを残す */
   .agent-pane { height: 42dvh; max-height: 320px; }
+  /* 指で掴めるよう、取っ手を太くする */
+  .agent-resize { top: -9px; height: 18px; }
   .agent-item { max-width: 92%; }
   .agent-input { padding: 8px 10px; }
 
