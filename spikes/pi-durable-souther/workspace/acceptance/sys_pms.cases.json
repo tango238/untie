@@ -1,0 +1,749 @@
+{
+  "format": 1,
+  "systemId": "sys_pms",
+  "system": "宿泊管理システム",
+  "cases": [
+    {
+      "id": "uc_confirm_reservation#1",
+      "usecaseId": "uc_confirm_reservation",
+      "operation": "予約を確定する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 仮予約 から",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_confirm_reservation#2",
+      "usecaseId": "uc_confirm_reservation",
+      "operation": "予約を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_confirm_reservation#3",
+      "usecaseId": "uc_confirm_reservation",
+      "operation": "予約を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックイン済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_confirm_reservation#4",
+      "usecaseId": "uc_confirm_reservation",
+      "operation": "予約を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_confirm_reservation#5",
+      "usecaseId": "uc_confirm_reservation",
+      "operation": "予約を確定する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_change_reservation#1",
+      "usecaseId": "uc_change_reservation",
+      "operation": "予約を変更する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 確定 から",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_change_reservation#2",
+      "usecaseId": "uc_change_reservation",
+      "operation": "予約を変更する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 仮予約 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "仮予約"
+        }
+      }
+    },
+    {
+      "id": "uc_change_reservation#3",
+      "usecaseId": "uc_change_reservation",
+      "operation": "予約を変更する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックイン済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_change_reservation#4",
+      "usecaseId": "uc_change_reservation",
+      "operation": "予約を変更する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_change_reservation#5",
+      "usecaseId": "uc_change_reservation",
+      "operation": "予約を変更する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#1",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "normal",
+      "title": "ふだんの流れ: 確定 から",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {
+          "取消料が発生する": false
+        }
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#2",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 仮予約 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {
+          "取消料が発生する": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "仮予約"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#3",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックイン済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {
+          "取消料が発生する": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#4",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {
+          "取消料が発生する": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#5",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {
+          "取消料が発生する": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_cancel_reservation#6",
+      "usecaseId": "uc_cancel_reservation",
+      "operation": "予約を取り消す",
+      "kind": "alternate",
+      "title": "取消料が発生するとき: 取消料を請求に加えてから、予約を取り消す。",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {
+          "取消料が発生する": true
+        }
+      },
+      "expect": {
+        "outcome": "alternate",
+        "condition": "取消料が発生する",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#1",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 確定 から",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {
+          "早めのチェックインができる": true
+        }
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#2",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 仮予約 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {
+          "早めのチェックインができる": true
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "仮予約"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#3",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックイン済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {
+          "早めのチェックインができる": true
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#4",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {
+          "早めのチェックインができる": true
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#5",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {
+          "早めのチェックインができる": true
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkin#6",
+      "usecaseId": "uc_record_checkin",
+      "operation": "チェックインを記録する",
+      "kind": "alternate",
+      "title": "早めのチェックインができる でないとき: 部屋の準備が済むまで、ロビーで待ってもらう。",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {
+          "早めのチェックインができる": false
+        }
+      },
+      "expect": {
+        "outcome": "alternate",
+        "condition": "早めのチェックインができる",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_assign_room#1",
+      "usecaseId": "uc_assign_room",
+      "operation": "部屋の割り当てを記録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: 準備完了 から",
+      "given": {
+        "states": {
+          "部屋の状態": "準備完了"
+        },
+        "conditions": {
+          "満室である": false
+        }
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "部屋の状態": "使用中"
+        }
+      }
+    },
+    {
+      "id": "uc_assign_room#2",
+      "usecaseId": "uc_assign_room",
+      "operation": "部屋の割り当てを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 清掃待ち では行えない",
+      "given": {
+        "states": {
+          "部屋の状態": "清掃待ち"
+        },
+        "conditions": {
+          "満室である": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "部屋の状態": "清掃待ち"
+        }
+      }
+    },
+    {
+      "id": "uc_assign_room#3",
+      "usecaseId": "uc_assign_room",
+      "operation": "部屋の割り当てを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 清掃中 では行えない",
+      "given": {
+        "states": {
+          "部屋の状態": "清掃中"
+        },
+        "conditions": {
+          "満室である": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "部屋の状態": "清掃中"
+        }
+      }
+    },
+    {
+      "id": "uc_assign_room#4",
+      "usecaseId": "uc_assign_room",
+      "operation": "部屋の割り当てを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 使用中 では行えない",
+      "given": {
+        "states": {
+          "部屋の状態": "使用中"
+        },
+        "conditions": {
+          "満室である": false
+        }
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "部屋の状態": "使用中"
+        }
+      }
+    },
+    {
+      "id": "uc_assign_room#5",
+      "usecaseId": "uc_assign_room",
+      "operation": "部屋の割り当てを記録する",
+      "kind": "alternate",
+      "title": "満室であるとき: 部屋を割り当てず、空きが出るまで待ってもらう。",
+      "given": {
+        "states": {
+          "部屋の状態": "準備完了"
+        },
+        "conditions": {
+          "満室である": true
+        }
+      },
+      "expect": {
+        "outcome": "alternate",
+        "condition": "満室である",
+        "states": {
+          "部屋の状態": "準備完了"
+        }
+      }
+    },
+    {
+      "id": "uc_register_extra#1",
+      "usecaseId": "uc_register_extra",
+      "operation": "追加料金を登録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: チェックイン済 から",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "チェックイン済"
+        }
+      }
+    },
+    {
+      "id": "uc_register_extra#2",
+      "usecaseId": "uc_register_extra",
+      "operation": "追加料金を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 仮予約 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "仮予約"
+        }
+      }
+    },
+    {
+      "id": "uc_register_extra#3",
+      "usecaseId": "uc_register_extra",
+      "operation": "追加料金を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_register_extra#4",
+      "usecaseId": "uc_register_extra",
+      "operation": "追加料金を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_register_extra#5",
+      "usecaseId": "uc_register_extra",
+      "operation": "追加料金を登録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkout#1",
+      "usecaseId": "uc_record_checkout",
+      "operation": "チェックアウトを記録する",
+      "kind": "normal",
+      "title": "ふだんの流れ: チェックイン済 から",
+      "given": {
+        "states": {
+          "予約の状態": "チェックイン済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "done",
+        "states": {
+          "予約の状態": "チェックアウト済",
+          "部屋の状態": "清掃待ち"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkout#2",
+      "usecaseId": "uc_record_checkout",
+      "operation": "チェックアウトを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 仮予約 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "仮予約"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "仮予約"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkout#3",
+      "usecaseId": "uc_record_checkout",
+      "operation": "チェックアウトを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 確定 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "確定"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "確定"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkout#4",
+      "usecaseId": "uc_record_checkout",
+      "operation": "チェックアウトを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: チェックアウト済 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "チェックアウト済"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "チェックアウト済"
+        }
+      }
+    },
+    {
+      "id": "uc_record_checkout#5",
+      "usecaseId": "uc_record_checkout",
+      "operation": "チェックアウトを記録する",
+      "kind": "wrongState",
+      "title": "前提の状態が違う: 取消 では行えない",
+      "given": {
+        "states": {
+          "予約の状態": "取消"
+        },
+        "conditions": {}
+      },
+      "expect": {
+        "outcome": "wrongState",
+        "states": {
+          "予約の状態": "取消"
+        }
+      }
+    }
+  ],
+  "pending": []
+}

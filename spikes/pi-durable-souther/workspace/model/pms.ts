@@ -4,7 +4,7 @@
 import * as souther from "@souther-lang/wasm";
 
 /** What identifies the surface this binding was generated from; a module carrying another is refused. */
-export const FINGERPRINT = "9cf77e8ea3bb133492f7b03af244120d1074aa22f75b4053401666e52e3adfa2";
+export const FINGERPRINT = "4ae5bfb567b00b7707d10db43a83f95b598b6b24847082e6795e380f5cdbc9b1";
 
 /** `untie.sys_pms.予約の状態`. */
 export type _____ = "仮予約" | "確定" | "チェックイン済" | "チェックアウト済" | "取消";
@@ -12,8 +12,11 @@ export type _____ = "仮予約" | "確定" | "チェックイン済" | "チェ�
 /** `untie.sys_pms.部屋の状態`. */
 export type ______2 = "清掃待ち" | "清掃中" | "準備完了" | "使用中";
 
+/** `untie.sys_pms.予約を取り消す_取消料が発生する`. */
+export type ________________ = { readonly "予約の状態": _____ };
+
 /** `untie.sys_pms.チェックアウトを記録する_結果`. */
-export type _______________ = { readonly "予約の状態": ________; readonly "部屋の状態": ____ };
+export type _______________ = { readonly "予約の状態": _____; readonly "部屋の状態": ______2 };
 
 /** `untie.sys_pms.仮予約`. */
 export type ___ = { readonly [key: string]: never };
@@ -42,17 +45,35 @@ export type _____2 = { readonly [key: string]: never };
 /** `untie.sys_pms.使用中`. */
 export type ____3 = { readonly [key: string]: never };
 
-/** `untie.sys_pms.予約を取り消す_取消料が発生する`. */
-export type ________________ = { readonly [key: string]: never };
+/** `untie.sys_pms.予約を確定する_状態が違う`. */
+export type _____________ = { readonly [key: string]: never };
+
+/** `untie.sys_pms.予約を変更する_状態が違う`. */
+export type ______________2 = { readonly [key: string]: never };
+
+/** `untie.sys_pms.予約を取り消す_状態が違う`. */
+export type ______________3 = { readonly [key: string]: never };
 
 /** `untie.sys_pms.チェックインを記録する_早めのチェックインができる_でない`. */
 export type _____________________________ = { readonly [key: string]: never };
 
+/** `untie.sys_pms.チェックインを記録する_状態が違う`. */
+export type _________________ = { readonly [key: string]: never };
+
 /** `untie.sys_pms.部屋の割り当てを記録する_満室である`. */
 export type __________________ = { readonly [key: string]: never };
 
+/** `untie.sys_pms.部屋の割り当てを記録する_状態が違う`. */
+export type ___________________2 = { readonly [key: string]: never };
+
 /** `untie.sys_pms.追加料金を登録する_完了`. */
 export type ____________ = { readonly [key: string]: never };
+
+/** `untie.sys_pms.追加料金を登録する_状態が違う`. */
+export type ________________2 = { readonly [key: string]: never };
+
+/** `untie.sys_pms.チェックアウトを記録する_状態が違う`. */
+export type ___________________3 = { readonly [key: string]: never };
 
 /** What answers each behavior the program reaches out for. */
 export interface Supplied {
@@ -63,19 +84,20 @@ export interface Bound {
   readonly program: souther.Program;
   readonly modules: {
     readonly "untie.sys_pms": {
-      "予約を確定する"(_______: ___): souther.Reading<__>;
-      "予約を変更する"(_______: __): souther.Reading<__>;
-      "予約を取り消す"(_______: __, ________: boolean): souther.Reading<"予約を取り消す_取消料が発生する" | "取消">;
-      "チェックインを記録する"(_______: __, _____________: boolean): souther.Reading<"チェックインを記録する_早めのチェックインができる_でない" | "チェックイン済">;
-      "部屋の割り当てを記録する"(_______: _____2, _____: boolean): souther.Reading<"使用中" | "部屋の割り当てを記録する_満室である">;
-      "追加料金を登録する"(_______: _______): souther.Reading<____________>;
-      "チェックアウトを記録する"(_______: _______): souther.Reading<_______________>;
+      "予約を確定する"(_______: _____): souther.Reading<"予約を確定する_状態が違う" | "確定">;
+      "予約を変更する"(_______: _____): souther.Reading<"予約を変更する_状態が違う" | "確定">;
+      "予約を取り消す"(_______: _____, ________: boolean): souther.Reading<({ readonly type: "予約を取り消す_取消料が発生する" } & ________________) | { readonly type: "予約を取り消す_状態が違う" } | { readonly type: "取消" }>;
+      "チェックインを記録する"(_______: _____, _____________: boolean): souther.Reading<"チェックインを記録する_早めのチェックインができる_でない" | "チェックインを記録する_状態が違う" | "チェックイン済">;
+      "部屋の割り当てを記録する"(_______: ______2, _____: boolean): souther.Reading<"使用中" | "部屋の割り当てを記録する_満室である" | "部屋の割り当てを記録する_状態が違う">;
+      "追加料金を登録する"(_______: _____): souther.Reading<"追加料金を登録する_完了" | "追加料金を登録する_状態が違う">;
+      "チェックアウトを記録する"(_______: _____): souther.Reading<{ readonly type: "チェックアウトを記録する_状態が違う" } | ({ readonly type: "チェックアウトを記録する_結果" } & _______________)>;
     };
   };
   readonly decode: {
     readonly "untie.sys_pms": {
       readonly "予約の状態": souther.Decoder<_____>;
       readonly "部屋の状態": souther.Decoder<______2>;
+      readonly "予約を取り消す_取消料が発生する": souther.Decoder<________________>;
       readonly "チェックアウトを記録する_結果": souther.Decoder<_______________>;
       readonly "仮予約": souther.Decoder<___>;
       readonly "確定": souther.Decoder<__>;
@@ -86,16 +108,23 @@ export interface Bound {
       readonly "清掃中": souther.Decoder<____2>;
       readonly "準備完了": souther.Decoder<_____2>;
       readonly "使用中": souther.Decoder<____3>;
-      readonly "予約を取り消す_取消料が発生する": souther.Decoder<________________>;
+      readonly "予約を確定する_状態が違う": souther.Decoder<_____________>;
+      readonly "予約を変更する_状態が違う": souther.Decoder<______________2>;
+      readonly "予約を取り消す_状態が違う": souther.Decoder<______________3>;
       readonly "チェックインを記録する_早めのチェックインができる_でない": souther.Decoder<_____________________________>;
+      readonly "チェックインを記録する_状態が違う": souther.Decoder<_________________>;
       readonly "部屋の割り当てを記録する_満室である": souther.Decoder<__________________>;
+      readonly "部屋の割り当てを記録する_状態が違う": souther.Decoder<___________________2>;
       readonly "追加料金を登録する_完了": souther.Decoder<____________>;
+      readonly "追加料金を登録する_状態が違う": souther.Decoder<________________2>;
+      readonly "チェックアウトを記録する_状態が違う": souther.Decoder<___________________3>;
     };
   };
   readonly form: {
     readonly "untie.sys_pms": {
       readonly "予約の状態": souther.FormDecoder<_____>;
       readonly "部屋の状態": souther.FormDecoder<______2>;
+      readonly "予約を取り消す_取消料が発生する": souther.FormDecoder<________________>;
       readonly "チェックアウトを記録する_結果": souther.FormDecoder<_______________>;
       readonly "仮予約": souther.FormDecoder<___>;
       readonly "確定": souther.FormDecoder<__>;
@@ -106,10 +135,16 @@ export interface Bound {
       readonly "清掃中": souther.FormDecoder<____2>;
       readonly "準備完了": souther.FormDecoder<_____2>;
       readonly "使用中": souther.FormDecoder<____3>;
-      readonly "予約を取り消す_取消料が発生する": souther.FormDecoder<________________>;
+      readonly "予約を確定する_状態が違う": souther.FormDecoder<_____________>;
+      readonly "予約を変更する_状態が違う": souther.FormDecoder<______________2>;
+      readonly "予約を取り消す_状態が違う": souther.FormDecoder<______________3>;
       readonly "チェックインを記録する_早めのチェックインができる_でない": souther.FormDecoder<_____________________________>;
+      readonly "チェックインを記録する_状態が違う": souther.FormDecoder<_________________>;
       readonly "部屋の割り当てを記録する_満室である": souther.FormDecoder<__________________>;
+      readonly "部屋の割り当てを記録する_状態が違う": souther.FormDecoder<___________________2>;
       readonly "追加料金を登録する_完了": souther.FormDecoder<____________>;
+      readonly "追加料金を登録する_状態が違う": souther.FormDecoder<________________2>;
+      readonly "チェックアウトを記録する_状態が違う": souther.FormDecoder<___________________3>;
     };
   };
 }
@@ -134,6 +169,7 @@ export async function load(source: souther.Source, supplied: Supplied = {}) {
       "untie.sys_pms": {
         "予約の状態": program.decoder("untie.sys_pms.予約の状態"),
         "部屋の状態": program.decoder("untie.sys_pms.部屋の状態"),
+        "予約を取り消す_取消料が発生する": program.decoder("untie.sys_pms.予約を取り消す_取消料が発生する"),
         "チェックアウトを記録する_結果": program.decoder("untie.sys_pms.チェックアウトを記録する_結果"),
         "仮予約": program.decoder("untie.sys_pms.仮予約"),
         "確定": program.decoder("untie.sys_pms.確定"),
@@ -144,16 +180,23 @@ export async function load(source: souther.Source, supplied: Supplied = {}) {
         "清掃中": program.decoder("untie.sys_pms.清掃中"),
         "準備完了": program.decoder("untie.sys_pms.準備完了"),
         "使用中": program.decoder("untie.sys_pms.使用中"),
-        "予約を取り消す_取消料が発生する": program.decoder("untie.sys_pms.予約を取り消す_取消料が発生する"),
+        "予約を確定する_状態が違う": program.decoder("untie.sys_pms.予約を確定する_状態が違う"),
+        "予約を変更する_状態が違う": program.decoder("untie.sys_pms.予約を変更する_状態が違う"),
+        "予約を取り消す_状態が違う": program.decoder("untie.sys_pms.予約を取り消す_状態が違う"),
         "チェックインを記録する_早めのチェックインができる_でない": program.decoder("untie.sys_pms.チェックインを記録する_早めのチェックインができる_でない"),
+        "チェックインを記録する_状態が違う": program.decoder("untie.sys_pms.チェックインを記録する_状態が違う"),
         "部屋の割り当てを記録する_満室である": program.decoder("untie.sys_pms.部屋の割り当てを記録する_満室である"),
+        "部屋の割り当てを記録する_状態が違う": program.decoder("untie.sys_pms.部屋の割り当てを記録する_状態が違う"),
         "追加料金を登録する_完了": program.decoder("untie.sys_pms.追加料金を登録する_完了"),
+        "追加料金を登録する_状態が違う": program.decoder("untie.sys_pms.追加料金を登録する_状態が違う"),
+        "チェックアウトを記録する_状態が違う": program.decoder("untie.sys_pms.チェックアウトを記録する_状態が違う"),
       },
     },
     form: {
       "untie.sys_pms": {
         "予約の状態": program.formDecoder("untie.sys_pms.予約の状態"),
         "部屋の状態": program.formDecoder("untie.sys_pms.部屋の状態"),
+        "予約を取り消す_取消料が発生する": program.formDecoder("untie.sys_pms.予約を取り消す_取消料が発生する"),
         "チェックアウトを記録する_結果": program.formDecoder("untie.sys_pms.チェックアウトを記録する_結果"),
         "仮予約": program.formDecoder("untie.sys_pms.仮予約"),
         "確定": program.formDecoder("untie.sys_pms.確定"),
@@ -164,10 +207,16 @@ export async function load(source: souther.Source, supplied: Supplied = {}) {
         "清掃中": program.formDecoder("untie.sys_pms.清掃中"),
         "準備完了": program.formDecoder("untie.sys_pms.準備完了"),
         "使用中": program.formDecoder("untie.sys_pms.使用中"),
-        "予約を取り消す_取消料が発生する": program.formDecoder("untie.sys_pms.予約を取り消す_取消料が発生する"),
+        "予約を確定する_状態が違う": program.formDecoder("untie.sys_pms.予約を確定する_状態が違う"),
+        "予約を変更する_状態が違う": program.formDecoder("untie.sys_pms.予約を変更する_状態が違う"),
+        "予約を取り消す_状態が違う": program.formDecoder("untie.sys_pms.予約を取り消す_状態が違う"),
         "チェックインを記録する_早めのチェックインができる_でない": program.formDecoder("untie.sys_pms.チェックインを記録する_早めのチェックインができる_でない"),
+        "チェックインを記録する_状態が違う": program.formDecoder("untie.sys_pms.チェックインを記録する_状態が違う"),
         "部屋の割り当てを記録する_満室である": program.formDecoder("untie.sys_pms.部屋の割り当てを記録する_満室である"),
+        "部屋の割り当てを記録する_状態が違う": program.formDecoder("untie.sys_pms.部屋の割り当てを記録する_状態が違う"),
         "追加料金を登録する_完了": program.formDecoder("untie.sys_pms.追加料金を登録する_完了"),
+        "追加料金を登録する_状態が違う": program.formDecoder("untie.sys_pms.追加料金を登録する_状態が違う"),
+        "チェックアウトを記録する_状態が違う": program.formDecoder("untie.sys_pms.チェックアウトを記録する_状態が違う"),
       },
     },
   };

@@ -246,6 +246,9 @@ const driver: AcceptanceDriver = {
 export default driver;
 \`\`\`
 
+driver.ts は、利用者が使うのと同じ入口 (HTTP の API や画面) を通して、アプリケーションを動かします。
+業務ルールを driver.ts の中で判断したり、アプリケーションを通さずに答えを作ったりしないでください (テストは通りますが、アプリケーションを確かめたことになりません)。
+
 結果の種類 (\`outcome\`):
 
 | 値 | 意味 |

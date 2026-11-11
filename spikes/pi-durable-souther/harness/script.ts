@@ -3,24 +3,15 @@
 // 書くアプリケーションは、宿泊管理システムの予約の操作 (確定・取消・チェックイン) の HTTP API。業務ルールは、Souther を WebAssembly にしたものを呼ぶ。
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 
-const PACKAGE_JSON = `{
-  "name": "pms-app",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "node --test test/app.test.ts", "start": "node src/server.ts" },
-  "dependencies": { "@raoh/core": "0.9.0", "@souther-lang/wasm": "0.4.1" }
-}
-`;
-
-const RULES_TS = `// 業務ルール: untie が書き出した Souther のモデルを WebAssembly にしたもの (../model/pms.wasm。設計の model/ を写したもの) を呼ぶ。
-// ここには判断を書かない。状態の移り変わりと、条件のときの別の結果は、モデルが答える。
+const RULES_TS = `// 業務ルール: untie が書き出した Souther のモデルを WebAssembly にしたもの (model/pms.wasm) を呼ぶ。
+// ここには判断を書かない。前提の状態・状態の移り変わり・条件のときの別の結果は、モデルが答える。
 import { readFile } from "node:fs/promises";
-import { load, type Bound } from "../model/pms.ts";
+import { load, type Bound } from "../../model/pms.ts";
 
 let bound: Promise<Bound> | undefined;
 
 export function rules(): Promise<Bound["modules"]["untie.sys_pms"]> {
-  bound ??= readFile(new URL("../model/pms.wasm", import.meta.url)).then((bytes) => load(bytes));
+  bound ??= readFile(new URL("../../model/pms.wasm", import.meta.url)).then((bytes) => load(bytes));
   return bound.then((b) => b.modules["untie.sys_pms"]);
 }
 `;
@@ -29,19 +20,22 @@ const APP_TS = `// 予約の操作の HTTP API。予約は、このプロセス�
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { rules } from "./rules.ts";
 
-export type ReservationState = "仮予約" | "確定" | "チェックイン済" | "チェックアウト済" | "取消";
 export interface Reservation {
   id: string;
   guest: string;
-  state: ReservationState;
+  /** 予約の状態。どの状態があり、どう移るかは、業務ルールのモデルが決める */
+  state: string;
   /** 条件のときの別の結果になったときの、利用者への案内 */
   notice?: string;
 }
 
-/** 条件のときの別の結果 (Souther の出力のケース) と、設計で決めた「どうなるか」 */
-const ALTERNATES: Record<string, { state: ReservationState | null; notice: string }> = {
-  "予約を取り消す_取消料が発生する": { state: "取消", notice: "取消料を請求に加えてから、予約を取り消す。" },
-  "チェックインを記録する_早めのチェックインができる_でない": { state: null, notice: "部屋の準備が済むまで、ロビーで待ってもらう。" },
+/** 予約を登録したときの状態 (予約を登録する操作は、別のシステムのもので、このモデルに無い) */
+const INITIAL_STATE = "仮予約";
+
+/** 条件のときの別の結果 (Souther の出力のケース) になったときの、利用者への案内。そのあとの状態は、モデルが答える */
+const NOTICES: Record<string, string> = {
+  "予約を取り消す_取消料が発生する": "取消料を請求に加えてから、予約を取り消す。",
+  "チェックインを記録する_早めのチェックインができる_でない": "部屋の準備が済むまで、ロビーで待ってもらう。",
 };
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -62,21 +56,26 @@ export function createApp(): Server {
   const reservations = new Map<string, Reservation>();
   let seq = 0;
 
-  /** 前提の状態を確かめ、業務ルールに結果を訊いて、予約に反映する */
-  async function transition(res: ServerResponse, id: string, expected: ReservationState, ask: (m: Awaited<ReturnType<typeof rules>>) => { value?: unknown; issues?: unknown }): Promise<void> {
+  /** 業務ルールに、今の状態と条件を渡して結果を訊き、予約に反映する。前提の状態が違うかどうかも、モデルが答える */
+  async function operate(res: ServerResponse, id: string, operation: string, ask: (m: any, state: string) => { value?: unknown; issues?: unknown }): Promise<void> {
     const reservation = reservations.get(id);
     if (!reservation) return send(res, 404, { error: "not_found", message: "予約が見つかりません" });
-    if (reservation.state !== expected) return send(res, 409, { error: "state_conflict", message: \`この操作は「\${expected}」の予約にだけ行えます (今は「\${reservation.state}」)\` });
-    const answer = ask(await rules());
+    const answer = ask(await rules(), reservation.state);
     if (answer.issues !== undefined) return send(res, 422, { error: "invalid", issues: answer.issues });
-    const outcome = typeof answer.value === "string" ? answer.value : undefined;
-    const alternate = outcome ? ALTERNATES[outcome] : undefined;
-    if (alternate) {
-      if (alternate.state) reservation.state = alternate.state;
-      reservation.notice = alternate.notice;
-      return send(res, 200, { reservation, outcome });
+    const value = answer.value as string | { type: string; 予約の状態?: string };
+    const outcome = typeof value === "string" ? value : value.type;
+    if (outcome === \`\${operation}_状態が違う\`) return send(res, 409, { error: "state_conflict", message: \`この操作は、今の状態 (「\${reservation.state}」) では行えません\` });
+    const notice = NOTICES[outcome];
+    if (notice === undefined) {
+      // ふだんの結果: 返ってきたものが、次の状態
+      reservation.state = outcome;
+      delete reservation.notice;
+    } else {
+      // 条件のときの別の結果: 状態を持っていれば、その状態になる。持っていなければ、状態は変えない
+      if (typeof value !== "string" && value.予約の状態 !== undefined) reservation.state = value.予約の状態;
+      reservation.notice = notice;
     }
-    return undefined;
+    return send(res, 200, { reservation, outcome });
   }
 
   return createServer(async (req, res) => {
@@ -88,7 +87,7 @@ export function createApp(): Server {
       if (req.method === "POST" && parts.length === 1) {
         const body = await readJson(req);
         if (typeof body.guest !== "string" || body.guest.trim() === "") return send(res, 400, { error: "invalid_input", message: "宿泊客の名前を入れてください" });
-        const reservation: Reservation = { id: \`r\${++seq}\`, guest: body.guest.trim(), state: "仮予約" };
+        const reservation: Reservation = { id: \`r\${++seq}\`, guest: body.guest.trim(), state: INITIAL_STATE };
         reservations.set(reservation.id, reservation);
         return send(res, 201, { reservation });
       }
@@ -100,25 +99,9 @@ export function createApp(): Server {
       if (req.method === "POST" && parts.length === 3) {
         const body = await readJson(req);
         const flag = (key: string): boolean => body[key] === true;
-        const settle = (state: ReservationState) => {
-          if (res.writableEnded) return;
-          const reservation = reservations.get(id)!;
-          reservation.state = state;
-          delete reservation.notice;
-          send(res, 200, { reservation, outcome: state });
-        };
-        if (parts[2] === "confirm") {
-          await transition(res, id, "仮予約", (m) => m["予約を確定する"]({}));
-          return settle("確定");
-        }
-        if (parts[2] === "cancel") {
-          await transition(res, id, "確定", (m) => m["予約を取り消す"]({}, flag("cancellationFee")));
-          return settle("取消");
-        }
-        if (parts[2] === "checkin") {
-          await transition(res, id, "確定", (m) => m["チェックインを記録する"]({}, flag("earlyCheckinAvailable")));
-          return settle("チェックイン済");
-        }
+        if (parts[2] === "confirm") return await operate(res, id, "予約を確定する", (m, state) => m["予約を確定する"](state));
+        if (parts[2] === "cancel") return await operate(res, id, "予約を取り消す", (m, state) => m["予約を取り消す"](state, flag("cancellationFee")));
+        if (parts[2] === "checkin") return await operate(res, id, "チェックインを記録する", (m, state) => m["チェックインを記録する"](state, flag("earlyCheckinAvailable")));
       }
       return send(res, 404, { error: "not_found", message: "見つかりません" });
     } catch (e) {
@@ -201,7 +184,7 @@ const bash = (command: string) => fauxAssistantMessage([fauxToolCall("bash", { c
 const read = (path: string) => fauxAssistantMessage([fauxToolCall("read", { path })], { stopReason: "toolUse" });
 
 /** テストを走らせるコマンド (途中で落とす検証の目印にもする) */
-export const TEST_COMMAND = "cd app && npm test 2>&1 | tail -30";
+export const TEST_COMMAND = "npm test 2>&1 | tail -30";
 
 const FINAL = fauxAssistantMessage([fauxText("app/ に、予約の操作の HTTP API を作りました。業務ルールは model/pms.wasm (Souther) を呼んでいます。npm test は通っています。")]);
 
@@ -209,14 +192,12 @@ const FINAL = fauxAssistantMessage([fauxText("app/ に、予約の操作の HTTP
 export const FULL_SCRIPT = [
   read("design/design.md"),
   read("design/sys_pms.sou"),
-  // コンパイル済みのモデルと TypeScript の呼び出しコードを、アプリの中へ写す (呼び出しコードが使うパッケージを、アプリの node_modules から引けるように)
-  bash("mkdir -p app && rm -rf app/model && cp -r model app/model && ls app/model"),
-  write("app/package.json", PACKAGE_JSON),
+  // 土台 (作業フォルダの package.json) の依存を入れる。モデルの呼び出しコード (model/pms.ts) が使うパッケージも、ここから引ける
+  bash("ls model && npm install 2>&1 | tail -5"),
   write("app/src/rules.ts", RULES_TS),
   write("app/src/app.ts", APP_TS),
   write("app/src/server.ts", SERVER_TS),
   write("app/test/app.test.ts", TEST_TS),
-  bash("cd app && npm install 2>&1 | tail -5"),
   bash(TEST_COMMAND),
   FINAL,
 ];

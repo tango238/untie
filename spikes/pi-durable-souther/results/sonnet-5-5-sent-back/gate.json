@@ -1,0 +1,58 @@
+{
+  "accepted": true,
+  "gateRuns": 2,
+  "checks": [
+    {
+      "ok": false,
+      "restored": [
+        "acceptance/README.md",
+        "acceptance/run.test.ts",
+        "acceptance/sys_pms.cases.json"
+      ],
+      "checks": [
+        {
+          "name": "受け入れテスト",
+          "command": "node --test acceptance/run.test.ts",
+          "exit": 1,
+          "tests": 1,
+          "pass": 0,
+          "fail": 1,
+          "ok": false
+        },
+        {
+          "name": "アプリのテスト",
+          "command": "npm test",
+          "exit": 0,
+          "tests": 0,
+          "pass": 0,
+          "fail": 0,
+          "ok": false
+        }
+      ]
+    },
+    {
+      "ok": true,
+      "restored": [],
+      "checks": [
+        {
+          "name": "受け入れテスト",
+          "command": "node --test acceptance/run.test.ts",
+          "exit": 0,
+          "tests": 39,
+          "pass": 39,
+          "fail": 0,
+          "ok": true
+        },
+        {
+          "name": "アプリのテスト",
+          "command": "npm test",
+          "exit": 0,
+          "tests": 46,
+          "pass": 46,
+          "fail": 0,
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

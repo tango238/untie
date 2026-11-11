@@ -5,3 +5,5 @@ workspace/app/
 *.sqlite-wal
 *.submission
 .souther-home/
+workspace/.home/
+*.gate.json
