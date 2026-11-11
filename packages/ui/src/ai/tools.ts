@@ -7,6 +7,7 @@ import {
   moveActivity,
   moveBuc,
   moveToContext,
+  moveToSystem,
   removeElement,
   removeRelation,
   setDatabaseDsl,
@@ -27,7 +28,7 @@ import { viewBindingSlots, viewShapeProblem } from "@untie/core/model/designView
 import { designScreenName } from "@untie/core/model/sitemap";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { defaultBucOf, designReferences } from "@untie/core/model/selectors";
-import { ELEMENT_KINDS, isPersonaItSkill, isPersonaOwnerKind, PERSONA_IT_SKILLS, PERSONA_FIELD_LABELS, PERSONA_IT_SKILL_LABELS, type ElementKind, type EventTiming, type Persona, type UntieModel } from "@untie/core/model/types";
+import { ELEMENT_KINDS, isPersonaItSkill, isSystemMemberKind, NFR_CATEGORIES, type NfrCategory, isPersonaOwnerKind, PERSONA_IT_SKILLS, PERSONA_FIELD_LABELS, PERSONA_IT_SKILL_LABELS, type ElementKind, type EventTiming, type Persona, type UntieModel } from "@untie/core/model/types";
 
 /** プロバイダーに渡す道具の定義 (JSON Schema) */
 export interface ToolDef {
@@ -108,7 +109,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "add_element",
     description:
-      "要素を 1 つ作る。kind ごとの所属: buc は business_id が必須。activity は buc_id か business_id (業務に直接) を指定する。information / state / condition / variation は context_id を指定できる。issue は severity (1〜5) と target_ids を指定できる (登場人物の id だけ = 全体的な課題、業務・作業・操作の id だけ = 具体的な課題。混ぜられない。空なら未整理)。作った要素の id を返す。",
+      "要素を 1 つ作る。kind ごとの所属: buc は business_id が必須。activity は buc_id か business_id (業務に直接) を指定する。information / state / condition / variation は context_id を指定できる。screen (画面) と nfr (非機能要件) は system_id (属するシステム) が必須。nfr は category と verification も指定できる。issue は severity (1〜5) と target_ids を指定できる (登場人物の id だけ = 全体的な課題、業務・作業・操作の id だけ = 具体的な課題。混ぜられない。空なら未整理)。作った要素の id を返す。",
     parameters: {
       type: "object",
       properties: {
@@ -118,6 +119,9 @@ export const MODEL_TOOLS: ToolDef[] = [
         business_id: str("buc の所属業務。activity を業務に直接置くときの業務"),
         buc_id: str("activity の所属 BUC"),
         context_id: str("information / state / condition / variation の所属コンテキスト"),
+        system_id: str("screen / nfr の属するシステム (必須)"),
+        category: { type: "string", enum: [...NFR_CATEGORIES], description: "nfr の分類" },
+        verification: str("nfr の検証方法"),
         group: str("state の状態グループ名"),
         values: strArray("variation の値の一覧"),
         hours: { type: "number", description: "activity / usecase の時間 (時間単位、小数点第一位まで)" },
@@ -131,7 +135,7 @@ export const MODEL_TOOLS: ToolDef[] = [
   {
     name: "update_element",
     description:
-      "要素の名前・説明・種類固有の項目を変える。指定した項目だけ変わる。hours に null を渡すと時間を消す。所属の変更は move_activity / move_buc / set_context を使う。",
+      "要素の名前・説明・種類固有の項目を変える。指定した項目だけ変わる。hours に null を渡すと時間を消す。所属の変更は move_activity / move_buc / set_context / move_to_system を使う。",
     parameters: {
       type: "object",
       properties: {
@@ -145,6 +149,8 @@ export const MODEL_TOOLS: ToolDef[] = [
         links: linkSchema,
         severity: { type: "integer", minimum: 1, maximum: 5, description: "issue の重要度" },
         target_ids: strArray("issue の対象 (全部を置き換える。登場人物だけ、または業務・作業・操作だけ)"),
+        category: { type: ["string", "null"], enum: [...NFR_CATEGORIES, null], description: "nfr の分類。null で未分類にする" },
+        verification: str("nfr の検証方法 (空文字で消す)"),
       },
       required: ["id"],
       additionalProperties: false,
@@ -264,6 +270,17 @@ export const MODEL_TOOLS: ToolDef[] = [
       type: "object",
       properties: { element_id: str("要素の id"), context_id: str("コンテキストの id (省くと未分類)") },
       required: ["element_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "move_to_system",
+    description:
+      "画面 (screen) または非機能要件 (nfr) の属するシステムを変える。画面を別のシステムへ移すと、その画面を指していた設計の画面・遷移・ナビゲーションの項目は外れる。",
+    parameters: {
+      type: "object",
+      properties: { element_id: str("画面か非機能要件の id"), system_id: str("移す先のシステムの id") },
+      required: ["element_id", "system_id"],
       additionalProperties: false,
     },
   },
@@ -416,6 +433,9 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
         ...(kind === "buc" && businessId ? { businessId } : {}),
         ...(kind === "activity" && bucId ? { bucId } : {}),
         ...(s(input.context_id) ? { contextId: s(input.context_id) } : {}),
+        ...(isSystemMemberKind(kind) && s(input.system_id) ? { systemId: s(input.system_id) } : {}),
+        ...(kind === "nfr" && s(input.category) ? { category: s(input.category) as NfrCategory } : {}),
+        ...(kind === "nfr" && s(input.verification) ? { verification: s(input.verification) } : {}),
         ...(kind === "state" && s(input.group) ? { group: s(input.group) } : {}),
         ...(kind === "variation" && arr(input.values) ? { values: arr(input.values) } : {}),
         ...(kind === "issue" && typeof input.severity === "number" ? { severity: input.severity } : {}),
@@ -445,6 +465,8 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
           .map((l) => ({ title: String(l.title ?? ""), url: String(l.url ?? "") }));
       }
       if (typeof input.severity === "number") patch.severity = input.severity;
+      if (typeof input.category === "string" || input.category === null) patch.category = input.category as NfrCategory | null;
+      if (typeof input.verification === "string") patch.verification = input.verification;
       const targets = arr(input.target_ids);
       if (targets) {
         const r = run(editor, (m) => setIssueTargets(m, { issueId: id, targetIds: targets }));
@@ -539,6 +561,13 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const elementId = s(input.element_id);
       if (!elementId) return fail("element_id が必要です");
       return run(editor, (m) => moveToContext(m, { elementId, contextId: s(input.context_id) ?? null }));
+    }
+
+    case "move_to_system": {
+      const elementId = s(input.element_id);
+      const systemId = s(input.system_id);
+      if (!elementId || !systemId) return fail("element_id と system_id が必要です");
+      return run(editor, (m) => moveToSystem(m, { elementId, systemId }));
     }
 
     case "list_databases": {
