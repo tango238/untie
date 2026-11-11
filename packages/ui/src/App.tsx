@@ -9,7 +9,12 @@ import { DataLeftPane } from "./components/design/DataLeftPane";
 import { DataProperties } from "./components/design/DataProperties";
 import { NavigationLayoutPane } from "./components/design/NavigationLayoutPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
+import { ContextMapLegend } from "./components/design/ContextMapBoard";
+import { SequenceHelp } from "./components/design/SequenceBoard";
+import { SoutherHelp } from "./components/design/SoutherBoard";
+import { DomainLeftPane } from "./components/design/DomainLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
+import { DomainProperties } from "./components/design/DomainProperties";
 import { NavigationMenuPane } from "./components/design/NavigationMenuPane";
 import { ScreenListPane } from "./components/design/ScreenListPane";
 import { PropertyPanel } from "./components/PropertyPanel";
@@ -60,6 +65,14 @@ export default function App() {
   const screenBoard = design === "screen";
   // 関連ボードは、左に情報・テーブル・画面の一覧、右に選んだものの詳細を出す
   const relation = design === "relation";
+  // ドメインボードは、左にコンテキスト・集約・コマンド・イベントの一覧、右に選んだものの中身と根拠を出す
+  const domain = design === "domain";
+  // コンテキストマップは、左のペインを出さず、右に関係の種類の説明を出す
+  const contextmap = design === "contextmap";
+  // シーケンス図は、左のペインを出さず、右に図の読み方を出す
+  const sequence = design === "sequence";
+  // 業務ルール (Souther。開発モード) は、左のペインを出さず、右に書き出しの読み方を出す
+  const rules = design === "rules";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
@@ -88,7 +101,7 @@ export default function App() {
       <ShortcutsHost />
       {/* 固定ボード・分析ボード・設計ボードは上位の要素から順に辿るので、要素一覧は自由ボードのときだけ出す */}
       <div
-        className={`main${sitemap || data || navigation || screenBoard || relation ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
+        className={`main${sitemap || data || navigation || screenBoard || relation || domain ? " with-tree" : builtin ? " no-list" : elementListOpen ? "" : " list-closed"}${screenBoard ? " with-screen" : ""}${rightPanelOpen ? "" : " panel-closed"}`}
       >
         {(listDrawerOpen || rightPanelOpen) && (
           <div className="pane-backdrop" data-testid="pane-backdrop" onClick={closeDrawers} />
@@ -99,6 +112,7 @@ export default function App() {
         {navigation && <NavigationMenuPane />}
         {screenBoard && <ScreenListPane />}
         {relation && <RelationLeftPane />}
+        {domain && <DomainLeftPane />}
         <main className="canvas-area">
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
@@ -136,6 +150,14 @@ export default function App() {
                 <DataProperties />
               ) : relation ? (
                 <RelationProperties />
+              ) : domain ? (
+                <DomainProperties />
+              ) : contextmap ? (
+                <ContextMapLegend />
+              ) : sequence ? (
+                <SequenceHelp />
+              ) : rules ? (
+                <SoutherHelp />
               ) : navigation ? (
                 <NavigationLayoutPane />
               ) : screenBoard ? (

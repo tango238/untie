@@ -3,16 +3,18 @@ import { addBoard, removeBoard, renameBoard } from "@untie/core/model/commands";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, fixedBoardId } from "@untie/core/model/fixedBoards";
 import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
 import { traceToActors, traceWarnings } from "@untie/core/model/trace";
+import { cachedDomainCheck } from "@untie/core/model/domainCache";
 import { cachedCheckDesign } from "./design/checkCache";
 import { createHotelSample } from "@untie/core/sample";
 import { can, ROLE_LABELS, type Role } from "@untie/api";
 import { saveLocalToCloud } from "../cloud/files";
 import { useSessionStore } from "../cloud/session";
-import { confirmDiscardIfDirty, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
+import { confirmDiscardIfDirty, exportDomainDocsToFolder, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
 import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
-import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
-import { DESIGN_BOARD_KINDS, DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
+import { DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { isDevMode, visibleAnalysisKinds, visibleDesignKinds } from "../devMode";
 import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
@@ -44,7 +46,9 @@ export function Toolbar() {
   // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
   const traceCount = useMemo(() => {
-    if (designResult) return designResult.problems.length;
+    // 設計モードは、対象のシステムの設計のエラーと、ドメインモデルのエラー (全体) を合わせる
+    // (ドメインモデルの検証は、開発モードのときだけ見せるので、数えるのもそのときだけ)
+    if (designResult) return designResult.problems.length + (isDevMode() ? cachedDomainCheck(model).filter((p) => p.level === "error").length : 0);
     const r = traceToActors(model);
     return r.problems.length + r.errors.length;
   }, [model, designResult]);
@@ -177,7 +181,7 @@ export function Toolbar() {
                 >
                   {mode === "design" ? (
                     <optgroup label="設計ボード">
-                      {DESIGN_BOARD_KINDS.map((kind) => (
+                      {visibleDesignKinds().map((kind) => (
                         <option key={kind} value={designBoardId(kind)}>
                           {DESIGN_BOARD_LABELS[kind]}
                         </option>
@@ -193,7 +197,7 @@ export function Toolbar() {
                         ))}
                       </optgroup>
                       <optgroup label="分析ボード">
-                        {ANALYSIS_KINDS.map((kind) => (
+                        {visibleAnalysisKinds().map((kind) => (
                           <option key={kind} value={analysisBoardId(kind)}>
                             {ANALYSIS_LABELS[kind]}
                           </option>
@@ -460,6 +464,9 @@ function FileMenu({
   const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const signedIn = useSessionStore((s) => s.status === "signedIn");
+  // 保存したドメインモデル (境界づけられたコンテキスト) があるときだけ、書き出しの項目を出す
+  // 内部のドメインモデルを直に扱う機能なので、開発モードのときだけ
+  const hasDomain = useUntieStore((s) => s.model.domain.contexts.length > 0) && isDevMode();
   // クラウドへ保存している間は押せない (二重に作らない)
   const [savingToCloud, setSavingToCloud] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -606,6 +613,7 @@ function FileMenu({
         <div className="menu-list" role="menu" aria-label="ファイル">
           {item("ホーム", "", onHome)}
           {item("JSON に書き出す…", comboLabel("S"), () => void exportModelToFile())}
+          {hasDomain && item("ドメインモデルを書き出す (distill-ddd)…", "", () => void exportDomainDocsToFolder())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
           {modeMenu}
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
@@ -703,6 +711,7 @@ function FileMenu({
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {item("保存", comboLabel("S"), () => void saveDocument())}
           {item("別名で保存…", comboLabel("S", { shift: true }), () => void saveDocument(true))}
+          {hasDomain && item("ドメインモデルを書き出す (distill-ddd)…", "", () => void exportDomainDocsToFolder())}
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}

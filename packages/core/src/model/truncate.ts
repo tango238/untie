@@ -3,7 +3,9 @@
 // そうならないよう、コマンドをすり抜けて Y.Doc に入った長い文字列 (古い版のクライアント・壊れた update など) は、外さずに切り詰める。
 import { ANALYSIS_MAX_LENGTH, DSL_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "./limits";
 import { ELEMENT_KIND_LABELS, ISSUE_ANALYSIS_KEYS, ISSUE_ANALYSIS_LABELS, PERSONA_FIELD_LABELS } from "./types";
-import type { Database, DesignScreen, Layout, Transition, UntieModel } from "./types";
+import { ENGLISH_MAX_LENGTH, EXCLUDED_KEY_MAX_LENGTH } from "./limits";
+import { CONTEXT_RELATION_KINDS, INTEGRATIONS, isEnglishName, SUBDOMAINS } from "./domain";
+import type { Database, DesignScreen, DomainModel, Layout, Transition, UntieModel } from "./types";
 import type { Element } from "./types";
 
 /** 文字列なら切り詰めて返す。切り詰めたら fields に項目名を足す。文字列でなければそのまま (型の不正は形の検査が外す) */
@@ -139,6 +141,111 @@ export function truncateDatabase<T extends object = Database>(db: T): { value: T
   return { value, fields };
 }
 
+// ---------------------------------------------------------------- ドメインモデル (0.6.0)
+
+export type DomainPartName = "boundedContext" | "aggregate" | "domainCommand" | "domainEvent" | "domainPolicy" | "contextRelation" | "domainTerm";
+
+/** 項目を外した写し (無ければ同じ参照) */
+function dropField<T extends object>(value: T, key: string, label: string, fields: string[]): T {
+  if (!(key in value)) return value;
+  const { [key]: _drop, ...rest } = value as Record<string, unknown>;
+  if (!fields.includes(label)) fields.push(label);
+  return rest as T;
+}
+
+/** 英語名 (識別子) が長すぎれば切り、それでも識別子の形でなければ項目ごと外す (部品は残す) */
+function fixEnglish<T extends object>(value: T, fields: string[]): T {
+  const english = (value as { english?: unknown }).english;
+  if (english === undefined) return value;
+  if (typeof english !== "string") return dropField(value, "english", "英語名", fields);
+  const cutValue = truncateText(english, ENGLISH_MAX_LENGTH);
+  if (!isEnglishName(cutValue)) return dropField(value, "english", "英語名", fields);
+  if (cutValue === english) return value;
+  if (!fields.includes("英語名")) fields.push("英語名");
+  return { ...value, english: cutValue };
+}
+
+/** 列挙の外の値なら項目を外す (省略できる項目だけ) */
+function fixEnum<T extends object>(value: T, key: string, allowed: readonly string[], label: string, fields: string[]): T {
+  const v = (value as Record<string, unknown>)[key];
+  return v === undefined || (typeof v === "string" && allowed.includes(v)) ? value : dropField(value, key, label, fields);
+}
+
+/**
+ * ドメインモデルの部品 1 つの、長すぎる文字列を切り詰め、形の合わない省略できる項目 (英語名・分類・統合の方式・空の状態グループ) を外す。
+ * 形がまだ検査されていない値 (Y.Doc から読んだもの) も受ける。何も変えなければ同じ参照を返す。
+ * 1 つの項目のせいで、部品 (コンテキストや集約) ごと全員の画面から消えないようにするため
+ */
+export function cleanDomainPart<T extends object>(kind: DomainPartName, part: T): { value: T; fields: string[] } {
+  const fields: string[] = [];
+  let value = part;
+  if (kind === "boundedContext") {
+    value = cutFields(value, { name: NAME("名前"), description: [DESCRIPTION_MAX_LENGTH, "説明"], team: NAME("チーム") }, fields);
+    value = fixEnum(fixEnglish(value, fields), "subdomain", SUBDOMAINS, "サブドメインの分類", fields);
+  } else if (kind === "aggregate") {
+    value = fixEnglish(cutFields(value, { name: NAME("名前"), stateGroup: [GROUP_MAX_LENGTH, "状態グループ"] }, fields), fields);
+    if ((value as { stateGroup?: unknown }).stateGroup === "") value = dropField(value, "stateGroup", "状態グループ", fields);
+    const invariants = (value as { invariants?: unknown }).invariants;
+    if (Array.isArray(invariants)) {
+      const next = mapIf<object>(invariants, (i) => cutFields(i, { text: [DESCRIPTION_MAX_LENGTH, "不変条件"] }, fields)) as unknown[];
+      if (next.some((i, k) => i !== invariants[k])) value = { ...value, invariants: next };
+    }
+  } else if (kind === "domainCommand") {
+    value = fixEnglish(cutFields(value, { name: NAME("名前") }, fields), fields);
+  } else if (kind === "domainEvent") {
+    value = fixEnglish(cutFields(value, { name: NAME("名前") }, fields), fields);
+    const properties = (value as { properties?: unknown }).properties;
+    if (Array.isArray(properties)) {
+      const next = mapIf<object>(properties, (p) => cutFields(p, { name: NAME("属性の名前") }, fields)) as unknown[];
+      if (next.some((p, k) => p !== properties[k])) value = { ...value, properties: next };
+    }
+  } else if (kind === "contextRelation") {
+    value = fixEnum(cutFields(value, { note: [DESCRIPTION_MAX_LENGTH, "補足"] }, fields), "integration", INTEGRATIONS, "統合の方式", fields);
+  } else if (kind === "domainTerm") {
+    value = cutFields(value, { term: NAME("用語"), english: NAME("英語"), definition: [DESCRIPTION_MAX_LENGTH, "定義"] }, fields);
+  }
+  return { value, fields };
+}
+
+const DOMAIN_PART_LABELS: Record<DomainPartName, string> = {
+  boundedContext: "コンテキスト",
+  aggregate: "集約",
+  domainCommand: "コマンド",
+  domainEvent: "イベント",
+  domainPolicy: "ポリシー",
+  contextRelation: "関係",
+  domainTerm: "用語",
+};
+
+/** ドメインモデルの文字列を切り詰め、形の合わない省略できる項目を外す。何も変えなければ同じ参照 */
+export function cleanDomain(domain: DomainModel): { domain: DomainModel; changes: string[] } {
+  const changes: string[] = [];
+  const clean = <T extends { id: string }>(kind: DomainPartName, items: readonly T[]): T[] => {
+    let changed = false;
+    const out = items.map((item) => {
+      const r = cleanDomainPart(kind, item);
+      if (r.fields.length === 0) return item;
+      changed = true;
+      changes.push(`ドメインモデルの${DOMAIN_PART_LABELS[kind]} ${item.id} の${r.fields.join("・")}を直した (長すぎるか、形が正しくない)`);
+      return r.value;
+    });
+    return changed ? out : (items as T[]);
+  };
+  const contexts = clean("boundedContext", domain.contexts);
+  const aggregates = clean("aggregate", domain.aggregates);
+  const commands = clean("domainCommand", domain.commands);
+  const events = clean("domainEvent", domain.events);
+  const relations = clean("contextRelation", domain.relations);
+  const terms = clean("domainTerm", domain.terms);
+  // 関係の種類が列挙の外のものは直せないので外す (readModel の形の検査でも外れる)
+  const knownRelations = relations.filter((r) => (CONTEXT_RELATION_KINDS as readonly string[]).includes(r.kind));
+  if (knownRelations.length !== relations.length) changes.push("ドメインモデルの、種類の正しくない関係を消した");
+  const excluded = domain.excluded.filter((k) => typeof k === "string" && k !== "" && k.length <= EXCLUDED_KEY_MAX_LENGTH);
+  if (excluded.length !== domain.excluded.length) changes.push("ドメインモデルの、長すぎる外した候補のキーを消した");
+  if (changes.length === 0) return { domain, changes };
+  return { domain: { ...domain, contexts, aggregates, commands, events, relations: knownRelations, terms, excluded }, changes };
+}
+
 /**
  * モデルの長すぎる文字列 (ファイル名・説明・ボード名・要素の項目) を切り詰める。何も切らなければ同じ参照。
  * changes には id と項目名だけを出す (名前などの中身はログに出さない)
@@ -208,9 +315,13 @@ export function truncateModelStrings(model: UntieModel): { model: UntieModel; ch
     return r.value;
   });
 
+  // ドメインモデル (0.6.0)
+  const domain = cleanDomain(model.domain);
+  changes.push(...domain.changes);
+
   if (changes.length === 0) return { model, changes };
   return {
-    model: { ...model, meta, elements: elementsChanged ? elements : model.elements, boards: boardsChanged ? boards : model.boards, designs: designsChanged ? designs : model.designs, databases: databasesChanged ? databases : model.databases },
+    model: { ...model, meta, elements: elementsChanged ? elements : model.elements, boards: boardsChanged ? boards : model.boards, designs: designsChanged ? designs : model.designs, databases: databasesChanged ? databases : model.databases, domain: domain.domain },
     changes,
   };
 }

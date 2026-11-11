@@ -1,6 +1,6 @@
 // 架空の宿泊施設のサンプルモデル (設計書 7 章)。実在の施設・データは使わない。
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel, type RelationAlternate } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -384,12 +384,21 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
+// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+const alternates: Record<string, RelationAlternate> = {
+  "rel_uc_register_reservation__cond_full": { when: "met", then: "予約を受けず、別の日か別の部屋タイプを案内する。" },
+  "rel_uc_assign_room__cond_full": { when: "met", then: "部屋を割り当てず、空きが出るまで待ってもらう。" },
+  "rel_uc_cancel_reservation__cond_cancel_fee": { when: "met", then: "取消料を請求に加えてから、予約を取り消す。" },
+  "rel_uc_record_checkin__cond_early_checkin": { when: "unmet", then: "部屋の準備が済むまで、ロビーで待ってもらう。" },
+};
+
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
+  const id = `rel_${sourceId}__${targetId}`;
+  return { id, kind, sourceId, targetId, ...(access ? { access } : {}), ...(alternates[id] ? { alternate: alternates[id] } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード
@@ -492,6 +501,7 @@ export const hotelSample: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain: emptyDomain(),
 };
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */

@@ -2,6 +2,7 @@
 // すべて (model, payload) => 結果 の形で、失敗は例外ではなく { ok: false, reason } で返す。
 import { produce } from "immer";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, removeDesignScreens, usedDesignIds } from "./design";
+import { renameDomainStateGroup, renameDomainTerm, sweepDomain } from "./domain";
 import { newUniqueId } from "./id";
 import { viewShapeProblem } from "./designView";
 import { isPrismaIdent } from "./prisma";
@@ -9,7 +10,15 @@ import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
+  ALTERNATE_ERROR_TYPES,
+  ALTERNATE_WHENS,
+  HTTP_STATUS_MAX,
+  HTTP_STATUS_MIN,
+  isHttpErrorStatus,
+  type AlternateError,
+  type AlternateErrorType,
   DEFAULT_EDGE_SIDES,
+  emptyDomain,
   EDGE_SIDES,
   isFrameKind,
   isContextMemberKind,
@@ -37,7 +46,9 @@ import {
   type Link,
   type NfrCategory,
   type UntieModel,
+  type AlternateWhen,
   type InformationAccess,
+  type RelationAlternate,
 } from "./types";
 
 export interface Fail {
@@ -206,6 +217,8 @@ function checkValues(values: readonly string[]): string | null {
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
 function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void {
   draft.relations = draft.relations.filter((r) => !removed.has(r.sourceId) && !removed.has(r.targetId));
+  // 代替パターン (0.6.1) の、そのとき起きる出来事が消えたら、出来事の参照だけ外す (どうなるかの文は残す)
+  for (const r of draft.relations) if (r.alternate?.eventId !== undefined && removed.has(r.alternate.eventId)) delete r.alternate.eventId;
   const relationIds = new Set(draft.relations.map((r) => r.id));
   for (const board of draft.boards) {
     board.nodes = board.nodes.filter((n) => !removed.has(n.elementId));
@@ -219,6 +232,8 @@ function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void 
     if (e.kind === "issue") e.targetIds = e.targetIds.filter((id) => !removed.has(id));
   }
   sweepDesigns(draft, removed);
+  // ドメインモデル (0.6.0) からも、消えた要素への参照を掃除する (呼ぶ側が draft.elements から要素を消したあとに呼ぶ)
+  sweepDomain(draft);
 }
 
 /**
@@ -1120,6 +1135,8 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
     const el = draft.elements.find((e) => e.id === payload.id)!;
     if (patch.name !== undefined) {
       el.name = patch.name.trim();
+      // 要素の用語 (ドメインモデル) の語は、要素の名前の写し
+      renameDomainTerm(draft, el.id, el.name);
       // 既定 BUC の名前は業務名と同じに保つ
       if (el.kind === "business") {
         const def = draft.elements.find((e) => e.kind === "buc" && e.isDefault && e.businessId === el.id);
@@ -1131,12 +1148,18 @@ export function updateElement(model: UntieModel, payload: UpdateElementPayload):
       else el.description = patch.description;
     }
     if (el.kind === "state" && patch.group !== undefined) {
+      const oldGroup = el.group;
       if (patch.group === "") delete el.group;
       else {
         el.group = patch.group;
         // 既にあるグループへ移したら、そのグループのコンテキストに合わせる
         const other = model.elements.find((e) => e.kind === "state" && e.group === patch.group && e.id !== el.id);
         if (other && other.kind === "state") el.contextId = other.contextId;
+      }
+      // もとの状態グループの状態が 1 つも残らなければ、集約 (ドメインモデル) の状態グループも付け替える (名前が無くなったら外す)
+      if (oldGroup !== undefined && oldGroup !== el.group && !draft.elements.some((e) => e.kind === "state" && e.group === oldGroup)) {
+        if (el.group !== undefined) renameDomainStateGroup(draft, oldGroup, el.group);
+        else sweepDomain(draft);
       }
     }
     if (el.kind === "variation" && patch.values !== undefined) el.values = [...patch.values];
@@ -1390,6 +1413,57 @@ export function setRelationAccess(model: UntieModel, payload: SetRelationAccessP
     else d.access = payload.access;
   });
   return { ok: true, model: next };
+}
+
+export const ALTERNATE_KIND_REASON = "代替パターンは、操作が判断する条件の関係にだけ付けられます";
+
+/** 代替パターンに、起きる出来事とエラーの両方は持てない */
+export const ALTERNATE_ERROR_EVENT_REASON = "代替パターンの「起きる出来事」と「エラー」は、どちらか一方だけにしてください";
+
+export interface SetRelationAlternatePayload {
+  id: string;
+  /** null で、まだ決めていない状態に戻す */
+  alternate: { when: AlternateWhen; then: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null } | null;
+}
+
+/**
+ * 代替パターン (操作が条件を判断した結果、ふだんと違う流れになるときの中身) を決める。usecaseCondition だけ (0.6.1)。
+ * then (どうなるか) が空なら、決めていない状態に戻す。eventId は、そのとき起きる出来事 (分析のイベント)
+ */
+export function setRelationAlternate(model: UntieModel, payload: SetRelationAlternatePayload): CommandResult {
+  const r = model.relations.find((x) => x.id === payload.id);
+  if (!r) return fail(`関係が存在しません: ${payload.id}`);
+  if (r.kind !== "usecaseCondition") return fail(ALTERNATE_KIND_REASON);
+  let next: RelationAlternate | null = null;
+  if (payload.alternate !== null && payload.alternate.then.trim() !== "") {
+    const a = payload.alternate;
+    if (!ALTERNATE_WHENS.includes(a.when)) return fail(`代替パターンの「いつ」が正しくありません: ${String(a.when)}`);
+    const tooLong = checkLength("description", a.then.trim());
+    if (tooLong) return fail(tooLong);
+    if (a.eventId !== undefined && a.eventId !== null && model.elements.find((e) => e.id === a.eventId)?.kind !== "event") return fail(`イベントが存在しません: ${a.eventId}`);
+    // エラー (0.6.2): 入力エラーか、サーバーエラー (HTTP ステータスを持てる)。起きる出来事とは、どちらか一方
+    let error: AlternateError | undefined;
+    if (a.error !== undefined && a.error !== null) {
+      if (!ALTERNATE_ERROR_TYPES.includes(a.error.type)) return fail(`代替パターンのエラーの種類が正しくありません: ${String(a.error.type)}`);
+      if (a.eventId) return fail(ALTERNATE_ERROR_EVENT_REASON);
+      const status = a.error.status;
+      if (status !== undefined && status !== null) {
+        if (a.error.type !== "server") return fail("HTTP ステータスは、サーバーエラーにだけ付けられます");
+        if (!isHttpErrorStatus(status)) return fail(`HTTP ステータスは ${HTTP_STATUS_MIN}〜${HTTP_STATUS_MAX} の整数にしてください: ${String(status)}`);
+        error = { type: a.error.type, status };
+      } else error = { type: a.error.type };
+    }
+    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}), ...(error ? { error } : {}) };
+  }
+  const before = r.alternate ?? null;
+  const sameError = (x: AlternateError | undefined, y: AlternateError | undefined) => x?.type === y?.type && x?.status === y?.status;
+  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId && sameError(before.error, next.error)) return { ok: true, model };
+  const out = produce(model, (draft) => {
+    const d = draft.relations.find((x) => x.id === payload.id)!;
+    if (next === null) delete d.alternate;
+    else d.alternate = next;
+  });
+  return { ok: true, model: out };
 }
 
 /** 操作の対象の関係 (システム・帳票 / 画面)。1 つの操作に合わせて 1 本まで (0.3.0) */
@@ -1749,6 +1823,7 @@ export function clearAll(model: UntieModel, payload: ClearAllPayload = {}): Comm
     draft.relations = [];
     draft.designs = [];
     draft.databases = [];
+    draft.domain = emptyDomain();
     draft.boards = [{ id: payload.boardId ?? newUniqueId("board", new Set()), name: "ボード 1", nodes: [] }];
   });
   return { ok: true, model: next };

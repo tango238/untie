@@ -1,7 +1,7 @@
 // 設計モードの画面ボード「AI で作る」: 画面の材料 (使う操作・情報・遷移)、使うデータベースのテーブルと列から、
 // 画面 UI (mokkun v2 の view) と、項目と列の対応 (bindings) を一回きりで作らせる。AI は submit_screen で結果を提出する。
 // view は mokkun の検証 (parseV2Document) に通し、エラーがあれば 1 回だけ出し直させる。存在しないデータベース・テーブル・列の対応は捨てる。
-import { screenConditions, screenInformations } from "@untie/core/model/placement";
+import { screenConditions, screenInformations, usecaseIsReadOnly } from "@untie/core/model/placement";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { viewBindingSlots } from "@untie/core/model/designView";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
@@ -69,6 +69,7 @@ view の形式 (要点):
 - 入力の項目 (form) と一覧の列は、使うデータベースの列に結ぶ (bindings)。検索語は、検索する列に結ぶ。readonly / summary の計算した値 (合計・件数など) は結ばなくてよい。databaseId・table・column は「使うデータベース」にあるものだけを使う
 - 一覧の列の対応の item は \`<セクションの id>.<列の id>\`
 - 検索や絞り込みの条件は form、結果は list、確認は readonly か summary にする。操作はこの画面からの遷移と、画面の操作 (使う操作) から考える
+- 使う操作の種類 (kind) を画面の形の既定にする: query (情報を読むだけの操作) は、検索条件の form と結果の list (か、1 件の readonly) を中心にし、送信の操作を置かない。command (情報を書く操作) は、入力の form と送信 (submit) の操作を中心にする。command に意図の名前 (command。ドメインモデルで決めたコマンドの名前) があれば、送信のボタンの文言にする
 - ナビゲーション (メニュー) がある場合、メニューへの遷移は書かない
 - 結果は submit_screen で提出する。view が mokkun の検証に通らないと理由が返るので、直して出し直す`;
 }
@@ -91,7 +92,10 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
             return biz ? [nameOf(biz)] : [];
           });
           const informations = model.relations.filter((i) => i.kind === "usecaseInformation" && i.sourceId === r.sourceId).map((i) => nameOf(byId.get(i.targetId)));
-          return { usecase: nameOf(byId.get(r.sourceId)), activities: activities.map(nameOf), businesses: [...new Set(businesses)], informations };
+          // 書く情報が 1 つでもあるか、状態を変えるか、出来事を起こすならコマンド。読むだけなら問い合わせ (access の省略は読み書きの両方)
+          const kind = usecaseIsReadOnly(model, r.sourceId) ? "query" : "command";
+          const command = model.domain.commands.find((c) => c.source?.usecaseId === r.sourceId && c.source.activityId === undefined);
+          return { usecase: nameOf(byId.get(r.sourceId)), kind, ...(kind === "command" && command ? { command: command.name } : {}), activities: activities.map(nameOf), businesses: [...new Set(businesses)], informations };
         })
     : [];
   const informations = analysis

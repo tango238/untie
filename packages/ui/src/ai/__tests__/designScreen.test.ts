@@ -1,3 +1,4 @@
+import { createNetshopSample } from "@untie/core/sample";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addDatabase, addDesignScreens, addTransition, setDatabaseDesign, setDesignDatabases } from "@untie/core/model/commands";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
@@ -91,6 +92,23 @@ beforeEach(() => {
 });
 
 describe("screenRequest / screenSystemPrompt", () => {
+  it("使う操作に、情報を書く (command) か読むだけ (query) かを添える。コマンドに意図の名前があれば、それも渡す", () => {
+    // 扱う情報の取得・保存の区別を省くと、読み書きの両方 (command)
+    const m = setup();
+    expect(screenRequest(m, "sys_a", m.designs[0]!, m.designs[0]!.screens[0]!)).toContain('"kind": "command"');
+    const readOnly = { ...m, relations: m.relations.map((r) => (r.kind === "usecaseInformation" ? { ...r, access: "read" as const } : r)) };
+    expect(screenRequest(readOnly, "sys_a", readOnly.designs[0]!, readOnly.designs[0]!.screens[0]!)).toContain('"kind": "query"');
+    expect(screenSystemPrompt()).toContain("query (情報を読むだけの操作) は、検索条件の form と結果の list");
+    // ネットショップ: 出荷を記録する は、ドメインモデルで「出荷する」に決めてある
+    const shop = createNetshopSample();
+    const screen = shop.elements.find((e) => e.kind === "screen" && shop.relations.some((r) => r.kind === "usecaseScreen" && r.sourceId === "uc_record_shipment" && r.targetId === e.id))!;
+    const withDesign = okModel(addDesignScreens(shop, { systemId: "sys_oms", screens: [{ id: "d_ship", source: { kind: "screen", screenId: screen.id } }], transitions: [] }));
+    const design = withDesign.designs.find((d) => d.systemId === "sys_oms")!;
+    const text = screenRequest(withDesign, "sys_oms", design, design.screens.find((x) => x.id === "d_ship")!);
+    expect(text).toContain('"usecase": "出荷を記録する"');
+    expect(text).toContain('"command": "出荷する"');
+  });
+
   it("画面・使う DB のテーブルと列 (情報との対応つき)・この画面からの遷移・ナビの有無を渡す", () => {
     const m = setup();
     const text = screenRequest(m, "sys_a", m.designs[0]!, m.designs[0]!.screens[0]!);

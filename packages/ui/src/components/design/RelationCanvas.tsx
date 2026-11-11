@@ -1,5 +1,6 @@
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useEffect, useMemo } from "react";
+import { isDevMode } from "../../devMode";
 import { useUntieStore } from "../../store";
 import { cachedRelationGraph } from "./relationGraphCache";
 import { buildRelationFlow, type RelationFlowNode } from "./relationFlow";
@@ -76,7 +77,7 @@ function ScreenNode({ data }: NodeProps<Extract<RelationFlowNode, { type: "scree
   );
 }
 
-/** データベースの枠 (データベースが 2 つ以上のときだけ) */
+/** 枠: データベース (2 つ以上のときだけ) と、集約 (ドメインモデルで決めた情報のまとまり) */
 function FrameNode({ data }: NodeProps<Extract<RelationFlowNode, { type: "frame" }>>) {
   return (
     <div className="relation-frame" data-relation-frame>
@@ -93,11 +94,11 @@ function RelationCanvasInner() {
   const selected = useUntieStore((s) => s.ui.designRelation);
   const selectDesignRelation = useUntieStore((s) => s.selectDesignRelation);
   const graph = cachedRelationGraph(model, systemId);
-  const flow = useMemo(() => buildRelationFlow(graph, selected), [graph, selected]);
+  const flow = useMemo(() => buildRelationFlow(graph, selected, { aggregates: isDevMode() }), [graph, selected]);
 
   // 画面・情報・テーブルの集合か対象のシステムが変わったら、全体が見えるよう合わせ直す (選択では動かさない)
   const rf = useReactFlow();
-  const fitKey = `${systemId}:${graph.informations.map((i) => i.id).join(",")}:${graph.databases.map((d) => `${d.id}[${d.tables.map((t) => t.name).join(",")}]`).join(",")}:${graph.screens.map((s) => s.id).join(",")}`;
+  const fitKey = `${systemId}:${graph.informations.map((i) => `${i.id}${i.aggregate ? `@${i.aggregate.id}` : ""}`).join(",")}:${graph.databases.map((d) => `${d.id}[${d.tables.map((t) => t.name).join(",")}]`).join(",")}:${graph.screens.map((s) => s.id).join(",")}`;
   useEffect(() => {
     const handle = window.requestAnimationFrame(() => void rf.fitView({ padding: 0.2, maxZoom: 1 }));
     return () => window.cancelAnimationFrame(handle);

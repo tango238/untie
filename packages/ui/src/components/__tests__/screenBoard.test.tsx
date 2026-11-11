@@ -205,6 +205,21 @@ describe("ScreenBuilder: 画面 UI の無い画面", () => {
   });
 });
 
+describe("ScreenBuilder: データが先", () => {
+  it("使うデータベースにテーブルが 1 つも無いあいだは、先にデータボードで作るよう案内する。押すとデータボードへ移る", () => {
+    // テーブルがある (Item・Sale) ので、案内は出ない
+    const { unmount } = render(<ScreenBuilder />);
+    expect(screen.queryByTestId("screen-data-first")).toBeNull();
+    unmount();
+    // DSL を空にすると、案内が出る
+    act(() => void st().dispatch((m) => setDatabaseDesign(m, { id: "db_x", dsl: "", tables: [] })));
+    render(<ScreenBuilder />);
+    expect(screen.getByTestId("screen-data-first").textContent).toContain("データ → 画面の順");
+    fireEvent.click(within(screen.getByTestId("screen-data-first")).getByRole("button", { name: "データボード" }));
+    expect(st().ui.currentBoardId).toBe("design:data");
+  });
+});
+
 describe("ScreenBuilder: この画面が判断する条件", () => {
   it("画面を使う操作が判断する条件を、根拠の操作つきで読み取りで出す。条件の無い画面・組み込みの画面には出さない", () => {
     render(<ScreenBuilder />);
@@ -768,5 +783,30 @@ describe("検証パネルからの移動", () => {
     act(() => revealDesignProblem(warning));
     expect(st().ui.currentBoardId).toBe("design:screen");
     expect(st().ui.designScreenId).toBe("d1");
+  });
+});
+
+describe("画面 UI の新規作成の既定", () => {
+  it("画面を使う操作が情報を読むだけ (問い合わせ) かどうかを、扱う情報の取得・保存の区別から決める", async () => {
+    const { screenIsReadOnly } = await import("../design/ScreenBuilder");
+    const { createNetshopSample } = await import("@untie/core/sample");
+    const shop = createNetshopSample();
+    const screenOf = (usecaseId: string) => shop.relations.find((r) => r.kind === "usecaseScreen" && r.sourceId === usecaseId)!.targetId;
+    // 注文を検索する は注文を読むだけ。注文を確定する は注文を書く
+    expect(screenIsReadOnly(shop, screenOf("uc_search_order"))).toBe(true);
+    expect(screenIsReadOnly(shop, screenOf("uc_confirm_order"))).toBe(false);
+    expect(screenIsReadOnly(shop, undefined)).toBe(false);
+    // ピッキングリストを出す は情報を読むだけだが、出来事 (ピッキングリストが出た) を起こすので、問い合わせではない
+    expect(shop.relations.filter((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_issue_pick_list").every((r) => r.access === "read")).toBe(true);
+    expect(screenIsReadOnly(shop, screenOf("uc_issue_pick_list"))).toBe(false);
+    // 問い合わせの既定は一覧、コマンドの既定は入力。どちらも mokkun の検証に通る
+    const { newView } = await import("../design/ScreenBuilder");
+    const { validateView } = await import("../design/viewValidate");
+    const list = newView("注文の検索", "注文を探す", true) as { sections: { kind: string }[] };
+    expect(list.sections[0]!.kind).toBe("list");
+    expect(validateView(list, "v", [])).toEqual({ ok: true });
+    const form = newView("注文の確定", "注文を確定する") as { sections: { kind: string }[] };
+    expect(form.sections[0]!.kind).toBe("form");
+    expect(validateView(form, "v", [])).toEqual({ ok: true });
   });
 });

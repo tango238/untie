@@ -1,3 +1,4 @@
+import { isDevMode } from "../devMode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addRelation,
@@ -24,6 +25,7 @@ import { lineage } from "@untie/core/model/lineage";
 import { informationPlaces, PLACE_ROLE_LABELS, placeInformations, screenInformations, type Derived } from "@untie/core/model/placement";
 import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, LIMITS, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
+import { domainReferences } from "@untie/core/model/domain";
 import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, designReferences, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
   DEFAULT_EDGE_SIDES,
@@ -444,7 +446,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             className="danger"
             onClick={() => {
               // 設計データが一緒に消えるときは、消えるものを見せて確かめる
-              const refs = designReferences(model, element.id);
+              // 内部のドメインモデルから消える・外れるものは、開発モードでなければ 1 行にまとめる (集約などの言葉を出さない)
+              const internal = domainReferences(model, element.id);
+              const refs = [...designReferences(model, element.id), ...(isDevMode() ? internal : internal.length > 0 ? ["実装のための内部の設計 (この要素を使っているところ)"] : [])];
               if (refs.length > 0) setConfirmRemove(refs);
               else removeSelected();
             }}

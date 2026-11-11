@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { screenConditions } from "../placement";
+import { createNetshopSample } from "../../sample";
+import { screenConditions, usecaseIsReadOnly } from "../placement";
 import { emptyModel, type Element, type Relation } from "../types";
 
 describe("screenConditions", () => {
@@ -30,5 +31,30 @@ describe("screenConditions", () => {
       { id: "cond_1", usecaseIds: ["uc_1", "uc_2"] },
     ]);
     expect(result.has("scr_2")).toBe(false);
+  });
+});
+
+describe("usecaseIsReadOnly", () => {
+  it("扱う情報がすべて取得だけで、状態を変えず、出来事も起こさない操作だけが、読むだけ", () => {
+    const shop = createNetshopSample();
+    // 注文を検索する: 読むだけ
+    expect(usecaseIsReadOnly(shop, "uc_search_order")).toBe(true);
+    // 注文を確定する: 注文を書く
+    expect(usecaseIsReadOnly(shop, "uc_confirm_order")).toBe(false);
+    // ピッキングリストを出す: 情報は読むだけだが、出来事を起こす
+    expect(usecaseIsReadOnly(shop, "uc_issue_pick_list")).toBe(false);
+    // 状態を変える操作も、読むだけではない
+    const m = emptyModel();
+    m.elements = [
+      { id: "uc", kind: "usecase", name: "締める" },
+      { id: "info", kind: "information", name: "売上", contextId: "ctx" },
+      { id: "st", kind: "state", name: "締め済", contextId: "ctx" },
+    ] as Element[];
+    m.relations = [{ id: "r1", kind: "usecaseInformation", sourceId: "uc", targetId: "info", access: "read" }];
+    expect(usecaseIsReadOnly(m, "uc")).toBe(true);
+    m.relations = [...m.relations, { id: "r2", kind: "usecaseState", sourceId: "uc", targetId: "st" }];
+    expect(usecaseIsReadOnly(m, "uc")).toBe(false);
+    // 扱う情報が無い操作は、読むだけとは言えない
+    expect(usecaseIsReadOnly(m, "none")).toBe(false);
   });
 });

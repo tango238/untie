@@ -146,7 +146,7 @@ describe("AI の道具", () => {
     };
     const r = executeTool(e, "remove_element", { id: "sys_pms" });
     expect(r.ok && r.changed).toBe(true);
-    expect(parse(r.content).removedDesign).toBe("設計データも一緒に消えました: 「宿泊管理システム」の設計 (画面 1)");
+    expect(parse(r.content).removedDesign).toBe("設計データ・ドメインモデルも一緒に消えた (か、参照が外れた): 「宿泊管理システム」の設計 (画面 1)");
     expect(e.model.designs).toEqual([]);
   });
 

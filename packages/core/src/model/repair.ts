@@ -18,6 +18,8 @@
 //   データベースが無い使用・画面の対応、情報が無いテーブルの対応は消す (データベース自体は消さない)。大きすぎる・深すぎる・使えないキーを含む画面 UI は、画面を残して画面 UI と対応を消す
 // - アクター・外部アクターのペルソナは、列挙の外の IT の習熟を外し、全項目が空なら persona ごと消す
 // - イベントの発生タイミング (0.5.4) は、種類が分からなければ timing ごと消し、周期に合わない・範囲外の項目は外す (normalizeEventTiming)
+// - ドメインモデル (0.6.0): 参照の壊れた箇所を domain.ts の inspectDomain の規則で直す (消えた情報をルートにする集約は消す、消えたシステムは実装先から外す、など)。
+//   形の合わない英語名・分類・統合の方式は、部品を残して項目だけ外す (truncate.ts の cleanDomain)
 // - スキーマの上限 (limits.ts) を超えた文字列は、要素を外さず上限に切り詰める (truncate.ts。最初に行う)
 //
 // changes には id・種類・項目名だけを書く。業務名などの中身はログに出さない (untieRoom.ts がそのまま console に出すため)。
@@ -29,6 +31,7 @@
 import { produce } from "immer";
 import { DEFAULT_FRAME_SIZE } from "./commands";
 import { removeDesignScreens } from "./design";
+import { inspectDomain } from "./domain";
 import { viewShapeProblem } from "./designView";
 import { isTooLong, VIEW_JSON_MAX_LENGTH } from "./limits";
 import { newUniqueId } from "./id";
@@ -227,6 +230,27 @@ export function repairModel(input: UntieModel): RepairResult {
         changes.push(`関係 ${r.id} の access を外した (${r.kind} には付けられない)`);
         delete r.access;
       }
+      if (r.alternate !== undefined) {
+        // 代替パターンは操作が判断する条件の関係にだけ付けられる。そのとき起きる出来事が無ければ、出来事の参照だけ外す (0.6.1)
+        if (r.kind !== "usecaseCondition") {
+          changes.push(`関係 ${r.id} の alternate を外した (${r.kind} には付けられない)`);
+          delete r.alternate;
+        } else if (r.alternate.eventId !== undefined && kindOf.get(r.alternate.eventId) !== "event") {
+          changes.push(`関係 ${r.id} の代替パターンのイベントの参照を外した (イベントが無い)`);
+          delete r.alternate.eventId;
+        }
+        // エラー (0.6.2): 起きる出来事と両方あれば、出来事を外す (エラーのほうが、あとから決めた細かい判断)。入力エラーに付いた HTTP ステータスは外す
+        if (r.alternate?.error !== undefined) {
+          if (r.alternate.eventId !== undefined) {
+            changes.push(`関係 ${r.id} の代替パターンのイベントの参照を外した (エラーと両方は持てない)`);
+            delete r.alternate.eventId;
+          }
+          if (r.alternate.error.status !== undefined && r.alternate.error.type !== "server") {
+            changes.push(`関係 ${r.id} の代替パターンのエラーから HTTP ステータスを外した (サーバーエラーにだけ付けられる)`);
+            delete r.alternate.error.status;
+          }
+        }
+      }
       const key = `${r.kind}\0${r.sourceId}\0${r.targetId}`;
       const first = seenRelations.get(key);
       if (first !== undefined) {
@@ -394,6 +418,13 @@ export function repairModel(input: UntieModel): RepairResult {
           table.informationIds = ids;
         }
       }
+    }
+
+    // 5b. ドメインモデル (0.6.0)。消えた要素・コンテキスト・集約を指すものを、inspectDomain の規則で外す
+    const inspected = inspectDomain(draft.domain, draft.elements);
+    if (inspected.problems.length > 0) {
+      for (const p of inspected.problems) changes.push(`ドメインモデルの${p.what}ので、${p.fix}`);
+      draft.domain = inspected.domain;
     }
 
     // 6. ボードが 0 枚なら「ボード 1」を作る

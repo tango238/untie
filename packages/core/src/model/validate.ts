@@ -2,6 +2,7 @@
 import type { ErrorObject } from "ajv";
 // 検証関数は事前に生成しておく (アプリの CSP が eval を許さないため、実行時に ajv.compile() できない)
 import * as generated from "./schemaValidator.gen.js";
+import { inspectDomain } from "./domain";
 import { relationKindFor, sameRelation } from "./relations";
 import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind, issueScopeOfKind } from "./types";
 import type { Element, UntieModel } from "./types";
@@ -47,7 +48,8 @@ function describeError(e: ErrorObject): string {
     case "minItems":
       return `${where}: ${String(p.limit)} 件以上必要です`;
     case "pattern":
-      return `${where}: 使えない文字が含まれています (英数字・_・- のみ)`;
+      // 英語名 (ドメインモデル。0.6.0) は、英字で始まる英数字と _ だけ
+      return /\/english$/.test(e.instancePath) ? `${where}: 英語名は、英字で始まる英数字と _ で書きます` : `${where}: 使えない文字が含まれています (英数字・_・- のみ)`;
     case "uniqueItems":
       return `${where}: 重複した値があります`;
     case "oneOf":
@@ -110,7 +112,10 @@ export function isValidElementShape(json: unknown): json is Element {
 }
 
 /** 設計データの部品 (スキーマの $defs) */
-export type DesignPartKind = "designScreen" | "transition" | "layout" | "navGroup" | "database";
+export type DesignPartKind = "designScreen" | "transition" | "layout" | "navGroup" | "database" | DomainPartKind;
+
+/** ドメインモデルの部品 (スキーマの $defs。0.6.0) */
+export type DomainPartKind = "boundedContext" | "aggregate" | "domainCommand" | "domainEvent" | "domainPolicy" | "contextRelation" | "domainTerm";
 
 /**
  * 設計データの部品 1 つがスキーマに合うか。参照整合性は見ない。
@@ -237,6 +242,19 @@ export function checkIntegrity(model: UntieModel): string[] {
     }
     // 取得・保存の区別 (access) は、操作が扱う情報の関係にだけ付けられる (0.4.0)
     if (r.access !== undefined && r.kind !== "usecaseInformation") errors.push(`関係 ${r.id} (${r.kind}) に access が付いています (usecaseInformation だけに付けられます)`);
+    // 代替パターン (alternate) は、操作が判断する条件の関係にだけ付けられる。そのとき起きる出来事は、分析のイベント (0.6.1)
+    if (r.alternate !== undefined) {
+      if (r.kind !== "usecaseCondition") errors.push(`関係 ${r.id} (${r.kind}) に alternate が付いています (usecaseCondition だけに付けられます)`);
+      else {
+        if (r.alternate.eventId !== undefined && byId.get(r.alternate.eventId)?.kind !== "event") errors.push(`関係 ${r.id} の代替パターンのイベント ${r.alternate.eventId} が存在しません`);
+        // エラー (0.6.2): 起きる出来事とは、どちらか一方。HTTP ステータスは、サーバーエラーにだけ付けられる
+        const error = r.alternate.error;
+        if (error !== undefined) {
+          if (r.alternate.eventId !== undefined) errors.push(`関係 ${r.id} の代替パターンに、起きる出来事とエラーの両方が付いています (どちらか一方だけ)`);
+          if (error.status !== undefined && error.type !== "server") errors.push(`関係 ${r.id} の代替パターンのエラー (${error.type}) に HTTP ステータスが付いています (サーバーエラーにだけ付けられます)`);
+        }
+      }
+    }
     for (let j = 0; j < i; j++) {
       if (sameRelation(model.relations[j], r)) {
         errors.push(`関係 ${r.id} は ${model.relations[j].id} と重複しています`);
@@ -272,6 +290,8 @@ export function checkIntegrity(model: UntieModel): string[] {
   }
 
   errors.push(...checkDesignIntegrity(model, byId));
+  // ドメインモデル (0.6.0) の参照整合性。規則は domain.ts の inspectDomain (修復と同じ)
+  for (const p of inspectDomain(model.domain, model.elements).problems) errors.push(`ドメインモデルの${p.what}`);
 
   return errors;
 }

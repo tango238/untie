@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { addDatabase, setDatabaseDsl, setTableInformation } from "@untie/core/model/commands";
+import { createNetshopSample } from "@untie/core/sample";
 import { okModel, sample } from "@untie/core/testing";
 import type { ChatOptions } from "../chat";
 
@@ -23,7 +24,7 @@ vi.mock("../chat", async (importOriginal) => {
   };
 });
 
-const { dataDesignRequest, extractJson, generateDatabaseDesign, readDatabaseDesign } = await import("../designData");
+const { dataDesignRequest, dataDesignSystemPrompt, extractJson, generateDatabaseDesign, readDatabaseDesign } = await import("../designData");
 
 const opts = { provider: "claude" as const, model: "m", apiKey: "k" };
 function setup() {
@@ -53,6 +54,16 @@ describe("generateDatabaseDesign", () => {
     const text = dataDesignRequest(m, systemId, db);
     expect(text).toContain("model Old { id Int }");
     expect(text).toContain("<システムが使う情報>");
+  });
+
+  it("集約が決まっている情報には、集約 (名前・英語名・コンテキスト・ルートか中の情報か) を添え、指示に集約の境界の決まりを入れる", () => {
+    const m = okModel(addDatabase(createNetshopSample(), { id: "db_s", name: "販売" }));
+    const text = dataDesignRequest(m, "sys_oms", m.databases.find((d) => d.id === "db_s")!);
+    const infos = JSON.parse(text.slice(text.indexOf("<システムが使う情報>") + "<システムが使う情報>".length, text.indexOf("</システムが使う情報>"))) as { id: string; aggregate?: unknown }[];
+    expect(infos.find((i) => i.id === "info_order")!.aggregate).toEqual({ name: "注文", english: "Order", context: "受注", role: "root", rootInformationId: "info_order" });
+    // 集約にしていない情報 (購入者) には付かない
+    expect(infos.find((i) => i.id === "info_customer")!.aggregate).toBeUndefined();
+    expect(dataDesignSystemPrompt()).toContain("別の集約の情報との関連は、@relation を張らずに ID の列だけにする");
   });
 
   it("文章で返された JSON も読み、存在しない情報とテーブルの対応は捨てる", async () => {

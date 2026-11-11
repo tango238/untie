@@ -84,6 +84,24 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.5.4",
     migrate: (json) => json,
   },
+  {
+    // 0.6.0: ドメインモデルの入れ物 (domain)。必須なので、空のものを足す
+    from: "0.5.4",
+    to: "0.6.0",
+    migrate: (json) => (typeof json.domain === "object" && json.domain !== null && !Array.isArray(json.domain) ? json : { ...json, domain: { contexts: [], aggregates: [], commands: [], events: [], policies: [], excluded: [], relations: [], terms: [] } }),
+  },
+  {
+    // 0.6.1: 操作が判断する条件の関係 (usecaseCondition) に、任意の代替パターン (alternate) を足す。省略できる項目を足すだけなので変換は要らない
+    from: "0.6.0",
+    to: "0.6.1",
+    migrate: (json) => json,
+  },
+  {
+    // 0.6.2: 代替パターン (alternate) に、任意のエラーの種類 (error: 入力エラー・サーバーエラーと HTTP ステータス) を足す。省略できる項目を足すだけなので変換は要らない
+    from: "0.6.1",
+    to: "0.6.2",
+    migrate: (json) => json,
+  },
 ];
 
 /**

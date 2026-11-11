@@ -12,8 +12,10 @@ import {
   type AnalysisKind,
 } from "@untie/core/model/analysis";
 import { issueBoardSections } from "@untie/core/model/selectors";
-import { ELEMENT_KIND_LABELS, type Element, type Link, type UntieModel } from "@untie/core/model/types";
+import { ELEMENT_KIND_LABELS, type Link, type UntieModel } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
+import { El } from "./analysisParts";
+import { StormingView } from "./StormingView";
 import { getPlatform } from "../../platform";
 import { canvasApi } from "../canvas/canvasApi";
 import { HoursLabel } from "../Hours";
@@ -25,6 +27,8 @@ const DESCRIPTIONS: Record<AnalysisKind, string> = {
   informationLocation:
     "情報ごとに、取得元・保存先のシステム・帳票を並べます。置き場所の無い情報、紙だけの情報、保存先が複数ある情報 (二重管理の可能性) に印を付けます。下の表では、システムごとに画面が扱う情報を並べます。",
   issues: "業務ごとに、業務・その作業・作業が使う操作に付いた課題 (具体的な課題) を集めます。課題の多い業務、重要度の高い業務がわかります。登場人物に付いた課題 (全体的な課題) と、対象のない課題 (未整理) は下の表に分けて出します。",
+  storming:
+    "分析からドメインモデル (DDD) の候補を導きます。情報を書く操作をコマンド、分析のイベントをドメインイベント、イベントをきっかけにした操作をポリシー、状態を持つ情報を集約のルートの候補にします。候補と根拠を出すだけで、決めるのは人です。導く途中で見つかる問い (境界やあるべき姿の判断) と情報を、上の「気づき」に出します。",
 };
 
 const attrOf = (id: string) => `[data-analysis-el="${CSS.escape(id)}"]`;
@@ -52,34 +56,12 @@ export function AnalysisBoard({ kind }: { kind: AnalysisKind }) {
       {kind === "people" && <PeopleView model={model} />}
       {kind === "informationLocation" && <InformationLocationView model={model} />}
       {kind === "issues" && <IssuesView model={model} />}
+      {kind === "storming" && <StormingView model={model} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------- 共通の部品
-
-/** 要素名。クリックで選択してプロパティ欄に出す */
-function El({ element, plain }: { element: Element | undefined; plain?: boolean }) {
-  const select = useUntieStore((s) => s.select);
-  const setRightPanel = useUntieStore((s) => s.setRightPanel);
-  const selected = useUntieStore((s) => s.ui.selection?.type === "element" && s.ui.selection.id === element?.id);
-  if (!element) return null;
-  return (
-    <button
-      type="button"
-      className={`an-el kind-${element.kind}${plain ? " is-plain" : ""}${selected ? " is-selected" : ""}`}
-      data-analysis-el={element.id}
-      title={`${ELEMENT_KIND_LABELS[element.kind]}: ${element.name}`}
-      onClick={() => {
-        select({ type: "element", id: element.id });
-        setRightPanel("properties");
-      }}
-    >
-      {!plain && <span className="kind-dot" />}
-      {element.name || "(名前なし)"}
-    </button>
-  );
-}
 
 function Links({ links }: { links: Link[] | undefined }) {
   if (!links || links.length === 0) return <span className="an-empty">—</span>;

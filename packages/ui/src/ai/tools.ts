@@ -23,6 +23,7 @@ import {
   type ElementPatch,
 } from "@untie/core/model/commands";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
+import { domainReferences } from "@untie/core/model/domain";
 import { designsUsingDatabase } from "@untie/core/model/designData";
 import { viewBindingSlots, viewShapeProblem } from "@untie/core/model/designView";
 import { designScreenName } from "@untie/core/model/sitemap";
@@ -495,8 +496,8 @@ export function executeTool(editor: ModelEditor, name: string, rawInput: unknown
       const id = s(input.id);
       if (!id) return fail("id が必要です");
       // 確認なしで消すが、一緒に消えた設計データは結果に含めて、AI と利用者に伝える
-      const removedDesign = designReferences(editor.getModel(), id);
-      return run(editor, (m) => removeElement(m, { id }), () => ({ ok: true, ...(removedDesign.length > 0 ? { removedDesign: `設計データも一緒に消えました: ${removedDesign.join("、")}` } : {}) }));
+      const removedDesign = [...designReferences(editor.getModel(), id), ...domainReferences(editor.getModel(), id)];
+      return run(editor, (m) => removeElement(m, { id }), () => ({ ok: true, ...(removedDesign.length > 0 ? { removedDesign: `設計データ・ドメインモデルも一緒に消えた (か、参照が外れた): ${removedDesign.join("、")}` } : {}) }));
     }
 
     case "add_relation": {

@@ -62,6 +62,10 @@ export type RelationKind =
   | "eventActivity"
   | "usecaseScreen"
   | "actorNfr";
+/**
+ * コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。
+ */
+export type EnglishName = string;
 
 /**
  * Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。
@@ -72,9 +76,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.5.4";
+  version: "0.6.2";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。
@@ -98,6 +102,7 @@ export interface UntieModel {
    * 設計をまたいで共有するデータベース (0.5.0 から)。id は一意。
    */
   databases: Database[];
+  domain: DomainModel;
 }
 /**
  * モデル全体の情報。
@@ -451,6 +456,36 @@ export interface Relation {
    * 操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。
    */
   access?: "read" | "write";
+  /**
+   * 代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。
+   */
+  alternate?: {
+    /**
+     * ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。
+     */
+    when: "met" | "unmet";
+    /**
+     * そのときどうなるか (業務の言葉で。1〜2 文)。
+     */
+    then: string;
+    /**
+     * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+     */
+    eventId?: string;
+    /**
+     * そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。
+     */
+    error?: {
+      /**
+       * input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。
+       */
+      type: "input" | "server";
+      /**
+       * HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。
+       */
+      status?: number;
+    };
+  };
 }
 /**
  * ボード。要素をどこに置くかだけを持ち、業務データは持たない。
@@ -618,4 +653,212 @@ export interface Database {
     table: Name;
     informationIds: Id[];
   }[];
+}
+/**
+ * ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。
+ */
+export interface DomainModel {
+  /**
+   * 境界づけられたコンテキスト。
+   */
+  contexts: BoundedContext[];
+  /**
+   * 集約。boundedContextId でコンテキストに属する。
+   */
+  aggregates: Aggregate[];
+  /**
+   * コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。
+   */
+  commands: DomainCommand[];
+  /**
+   * ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。
+   */
+  events: DomainEvent[];
+  /**
+   * ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。
+   */
+  policies: DomainPolicy[];
+  /**
+   * 分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。
+   */
+  excluded: string[];
+  /**
+   * コンテキスト間の関係 (コンテキストマップ)。
+   */
+  relations: ContextRelation[];
+  /**
+   * 用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。
+   */
+  terms: DomainTerm[];
+}
+/**
+ * 境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。
+ */
+export interface BoundedContext {
+  id: Id;
+  name: Name;
+  english?: EnglishName;
+  description?: Description;
+  /**
+   * サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。
+   */
+  subdomain?: "core" | "supporting" | "generic";
+  /**
+   * 表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。
+   */
+  team?: string;
+  /**
+   * 言語の範囲にする分析のコンテキスト (context 要素の id)。
+   */
+  contextIds: Id[];
+  /**
+   * 実装するシステム (system 要素の id)。
+   */
+  systemIds: Id[];
+}
+/**
+ * 集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。
+ */
+export interface Aggregate {
+  id: Id;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  boundedContextId: string;
+  name: Name;
+  english?: EnglishName;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  rootInformationId: string;
+  /**
+   * 中に入れる情報 (information 要素の id。ルートは入れない)。
+   */
+  memberInformationIds: Id[];
+  /**
+   * ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。
+   */
+  stateGroup?: string;
+  /**
+   * 不変条件 (集約の境界の中で常に守るルール)。
+   */
+  invariants: {
+    id: Id;
+    text: Description;
+    /**
+     * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+     */
+    conditionId?: string;
+  }[];
+}
+/**
+ * コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。
+ */
+export interface DomainCommand {
+  id: Id;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  aggregateId: string;
+  name: Name;
+  english?: EnglishName;
+  /**
+   * 出どころ (分析の操作。作業ごとに分けたなら作業も)。
+   */
+  source?: {
+    usecaseId: Id;
+    activityId?: Id;
+  };
+  /**
+   * 発生させるドメインイベント (domain.events の id)。
+   */
+  emits: Id[];
+}
+/**
+ * ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。
+ */
+export interface DomainEvent {
+  id: Id;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  boundedContextId: string;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  aggregateId?: string;
+  name: Name;
+  english?: EnglishName;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  eventId?: string;
+  /**
+   * 属性。
+   */
+  properties?: {
+    name: Name;
+    /**
+     * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+     */
+    informationId?: string;
+  }[];
+}
+/**
+ * ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。
+ */
+export interface DomainPolicy {
+  id: Id;
+  eventId: Id;
+  commandId: Id;
+  /**
+   * true は自動で実行する。false は人の判断をはさむ。
+   */
+  auto: boolean;
+}
+/**
+ * コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。
+ */
+export interface ContextRelation {
+  id: Id;
+  upstreamId: Id;
+  downstreamId: Id;
+  /**
+   * 関係の種類 (DDD のコンテキストマップ)。
+   */
+  kind:
+    | "partnership"
+    | "sharedKernel"
+    | "customerSupplier"
+    | "conformist"
+    | "acl"
+    | "ohs"
+    | "publishedLanguage"
+    | "separateWays"
+    | "bigBallOfMud";
+  /**
+   * 統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。
+   */
+  integration?: "messaging" | "rest" | "rpc" | "file" | "manual";
+  note?: Description;
+}
+/**
+ * 用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。
+ */
+export interface DomainTerm {
+  id: Id;
+  term: Name;
+  /**
+   * 表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。
+   */
+  english?: string;
+  definition: Description;
+  /**
+   * 属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。
+   */
+  boundedContextId: Id | null;
+  /**
+   * 安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。
+   */
+  elementId?: string;
 }

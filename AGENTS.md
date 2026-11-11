@@ -30,7 +30,7 @@ CI (`.github/workflows/ci.yml`) も同じものを走らせます。
 
 ## JSON Schema を変えるときは、必ずモデルの形式のバージョンを上げる
 
-保存する JSON は `version` にモデルの形式のバージョン (semver の文字列。現行は `0.5.4`) を持ちます。ファイルを開く・取り込むときは `loadModelJson()` (`packages/core/src/model/migrate.ts`) が、古い版の JSON をマイグレーションで現行の版へ自動で変換してから検証します。新しい版の JSON は、古いアプリで開いて壊さないよう断ります。
+保存する JSON は `version` にモデルの形式のバージョン (semver の文字列。現行は `0.6.2`) を持ちます。ファイルを開く・取り込むときは `loadModelJson()` (`packages/core/src/model/migrate.ts`) が、古い版の JSON をマイグレーションで現行の版へ自動で変換してから検証します。新しい版の JSON は、古いアプリで開いて壊さないよう断ります。
 
 そのため、`schema/untie.schema.json` を変えるとき (項目を足す・消す・名前や型を変える・必須にする・値の範囲を変える、など保存する JSON の形が変わるすべての変更) は、**必ず**次をまとめて 1 つの変更で行ってください。説明 (`description`) だけを直すときは不要です。
 
@@ -38,7 +38,7 @@ CI (`.github/workflows/ci.yml`) も同じものを走らせます。
 2. **マイグレーションを足す**: `packages/core/src/model/migrate.ts` の `MIGRATIONS` に `{ from: 前の版, to: 新しい版, migrate }` を 1 つ足す。`migrate` は前の版の JSON を新しい版の形へ直す (受け取ったものは書き換えず、新しいオブジェクトを返す)。形が変わらなくても、版をつなぐために空の変換 (`(json) => json`) を足す。
 3. **型と検証関数を作り直す**: `pnpm gen:types` (`schema.d.ts` と `schemaValidator.gen.js` が変わる)。
 4. **テストを足す**: `packages/core/src/model/__tests__/migrate.test.ts` に、前の版の JSON が変換されて `validateModel` に通ること (と、変換で中身がどう変わるか) を足す。
-5. **作るところを合わせる**: サンプル (`packages/core/src/sample/`)・`emptyModel`・Y.Doc からの組み立て (`packages/collab/src/doc/rebuild.ts`) は `MODEL_VERSION` を使っているので、新しい形に合わせて中身を直す。
+5. **作るところを合わせる**: サンプル (`packages/core/src/sample/`)・`emptyModel`・Y.Doc からの組み立て (`packages/collab/src/doc/rebuild.ts`) は `MODEL_VERSION` を使っているので、新しい形に合わせて中身を直す。トップレベルの項目を足したときは、同時編集の Y.Doc のルート (`packages/collab/src/doc/` の `roots.ts`・`write.ts`・`diff.ts`・`rebuild.ts`・`observe.ts`・`load.ts`) にも足す (足し忘れると、同時編集でその項目だけ届かない)。
 6. **書く**: `docs/design.md` の 4 章 (データモデル) と、変わった項目の説明を直す。
 
 すでに出した版の `MIGRATIONS` は書き換えず、足していきます (古いファイルを持っている人がいるため)。
@@ -51,6 +51,13 @@ CI (`.github/workflows/ci.yml`) も同じものを走らせます。
 - 情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は関係にしない (0.4.0 から)。操作が扱う情報 (`usecaseInformation`) に取得・保存の区別 (`access`: `read` / `write`。省略は両方) を付け、操作の対象と合わせて導く。紙の帳票に情報を置きたければ、その帳票を対象にした「記入する」操作を作る。
 - 1 つの画面は 1 つの操作だけが使う (複数の操作で使うと検証がエラーを出す)。同じ画面で済ませたい操作は、操作ごとに画面を分ける。
 - サンプルのテストで、検証 (`traceToActors`) のエラーが空で、警告 (`traceWarnings`) も空であることを確かめる。
+
+## 開発モードでしか出さない画面
+
+内部のドメインモデル (`model.domain` と、分析から導く候補) を直に見る・直す画面は、利用者には見せません。`packages/ui/src/devMode.ts` の `isDevMode()` が真のときだけ出します (開発サーバーを `UNTIE_DEV_MODE=1` で起動したとき。build したものは必ず off。README の「開発モード」)。
+
+- 利用者に見せる画面・文言に、集約・境界づけられたコンテキスト・ドメインイベントなどの言葉を出さない。出す必要があるものは、開発モードの中に置く。
+- 開発用のボードを足したら、`DEV_ONLY_ANALYSIS_KINDS`・`DEV_ONLY_DESIGN_KINDS` に入れる。開発用の画面のテストは `setDevModeForTest(true)` を呼ぶ。
 
 ## 書き方
 

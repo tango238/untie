@@ -1,8 +1,10 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addDatabase, setDesignDatabases } from "@untie/core/model/commands";
 import { buildRelationGraph } from "@untie/core/model/designRelation";
-import { createRetailSample } from "@untie/core/sample";
+import { includeInformation } from "@untie/core/model/domainCommands";
+import { createNetshopSample, createRetailSample } from "@untie/core/sample";
 import { okModel } from "@untie/core/testing";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -26,6 +28,8 @@ class DOMMatrixStub {
 }
 
 beforeEach(() => {
+  // 内部のドメインモデルを見せる画面は、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
   (globalThis as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = DOMMatrixStub;
   localStorage.clear();
@@ -57,6 +61,33 @@ describe("関連ボードの図の計算", () => {
     // 何も選んでいなければ薄くしない
     expect(nodes.every((n) => !("dim" in n.data) || n.data.dim === false)).toBe(true);
     expect(edges.every((e) => e.className === "")).toBe(true);
+  });
+
+  it("集約 (ドメインモデル) が決まっている情報は、集約ごとの枠にまとめる (ルートが先頭)。決まっていない情報はそのまま", () => {
+    let m = createNetshopSample();
+    const include = includeInformation(m, { aggregateId: "ag_stock", informationId: "info_product" });
+    if (!include.ok) throw new Error(include.reason);
+    m = include.model;
+    const graph = buildRelationGraph(m, "sys_oms");
+    expect(graph.informations.find((i) => i.id === "info_order")!.aggregate).toEqual({ id: "ag_order", name: "注文 (Order)", role: "root" });
+    expect(graph.informations.find((i) => i.id === "info_product")!.aggregate).toMatchObject({ id: "ag_stock", role: "member" });
+    expect(graph.informations.find((i) => i.id === "info_customer")!.aggregate).toBeUndefined();
+    // 集約の枠は開発モードのときだけ (内部のドメインモデルを見せることになるため)。ふだんは、情報をそのまま並べる
+    expect(buildRelationFlow(graph, undefined).nodes.some((n) => n.id.startsWith("aggregate:"))).toBe(false);
+    const { nodes } = buildRelationFlow(graph, undefined, { aggregates: true });
+    const frame = nodes.find((n) => n.id === "aggregate:ag_stock")!;
+    expect(frame).toMatchObject({ type: "frame", data: { name: "集約: 在庫 (Stock)" } });
+    const inside = nodes.filter((n) => n.parentId === "aggregate:ag_stock");
+    // ルート (在庫) が先頭で、中の情報 (商品) が続く。枠は子より前にある
+    expect(inside.map((n) => n.id)).toEqual(["information:info_stock", "information:info_product"]);
+    expect(inside[0]!.position.y).toBeLessThan(inside[1]!.position.y);
+    expect(nodes.indexOf(frame)).toBeLessThan(nodes.indexOf(inside[0]!));
+    expect(frame.height).toBeGreaterThan(inside[1]!.position.y + (inside[1]!.height ?? 0));
+    // 集約にしていない情報 (購入者) は、枠に入らない
+    expect(nodes.find((n) => n.id === "information:info_customer")!.parentId).toBeUndefined();
+    // 枠どうし・枠と情報は重ならない (上から順に積む)
+    const tops = nodes.filter((n) => n.parentId === undefined && (n.type === "information" || n.id.startsWith("aggregate:"))).map((n) => [n.position.y, n.position.y + (n.height ?? 0)] as const);
+    for (let i = 1; i < tops.length; i++) expect(tops[i]![0]).toBeGreaterThanOrEqual(tops[i - 1]![1]);
   });
 
   it("データベースが 2 つ以上なら枠にまとめる", () => {

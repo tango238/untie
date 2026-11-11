@@ -4,7 +4,7 @@ import { addDesignScreens, setDatabaseDesign, setDesignLayout, setDesignNavigati
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME } from "../model/design";
 import { relationKindFor } from "../model/relations";
 import { deriveTransitions, sitemapTree } from "../model/sitemap";
-import { MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type DesignScreen, type Element, type InformationAccess, type Relation, type UntieModel, type RelationAlternate } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -475,12 +475,20 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
+// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+const alternates: Record<string, RelationAlternate> = {
+  "rel_uc_register_order__cond_low_stock": { when: "unmet", then: "発注せず、次の確認まで待つ。" },
+  "rel_uc_register_return__cond_receipt": { when: "unmet", then: "返品・交換を受けず、理由をお客様に伝える。" },
+  "rel_uc_record_cash__cond_difference": { when: "met", then: "原因を調べて、ずれの理由を記録してから報告する。" },
+};
+
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
+  const id = `rel_${sourceId}__${targetId}`;
+  return { id, kind, sourceId, targetId, ...(access ? { access } : {}), ...(alternates[id] ? { alternate: alternates[id] } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード
@@ -583,6 +591,7 @@ const baseModel: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain: emptyDomain(),
 };
 
 

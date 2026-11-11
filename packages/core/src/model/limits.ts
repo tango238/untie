@@ -15,6 +15,10 @@ export const LINK_URL_MAX_LENGTH = 2000;
 export const VERIFICATION_MAX_LENGTH = 4000;
 /** 作業の起点 (その他) */
 export const TRIGGER_NOTE_MAX_LENGTH = 4000;
+/** 英語名 (識別子。ドメインモデルのコンテキスト・集約・コマンド・イベント。0.6.0) */
+export const ENGLISH_MAX_LENGTH = 100;
+/** 外した候補のキー (domain.excluded。0.6.0) */
+export const EXCLUDED_KEY_MAX_LENGTH = 200;
 /** データベースの DSL (Prisma 風。0.5.0) */
 export const DSL_MAX_LENGTH = 200000;
 /** 画面 UI (view) を JSON にしたときの大きさ (設計の画面 UI。0.5.0) */
@@ -67,6 +71,14 @@ export const LIMITS = {
   personaNotes: { max: DESCRIPTION_MAX_LENGTH, label: "ペルソナの備考" },
   eventTimingNote: { max: DESCRIPTION_MAX_LENGTH, label: "発生タイミングの補足" },
   transitionLabel: { max: NAME_MAX_LENGTH, label: "遷移の文言" },
+  english: { max: ENGLISH_MAX_LENGTH, label: "英語名" },
+  team: { max: NAME_MAX_LENGTH, label: "チーム" },
+  invariant: { max: DESCRIPTION_MAX_LENGTH, label: "不変条件" },
+  relationNote: { max: DESCRIPTION_MAX_LENGTH, label: "関係の補足" },
+  term: { max: NAME_MAX_LENGTH, label: "用語" },
+  termEnglish: { max: NAME_MAX_LENGTH, label: "用語の英語" },
+  definition: { max: DESCRIPTION_MAX_LENGTH, label: "定義" },
+  propertyName: { max: NAME_MAX_LENGTH, label: "属性の名前" },
 } as const;
 export type LimitKey = keyof typeof LIMITS;
 

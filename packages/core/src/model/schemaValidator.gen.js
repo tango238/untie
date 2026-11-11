@@ -1,11 +1,12 @@
 // このファイルは packages/core/scripts/gen-validator.mjs が生成する。手で直さないこと。
 /* eslint-disable */
-import func1Module from "ajv/dist/runtime/ucs2length.js";
-const func1 = func1Module.default ?? func1Module;
+import func2Module from "ajv/dist/runtime/ucs2length.js";
+const func2 = func2Module.default ?? func2Module;
 import func0Module from "ajv/dist/runtime/equal.js";
 const func0 = func0Module.default ?? func0Module;
 export const validateModelSchema = validate20;
-const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.5.4"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}},"eventTiming":{"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
+const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases","domain"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.6.2"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}},"domain":{"$ref":"#/$defs/domainModel"}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}},"eventTiming":{"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}}}}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"englishName":{"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"},"domainModel":{"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}},"boundedContext":{"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"aggregate":{"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainCommand":{"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"domainEvent":{"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainPolicy":{"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}},"contextRelation":{"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}},"domainTerm":{"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
+const func1 = Object.prototype.hasOwnProperty;
 const schema32 = {"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}};
 const schema33 = {"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200};
 const schema34 = {"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000};
@@ -47,7 +48,7 @@ errors++;
 if(data.name !== undefined){
 let data0 = data.name;
 if(typeof data0 === "string"){
-if(func1(data0) > 200){
+if(func2(data0) > 200){
 const err2 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err2];
@@ -72,7 +73,7 @@ errors++;
 if(data.description !== undefined){
 let data1 = data.description;
 if(typeof data1 === "string"){
-if(func1(data1) > 4000){
+if(func2(data1) > 4000){
 const err4 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -172,7 +173,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -182,7 +183,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -229,7 +230,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -254,7 +255,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -294,7 +295,7 @@ errors++;
 if(data4.handle !== undefined){
 let data5 = data4.handle;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err14 = {instancePath:instancePath+"/persona/handle",schemaPath:"#/$defs/persona/properties/handle/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -319,7 +320,7 @@ errors++;
 if(data4.attributes !== undefined){
 let data6 = data4.attributes;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/persona/attributes",schemaPath:"#/$defs/persona/properties/attributes/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -344,7 +345,7 @@ errors++;
 if(data4.background !== undefined){
 let data7 = data4.background;
 if(typeof data7 === "string"){
-if(func1(data7) > 4000){
+if(func2(data7) > 4000){
 const err18 = {instancePath:instancePath+"/persona/background",schemaPath:"#/$defs/persona/properties/background/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -369,7 +370,7 @@ errors++;
 if(data4.goals !== undefined){
 let data8 = data4.goals;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err20 = {instancePath:instancePath+"/persona/goals",schemaPath:"#/$defs/persona/properties/goals/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -407,7 +408,7 @@ errors++;
 if(data4.notes !== undefined){
 let data10 = data4.notes;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err23 = {instancePath:instancePath+"/persona/notes",schemaPath:"#/$defs/persona/properties/notes/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -515,7 +516,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -525,7 +526,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -572,7 +573,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -597,7 +598,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -637,7 +638,7 @@ errors++;
 if(data4.handle !== undefined){
 let data5 = data4.handle;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err14 = {instancePath:instancePath+"/persona/handle",schemaPath:"#/$defs/persona/properties/handle/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -662,7 +663,7 @@ errors++;
 if(data4.attributes !== undefined){
 let data6 = data4.attributes;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/persona/attributes",schemaPath:"#/$defs/persona/properties/attributes/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -687,7 +688,7 @@ errors++;
 if(data4.background !== undefined){
 let data7 = data4.background;
 if(typeof data7 === "string"){
-if(func1(data7) > 4000){
+if(func2(data7) > 4000){
 const err18 = {instancePath:instancePath+"/persona/background",schemaPath:"#/$defs/persona/properties/background/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -712,7 +713,7 @@ errors++;
 if(data4.goals !== undefined){
 let data8 = data4.goals;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err20 = {instancePath:instancePath+"/persona/goals",schemaPath:"#/$defs/persona/properties/goals/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -750,7 +751,7 @@ errors++;
 if(data4.notes !== undefined){
 let data10 = data4.notes;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err23 = {instancePath:instancePath+"/persona/notes",schemaPath:"#/$defs/persona/properties/notes/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -858,7 +859,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -868,7 +869,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -915,7 +916,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -940,7 +941,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -1036,7 +1037,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -1046,7 +1047,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -1093,7 +1094,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -1118,7 +1119,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -1214,7 +1215,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -1224,7 +1225,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -1271,7 +1272,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -1296,7 +1297,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -1412,7 +1413,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -1422,7 +1423,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -1469,7 +1470,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -1494,7 +1495,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -1519,7 +1520,7 @@ errors++;
 if(data.businessId !== undefined){
 let data4 = data.businessId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err15 = {instancePath:instancePath+"/businessId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -1529,7 +1530,7 @@ vErrors.push(err15);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err16 = {instancePath:instancePath+"/businessId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -1659,7 +1660,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -1669,7 +1670,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -1716,7 +1717,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -1741,7 +1742,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -1770,7 +1771,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/bucId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -1780,7 +1781,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/bucId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -1902,7 +1903,7 @@ errors++;
 if(data6.title !== undefined){
 let data7 = data6.title;
 if(typeof data7 === "string"){
-if(func1(data7) > 200){
+if(func2(data7) > 200){
 const err23 = {instancePath:instancePath+"/links/" + i0+"/title",schemaPath:"#/$defs/link/properties/title/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -1927,7 +1928,7 @@ errors++;
 if(data6.url !== undefined){
 let data8 = data6.url;
 if(typeof data8 === "string"){
-if(func1(data8) > 2000){
+if(func2(data8) > 2000){
 const err25 = {instancePath:instancePath+"/links/" + i0+"/url",schemaPath:"#/$defs/link/properties/url/maxLength",keyword:"maxLength",params:{limit: 2000},message:"must NOT have more than 2000 characters"};
 if(vErrors === null){
 vErrors = [err25];
@@ -2021,7 +2022,7 @@ errors++;
 if(data.triggerNote !== undefined){
 let data10 = data.triggerNote;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err33 = {instancePath:instancePath+"/triggerNote",schemaPath:"#/properties/triggerNote/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -2031,7 +2032,7 @@ vErrors.push(err33);
 }
 errors++;
 }
-if(func1(data10) < 1){
+if(func2(data10) < 1){
 const err34 = {instancePath:instancePath+"/triggerNote",schemaPath:"#/properties/triggerNote/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err34];
@@ -2127,7 +2128,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -2137,7 +2138,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -2184,7 +2185,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -2209,7 +2210,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -2273,7 +2274,7 @@ errors++;
 if(data5.title !== undefined){
 let data6 = data5.title;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/links/" + i0+"/title",schemaPath:"#/$defs/link/properties/title/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -2298,7 +2299,7 @@ errors++;
 if(data5.url !== undefined){
 let data7 = data5.url;
 if(typeof data7 === "string"){
-if(func1(data7) > 2000){
+if(func2(data7) > 2000){
 const err18 = {instancePath:instancePath+"/links/" + i0+"/url",schemaPath:"#/$defs/link/properties/url/maxLength",keyword:"maxLength",params:{limit: 2000},message:"must NOT have more than 2000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -2463,7 +2464,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -2473,7 +2474,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -2520,7 +2521,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -2545,7 +2546,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -2651,7 +2652,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -2661,7 +2662,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -2708,7 +2709,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -2733,7 +2734,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -2762,7 +2763,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -2772,7 +2773,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -2936,7 +2937,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -2946,7 +2947,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -2993,7 +2994,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -3018,7 +3019,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -3043,7 +3044,7 @@ errors++;
 if(data.group !== undefined){
 let data4 = data.group;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err14 = {instancePath:instancePath+"/group",schemaPath:"#/properties/group/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -3072,7 +3073,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs16 = errors;
 if(typeof data5 === "string"){
-if(func1(data5) > 64){
+if(func2(data5) > 64){
 const err16 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -3082,7 +3083,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(func1(data5) < 1){
+if(func2(data5) < 1){
 const err17 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err17];
@@ -3256,7 +3257,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -3266,7 +3267,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -3313,7 +3314,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -3338,7 +3339,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -3367,7 +3368,7 @@ const len0 = data4.length;
 for(let i0=0; i0<len0; i0++){
 let data5 = data4[i0];
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err15 = {instancePath:instancePath+"/values/" + i0,schemaPath:"#/properties/values/items/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -3408,7 +3409,7 @@ let valid6 = false;
 let passing0 = null;
 const _errs18 = errors;
 if(typeof data6 === "string"){
-if(func1(data6) > 64){
+if(func2(data6) > 64){
 const err18 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -3418,7 +3419,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data6) < 1){
+if(func2(data6) < 1){
 const err19 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -3582,7 +3583,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -3592,7 +3593,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -3639,7 +3640,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -3664,7 +3665,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -3693,7 +3694,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -3703,7 +3704,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -3879,7 +3880,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -3889,7 +3890,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -3936,7 +3937,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -3961,7 +3962,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -4025,7 +4026,7 @@ const len0 = data5.length;
 for(let i0=0; i0<len0; i0++){
 let data6 = data5[i0];
 if(typeof data6 === "string"){
-if(func1(data6) > 64){
+if(func2(data6) > 64){
 const err18 = {instancePath:instancePath+"/targetIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -4035,7 +4036,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data6) < 1){
+if(func2(data6) < 1){
 const err19 = {instancePath:instancePath+"/targetIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -4117,7 +4118,7 @@ errors++;
 if(data7.phenomenon !== undefined){
 let data8 = data7.phenomenon;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err25 = {instancePath:instancePath+"/analysis/phenomenon",schemaPath:"#/$defs/issueAnalysis/properties/phenomenon/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err25];
@@ -4142,7 +4143,7 @@ errors++;
 if(data7.location !== undefined){
 let data9 = data7.location;
 if(typeof data9 === "string"){
-if(func1(data9) > 4000){
+if(func2(data9) > 4000){
 const err27 = {instancePath:instancePath+"/analysis/location",schemaPath:"#/$defs/issueAnalysis/properties/location/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err27];
@@ -4167,7 +4168,7 @@ errors++;
 if(data7.cause !== undefined){
 let data10 = data7.cause;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err29 = {instancePath:instancePath+"/analysis/cause",schemaPath:"#/$defs/issueAnalysis/properties/cause/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err29];
@@ -4192,7 +4193,7 @@ errors++;
 if(data7.impact !== undefined){
 let data11 = data7.impact;
 if(typeof data11 === "string"){
-if(func1(data11) > 4000){
+if(func2(data11) > 4000){
 const err31 = {instancePath:instancePath+"/analysis/impact",schemaPath:"#/$defs/issueAnalysis/properties/impact/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err31];
@@ -4311,7 +4312,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -4321,7 +4322,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -4368,7 +4369,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -4393,7 +4394,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -4422,7 +4423,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -4432,7 +4433,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -4671,7 +4672,7 @@ errors++;
 if(data5.note !== undefined){
 let data11 = data5.note;
 if(typeof data11 === "string"){
-if(func1(data11) > 4000){
+if(func2(data11) > 4000){
 const err33 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -4789,7 +4790,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -4799,7 +4800,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -4846,7 +4847,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -4871,7 +4872,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -4896,7 +4897,7 @@ errors++;
 if(data.systemId !== undefined){
 let data4 = data.systemId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -4906,7 +4907,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -5022,7 +5023,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -5032,7 +5033,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -5079,7 +5080,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -5104,7 +5105,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -5129,7 +5130,7 @@ errors++;
 if(data.systemId !== undefined){
 let data4 = data.systemId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -5139,7 +5140,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -5197,7 +5198,7 @@ errors++;
 if(data.verification !== undefined){
 let data6 = data.verification;
 if(typeof data6 === "string"){
-if(func1(data6) > 4000){
+if(func2(data6) > 4000){
 const err20 = {instancePath:instancePath+"/verification",schemaPath:"#/properties/verification/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -5591,7 +5592,7 @@ return errors === 0;
 }
 validate23.evaluated = {"dynamicProps":true,"dynamicItems":false};
 
-const schema120 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]}}};
+const schema120 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}}}}}};
 const schema122 = {"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]};
 
 function validate59(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -5646,7 +5647,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!(((((key0 === "id") || (key0 === "kind")) || (key0 === "sourceId")) || (key0 === "targetId")) || (key0 === "access"))){
+if(!((((((key0 === "id") || (key0 === "kind")) || (key0 === "sourceId")) || (key0 === "targetId")) || (key0 === "access")) || (key0 === "alternate"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -5660,7 +5661,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -5670,7 +5671,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -5728,7 +5729,7 @@ errors++;
 if(data.sourceId !== undefined){
 let data2 = data.sourceId;
 if(typeof data2 === "string"){
-if(func1(data2) > 64){
+if(func2(data2) > 64){
 const err11 = {instancePath:instancePath+"/sourceId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -5738,7 +5739,7 @@ vErrors.push(err11);
 }
 errors++;
 }
-if(func1(data2) < 1){
+if(func2(data2) < 1){
 const err12 = {instancePath:instancePath+"/sourceId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -5773,7 +5774,7 @@ errors++;
 if(data.targetId !== undefined){
 let data3 = data.targetId;
 if(typeof data3 === "string"){
-if(func1(data3) > 64){
+if(func2(data3) > 64){
 const err15 = {instancePath:instancePath+"/targetId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -5783,7 +5784,7 @@ vErrors.push(err15);
 }
 errors++;
 }
-if(func1(data3) < 1){
+if(func2(data3) < 1){
 const err16 = {instancePath:instancePath+"/targetId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -5838,9 +5839,11 @@ vErrors.push(err20);
 errors++;
 }
 }
-}
-else {
-const err21 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.alternate !== undefined){
+let data5 = data.alternate;
+if(data5 && typeof data5 == "object" && !Array.isArray(data5)){
+if(data5.when === undefined){
+const err21 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/required",keyword:"required",params:{missingProperty: "when"},message:"must have required property '"+"when"+"'"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -5849,13 +5852,246 @@ vErrors.push(err21);
 }
 errors++;
 }
+if(data5.then === undefined){
+const err22 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/required",keyword:"required",params:{missingProperty: "then"},message:"must have required property '"+"then"+"'"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+for(const key1 in data5){
+if(!((((key1 === "when") || (key1 === "then")) || (key1 === "eventId")) || (key1 === "error"))){
+const err23 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+if(data5.when !== undefined){
+let data6 = data5.when;
+if(typeof data6 !== "string"){
+const err24 = {instancePath:instancePath+"/alternate/when",schemaPath:"#/properties/alternate/properties/when/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+if(!((data6 === "met") || (data6 === "unmet"))){
+const err25 = {instancePath:instancePath+"/alternate/when",schemaPath:"#/properties/alternate/properties/when/enum",keyword:"enum",params:{allowedValues: schema120.properties.alternate.properties.when.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+}
+if(data5.then !== undefined){
+let data7 = data5.then;
+if(typeof data7 === "string"){
+if(func2(data7) > 4000){
+const err26 = {instancePath:instancePath+"/alternate/then",schemaPath:"#/properties/alternate/properties/then/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+}
+else {
+const err27 = {instancePath:instancePath+"/alternate/then",schemaPath:"#/properties/alternate/properties/then/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+if(data5.eventId !== undefined){
+let data8 = data5.eventId;
+if(typeof data8 === "string"){
+if(func2(data8) > 64){
+const err28 = {instancePath:instancePath+"/alternate/eventId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+if(func2(data8) < 1){
+const err29 = {instancePath:instancePath+"/alternate/eventId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+if(!pattern4.test(data8)){
+const err30 = {instancePath:instancePath+"/alternate/eventId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+}
+else {
+const err31 = {instancePath:instancePath+"/alternate/eventId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+}
+if(data5.error !== undefined){
+let data9 = data5.error;
+if(data9 && typeof data9 == "object" && !Array.isArray(data9)){
+if(data9.type === undefined){
+const err32 = {instancePath:instancePath+"/alternate/error",schemaPath:"#/properties/alternate/properties/error/required",keyword:"required",params:{missingProperty: "type"},message:"must have required property '"+"type"+"'"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+for(const key2 in data9){
+if(!((key2 === "type") || (key2 === "status"))){
+const err33 = {instancePath:instancePath+"/alternate/error",schemaPath:"#/properties/alternate/properties/error/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key2},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+if(data9.type !== undefined){
+let data10 = data9.type;
+if(typeof data10 !== "string"){
+const err34 = {instancePath:instancePath+"/alternate/error/type",schemaPath:"#/properties/alternate/properties/error/properties/type/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+if(!((data10 === "input") || (data10 === "server"))){
+const err35 = {instancePath:instancePath+"/alternate/error/type",schemaPath:"#/properties/alternate/properties/error/properties/type/enum",keyword:"enum",params:{allowedValues: schema120.properties.alternate.properties.error.properties.type.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+if(data9.status !== undefined){
+let data11 = data9.status;
+if(!((typeof data11 == "number") && (!(data11 % 1) && !isNaN(data11)))){
+const err36 = {instancePath:instancePath+"/alternate/error/status",schemaPath:"#/properties/alternate/properties/error/properties/status/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+if(typeof data11 == "number"){
+if(data11 > 599 || isNaN(data11)){
+const err37 = {instancePath:instancePath+"/alternate/error/status",schemaPath:"#/properties/alternate/properties/error/properties/status/maximum",keyword:"maximum",params:{comparison: "<=", limit: 599},message:"must be <= 599"};
+if(vErrors === null){
+vErrors = [err37];
+}
+else {
+vErrors.push(err37);
+}
+errors++;
+}
+if(data11 < 400 || isNaN(data11)){
+const err38 = {instancePath:instancePath+"/alternate/error/status",schemaPath:"#/properties/alternate/properties/error/properties/status/minimum",keyword:"minimum",params:{comparison: ">=", limit: 400},message:"must be >= 400"};
+if(vErrors === null){
+vErrors = [err38];
+}
+else {
+vErrors.push(err38);
+}
+errors++;
+}
+}
+}
+}
+else {
+const err39 = {instancePath:instancePath+"/alternate/error",schemaPath:"#/properties/alternate/properties/error/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err39];
+}
+else {
+vErrors.push(err39);
+}
+errors++;
+}
+}
+}
+else {
+const err40 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err40];
+}
+else {
+vErrors.push(err40);
+}
+errors++;
+}
+}
+}
+else {
+const err41 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err41];
+}
+else {
+vErrors.push(err41);
+}
+errors++;
+}
 validate59.errors = vErrors;
 return errors === 0;
 }
 validate59.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema125 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
-const schema128 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
+const schema126 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
+const schema129 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
 
 function validate62(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -5913,7 +6149,7 @@ errors++;
 if(data.elementId !== undefined){
 let data0 = data.elementId;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -5923,7 +6159,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -6045,8 +6281,8 @@ return errors === 0;
 }
 validate62.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema130 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
-const schema132 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
+const schema131 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
+const schema133 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
 
 function validate64(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6084,7 +6320,7 @@ errors++;
 if(data.relationId !== undefined){
 let data0 = data.relationId;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err2 = {instancePath:instancePath+"/relationId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err2];
@@ -6094,7 +6330,7 @@ vErrors.push(err2);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err3 = {instancePath:instancePath+"/relationId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err3];
@@ -6139,7 +6375,7 @@ vErrors.push(err6);
 errors++;
 }
 if(!((((data1 === "left") || (data1 === "right")) || (data1 === "top")) || (data1 === "bottom"))){
-const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema132.enum},message:"must be equal to one of the allowed values"};
+const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema133.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -6162,7 +6398,7 @@ vErrors.push(err8);
 errors++;
 }
 if(!((((data2 === "left") || (data2 === "right")) || (data2 === "top")) || (data2 === "bottom"))){
-const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema132.enum},message:"must be equal to one of the allowed values"};
+const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema133.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -6245,7 +6481,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -6255,7 +6491,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -6290,7 +6526,7 @@ errors++;
 if(data.name !== undefined){
 let data1 = data.name;
 if(typeof data1 === "string"){
-if(func1(data1) > 200){
+if(func2(data1) > 200){
 const err8 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err8];
@@ -6372,8 +6608,8 @@ return errors === 0;
 }
 validate61.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema134 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
-const schema137 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
+const schema135 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
+const schema138 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
 
 function validate68(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6421,7 +6657,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err3 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err3];
@@ -6431,7 +6667,7 @@ vErrors.push(err3);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -6517,7 +6753,7 @@ errors++;
 if(data1.screenId !== undefined){
 let data3 = data1.screenId;
 if(typeof data3 === "string"){
-if(func1(data3) > 64){
+if(func2(data3) > 64){
 const err11 = {instancePath:instancePath+"/source/screenId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -6527,7 +6763,7 @@ vErrors.push(err11);
 }
 errors++;
 }
-if(func1(data3) < 1){
+if(func2(data3) < 1){
 const err12 = {instancePath:instancePath+"/source/screenId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -6625,7 +6861,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema137.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema138.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -6685,7 +6921,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema137.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema138.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -6772,7 +7008,7 @@ errors++;
 if(data9.item !== undefined){
 let data10 = data9.item;
 if(typeof data10 === "string"){
-if(func1(data10) > 200){
+if(func2(data10) > 200){
 const err30 = {instancePath:instancePath+"/bindings/" + i0+"/item",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err30];
@@ -6797,7 +7033,7 @@ errors++;
 if(data9.databaseId !== undefined){
 let data11 = data9.databaseId;
 if(typeof data11 === "string"){
-if(func1(data11) > 64){
+if(func2(data11) > 64){
 const err32 = {instancePath:instancePath+"/bindings/" + i0+"/databaseId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err32];
@@ -6807,7 +7043,7 @@ vErrors.push(err32);
 }
 errors++;
 }
-if(func1(data11) < 1){
+if(func2(data11) < 1){
 const err33 = {instancePath:instancePath+"/bindings/" + i0+"/databaseId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -6842,7 +7078,7 @@ errors++;
 if(data9.table !== undefined){
 let data12 = data9.table;
 if(typeof data12 === "string"){
-if(func1(data12) > 200){
+if(func2(data12) > 200){
 const err36 = {instancePath:instancePath+"/bindings/" + i0+"/table",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err36];
@@ -6867,7 +7103,7 @@ errors++;
 if(data9.column !== undefined){
 let data13 = data9.column;
 if(typeof data13 === "string"){
-if(func1(data13) > 200){
+if(func2(data13) > 200){
 const err38 = {instancePath:instancePath+"/bindings/" + i0+"/column",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err38];
@@ -6929,7 +7165,7 @@ return errors === 0;
 }
 validate68.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema144 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
+const schema145 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
 
 function validate70(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6987,7 +7223,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -6997,7 +7233,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -7032,7 +7268,7 @@ errors++;
 if(data.from !== undefined){
 let data1 = data.from;
 if(typeof data1 === "string"){
-if(func1(data1) > 64){
+if(func2(data1) > 64){
 const err8 = {instancePath:instancePath+"/from",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err8];
@@ -7042,7 +7278,7 @@ vErrors.push(err8);
 }
 errors++;
 }
-if(func1(data1) < 1){
+if(func2(data1) < 1){
 const err9 = {instancePath:instancePath+"/from",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -7077,7 +7313,7 @@ errors++;
 if(data.to !== undefined){
 let data2 = data.to;
 if(typeof data2 === "string"){
-if(func1(data2) > 64){
+if(func2(data2) > 64){
 const err12 = {instancePath:instancePath+"/to",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -7087,7 +7323,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(func1(data2) < 1){
+if(func2(data2) < 1){
 const err13 = {instancePath:instancePath+"/to",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -7122,7 +7358,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema144.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema145.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -7135,7 +7371,7 @@ errors++;
 if(data.label !== undefined){
 let data4 = data.label;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err17 = {instancePath:instancePath+"/label",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err17];
@@ -7173,8 +7409,8 @@ return errors === 0;
 }
 validate70.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema149 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
-const schema153 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
+const schema150 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
+const schema154 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
 
 function validate73(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -7232,7 +7468,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -7242,7 +7478,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -7277,7 +7513,7 @@ errors++;
 if(data.group !== undefined){
 let data1 = data.group;
 if(typeof data1 === "string"){
-if(func1(data1) > 200){
+if(func2(data1) > 200){
 const err8 = {instancePath:instancePath+"/group",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err8];
@@ -7331,7 +7567,7 @@ errors++;
 if(data3.screenId !== undefined){
 let data4 = data3.screenId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err12 = {instancePath:instancePath+"/items/" + i0+"/screenId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -7341,7 +7577,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err13 = {instancePath:instancePath+"/items/" + i0+"/screenId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -7376,7 +7612,7 @@ errors++;
 if(data3.label !== undefined){
 let data5 = data3.label;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err16 = {instancePath:instancePath+"/items/" + i0+"/label",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -7485,7 +7721,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema149.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema150.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -7513,7 +7749,7 @@ errors++;
 if(data1.systemName !== undefined){
 let data2 = data1.systemName;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err5 = {instancePath:instancePath+"/header/systemName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -7538,7 +7774,7 @@ errors++;
 if(data1.userName !== undefined){
 let data3 = data1.userName;
 if(typeof data3 === "string"){
-if(func1(data3) > 200){
+if(func2(data3) > 200){
 const err7 = {instancePath:instancePath+"/header/userName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -7563,7 +7799,7 @@ errors++;
 if(data1.tenantName !== undefined){
 let data4 = data1.tenantName;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err9 = {instancePath:instancePath+"/header/tenantName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -7712,7 +7948,7 @@ errors++;
 if(data.systemId !== undefined){
 let data0 = data.systemId;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -7722,7 +7958,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -7761,7 +7997,7 @@ const len0 = data1.length;
 for(let i0=0; i0<len0; i0++){
 let data2 = data1[i0];
 if(typeof data2 === "string"){
-if(func1(data2) > 64){
+if(func2(data2) > 64){
 const err10 = {instancePath:instancePath+"/databaseIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -7771,7 +8007,7 @@ vErrors.push(err10);
 }
 errors++;
 }
-if(func1(data2) < 1){
+if(func2(data2) < 1){
 const err11 = {instancePath:instancePath+"/databaseIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -7881,7 +8117,7 @@ return errors === 0;
 }
 validate67.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema158 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
+const schema159 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
 
 function validate77(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -7949,7 +8185,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -7959,7 +8195,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -7994,7 +8230,7 @@ errors++;
 if(data.name !== undefined){
 let data1 = data.name;
 if(typeof data1 === "string"){
-if(func1(data1) > 200){
+if(func2(data1) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -8019,7 +8255,7 @@ errors++;
 if(data.dsl !== undefined){
 let data2 = data.dsl;
 if(typeof data2 === "string"){
-if(func1(data2) > 200000){
+if(func2(data2) > 200000){
 const err11 = {instancePath:instancePath+"/dsl",schemaPath:"#/properties/dsl/maxLength",keyword:"maxLength",params:{limit: 200000},message:"must NOT have more than 200000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -8083,7 +8319,7 @@ errors++;
 if(data4.table !== undefined){
 let data5 = data4.table;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err16 = {instancePath:instancePath+"/tables/" + i0+"/table",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -8112,7 +8348,7 @@ const len1 = data6.length;
 for(let i1=0; i1<len1; i1++){
 let data7 = data6[i1];
 if(typeof data7 === "string"){
-if(func1(data7) > 64){
+if(func2(data7) > 64){
 const err18 = {instancePath:instancePath+"/tables/" + i0+"/informationIds/" + i1,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -8122,7 +8358,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data7) < 1){
+if(func2(data7) < 1){
 const err19 = {instancePath:instancePath+"/tables/" + i0+"/informationIds/" + i1,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -8205,6 +8441,3006 @@ validate77.errors = vErrors;
 return errors === 0;
 }
 validate77.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema164 = {"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}};
+const schema165 = {"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
+const schema168 = {"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"};
+const pattern53 = new RegExp("^[A-Za-z][A-Za-z0-9_]*$", "u");
+
+function validate80(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate80.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.name === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.contextIds === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "contextIds"},message:"must have required property '"+"contextIds"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.systemIds === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "systemIds"},message:"must have required property '"+"systemIds"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((((key0 === "id") || (key0 === "name")) || (key0 === "english")) || (key0 === "description")) || (key0 === "subdomain")) || (key0 === "team")) || (key0 === "contextIds")) || (key0 === "systemIds"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data1 = data.name;
+if(typeof data1 === "string"){
+if(func2(data1) > 200){
+const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data2 = data.english;
+if(typeof data2 === "string"){
+if(func2(data2) > 100){
+const err11 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err12 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(!pattern53.test(data2)){
+const err13 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.description !== undefined){
+let data3 = data.description;
+if(typeof data3 === "string"){
+if(func2(data3) > 4000){
+const err15 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.subdomain !== undefined){
+let data4 = data.subdomain;
+if(!(((data4 === "core") || (data4 === "supporting")) || (data4 === "generic"))){
+const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema165.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.team !== undefined){
+let data5 = data.team;
+if(typeof data5 === "string"){
+if(func2(data5) > 200){
+const err18 = {instancePath:instancePath+"/team",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+else {
+const err19 = {instancePath:instancePath+"/team",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+if(data.contextIds !== undefined){
+let data6 = data.contextIds;
+if(Array.isArray(data6)){
+const len0 = data6.length;
+for(let i0=0; i0<len0; i0++){
+let data7 = data6[i0];
+if(typeof data7 === "string"){
+if(func2(data7) > 64){
+const err20 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+if(func2(data7) < 1){
+const err21 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(!pattern4.test(data7)){
+const err22 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+else {
+const err23 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/contextIds",schemaPath:"#/properties/contextIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data.systemIds !== undefined){
+let data8 = data.systemIds;
+if(Array.isArray(data8)){
+const len1 = data8.length;
+for(let i1=0; i1<len1; i1++){
+let data9 = data8[i1];
+if(typeof data9 === "string"){
+if(func2(data9) > 64){
+const err25 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data9) < 1){
+const err26 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data9)){
+const err27 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/systemIds",schemaPath:"#/properties/systemIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+}
+else {
+const err30 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+validate80.errors = vErrors;
+return errors === 0;
+}
+validate80.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema173 = {"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
+
+function validate82(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate82.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.rootInformationId === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "rootInformationId"},message:"must have required property '"+"rootInformationId"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+if(data.memberInformationIds === undefined){
+const err4 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "memberInformationIds"},message:"must have required property '"+"memberInformationIds"+"'"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(data.invariants === undefined){
+const err5 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "invariants"},message:"must have required property '"+"invariants"+"'"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((((key0 === "id") || (key0 === "boundedContextId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "rootInformationId")) || (key0 === "memberInformationIds")) || (key0 === "stateGroup")) || (key0 === "invariants"))){
+const err6 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err9 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data1 = data.boundedContextId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err11 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err12 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err13 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data2 = data.name;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err15 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data3 = data.english;
+if(typeof data3 === "string"){
+if(func2(data3) > 100){
+const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+if(func2(data3) < 1){
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+if(!pattern53.test(data3)){
+const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+else {
+const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+if(data.rootInformationId !== undefined){
+let data4 = data.rootInformationId;
+if(typeof data4 === "string"){
+if(func2(data4) > 64){
+const err21 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err22 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data4)){
+const err23 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data.memberInformationIds !== undefined){
+let data5 = data.memberInformationIds;
+if(Array.isArray(data5)){
+const len0 = data5.length;
+for(let i0=0; i0<len0; i0++){
+let data6 = data5[i0];
+if(typeof data6 === "string"){
+if(func2(data6) > 64){
+const err25 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data6) < 1){
+const err26 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data6)){
+const err27 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/memberInformationIds",schemaPath:"#/properties/memberInformationIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data.stateGroup !== undefined){
+let data7 = data.stateGroup;
+if(typeof data7 === "string"){
+if(func2(data7) > 200){
+const err30 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data7) < 1){
+const err31 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+}
+else {
+const err32 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+if(data.invariants !== undefined){
+let data8 = data.invariants;
+if(Array.isArray(data8)){
+const len1 = data8.length;
+for(let i1=0; i1<len1; i1++){
+let data9 = data8[i1];
+if(data9 && typeof data9 == "object" && !Array.isArray(data9)){
+if(data9.id === undefined){
+const err33 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+if(data9.text === undefined){
+const err34 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/required",keyword:"required",params:{missingProperty: "text"},message:"must have required property '"+"text"+"'"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+for(const key1 in data9){
+if(!(((key1 === "id") || (key1 === "text")) || (key1 === "conditionId"))){
+const err35 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+if(data9.id !== undefined){
+let data10 = data9.id;
+if(typeof data10 === "string"){
+if(func2(data10) > 64){
+const err36 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+if(func2(data10) < 1){
+const err37 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err37];
+}
+else {
+vErrors.push(err37);
+}
+errors++;
+}
+if(!pattern4.test(data10)){
+const err38 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err38];
+}
+else {
+vErrors.push(err38);
+}
+errors++;
+}
+}
+else {
+const err39 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err39];
+}
+else {
+vErrors.push(err39);
+}
+errors++;
+}
+}
+if(data9.text !== undefined){
+let data11 = data9.text;
+if(typeof data11 === "string"){
+if(func2(data11) > 4000){
+const err40 = {instancePath:instancePath+"/invariants/" + i1+"/text",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err40];
+}
+else {
+vErrors.push(err40);
+}
+errors++;
+}
+}
+else {
+const err41 = {instancePath:instancePath+"/invariants/" + i1+"/text",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err41];
+}
+else {
+vErrors.push(err41);
+}
+errors++;
+}
+}
+if(data9.conditionId !== undefined){
+let data12 = data9.conditionId;
+if(typeof data12 === "string"){
+if(func2(data12) > 64){
+const err42 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err42];
+}
+else {
+vErrors.push(err42);
+}
+errors++;
+}
+if(func2(data12) < 1){
+const err43 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err43];
+}
+else {
+vErrors.push(err43);
+}
+errors++;
+}
+if(!pattern4.test(data12)){
+const err44 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err44];
+}
+else {
+vErrors.push(err44);
+}
+errors++;
+}
+}
+else {
+const err45 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err45];
+}
+else {
+vErrors.push(err45);
+}
+errors++;
+}
+}
+}
+else {
+const err46 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err46];
+}
+else {
+vErrors.push(err46);
+}
+errors++;
+}
+}
+}
+else {
+const err47 = {instancePath:instancePath+"/invariants",schemaPath:"#/properties/invariants/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err47];
+}
+else {
+vErrors.push(err47);
+}
+errors++;
+}
+}
+}
+else {
+const err48 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err48];
+}
+else {
+vErrors.push(err48);
+}
+errors++;
+}
+validate82.errors = vErrors;
+return errors === 0;
+}
+validate82.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema183 = {"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
+
+function validate84(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate84.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.aggregateId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "aggregateId"},message:"must have required property '"+"aggregateId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.emits === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "emits"},message:"must have required property '"+"emits"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "aggregateId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "source")) || (key0 === "emits"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.aggregateId !== undefined){
+let data1 = data.aggregateId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data2 = data.name;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err13 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data3 = data.english;
+if(typeof data3 === "string"){
+if(func2(data3) > 100){
+const err15 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+if(func2(data3) < 1){
+const err16 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(!pattern53.test(data3)){
+const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data.source !== undefined){
+let data4 = data.source;
+if(data4 && typeof data4 == "object" && !Array.isArray(data4)){
+if(data4.usecaseId === undefined){
+const err19 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/required",keyword:"required",params:{missingProperty: "usecaseId"},message:"must have required property '"+"usecaseId"+"'"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+for(const key1 in data4){
+if(!((key1 === "usecaseId") || (key1 === "activityId"))){
+const err20 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+if(data4.usecaseId !== undefined){
+let data5 = data4.usecaseId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err21 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err22 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err23 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data4.activityId !== undefined){
+let data6 = data4.activityId;
+if(typeof data6 === "string"){
+if(func2(data6) > 64){
+const err25 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data6) < 1){
+const err26 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data6)){
+const err27 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data.emits !== undefined){
+let data7 = data.emits;
+if(Array.isArray(data7)){
+const len0 = data7.length;
+for(let i0=0; i0<len0; i0++){
+let data8 = data7[i0];
+if(typeof data8 === "string"){
+if(func2(data8) > 64){
+const err30 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data8) < 1){
+const err31 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(!pattern4.test(data8)){
+const err32 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+else {
+const err33 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/emits",schemaPath:"#/properties/emits/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+validate84.errors = vErrors;
+return errors === 0;
+}
+validate84.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema191 = {"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
+
+function validate86(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate86.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+for(const key0 in data){
+if(!(((((((key0 === "id") || (key0 === "boundedContextId")) || (key0 === "aggregateId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "eventId")) || (key0 === "properties"))){
+const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+else {
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data1 = data.boundedContextId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err8 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err9 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err10 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+else {
+const err11 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+if(data.aggregateId !== undefined){
+let data2 = data.aggregateId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err12 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err13 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err14 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+else {
+const err15 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data3 = data.name;
+if(typeof data3 === "string"){
+if(func2(data3) > 200){
+const err16 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+else {
+const err17 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data4 = data.english;
+if(typeof data4 === "string"){
+if(func2(data4) > 100){
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+if(!pattern53.test(data4)){
+const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+else {
+const err21 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data.eventId !== undefined){
+let data5 = data.eventId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err22 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err23 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err24 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+else {
+const err25 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+}
+if(data.properties !== undefined){
+let data6 = data.properties;
+if(Array.isArray(data6)){
+const len0 = data6.length;
+for(let i0=0; i0<len0; i0++){
+let data7 = data6[i0];
+if(data7 && typeof data7 == "object" && !Array.isArray(data7)){
+if(data7.name === undefined){
+const err26 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+for(const key1 in data7){
+if(!((key1 === "name") || (key1 === "informationId"))){
+const err27 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+if(data7.name !== undefined){
+let data8 = data7.name;
+if(typeof data8 === "string"){
+if(func2(data8) > 200){
+const err28 = {instancePath:instancePath+"/properties/" + i0+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/properties/" + i0+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data7.informationId !== undefined){
+let data9 = data7.informationId;
+if(typeof data9 === "string"){
+if(func2(data9) > 64){
+const err30 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data9) < 1){
+const err31 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(!pattern4.test(data9)){
+const err32 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+else {
+const err33 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath:instancePath+"/properties",schemaPath:"#/properties/properties/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+}
+else {
+const err36 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+validate86.errors = vErrors;
+return errors === 0;
+}
+validate86.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema200 = {"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}};
+
+function validate88(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate88.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.eventId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "eventId"},message:"must have required property '"+"eventId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.commandId === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "commandId"},message:"must have required property '"+"commandId"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.auto === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "auto"},message:"must have required property '"+"auto"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((key0 === "id") || (key0 === "eventId")) || (key0 === "commandId")) || (key0 === "auto"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.eventId !== undefined){
+let data1 = data.eventId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.commandId !== undefined){
+let data2 = data.commandId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err13 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err14 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err15 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.auto !== undefined){
+if(typeof data.auto !== "boolean"){
+const err17 = {instancePath:instancePath+"/auto",schemaPath:"#/properties/auto/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+}
+else {
+const err18 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+validate88.errors = vErrors;
+return errors === 0;
+}
+validate88.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema204 = {"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}};
+
+function validate90(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate90.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.upstreamId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "upstreamId"},message:"must have required property '"+"upstreamId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.downstreamId === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "downstreamId"},message:"must have required property '"+"downstreamId"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.kind === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "kind"},message:"must have required property '"+"kind"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "upstreamId")) || (key0 === "downstreamId")) || (key0 === "kind")) || (key0 === "integration")) || (key0 === "note"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.upstreamId !== undefined){
+let data1 = data.upstreamId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.downstreamId !== undefined){
+let data2 = data.downstreamId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err13 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err14 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err15 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.kind !== undefined){
+let data3 = data.kind;
+if(!(((((((((data3 === "partnership") || (data3 === "sharedKernel")) || (data3 === "customerSupplier")) || (data3 === "conformist")) || (data3 === "acl")) || (data3 === "ohs")) || (data3 === "publishedLanguage")) || (data3 === "separateWays")) || (data3 === "bigBallOfMud"))){
+const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema204.properties.kind.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.integration !== undefined){
+let data4 = data.integration;
+if(!(((((data4 === "messaging") || (data4 === "rest")) || (data4 === "rpc")) || (data4 === "file")) || (data4 === "manual"))){
+const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema204.properties.integration.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data.note !== undefined){
+let data5 = data.note;
+if(typeof data5 === "string"){
+if(func2(data5) > 4000){
+const err19 = {instancePath:instancePath+"/note",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+else {
+const err20 = {instancePath:instancePath+"/note",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+}
+else {
+const err21 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+validate90.errors = vErrors;
+return errors === 0;
+}
+validate90.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema209 = {"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}};
+
+function validate92(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate92.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.term === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "term"},message:"must have required property '"+"term"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.definition === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "definition"},message:"must have required property '"+"definition"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "term")) || (key0 === "english")) || (key0 === "definition")) || (key0 === "boundedContextId")) || (key0 === "elementId"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.term !== undefined){
+let data1 = data.term;
+if(typeof data1 === "string"){
+if(func2(data1) > 200){
+const err9 = {instancePath:instancePath+"/term",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/term",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data2 = data.english;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err11 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.definition !== undefined){
+let data3 = data.definition;
+if(typeof data3 === "string"){
+if(func2(data3) > 4000){
+const err13 = {instancePath:instancePath+"/definition",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/definition",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data4 = data.boundedContextId;
+const _errs15 = errors;
+let valid5 = false;
+let passing0 = null;
+const _errs16 = errors;
+if(typeof data4 === "string"){
+if(func2(data4) > 64){
+const err15 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err16 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(!pattern4.test(data4)){
+const err17 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+var _valid0 = _errs16 === errors;
+if(_valid0){
+valid5 = true;
+passing0 = 0;
+}
+const _errs19 = errors;
+if(data4 !== null){
+const err19 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/properties/boundedContextId/oneOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+var _valid0 = _errs19 === errors;
+if(_valid0 && valid5){
+valid5 = false;
+passing0 = [passing0, 1];
+}
+else {
+if(_valid0){
+valid5 = true;
+passing0 = 1;
+}
+}
+if(!valid5){
+const err20 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/properties/boundedContextId/oneOf",keyword:"oneOf",params:{passingSchemas: passing0},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+else {
+errors = _errs15;
+if(vErrors !== null){
+if(_errs15){
+vErrors.length = _errs15;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data.elementId !== undefined){
+let data5 = data.elementId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err21 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err22 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err23 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+}
+else {
+const err25 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+validate92.errors = vErrors;
+return errors === 0;
+}
+validate92.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+
+function validate79(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate79.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.contexts === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "contexts"},message:"must have required property '"+"contexts"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.aggregates === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "aggregates"},message:"must have required property '"+"aggregates"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.commands === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "commands"},message:"must have required property '"+"commands"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.events === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "events"},message:"must have required property '"+"events"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+if(data.policies === undefined){
+const err4 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "policies"},message:"must have required property '"+"policies"+"'"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(data.excluded === undefined){
+const err5 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "excluded"},message:"must have required property '"+"excluded"+"'"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(data.relations === undefined){
+const err6 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "relations"},message:"must have required property '"+"relations"+"'"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(data.terms === undefined){
+const err7 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "terms"},message:"must have required property '"+"terms"+"'"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((((key0 === "contexts") || (key0 === "aggregates")) || (key0 === "commands")) || (key0 === "events")) || (key0 === "policies")) || (key0 === "excluded")) || (key0 === "relations")) || (key0 === "terms"))){
+const err8 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.contexts !== undefined){
+let data0 = data.contexts;
+if(Array.isArray(data0)){
+const len0 = data0.length;
+for(let i0=0; i0<len0; i0++){
+if(!(validate80(data0[i0], {instancePath:instancePath+"/contexts/" + i0,parentData:data0,parentDataProperty:i0,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate80.errors : vErrors.concat(validate80.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err9 = {instancePath:instancePath+"/contexts",schemaPath:"#/properties/contexts/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+if(data.aggregates !== undefined){
+let data2 = data.aggregates;
+if(Array.isArray(data2)){
+const len1 = data2.length;
+for(let i1=0; i1<len1; i1++){
+if(!(validate82(data2[i1], {instancePath:instancePath+"/aggregates/" + i1,parentData:data2,parentDataProperty:i1,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate82.errors : vErrors.concat(validate82.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/aggregates",schemaPath:"#/properties/aggregates/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.commands !== undefined){
+let data4 = data.commands;
+if(Array.isArray(data4)){
+const len2 = data4.length;
+for(let i2=0; i2<len2; i2++){
+if(!(validate84(data4[i2], {instancePath:instancePath+"/commands/" + i2,parentData:data4,parentDataProperty:i2,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate84.errors : vErrors.concat(validate84.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err11 = {instancePath:instancePath+"/commands",schemaPath:"#/properties/commands/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+if(data.events !== undefined){
+let data6 = data.events;
+if(Array.isArray(data6)){
+const len3 = data6.length;
+for(let i3=0; i3<len3; i3++){
+if(!(validate86(data6[i3], {instancePath:instancePath+"/events/" + i3,parentData:data6,parentDataProperty:i3,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate86.errors : vErrors.concat(validate86.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/events",schemaPath:"#/properties/events/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.policies !== undefined){
+let data8 = data.policies;
+if(Array.isArray(data8)){
+const len4 = data8.length;
+for(let i4=0; i4<len4; i4++){
+if(!(validate88(data8[i4], {instancePath:instancePath+"/policies/" + i4,parentData:data8,parentDataProperty:i4,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate88.errors : vErrors.concat(validate88.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err13 = {instancePath:instancePath+"/policies",schemaPath:"#/properties/policies/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+if(data.excluded !== undefined){
+let data10 = data.excluded;
+if(Array.isArray(data10)){
+const len5 = data10.length;
+for(let i5=0; i5<len5; i5++){
+let data11 = data10[i5];
+if(typeof data11 === "string"){
+if(func2(data11) > 200){
+const err14 = {instancePath:instancePath+"/excluded/" + i5,schemaPath:"#/properties/excluded/items/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if(func2(data11) < 1){
+const err15 = {instancePath:instancePath+"/excluded/" + i5,schemaPath:"#/properties/excluded/items/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/excluded/" + i5,schemaPath:"#/properties/excluded/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+}
+else {
+const err17 = {instancePath:instancePath+"/excluded",schemaPath:"#/properties/excluded/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.relations !== undefined){
+let data12 = data.relations;
+if(Array.isArray(data12)){
+const len6 = data12.length;
+for(let i6=0; i6<len6; i6++){
+if(!(validate90(data12[i6], {instancePath:instancePath+"/relations/" + i6,parentData:data12,parentDataProperty:i6,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate90.errors : vErrors.concat(validate90.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/relations",schemaPath:"#/properties/relations/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data.terms !== undefined){
+let data14 = data.terms;
+if(Array.isArray(data14)){
+const len7 = data14.length;
+for(let i7=0; i7<len7; i7++){
+if(!(validate92(data14[i7], {instancePath:instancePath+"/terms/" + i7,parentData:data14,parentDataProperty:i7,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate92.errors : vErrors.concat(validate92.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err19 = {instancePath:instancePath+"/terms",schemaPath:"#/properties/terms/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+}
+else {
+const err20 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+validate79.errors = vErrors;
+return errors === 0;
+}
+validate79.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate20(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -8289,9 +11525,8 @@ vErrors.push(err6);
 }
 errors++;
 }
-for(const key0 in data){
-if(!((((((((key0 === "$schema") || (key0 === "version")) || (key0 === "meta")) || (key0 === "elements")) || (key0 === "relations")) || (key0 === "boards")) || (key0 === "designs")) || (key0 === "databases"))){
-const err7 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(data.domain === undefined){
+const err7 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "domain"},message:"must have required property '"+"domain"+"'"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -8300,10 +11535,9 @@ vErrors.push(err7);
 }
 errors++;
 }
-}
-if(data.$schema !== undefined){
-if(typeof data.$schema !== "string"){
-const err8 = {instancePath:instancePath+"/$schema",schemaPath:"#/properties/%24schema/type",keyword:"type",params:{type: "string"},message:"must be string"};
+for(const key0 in data){
+if(!(func1.call(schema31.properties, key0))){
+const err8 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err8];
 }
@@ -8313,10 +11547,9 @@ vErrors.push(err8);
 errors++;
 }
 }
-if(data.version !== undefined){
-let data1 = data.version;
-if(typeof data1 !== "string"){
-const err9 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.$schema !== undefined){
+if(typeof data.$schema !== "string"){
+const err9 = {instancePath:instancePath+"/$schema",schemaPath:"#/properties/%24schema/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -8325,13 +11558,26 @@ vErrors.push(err9);
 }
 errors++;
 }
-if("0.5.4" !== data1){
-const err10 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.5.4"},message:"must be equal to constant"};
+}
+if(data.version !== undefined){
+let data1 = data.version;
+if(typeof data1 !== "string"){
+const err10 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err10];
 }
 else {
 vErrors.push(err10);
+}
+errors++;
+}
+if("0.6.2" !== data1){
+const err11 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.6.2"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
 }
 errors++;
 }
@@ -8354,12 +11600,12 @@ errors = vErrors.length;
 }
 }
 else {
-const err11 = {instancePath:instancePath+"/elements",schemaPath:"#/properties/elements/type",keyword:"type",params:{type: "array"},message:"must be array"};
+const err12 = {instancePath:instancePath+"/elements",schemaPath:"#/properties/elements/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
-vErrors = [err11];
+vErrors = [err12];
 }
 else {
-vErrors.push(err11);
+vErrors.push(err12);
 }
 errors++;
 }
@@ -8376,12 +11622,12 @@ errors = vErrors.length;
 }
 }
 else {
-const err12 = {instancePath:instancePath+"/relations",schemaPath:"#/properties/relations/type",keyword:"type",params:{type: "array"},message:"must be array"};
+const err13 = {instancePath:instancePath+"/relations",schemaPath:"#/properties/relations/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
-vErrors = [err12];
+vErrors = [err13];
 }
 else {
-vErrors.push(err12);
+vErrors.push(err13);
 }
 errors++;
 }
@@ -8390,12 +11636,12 @@ if(data.boards !== undefined){
 let data7 = data.boards;
 if(Array.isArray(data7)){
 if(data7.length < 1){
-const err13 = {instancePath:instancePath+"/boards",schemaPath:"#/properties/boards/minItems",keyword:"minItems",params:{limit: 1},message:"must NOT have fewer than 1 items"};
+const err14 = {instancePath:instancePath+"/boards",schemaPath:"#/properties/boards/minItems",keyword:"minItems",params:{limit: 1},message:"must NOT have fewer than 1 items"};
 if(vErrors === null){
-vErrors = [err13];
+vErrors = [err14];
 }
 else {
-vErrors.push(err13);
+vErrors.push(err14);
 }
 errors++;
 }
@@ -8408,12 +11654,12 @@ errors = vErrors.length;
 }
 }
 else {
-const err14 = {instancePath:instancePath+"/boards",schemaPath:"#/properties/boards/type",keyword:"type",params:{type: "array"},message:"must be array"};
+const err15 = {instancePath:instancePath+"/boards",schemaPath:"#/properties/boards/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
-vErrors = [err14];
+vErrors = [err15];
 }
 else {
-vErrors.push(err14);
+vErrors.push(err15);
 }
 errors++;
 }
@@ -8430,12 +11676,12 @@ errors = vErrors.length;
 }
 }
 else {
-const err15 = {instancePath:instancePath+"/designs",schemaPath:"#/properties/designs/type",keyword:"type",params:{type: "array"},message:"must be array"};
+const err16 = {instancePath:instancePath+"/designs",schemaPath:"#/properties/designs/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
-vErrors = [err15];
+vErrors = [err16];
 }
 else {
-vErrors.push(err15);
+vErrors.push(err16);
 }
 errors++;
 }
@@ -8452,19 +11698,7 @@ errors = vErrors.length;
 }
 }
 else {
-const err16 = {instancePath:instancePath+"/databases",schemaPath:"#/properties/databases/type",keyword:"type",params:{type: "array"},message:"must be array"};
-if(vErrors === null){
-vErrors = [err16];
-}
-else {
-vErrors.push(err16);
-}
-errors++;
-}
-}
-}
-else {
-const err17 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+const err17 = {instancePath:instancePath+"/databases",schemaPath:"#/properties/databases/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -8473,17 +11707,35 @@ vErrors.push(err17);
 }
 errors++;
 }
+}
+if(data.domain !== undefined){
+if(!(validate79(data.domain, {instancePath:instancePath+"/domain",parentData:data,parentDataProperty:"domain",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate79.errors : vErrors.concat(validate79.errors);
+errors = vErrors.length;
+}
+}
+}
+else {
+const err18 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
 validate20.errors = vErrors;
 return errors === 0;
 }
 validate20.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_actor = validate79;
+export const validate_actor = validate95;
 
-function validate79(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate95(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate79.evaluated;
+const evaluated0 = validate95.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -8536,7 +11788,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -8546,7 +11798,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -8593,7 +11845,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -8618,7 +11870,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -8658,7 +11910,7 @@ errors++;
 if(data4.handle !== undefined){
 let data5 = data4.handle;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err14 = {instancePath:instancePath+"/persona/handle",schemaPath:"#/$defs/persona/properties/handle/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -8683,7 +11935,7 @@ errors++;
 if(data4.attributes !== undefined){
 let data6 = data4.attributes;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/persona/attributes",schemaPath:"#/$defs/persona/properties/attributes/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -8708,7 +11960,7 @@ errors++;
 if(data4.background !== undefined){
 let data7 = data4.background;
 if(typeof data7 === "string"){
-if(func1(data7) > 4000){
+if(func2(data7) > 4000){
 const err18 = {instancePath:instancePath+"/persona/background",schemaPath:"#/$defs/persona/properties/background/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -8733,7 +11985,7 @@ errors++;
 if(data4.goals !== undefined){
 let data8 = data4.goals;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err20 = {instancePath:instancePath+"/persona/goals",schemaPath:"#/$defs/persona/properties/goals/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -8771,7 +12023,7 @@ errors++;
 if(data4.notes !== undefined){
 let data10 = data4.notes;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err23 = {instancePath:instancePath+"/persona/notes",schemaPath:"#/$defs/persona/properties/notes/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -8816,17 +12068,17 @@ vErrors.push(err26);
 }
 errors++;
 }
-validate79.errors = vErrors;
+validate95.errors = vErrors;
 return errors === 0;
 }
-validate79.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate95.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_externalActor = validate80;
+export const validate_externalActor = validate96;
 
-function validate80(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate96(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate80.evaluated;
+const evaluated0 = validate96.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -8879,7 +12131,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -8889,7 +12141,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -8936,7 +12188,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -8961,7 +12213,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -9001,7 +12253,7 @@ errors++;
 if(data4.handle !== undefined){
 let data5 = data4.handle;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err14 = {instancePath:instancePath+"/persona/handle",schemaPath:"#/$defs/persona/properties/handle/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -9026,7 +12278,7 @@ errors++;
 if(data4.attributes !== undefined){
 let data6 = data4.attributes;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/persona/attributes",schemaPath:"#/$defs/persona/properties/attributes/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -9051,7 +12303,7 @@ errors++;
 if(data4.background !== undefined){
 let data7 = data4.background;
 if(typeof data7 === "string"){
-if(func1(data7) > 4000){
+if(func2(data7) > 4000){
 const err18 = {instancePath:instancePath+"/persona/background",schemaPath:"#/$defs/persona/properties/background/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -9076,7 +12328,7 @@ errors++;
 if(data4.goals !== undefined){
 let data8 = data4.goals;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err20 = {instancePath:instancePath+"/persona/goals",schemaPath:"#/$defs/persona/properties/goals/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -9114,7 +12366,7 @@ errors++;
 if(data4.notes !== undefined){
 let data10 = data4.notes;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err23 = {instancePath:instancePath+"/persona/notes",schemaPath:"#/$defs/persona/properties/notes/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -9159,17 +12411,17 @@ vErrors.push(err26);
 }
 errors++;
 }
-validate80.errors = vErrors;
+validate96.errors = vErrors;
 return errors === 0;
 }
-validate80.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate96.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_system = validate81;
+export const validate_system = validate97;
 
-function validate81(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate97(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate81.evaluated;
+const evaluated0 = validate97.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -9222,7 +12474,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -9232,7 +12484,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -9279,7 +12531,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -9304,7 +12556,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -9337,17 +12589,17 @@ vErrors.push(err13);
 }
 errors++;
 }
-validate81.errors = vErrors;
+validate97.errors = vErrors;
 return errors === 0;
 }
-validate81.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate97.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_ledger = validate82;
+export const validate_ledger = validate98;
 
-function validate82(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate98(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate82.evaluated;
+const evaluated0 = validate98.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -9400,7 +12652,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -9410,7 +12662,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -9457,7 +12709,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -9482,7 +12734,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -9515,17 +12767,17 @@ vErrors.push(err13);
 }
 errors++;
 }
-validate82.errors = vErrors;
+validate98.errors = vErrors;
 return errors === 0;
 }
-validate82.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate98.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_business = validate83;
+export const validate_business = validate99;
 
-function validate83(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate99(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate83.evaluated;
+const evaluated0 = validate99.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -9578,7 +12830,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -9588,7 +12840,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -9635,7 +12887,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -9660,7 +12912,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -9693,17 +12945,17 @@ vErrors.push(err13);
 }
 errors++;
 }
-validate83.errors = vErrors;
+validate99.errors = vErrors;
 return errors === 0;
 }
-validate83.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate99.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_buc = validate84;
+export const validate_buc = validate100;
 
-function validate84(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate100(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate84.evaluated;
+const evaluated0 = validate100.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -9776,7 +13028,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -9786,7 +13038,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -9833,7 +13085,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -9858,7 +13110,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -9883,7 +13135,7 @@ errors++;
 if(data.businessId !== undefined){
 let data4 = data.businessId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err15 = {instancePath:instancePath+"/businessId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -9893,7 +13145,7 @@ vErrors.push(err15);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err16 = {instancePath:instancePath+"/businessId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -9948,17 +13200,17 @@ vErrors.push(err20);
 }
 errors++;
 }
-validate84.errors = vErrors;
+validate100.errors = vErrors;
 return errors === 0;
 }
-validate84.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate100.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_activity = validate85;
+export const validate_activity = validate101;
 
-function validate85(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate101(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate85.evaluated;
+const evaluated0 = validate101.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -10021,7 +13273,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -10031,7 +13283,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -10078,7 +13330,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -10103,7 +13355,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -10132,7 +13384,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/bucId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -10142,7 +13394,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/bucId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -10264,7 +13516,7 @@ errors++;
 if(data6.title !== undefined){
 let data7 = data6.title;
 if(typeof data7 === "string"){
-if(func1(data7) > 200){
+if(func2(data7) > 200){
 const err23 = {instancePath:instancePath+"/links/" + i0+"/title",schemaPath:"#/$defs/link/properties/title/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err23];
@@ -10289,7 +13541,7 @@ errors++;
 if(data6.url !== undefined){
 let data8 = data6.url;
 if(typeof data8 === "string"){
-if(func1(data8) > 2000){
+if(func2(data8) > 2000){
 const err25 = {instancePath:instancePath+"/links/" + i0+"/url",schemaPath:"#/$defs/link/properties/url/maxLength",keyword:"maxLength",params:{limit: 2000},message:"must NOT have more than 2000 characters"};
 if(vErrors === null){
 vErrors = [err25];
@@ -10383,7 +13635,7 @@ errors++;
 if(data.triggerNote !== undefined){
 let data10 = data.triggerNote;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err33 = {instancePath:instancePath+"/triggerNote",schemaPath:"#/properties/triggerNote/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -10393,7 +13645,7 @@ vErrors.push(err33);
 }
 errors++;
 }
-if(func1(data10) < 1){
+if(func2(data10) < 1){
 const err34 = {instancePath:instancePath+"/triggerNote",schemaPath:"#/properties/triggerNote/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err34];
@@ -10426,17 +13678,17 @@ vErrors.push(err36);
 }
 errors++;
 }
-validate85.errors = vErrors;
+validate101.errors = vErrors;
 return errors === 0;
 }
-validate85.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate101.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_usecase = validate86;
+export const validate_usecase = validate102;
 
-function validate86(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate102(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate86.evaluated;
+const evaluated0 = validate102.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -10489,7 +13741,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -10499,7 +13751,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -10546,7 +13798,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -10571,7 +13823,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -10635,7 +13887,7 @@ errors++;
 if(data5.title !== undefined){
 let data6 = data5.title;
 if(typeof data6 === "string"){
-if(func1(data6) > 200){
+if(func2(data6) > 200){
 const err16 = {instancePath:instancePath+"/links/" + i0+"/title",schemaPath:"#/$defs/link/properties/title/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -10660,7 +13912,7 @@ errors++;
 if(data5.url !== undefined){
 let data7 = data5.url;
 if(typeof data7 === "string"){
-if(func1(data7) > 2000){
+if(func2(data7) > 2000){
 const err18 = {instancePath:instancePath+"/links/" + i0+"/url",schemaPath:"#/$defs/link/properties/url/maxLength",keyword:"maxLength",params:{limit: 2000},message:"must NOT have more than 2000 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -10762,17 +14014,17 @@ vErrors.push(err26);
 }
 errors++;
 }
-validate86.errors = vErrors;
+validate102.errors = vErrors;
 return errors === 0;
 }
-validate86.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate102.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_context = validate87;
+export const validate_context = validate103;
 
-function validate87(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate103(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate87.evaluated;
+const evaluated0 = validate103.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -10825,7 +14077,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -10835,7 +14087,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -10882,7 +14134,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -10907,7 +14159,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err11 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -10940,17 +14192,17 @@ vErrors.push(err13);
 }
 errors++;
 }
-validate87.errors = vErrors;
+validate103.errors = vErrors;
 return errors === 0;
 }
-validate87.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate103.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_information = validate88;
+export const validate_information = validate104;
 
-function validate88(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate104(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate88.evaluated;
+const evaluated0 = validate104.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -11013,7 +14265,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -11023,7 +14275,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -11070,7 +14322,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -11095,7 +14347,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -11124,7 +14376,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -11134,7 +14386,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -11225,17 +14477,17 @@ vErrors.push(err20);
 }
 errors++;
 }
-validate88.errors = vErrors;
+validate104.errors = vErrors;
 return errors === 0;
 }
-validate88.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate104.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_state = validate89;
+export const validate_state = validate105;
 
-function validate89(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate105(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate89.evaluated;
+const evaluated0 = validate105.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -11298,7 +14550,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -11308,7 +14560,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -11355,7 +14607,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -11380,7 +14632,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -11405,7 +14657,7 @@ errors++;
 if(data.group !== undefined){
 let data4 = data.group;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err14 = {instancePath:instancePath+"/group",schemaPath:"#/properties/group/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -11434,7 +14686,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs16 = errors;
 if(typeof data5 === "string"){
-if(func1(data5) > 64){
+if(func2(data5) > 64){
 const err16 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -11444,7 +14696,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(func1(data5) < 1){
+if(func2(data5) < 1){
 const err17 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err17];
@@ -11535,17 +14787,17 @@ vErrors.push(err22);
 }
 errors++;
 }
-validate89.errors = vErrors;
+validate105.errors = vErrors;
 return errors === 0;
 }
-validate89.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate105.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_variation = validate90;
+export const validate_variation = validate106;
 
-function validate90(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate106(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate90.evaluated;
+const evaluated0 = validate106.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -11618,7 +14870,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -11628,7 +14880,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -11675,7 +14927,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -11700,7 +14952,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -11729,7 +14981,7 @@ const len0 = data4.length;
 for(let i0=0; i0<len0; i0++){
 let data5 = data4[i0];
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err15 = {instancePath:instancePath+"/values/" + i0,schemaPath:"#/properties/values/items/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -11770,7 +15022,7 @@ let valid6 = false;
 let passing0 = null;
 const _errs18 = errors;
 if(typeof data6 === "string"){
-if(func1(data6) > 64){
+if(func2(data6) > 64){
 const err18 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -11780,7 +15032,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data6) < 1){
+if(func2(data6) < 1){
 const err19 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -11871,17 +15123,17 @@ vErrors.push(err24);
 }
 errors++;
 }
-validate90.errors = vErrors;
+validate106.errors = vErrors;
 return errors === 0;
 }
-validate90.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate106.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_condition = validate91;
+export const validate_condition = validate107;
 
-function validate91(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate107(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate91.evaluated;
+const evaluated0 = validate107.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -11944,7 +15196,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -11954,7 +15206,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -12001,7 +15253,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -12026,7 +15278,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -12055,7 +15307,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -12065,7 +15317,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -12156,17 +15408,17 @@ vErrors.push(err20);
 }
 errors++;
 }
-validate91.errors = vErrors;
+validate107.errors = vErrors;
 return errors === 0;
 }
-validate91.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate107.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_issue = validate92;
+export const validate_issue = validate108;
 
-function validate92(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate108(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate92.evaluated;
+const evaluated0 = validate108.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -12239,7 +15491,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -12249,7 +15501,7 @@ vErrors.push(err6);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -12296,7 +15548,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err11 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -12321,7 +15573,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err13 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -12385,7 +15637,7 @@ const len0 = data5.length;
 for(let i0=0; i0<len0; i0++){
 let data6 = data5[i0];
 if(typeof data6 === "string"){
-if(func1(data6) > 64){
+if(func2(data6) > 64){
 const err18 = {instancePath:instancePath+"/targetIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -12395,7 +15647,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data6) < 1){
+if(func2(data6) < 1){
 const err19 = {instancePath:instancePath+"/targetIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -12477,7 +15729,7 @@ errors++;
 if(data7.phenomenon !== undefined){
 let data8 = data7.phenomenon;
 if(typeof data8 === "string"){
-if(func1(data8) > 4000){
+if(func2(data8) > 4000){
 const err25 = {instancePath:instancePath+"/analysis/phenomenon",schemaPath:"#/$defs/issueAnalysis/properties/phenomenon/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err25];
@@ -12502,7 +15754,7 @@ errors++;
 if(data7.location !== undefined){
 let data9 = data7.location;
 if(typeof data9 === "string"){
-if(func1(data9) > 4000){
+if(func2(data9) > 4000){
 const err27 = {instancePath:instancePath+"/analysis/location",schemaPath:"#/$defs/issueAnalysis/properties/location/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err27];
@@ -12527,7 +15779,7 @@ errors++;
 if(data7.cause !== undefined){
 let data10 = data7.cause;
 if(typeof data10 === "string"){
-if(func1(data10) > 4000){
+if(func2(data10) > 4000){
 const err29 = {instancePath:instancePath+"/analysis/cause",schemaPath:"#/$defs/issueAnalysis/properties/cause/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err29];
@@ -12552,7 +15804,7 @@ errors++;
 if(data7.impact !== undefined){
 let data11 = data7.impact;
 if(typeof data11 === "string"){
-if(func1(data11) > 4000){
+if(func2(data11) > 4000){
 const err31 = {instancePath:instancePath+"/analysis/impact",schemaPath:"#/$defs/issueAnalysis/properties/impact/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err31];
@@ -12597,17 +15849,17 @@ vErrors.push(err34);
 }
 errors++;
 }
-validate92.errors = vErrors;
+validate108.errors = vErrors;
 return errors === 0;
 }
-validate92.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate108.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_event = validate93;
+export const validate_event = validate109;
 
-function validate93(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate109(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate93.evaluated;
+const evaluated0 = validate109.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -12670,7 +15922,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -12680,7 +15932,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -12727,7 +15979,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -12752,7 +16004,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -12781,7 +16033,7 @@ let valid4 = false;
 let passing0 = null;
 const _errs14 = errors;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -12791,7 +16043,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/contextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -13030,7 +16282,7 @@ errors++;
 if(data5.note !== undefined){
 let data11 = data5.note;
 if(typeof data11 === "string"){
-if(func1(data11) > 4000){
+if(func2(data11) > 4000){
 const err33 = {instancePath:instancePath+"/timing/note",schemaPath:"#/$defs/eventTiming/properties/note/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -13075,17 +16327,17 @@ vErrors.push(err36);
 }
 errors++;
 }
-validate93.errors = vErrors;
+validate109.errors = vErrors;
 return errors === 0;
 }
-validate93.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate109.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_screen = validate94;
+export const validate_screen = validate110;
 
-function validate94(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate110(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate94.evaluated;
+const evaluated0 = validate110.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -13148,7 +16400,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -13158,7 +16410,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -13205,7 +16457,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -13230,7 +16482,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -13255,7 +16507,7 @@ errors++;
 if(data.systemId !== undefined){
 let data4 = data.systemId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -13265,7 +16517,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -13308,17 +16560,17 @@ vErrors.push(err18);
 }
 errors++;
 }
-validate94.errors = vErrors;
+validate110.errors = vErrors;
 return errors === 0;
 }
-validate94.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate110.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validate_nfr = validate95;
+export const validate_nfr = validate111;
 
-function validate95(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate111(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate95.evaluated;
+const evaluated0 = validate111.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -13381,7 +16633,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -13391,7 +16643,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -13438,7 +16690,7 @@ errors++;
 if(data.name !== undefined){
 let data2 = data.name;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err10];
@@ -13463,7 +16715,7 @@ errors++;
 if(data.description !== undefined){
 let data3 = data.description;
 if(typeof data3 === "string"){
-if(func1(data3) > 4000){
+if(func2(data3) > 4000){
 const err12 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -13488,7 +16740,7 @@ errors++;
 if(data.systemId !== undefined){
 let data4 = data.systemId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err14 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err14];
@@ -13498,7 +16750,7 @@ vErrors.push(err14);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err15 = {instancePath:instancePath+"/systemId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err15];
@@ -13556,7 +16808,7 @@ errors++;
 if(data.verification !== undefined){
 let data6 = data.verification;
 if(typeof data6 === "string"){
-if(func1(data6) > 4000){
+if(func2(data6) > 4000){
 const err20 = {instancePath:instancePath+"/verification",schemaPath:"#/properties/verification/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
 if(vErrors === null){
 vErrors = [err20];
@@ -13589,17 +16841,17 @@ vErrors.push(err22);
 }
 errors++;
 }
-validate95.errors = vErrors;
+validate111.errors = vErrors;
 return errors === 0;
 }
-validate95.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate111.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validateDef_designScreen = validate96;
+export const validateDef_designScreen = validate112;
 
-function validate96(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate112(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate96.evaluated;
+const evaluated0 = validate112.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -13642,7 +16894,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err3 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err3];
@@ -13652,7 +16904,7 @@ vErrors.push(err3);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -13738,7 +16990,7 @@ errors++;
 if(data1.screenId !== undefined){
 let data3 = data1.screenId;
 if(typeof data3 === "string"){
-if(func1(data3) > 64){
+if(func2(data3) > 64){
 const err11 = {instancePath:instancePath+"/source/screenId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -13748,7 +17000,7 @@ vErrors.push(err11);
 }
 errors++;
 }
-if(func1(data3) < 1){
+if(func2(data3) < 1){
 const err12 = {instancePath:instancePath+"/source/screenId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -13846,7 +17098,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema137.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema138.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -13906,7 +17158,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema137.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema138.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -13993,7 +17245,7 @@ errors++;
 if(data9.item !== undefined){
 let data10 = data9.item;
 if(typeof data10 === "string"){
-if(func1(data10) > 200){
+if(func2(data10) > 200){
 const err30 = {instancePath:instancePath+"/bindings/" + i0+"/item",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err30];
@@ -14018,7 +17270,7 @@ errors++;
 if(data9.databaseId !== undefined){
 let data11 = data9.databaseId;
 if(typeof data11 === "string"){
-if(func1(data11) > 64){
+if(func2(data11) > 64){
 const err32 = {instancePath:instancePath+"/bindings/" + i0+"/databaseId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err32];
@@ -14028,7 +17280,7 @@ vErrors.push(err32);
 }
 errors++;
 }
-if(func1(data11) < 1){
+if(func2(data11) < 1){
 const err33 = {instancePath:instancePath+"/bindings/" + i0+"/databaseId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err33];
@@ -14063,7 +17315,7 @@ errors++;
 if(data9.table !== undefined){
 let data12 = data9.table;
 if(typeof data12 === "string"){
-if(func1(data12) > 200){
+if(func2(data12) > 200){
 const err36 = {instancePath:instancePath+"/bindings/" + i0+"/table",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err36];
@@ -14088,7 +17340,7 @@ errors++;
 if(data9.column !== undefined){
 let data13 = data9.column;
 if(typeof data13 === "string"){
-if(func1(data13) > 200){
+if(func2(data13) > 200){
 const err38 = {instancePath:instancePath+"/bindings/" + i0+"/column",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err38];
@@ -14145,17 +17397,17 @@ vErrors.push(err42);
 }
 errors++;
 }
-validate96.errors = vErrors;
+validate112.errors = vErrors;
 return errors === 0;
 }
-validate96.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate112.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validateDef_transition = validate97;
+export const validateDef_transition = validate113;
 
-function validate97(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate113(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate97.evaluated;
+const evaluated0 = validate113.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -14208,7 +17460,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -14218,7 +17470,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -14253,7 +17505,7 @@ errors++;
 if(data.from !== undefined){
 let data1 = data.from;
 if(typeof data1 === "string"){
-if(func1(data1) > 64){
+if(func2(data1) > 64){
 const err8 = {instancePath:instancePath+"/from",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err8];
@@ -14263,7 +17515,7 @@ vErrors.push(err8);
 }
 errors++;
 }
-if(func1(data1) < 1){
+if(func2(data1) < 1){
 const err9 = {instancePath:instancePath+"/from",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -14298,7 +17550,7 @@ errors++;
 if(data.to !== undefined){
 let data2 = data.to;
 if(typeof data2 === "string"){
-if(func1(data2) > 64){
+if(func2(data2) > 64){
 const err12 = {instancePath:instancePath+"/to",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -14308,7 +17560,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(func1(data2) < 1){
+if(func2(data2) < 1){
 const err13 = {instancePath:instancePath+"/to",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -14343,7 +17595,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema144.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema145.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -14356,7 +17608,7 @@ errors++;
 if(data.label !== undefined){
 let data4 = data.label;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err17 = {instancePath:instancePath+"/label",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err17];
@@ -14389,17 +17641,17 @@ vErrors.push(err19);
 }
 errors++;
 }
-validate97.errors = vErrors;
+validate113.errors = vErrors;
 return errors === 0;
 }
-validate97.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate113.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validateDef_layout = validate98;
+export const validateDef_layout = validate114;
 
-function validate98(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate114(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate98.evaluated;
+const evaluated0 = validate114.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -14442,7 +17694,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema149.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema150.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -14470,7 +17722,7 @@ errors++;
 if(data1.systemName !== undefined){
 let data2 = data1.systemName;
 if(typeof data2 === "string"){
-if(func1(data2) > 200){
+if(func2(data2) > 200){
 const err5 = {instancePath:instancePath+"/header/systemName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -14495,7 +17747,7 @@ errors++;
 if(data1.userName !== undefined){
 let data3 = data1.userName;
 if(typeof data3 === "string"){
-if(func1(data3) > 200){
+if(func2(data3) > 200){
 const err7 = {instancePath:instancePath+"/header/userName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err7];
@@ -14520,7 +17772,7 @@ errors++;
 if(data1.tenantName !== undefined){
 let data4 = data1.tenantName;
 if(typeof data4 === "string"){
-if(func1(data4) > 200){
+if(func2(data4) > 200){
 const err9 = {instancePath:instancePath+"/header/tenantName",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -14587,17 +17839,17 @@ vErrors.push(err13);
 }
 errors++;
 }
-validate98.errors = vErrors;
+validate114.errors = vErrors;
 return errors === 0;
 }
-validate98.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate114.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validateDef_navGroup = validate100;
+export const validateDef_navGroup = validate116;
 
-function validate100(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate116(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate100.evaluated;
+const evaluated0 = validate116.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -14650,7 +17902,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err4];
@@ -14660,7 +17912,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -14695,7 +17947,7 @@ errors++;
 if(data.group !== undefined){
 let data1 = data.group;
 if(typeof data1 === "string"){
-if(func1(data1) > 200){
+if(func2(data1) > 200){
 const err8 = {instancePath:instancePath+"/group",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err8];
@@ -14749,7 +18001,7 @@ errors++;
 if(data3.screenId !== undefined){
 let data4 = data3.screenId;
 if(typeof data4 === "string"){
-if(func1(data4) > 64){
+if(func2(data4) > 64){
 const err12 = {instancePath:instancePath+"/items/" + i0+"/screenId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err12];
@@ -14759,7 +18011,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(func1(data4) < 1){
+if(func2(data4) < 1){
 const err13 = {instancePath:instancePath+"/items/" + i0+"/screenId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err13];
@@ -14794,7 +18046,7 @@ errors++;
 if(data3.label !== undefined){
 let data5 = data3.label;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err16 = {instancePath:instancePath+"/items/" + i0+"/label",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -14851,17 +18103,17 @@ vErrors.push(err20);
 }
 errors++;
 }
-validate100.errors = vErrors;
+validate116.errors = vErrors;
 return errors === 0;
 }
-validate100.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate116.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-export const validateDef_database = validate101;
+export const validateDef_database = validate117;
 
-function validate101(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+function validate117(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
 let errors = 0;
-const evaluated0 = validate101.evaluated;
+const evaluated0 = validate117.evaluated;
 if(evaluated0.dynamicProps){
 evaluated0.props = undefined;
 }
@@ -14924,7 +18176,7 @@ errors++;
 if(data.id !== undefined){
 let data0 = data.id;
 if(typeof data0 === "string"){
-if(func1(data0) > 64){
+if(func2(data0) > 64){
 const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err5];
@@ -14934,7 +18186,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(func1(data0) < 1){
+if(func2(data0) < 1){
 const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err6];
@@ -14969,7 +18221,7 @@ errors++;
 if(data.name !== undefined){
 let data1 = data.name;
 if(typeof data1 === "string"){
-if(func1(data1) > 200){
+if(func2(data1) > 200){
 const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err9];
@@ -14994,7 +18246,7 @@ errors++;
 if(data.dsl !== undefined){
 let data2 = data.dsl;
 if(typeof data2 === "string"){
-if(func1(data2) > 200000){
+if(func2(data2) > 200000){
 const err11 = {instancePath:instancePath+"/dsl",schemaPath:"#/properties/dsl/maxLength",keyword:"maxLength",params:{limit: 200000},message:"must NOT have more than 200000 characters"};
 if(vErrors === null){
 vErrors = [err11];
@@ -15058,7 +18310,7 @@ errors++;
 if(data4.table !== undefined){
 let data5 = data4.table;
 if(typeof data5 === "string"){
-if(func1(data5) > 200){
+if(func2(data5) > 200){
 const err16 = {instancePath:instancePath+"/tables/" + i0+"/table",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
 if(vErrors === null){
 vErrors = [err16];
@@ -15087,7 +18339,7 @@ const len1 = data6.length;
 for(let i1=0; i1<len1; i1++){
 let data7 = data6[i1];
 if(typeof data7 === "string"){
-if(func1(data7) > 64){
+if(func2(data7) > 64){
 const err18 = {instancePath:instancePath+"/tables/" + i0+"/informationIds/" + i1,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
 if(vErrors === null){
 vErrors = [err18];
@@ -15097,7 +18349,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(func1(data7) < 1){
+if(func2(data7) < 1){
 const err19 = {instancePath:instancePath+"/tables/" + i0+"/informationIds/" + i1,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
 if(vErrors === null){
 vErrors = [err19];
@@ -15176,8 +18428,2680 @@ vErrors.push(err25);
 }
 errors++;
 }
-validate101.errors = vErrors;
+validate117.errors = vErrors;
 return errors === 0;
 }
-validate101.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+validate117.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_boundedContext = validate118;
+
+function validate118(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate118.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.name === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.contextIds === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "contextIds"},message:"must have required property '"+"contextIds"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.systemIds === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "systemIds"},message:"must have required property '"+"systemIds"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((((key0 === "id") || (key0 === "name")) || (key0 === "english")) || (key0 === "description")) || (key0 === "subdomain")) || (key0 === "team")) || (key0 === "contextIds")) || (key0 === "systemIds"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data1 = data.name;
+if(typeof data1 === "string"){
+if(func2(data1) > 200){
+const err9 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data2 = data.english;
+if(typeof data2 === "string"){
+if(func2(data2) > 100){
+const err11 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err12 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(!pattern53.test(data2)){
+const err13 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.description !== undefined){
+let data3 = data.description;
+if(typeof data3 === "string"){
+if(func2(data3) > 4000){
+const err15 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/description",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.subdomain !== undefined){
+let data4 = data.subdomain;
+if(!(((data4 === "core") || (data4 === "supporting")) || (data4 === "generic"))){
+const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema165.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.team !== undefined){
+let data5 = data.team;
+if(typeof data5 === "string"){
+if(func2(data5) > 200){
+const err18 = {instancePath:instancePath+"/team",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+else {
+const err19 = {instancePath:instancePath+"/team",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+if(data.contextIds !== undefined){
+let data6 = data.contextIds;
+if(Array.isArray(data6)){
+const len0 = data6.length;
+for(let i0=0; i0<len0; i0++){
+let data7 = data6[i0];
+if(typeof data7 === "string"){
+if(func2(data7) > 64){
+const err20 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+if(func2(data7) < 1){
+const err21 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(!pattern4.test(data7)){
+const err22 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+else {
+const err23 = {instancePath:instancePath+"/contextIds/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/contextIds",schemaPath:"#/properties/contextIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data.systemIds !== undefined){
+let data8 = data.systemIds;
+if(Array.isArray(data8)){
+const len1 = data8.length;
+for(let i1=0; i1<len1; i1++){
+let data9 = data8[i1];
+if(typeof data9 === "string"){
+if(func2(data9) > 64){
+const err25 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data9) < 1){
+const err26 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data9)){
+const err27 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/systemIds/" + i1,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/systemIds",schemaPath:"#/properties/systemIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+}
+else {
+const err30 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+validate118.errors = vErrors;
+return errors === 0;
+}
+validate118.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_aggregate = validate119;
+
+function validate119(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate119.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.rootInformationId === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "rootInformationId"},message:"must have required property '"+"rootInformationId"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+if(data.memberInformationIds === undefined){
+const err4 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "memberInformationIds"},message:"must have required property '"+"memberInformationIds"+"'"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(data.invariants === undefined){
+const err5 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "invariants"},message:"must have required property '"+"invariants"+"'"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((((key0 === "id") || (key0 === "boundedContextId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "rootInformationId")) || (key0 === "memberInformationIds")) || (key0 === "stateGroup")) || (key0 === "invariants"))){
+const err6 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err9 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data1 = data.boundedContextId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err11 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err12 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err13 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data2 = data.name;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err15 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data3 = data.english;
+if(typeof data3 === "string"){
+if(func2(data3) > 100){
+const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+if(func2(data3) < 1){
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+if(!pattern53.test(data3)){
+const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+else {
+const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+if(data.rootInformationId !== undefined){
+let data4 = data.rootInformationId;
+if(typeof data4 === "string"){
+if(func2(data4) > 64){
+const err21 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err22 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data4)){
+const err23 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/rootInformationId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data.memberInformationIds !== undefined){
+let data5 = data.memberInformationIds;
+if(Array.isArray(data5)){
+const len0 = data5.length;
+for(let i0=0; i0<len0; i0++){
+let data6 = data5[i0];
+if(typeof data6 === "string"){
+if(func2(data6) > 64){
+const err25 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data6) < 1){
+const err26 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data6)){
+const err27 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/memberInformationIds/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/memberInformationIds",schemaPath:"#/properties/memberInformationIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data.stateGroup !== undefined){
+let data7 = data.stateGroup;
+if(typeof data7 === "string"){
+if(func2(data7) > 200){
+const err30 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data7) < 1){
+const err31 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+}
+else {
+const err32 = {instancePath:instancePath+"/stateGroup",schemaPath:"#/properties/stateGroup/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+if(data.invariants !== undefined){
+let data8 = data.invariants;
+if(Array.isArray(data8)){
+const len1 = data8.length;
+for(let i1=0; i1<len1; i1++){
+let data9 = data8[i1];
+if(data9 && typeof data9 == "object" && !Array.isArray(data9)){
+if(data9.id === undefined){
+const err33 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+if(data9.text === undefined){
+const err34 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/required",keyword:"required",params:{missingProperty: "text"},message:"must have required property '"+"text"+"'"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+for(const key1 in data9){
+if(!(((key1 === "id") || (key1 === "text")) || (key1 === "conditionId"))){
+const err35 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+if(data9.id !== undefined){
+let data10 = data9.id;
+if(typeof data10 === "string"){
+if(func2(data10) > 64){
+const err36 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+if(func2(data10) < 1){
+const err37 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err37];
+}
+else {
+vErrors.push(err37);
+}
+errors++;
+}
+if(!pattern4.test(data10)){
+const err38 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err38];
+}
+else {
+vErrors.push(err38);
+}
+errors++;
+}
+}
+else {
+const err39 = {instancePath:instancePath+"/invariants/" + i1+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err39];
+}
+else {
+vErrors.push(err39);
+}
+errors++;
+}
+}
+if(data9.text !== undefined){
+let data11 = data9.text;
+if(typeof data11 === "string"){
+if(func2(data11) > 4000){
+const err40 = {instancePath:instancePath+"/invariants/" + i1+"/text",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err40];
+}
+else {
+vErrors.push(err40);
+}
+errors++;
+}
+}
+else {
+const err41 = {instancePath:instancePath+"/invariants/" + i1+"/text",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err41];
+}
+else {
+vErrors.push(err41);
+}
+errors++;
+}
+}
+if(data9.conditionId !== undefined){
+let data12 = data9.conditionId;
+if(typeof data12 === "string"){
+if(func2(data12) > 64){
+const err42 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err42];
+}
+else {
+vErrors.push(err42);
+}
+errors++;
+}
+if(func2(data12) < 1){
+const err43 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err43];
+}
+else {
+vErrors.push(err43);
+}
+errors++;
+}
+if(!pattern4.test(data12)){
+const err44 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err44];
+}
+else {
+vErrors.push(err44);
+}
+errors++;
+}
+}
+else {
+const err45 = {instancePath:instancePath+"/invariants/" + i1+"/conditionId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err45];
+}
+else {
+vErrors.push(err45);
+}
+errors++;
+}
+}
+}
+else {
+const err46 = {instancePath:instancePath+"/invariants/" + i1,schemaPath:"#/properties/invariants/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err46];
+}
+else {
+vErrors.push(err46);
+}
+errors++;
+}
+}
+}
+else {
+const err47 = {instancePath:instancePath+"/invariants",schemaPath:"#/properties/invariants/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err47];
+}
+else {
+vErrors.push(err47);
+}
+errors++;
+}
+}
+}
+else {
+const err48 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err48];
+}
+else {
+vErrors.push(err48);
+}
+errors++;
+}
+validate119.errors = vErrors;
+return errors === 0;
+}
+validate119.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_domainCommand = validate120;
+
+function validate120(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate120.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.aggregateId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "aggregateId"},message:"must have required property '"+"aggregateId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.emits === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "emits"},message:"must have required property '"+"emits"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "aggregateId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "source")) || (key0 === "emits"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.aggregateId !== undefined){
+let data1 = data.aggregateId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data2 = data.name;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err13 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data3 = data.english;
+if(typeof data3 === "string"){
+if(func2(data3) > 100){
+const err15 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+if(func2(data3) < 1){
+const err16 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(!pattern53.test(data3)){
+const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data.source !== undefined){
+let data4 = data.source;
+if(data4 && typeof data4 == "object" && !Array.isArray(data4)){
+if(data4.usecaseId === undefined){
+const err19 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/required",keyword:"required",params:{missingProperty: "usecaseId"},message:"must have required property '"+"usecaseId"+"'"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+for(const key1 in data4){
+if(!((key1 === "usecaseId") || (key1 === "activityId"))){
+const err20 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+if(data4.usecaseId !== undefined){
+let data5 = data4.usecaseId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err21 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err22 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err23 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/source/usecaseId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+if(data4.activityId !== undefined){
+let data6 = data4.activityId;
+if(typeof data6 === "string"){
+if(func2(data6) > 64){
+const err25 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if(func2(data6) < 1){
+const err26 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+if(!pattern4.test(data6)){
+const err27 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+else {
+const err28 = {instancePath:instancePath+"/source/activityId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data.emits !== undefined){
+let data7 = data.emits;
+if(Array.isArray(data7)){
+const len0 = data7.length;
+for(let i0=0; i0<len0; i0++){
+let data8 = data7[i0];
+if(typeof data8 === "string"){
+if(func2(data8) > 64){
+const err30 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data8) < 1){
+const err31 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(!pattern4.test(data8)){
+const err32 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+else {
+const err33 = {instancePath:instancePath+"/emits/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/emits",schemaPath:"#/properties/emits/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+validate120.errors = vErrors;
+return errors === 0;
+}
+validate120.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_domainEvent = validate121;
+
+function validate121(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate121.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.name === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+for(const key0 in data){
+if(!(((((((key0 === "id") || (key0 === "boundedContextId")) || (key0 === "aggregateId")) || (key0 === "name")) || (key0 === "english")) || (key0 === "eventId")) || (key0 === "properties"))){
+const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err4 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+else {
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data1 = data.boundedContextId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err8 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err9 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err10 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+else {
+const err11 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+if(data.aggregateId !== undefined){
+let data2 = data.aggregateId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err12 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err13 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err14 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+else {
+const err15 = {instancePath:instancePath+"/aggregateId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+if(data.name !== undefined){
+let data3 = data.name;
+if(typeof data3 === "string"){
+if(func2(data3) > 200){
+const err16 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+else {
+const err17 = {instancePath:instancePath+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data4 = data.english;
+if(typeof data4 === "string"){
+if(func2(data4) > 100){
+const err18 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/maxLength",keyword:"maxLength",params:{limit: 100},message:"must NOT have more than 100 characters"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+if(!pattern53.test(data4)){
+const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+else {
+const err21 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data.eventId !== undefined){
+let data5 = data.eventId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err22 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err23 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err24 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+else {
+const err25 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+}
+if(data.properties !== undefined){
+let data6 = data.properties;
+if(Array.isArray(data6)){
+const len0 = data6.length;
+for(let i0=0; i0<len0; i0++){
+let data7 = data6[i0];
+if(data7 && typeof data7 == "object" && !Array.isArray(data7)){
+if(data7.name === undefined){
+const err26 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/required",keyword:"required",params:{missingProperty: "name"},message:"must have required property '"+"name"+"'"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+for(const key1 in data7){
+if(!((key1 === "name") || (key1 === "informationId"))){
+const err27 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+}
+if(data7.name !== undefined){
+let data8 = data7.name;
+if(typeof data8 === "string"){
+if(func2(data8) > 200){
+const err28 = {instancePath:instancePath+"/properties/" + i0+"/name",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/properties/" + i0+"/name",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+if(data7.informationId !== undefined){
+let data9 = data7.informationId;
+if(typeof data9 === "string"){
+if(func2(data9) > 64){
+const err30 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+if(func2(data9) < 1){
+const err31 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+if(!pattern4.test(data9)){
+const err32 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+else {
+const err33 = {instancePath:instancePath+"/properties/" + i0+"/informationId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+}
+else {
+const err34 = {instancePath:instancePath+"/properties/" + i0,schemaPath:"#/properties/properties/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+}
+else {
+const err35 = {instancePath:instancePath+"/properties",schemaPath:"#/properties/properties/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+}
+else {
+const err36 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+validate121.errors = vErrors;
+return errors === 0;
+}
+validate121.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_domainPolicy = validate122;
+
+function validate122(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate122.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.eventId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "eventId"},message:"must have required property '"+"eventId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.commandId === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "commandId"},message:"must have required property '"+"commandId"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.auto === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "auto"},message:"must have required property '"+"auto"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((key0 === "id") || (key0 === "eventId")) || (key0 === "commandId")) || (key0 === "auto"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.eventId !== undefined){
+let data1 = data.eventId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/eventId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.commandId !== undefined){
+let data2 = data.commandId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err13 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err14 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err15 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/commandId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.auto !== undefined){
+if(typeof data.auto !== "boolean"){
+const err17 = {instancePath:instancePath+"/auto",schemaPath:"#/properties/auto/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+}
+else {
+const err18 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+validate122.errors = vErrors;
+return errors === 0;
+}
+validate122.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_contextRelation = validate123;
+
+function validate123(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate123.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.upstreamId === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "upstreamId"},message:"must have required property '"+"upstreamId"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.downstreamId === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "downstreamId"},message:"must have required property '"+"downstreamId"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.kind === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "kind"},message:"must have required property '"+"kind"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "upstreamId")) || (key0 === "downstreamId")) || (key0 === "kind")) || (key0 === "integration")) || (key0 === "note"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.upstreamId !== undefined){
+let data1 = data.upstreamId;
+if(typeof data1 === "string"){
+if(func2(data1) > 64){
+const err9 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if(func2(data1) < 1){
+const err10 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+if(!pattern4.test(data1)){
+const err11 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/upstreamId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.downstreamId !== undefined){
+let data2 = data.downstreamId;
+if(typeof data2 === "string"){
+if(func2(data2) > 64){
+const err13 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+if(func2(data2) < 1){
+const err14 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if(!pattern4.test(data2)){
+const err15 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+else {
+const err16 = {instancePath:instancePath+"/downstreamId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+if(data.kind !== undefined){
+let data3 = data.kind;
+if(!(((((((((data3 === "partnership") || (data3 === "sharedKernel")) || (data3 === "customerSupplier")) || (data3 === "conformist")) || (data3 === "acl")) || (data3 === "ohs")) || (data3 === "publishedLanguage")) || (data3 === "separateWays")) || (data3 === "bigBallOfMud"))){
+const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema204.properties.kind.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+if(data.integration !== undefined){
+let data4 = data.integration;
+if(!(((((data4 === "messaging") || (data4 === "rest")) || (data4 === "rpc")) || (data4 === "file")) || (data4 === "manual"))){
+const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema204.properties.integration.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data.note !== undefined){
+let data5 = data.note;
+if(typeof data5 === "string"){
+if(func2(data5) > 4000){
+const err19 = {instancePath:instancePath+"/note",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+}
+else {
+const err20 = {instancePath:instancePath+"/note",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+}
+}
+else {
+const err21 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+validate123.errors = vErrors;
+return errors === 0;
+}
+validate123.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+export const validateDef_domainTerm = validate124;
+
+function validate124(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate124.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "id"},message:"must have required property '"+"id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.term === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "term"},message:"must have required property '"+"term"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.definition === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "definition"},message:"must have required property '"+"definition"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.boundedContextId === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "boundedContextId"},message:"must have required property '"+"boundedContextId"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "id") || (key0 === "term")) || (key0 === "english")) || (key0 === "definition")) || (key0 === "boundedContextId")) || (key0 === "elementId"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.id !== undefined){
+let data0 = data.id;
+if(typeof data0 === "string"){
+if(func2(data0) > 64){
+const err5 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(func2(data0) < 1){
+const err6 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(!pattern4.test(data0)){
+const err7 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+else {
+const err8 = {instancePath:instancePath+"/id",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.term !== undefined){
+let data1 = data.term;
+if(typeof data1 === "string"){
+if(func2(data1) > 200){
+const err9 = {instancePath:instancePath+"/term",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/term",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.english !== undefined){
+let data2 = data.english;
+if(typeof data2 === "string"){
+if(func2(data2) > 200){
+const err11 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/name/maxLength",keyword:"maxLength",params:{limit: 200},message:"must NOT have more than 200 characters"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+else {
+const err12 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/name/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+}
+if(data.definition !== undefined){
+let data3 = data.definition;
+if(typeof data3 === "string"){
+if(func2(data3) > 4000){
+const err13 = {instancePath:instancePath+"/definition",schemaPath:"#/$defs/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/definition",schemaPath:"#/$defs/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+if(data.boundedContextId !== undefined){
+let data4 = data.boundedContextId;
+const _errs15 = errors;
+let valid5 = false;
+let passing0 = null;
+const _errs16 = errors;
+if(typeof data4 === "string"){
+if(func2(data4) > 64){
+const err15 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+if(func2(data4) < 1){
+const err16 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(!pattern4.test(data4)){
+const err17 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+var _valid0 = _errs16 === errors;
+if(_valid0){
+valid5 = true;
+passing0 = 0;
+}
+const _errs19 = errors;
+if(data4 !== null){
+const err19 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/properties/boundedContextId/oneOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+var _valid0 = _errs19 === errors;
+if(_valid0 && valid5){
+valid5 = false;
+passing0 = [passing0, 1];
+}
+else {
+if(_valid0){
+valid5 = true;
+passing0 = 1;
+}
+}
+if(!valid5){
+const err20 = {instancePath:instancePath+"/boundedContextId",schemaPath:"#/properties/boundedContextId/oneOf",keyword:"oneOf",params:{passingSchemas: passing0},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+else {
+errors = _errs15;
+if(vErrors !== null){
+if(_errs15){
+vErrors.length = _errs15;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data.elementId !== undefined){
+let data5 = data.elementId;
+if(typeof data5 === "string"){
+if(func2(data5) > 64){
+const err21 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if(func2(data5) < 1){
+const err22 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if(!pattern4.test(data5)){
+const err23 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+else {
+const err24 = {instancePath:instancePath+"/elementId",schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+}
+}
+else {
+const err25 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+validate124.errors = vErrors;
+return errors === 0;
+}
+validate124.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 

@@ -110,6 +110,13 @@ beforeEach(() => {
 const dbOf = (id: string) => st().model.databases.find((d) => d.id === id)!;
 const area = () => screen.getByLabelText("DSL") as HTMLTextAreaElement;
 
+/** 設計の検証の行 (同じ行が「実装を始める準備」にも出るので、準備の節の外のものを取る) */
+function checkRow(name: RegExp): HTMLElement {
+  const rows = screen.getAllByRole("button", { name }).filter((b) => !b.closest('[data-testid="readiness"]'));
+  expect(rows).toHaveLength(1);
+  return rows[0]!;
+}
+
 describe("データボードの左ペイン", () => {
   it("データベースが無いと案内を出し、追加すると選ばれる (db_ の id)", () => {
     resetStore(model());
@@ -426,7 +433,7 @@ describe("データボード全体", () => {
     expect(screen.getByRole("button", { name: /^検証/ }).textContent).toBe("検証1");
     cleanup();
     render(<DesignCheckPanel />);
-    fireEvent.click(screen.getByRole("button", { name: /使うデータベースがありません/ }));
+    fireEvent.click(checkRow(/使うデータベースがありません/));
     expect(st().ui.currentBoardId).toBe("design:data");
   });
 });
@@ -494,8 +501,8 @@ describe("設計モードの検証", () => {
     fireEvent.click(toolbarButton());
     const panel = screen.getByRole("complementary", { name: "検証" });
     expect(within(panel).getByRole("heading", { name: "検証: 設計" })).toBeDefined();
-    expect(within(panel).getByText(/客」が、使うデータベースのどのテーブルにも対応していません/)).toBeDefined();
-    expect(within(panel).getByText(/Ghost がありません/)).toBeDefined();
+    expect(checkRow(/客」が、使うデータベースのどのテーブルにも対応していません/)).toBeDefined();
+    expect(checkRow(/Ghost がありません/)).toBeDefined();
     act(() => st().setMode("analysis"));
     expect(screen.getByRole("heading", { name: "検証: 担い手まで辿れるか" })).toBeDefined();
   });
@@ -508,13 +515,13 @@ describe("設計モードの検証", () => {
       st().selectDesignDatabase("db_x");
     });
     render(<DesignCheckPanel />);
-    fireEvent.click(screen.getByRole("button", { name: /Ghost がありません/ }));
+    fireEvent.click(checkRow(/Ghost がありません/));
     expect(st().ui.currentBoardId).toBe("design:data");
     expect(st().ui.designDatabaseId).toBe("db_default");
     expect(st().ui.designTableName).toBe("Ghost");
     expect(st().ui.rightPanel).toBe("properties");
     act(() => st().setRightPanel("trace"));
-    fireEvent.click(screen.getByRole("button", { name: /客」が/ }));
+    fireEvent.click(checkRow(/客」が/));
     expect(st().ui.designTableName).toBeUndefined();
     expect(st().ui.currentBoardId).toBe("design:data");
   });
@@ -544,7 +551,7 @@ describe("設計モードの検証", () => {
     });
     render(<DesignCheckPanel />);
     expect(screen.getByRole("region", { name: "警告: きっかけが未定の遷移" })).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: /「トップページ」→「予約一覧」/ }));
+    fireEvent.click(checkRow(/「トップページ」→「予約一覧」/));
     expect(st().ui.currentBoardId).toBe("design:sitemap");
     expect(st().ui.designScreenId).toBe("ds_top");
     expect(st().ui.designTransitionId).toBe("tr_1");

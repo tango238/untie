@@ -15,7 +15,8 @@ import { checkAllDesigns, checkDesign } from "../designCheck";
 import { parsePrismaDsl } from "../prisma";
 import { emptyModel, type UntieModel } from "../types";
 import { validateModel } from "../validate";
-import { retailSample } from "../../sample";
+import { includeInformation } from "../domainCommands";
+import { createNetshopSample, retailSample } from "../../sample";
 import { expectFail, okModel } from "./helpers";
 
 /** システム 2 つ。A: 画面 2 (を使う操作が情報 b, c を扱う)、システムを対象にした操作が情報 a, d を扱う。B: 操作が情報 e を扱う */
@@ -208,6 +209,61 @@ describe("addScaffold", () => {
     expect(next.databases[0]!.dsl.startsWith("// TODO")).toBe(true);
     expect(parsePrismaDsl(next.databases[0]!.dsl).errors).toEqual([]);
     expectFail(addScaffold(m, "sys_a", "db_none"), /存在しません/);
+  });
+});
+
+describe("addScaffold: 集約の境界に合わせる", () => {
+  it("集約のルートは英語名を model の名前にし、中の情報はルートの直後に置いてルートの id の列を付ける。ほかの集約は ID で参照する", () => {
+    let m = okModel(addDatabase(createNetshopSample(), { id: "db_x", name: "販売" }));
+    // 商品を、在庫の集約の中の情報にする
+    m = okModel(includeInformation(m, { aggregateId: "ag_stock", informationId: "info_product" }));
+    const next = okModel(addScaffold(m, "sys_oms", "db_x"));
+    const db = next.databases.find((d) => d.id === "db_x")!;
+    const schema = parsePrismaDsl(db.dsl);
+    expect(schema.errors).toEqual([]);
+    const names = schema.models.map((x) => x.name);
+    // 集約のルート (注文・返品・在庫・出荷) は英語名。集約に入っていない情報 (購入者・問い合わせ履歴) と中の情報 (商品) は連番
+    for (const n of ["Order", "ReturnRequest", "Stock", "Shipment"]) expect(names).toContain(n);
+    expect(db.dsl).toContain("// 集約 Order (受注) のルート\n// ほかの集約 (");
+    expect(db.dsl).toMatch(/\/\/ ほかの集約 \(.*ReturnRequest.*\) は、ID の列で参照する \(@relation を張らない\)\nmodel Order \{/);
+    // 中の情報はルートの直後。ルートの id の列を持つ
+    const stock = names.indexOf("Stock");
+    const product = db.tables.find((t) => t.informationIds.includes("info_product"))!.table;
+    expect(names[stock + 1]).toBe(product);
+    expect(db.dsl).toContain(`// 集約 Stock (在庫) の中の情報 (ルートと同じトランザクションで整合させる)\n// TODO: 名前を直す\nmodel ${product} {\n  id String @id\n  stockId String // ルート (Stock) の id\n  @@map("商品")\n}`);
+    expect(schema.models.find((x) => x.name === product)!.fields.map((f) => f.name)).toEqual(["id", "stockId"]);
+    // 集約に入っていない情報は、従来どおり
+    const customer = db.tables.find((t) => t.informationIds.includes("info_customer"))!.table;
+    expect(customer).toMatch(/^Table\d+$/);
+    expect(db.dsl).toContain(`// TODO: 名前を直す\nmodel ${customer} {\n  id String @id\n  @@map("購入者")\n}`);
+    // 英語名がすでに model の名前に使われていれば、連番にする
+    let taken = okModel(addDatabase(createNetshopSample(), { id: "db_y", name: "販売" }));
+    taken = okModel(setDatabaseDsl(taken, { id: "db_y", dsl: "model Order {\n  id String @id\n}" }));
+    const again = okModel(addScaffold(taken, "sys_oms", "db_y")).databases.find((d) => d.id === "db_y")!;
+    expect(again.tables.find((t) => t.informationIds.includes("info_order"))!.table).toMatch(/^Table\d+$/);
+    expect(parsePrismaDsl(again.dsl).errors).toEqual([]);
+  });
+});
+
+describe("addScaffold: 名前の改行と、model に使えない英語名", () => {
+  it("集約やコンテキストの名前に改行があっても、DSL のコメントが切れない。英語名が型の名前 (String・Json など) なら、連番の名前にする", () => {
+    let m = okModel(addDatabase(createNetshopSample(), { id: "db_x", name: "販売" }));
+    m = {
+      ...m,
+      domain: {
+        ...m.domain,
+        contexts: m.domain.contexts.map((c) => (c.id === "bc_ordering" ? { ...c, name: "受注\n(本店)" } : c)),
+        aggregates: m.domain.aggregates.map((a) => (a.id === "ag_stock" ? { ...a, english: "Json" } : a.id === "ag_shipment" ? { ...a, english: "string" } : a)),
+      },
+    };
+    const db = okModel(addScaffold(m, "sys_oms", "db_x")).databases.find((d) => d.id === "db_x")!;
+    const schema = parsePrismaDsl(db.dsl);
+    expect(schema.errors).toEqual([]);
+    expect(db.dsl).toContain("// 集約 Order (受注 (本店)) のルート");
+    const names = schema.models.map((x) => x.name);
+    expect(names).not.toContain("Json");
+    expect(names).not.toContain("string");
+    expect(db.tables.find((t) => t.informationIds.includes("info_stock"))!.table).toMatch(/^Table\d+$/);
   });
 });
 

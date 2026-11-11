@@ -1,5 +1,5 @@
 // 生成型 (schema.d.ts) の再エクスポートと補助型。
-import type { BoardEdge, Element, EventTiming, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
+import type { BoardEdge, DomainModel, Element, EventTiming, IssueAnalysis, Persona, Relation, RelationKind, UntieModel } from "./schema";
 
 export type {
   Actor,
@@ -34,6 +34,14 @@ export type {
   Layout,
   NavGroup,
   Database,
+  DomainModel,
+  BoundedContext,
+  Aggregate,
+  DomainCommand,
+  DomainEvent,
+  DomainPolicy,
+  ContextRelation,
+  DomainTerm,
   Event as EventElement,
   Screen,
   Nfr,
@@ -108,6 +116,43 @@ export const RELATION_KINDS: readonly RelationKind[] = [
 
 /** 操作が情報をどう扱うか (usecaseInformation の access)。省略は取得も保存もする */
 export type InformationAccess = NonNullable<Relation["access"]>;
+
+/** 代替パターン (操作が条件を判断した結果、ふだんと違う流れになるときの中身。usecaseCondition の関係に付ける。0.6.1) */
+export type RelationAlternate = NonNullable<Relation["alternate"]>;
+export type AlternateWhen = RelationAlternate["when"];
+export const ALTERNATE_WHENS: readonly AlternateWhen[] = ["met", "unmet"];
+export const ALTERNATE_WHEN_LABELS: Record<AlternateWhen, string> = { met: "条件を満たすとき", unmet: "条件を満たさないとき" };
+
+/** 代替パターンの結果がエラーのときの種類 (0.6.2)。input: 入力エラー、server: サーバーエラー (HTTP ステータスを持てる) */
+export type AlternateError = NonNullable<RelationAlternate["error"]>;
+export type AlternateErrorType = AlternateError["type"];
+export const ALTERNATE_ERROR_TYPES: readonly AlternateErrorType[] = ["input", "server"];
+export const ALTERNATE_ERROR_LABELS: Record<AlternateErrorType, string> = { input: "入力エラー", server: "サーバーエラー" };
+/** サーバーエラーに付けられる HTTP ステータスの範囲 */
+export const HTTP_STATUS_MIN = 400;
+export const HTTP_STATUS_MAX = 599;
+/** よく使う HTTP ステータス (入力の候補に出す。ほかの値も入れられる) */
+export const COMMON_HTTP_STATUSES: readonly { status: number; label: string }[] = [
+  { status: 400, label: "不正なリクエスト" },
+  { status: 401, label: "サインインが要る" },
+  { status: 403, label: "権限がない" },
+  { status: 404, label: "見つからない" },
+  { status: 409, label: "ほかの変更とぶつかった" },
+  { status: 422, label: "処理できない内容" },
+  { status: 429, label: "回数が多すぎる" },
+  { status: 500, label: "サーバーの中の失敗" },
+  { status: 502, label: "つなぎ先の失敗" },
+  { status: 503, label: "いまは利用できない" },
+  { status: 504, label: "時間切れ" },
+];
+/** HTTP ステータスとして持てる値か (400〜599 の整数) */
+export function isHttpErrorStatus(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= HTTP_STATUS_MIN && value <= HTTP_STATUS_MAX;
+}
+/** エラーの表示名 (例: 入力エラー / サーバーエラー / サーバーエラー 404) */
+export function alternateErrorLabel(error: AlternateError): string {
+  return `${ALTERNATE_ERROR_LABELS[error.type] ?? error.type}${error.status !== undefined ? ` ${error.status}` : ""}`;
+}
 
 export const INFORMATION_ACCESSES: readonly InformationAccess[] = ["read", "write"];
 
@@ -347,7 +392,12 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.5.4";
+export const MODEL_VERSION = "0.6.2";
+
+/** 空のドメインモデル (0.6.0) */
+export function emptyDomain(): DomainModel {
+  return { contexts: [], aggregates: [], commands: [], events: [], policies: [], excluded: [], relations: [], terms: [] };
+}
 
 /** 空のモデル (ボード 1 つだけ) */
 export function emptyModel(name = "新しいモデル", boardId = "board_main"): UntieModel {
@@ -359,5 +409,6 @@ export function emptyModel(name = "新しいモデル", boardId = "board_main"):
     boards: [{ id: boardId, name: "ボード 1", nodes: [] }],
     designs: [],
     databases: [],
+    domain: emptyDomain(),
   };
 }

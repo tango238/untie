@@ -32,6 +32,20 @@ jobs:
       # (dry-run は Cloudflare にログインも CLOUDFLARE_API_TOKEN も要らない)
       - run: pnpm build
 
+  # untie が書き出す業務ルールの骨組み (.sou。packages/core の __fixtures__/souther) を、Souther のコンパイラに通す。
+  # 書き出しの形はテスト (southerExport.test.ts) がこのファイルで固定しているので、ここで通れば書き出しが正しい Souther になっている。
+  # Souther は JDK 25 で動く。配布物は scripts/souther-check.sh が版と SHA-256 を決めて取得する
+  souther:
+    name: Souther (業務ルールの骨組み)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+      - run: scripts/souther-check.sh
+
   # PR が Rust 側 (apps/desktop。src-tauri と Cargo.lock も含む) か、この CI の設定に触れているか。
   # Rust のジョブは Tauri の Linux 向けライブラリの取得に時間がかかるので、触れていない PR では飛ばす。
   # main への push では常に動かす (飛ばした PR のあとでも、main で Rust 側の壊れに気づけるように)

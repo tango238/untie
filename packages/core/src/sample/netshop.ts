@@ -4,7 +4,7 @@
 // 人が担当しない処理 (在庫の引き当て・売掛金の計上) は作業にせず、イベントをきっかけにした自動の処理にする。
 // 画面と非機能要件もシステムに持たせる。検証のエラーも警告も出ない形にする (サンプルのテストで確かめる)
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type DomainModel, type Element, type InformationAccess, type Relation, type UntieModel, type RelationAlternate } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -601,12 +601,20 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
+// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+const alternates: Record<string, RelationAlternate> = {
+  "rel_uc_allocate_stock__cond_out_of_stock": { when: "met", then: "引き当てずに、入荷を待つ注文として残す。" },
+  "rel_uc_register_return__cond_return_period": { when: "unmet", then: "返品を受け付けず、理由を購入者に伝える。" },
+  "rel_uc_issue_pick_list__cond_gift": { when: "met", then: "ピッキングリストに、ギフト包装の指示を載せる。" },
+};
+
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
+  const id = `rel_${sourceId}__${targetId}`;
+  return { id, kind, sourceId, targetId, ...(access ? { access } : {}), ...(alternates[id] ? { alternate: alternates[id] } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード
@@ -687,6 +695,132 @@ const stateNodes: BoardNode[] = [
   ...column(states.filter((e) => e.id.startsWith("st_rec_")).map((e) => e.id), 1240, 360, 90),
 ];
 
+// ドメインモデル (設計モードのドメインボード・コンテキストマップ。4.6)。分析から導ける候補は持たず、人が決めたことだけを置く:
+// 境界づけられたコンテキスト (受注・在庫・出荷は販売管理システム、決済と会計は別のシステム)、集約と不変条件、意図の名前と英語名、
+// 分析に無いあるべき姿 (決済サービスの「入金が確認された」を受けて、販売管理システムが自分で注文を入金済にする)、コンテキスト間の関係、用語。
+// 顧客 (購入者・問い合わせ履歴) と、在庫の一部の操作・会計のコマンドは、まだ決めていない候補のまま残している。
+const domain: DomainModel = {
+  contexts: [
+    { id: "bc_ordering", name: "受注", english: "Ordering", description: "注文を受け付けてから出荷を頼むまでと、返品を受け持つ。", subdomain: "core", team: "EC 運営", contextIds: ["ctx_order"], systemIds: ["sys_oms"] },
+    { id: "bc_inventory", name: "在庫", english: "Inventory", description: "売れる数を正しく保つ (入荷・引き当て・棚卸)。", subdomain: "supporting", team: "倉庫", contextIds: ["ctx_item"], systemIds: ["sys_oms"] },
+    { id: "bc_shipping", name: "出荷", english: "Shipping", description: "送り状を発行し、荷物を出す。", subdomain: "supporting", team: "倉庫", contextIds: ["ctx_shipping"], systemIds: ["sys_oms"] },
+    { id: "bc_payment", name: "決済", english: "Payment", description: "外部の決済サービス。入金の結果だけを受け取る。", subdomain: "generic", contextIds: [], systemIds: ["sys_payment"] },
+    { id: "bc_accounting", name: "会計", english: "Accounting", description: "売掛金と入金を管理し、月次の数字を出す。", subdomain: "generic", team: "経理", contextIds: ["ctx_accounting"], systemIds: ["sys_accounting"] },
+  ],
+  aggregates: [
+    {
+      id: "ag_order",
+      boundedContextId: "bc_ordering",
+      name: "注文",
+      english: "Order",
+      rootInformationId: "info_order",
+      memberInformationIds: [],
+      stateGroup: "注文の状態",
+      invariants: [
+        { id: "inv_order_paid", text: "入金済にできるのは、確定した注文だけ。" },
+        { id: "inv_order_cancel", text: "出荷済の注文は取り消せない。" },
+      ],
+    },
+    {
+      id: "ag_return",
+      boundedContextId: "bc_ordering",
+      name: "返品",
+      english: "ReturnRequest",
+      rootInformationId: "info_return",
+      memberInformationIds: [],
+      stateGroup: "返品の状態",
+      invariants: [{ id: "inv_return_period", text: "返品を受け付けるのは、返品の期間内の注文だけ。", conditionId: "cond_return_period" }],
+    },
+    {
+      id: "ag_stock",
+      boundedContextId: "bc_inventory",
+      name: "在庫",
+      english: "Stock",
+      rootInformationId: "info_stock",
+      memberInformationIds: [],
+      invariants: [{ id: "inv_stock_enough", text: "引き当てる数は、引き当てていない在庫の数を超えない。", conditionId: "cond_out_of_stock" }],
+    },
+    {
+      id: "ag_shipment",
+      boundedContextId: "bc_shipping",
+      name: "出荷",
+      english: "Shipment",
+      rootInformationId: "info_shipment",
+      memberInformationIds: [],
+      invariants: [{ id: "inv_shipment_label", text: "送り状を発行していない出荷は、出荷済にできない。" }],
+    },
+    {
+      id: "ag_receivable",
+      boundedContextId: "bc_accounting",
+      name: "売掛金",
+      english: "Receivable",
+      rootInformationId: "info_receivable",
+      memberInformationIds: [],
+      stateGroup: "売掛金の状態",
+      invariants: [{ id: "inv_receivable_clear", text: "消し込む金額の合計は、売掛金の金額を超えない。" }],
+    },
+    {
+      id: "ag_payout",
+      boundedContextId: "bc_accounting",
+      name: "入金",
+      english: "Payout",
+      rootInformationId: "info_payout",
+      memberInformationIds: [],
+      invariants: [{ id: "inv_payout_once", text: "1 件の入金を、同じ売掛金へ 2 度消し込まない。" }],
+    },
+  ],
+  commands: [
+    // 分析の操作から採用したもの (記録の名前を、意図の名前に直している)
+    { id: "cm_place_order", aggregateId: "ag_order", name: "注文を受け付ける", english: "PlaceOrder", source: { usecaseId: "uc_register_order" }, emits: [] },
+    { id: "cm_confirm_order", aggregateId: "ag_order", name: "注文を確定する", english: "ConfirmOrder", source: { usecaseId: "uc_confirm_order" }, emits: [] },
+    { id: "cm_cancel_order", aggregateId: "ag_order", name: "注文を取り消す", english: "CancelOrder", source: { usecaseId: "uc_cancel_order" }, emits: [] },
+    { id: "cm_accept_return", aggregateId: "ag_return", name: "返品を受け付ける", english: "AcceptReturn", source: { usecaseId: "uc_register_return" }, emits: [] },
+    { id: "cm_inspect_return", aggregateId: "ag_return", name: "返品を検品する", english: "InspectReturn", source: { usecaseId: "uc_record_inspection" }, emits: [] },
+    { id: "cm_receive_stock", aggregateId: "ag_stock", name: "入荷を受け入れる", english: "ReceiveStock", source: { usecaseId: "uc_register_receiving" }, emits: [] },
+    { id: "cm_allocate_stock", aggregateId: "ag_stock", name: "在庫を引き当てる", english: "AllocateStock", source: { usecaseId: "uc_allocate_stock" }, emits: [] },
+    { id: "cm_issue_label", aggregateId: "ag_shipment", name: "送り状を発行する", english: "IssueShippingLabel", source: { usecaseId: "uc_issue_label" }, emits: [] },
+    { id: "cm_ship", aggregateId: "ag_shipment", name: "出荷する", english: "ShipOrder", source: { usecaseId: "uc_record_shipment" }, emits: [] },
+    // あるべき姿: 分析では決済サービスの操作が注文の状態を変えているが、注文を入金済にするのは受注の責務にする
+    { id: "cm_mark_paid", aggregateId: "ag_order", name: "注文を入金済にする", english: "MarkOrderPaid", emits: ["de_order_paid"] },
+  ],
+  events: [
+    { id: "de_order_placed", boundedContextId: "bc_ordering", aggregateId: "ag_order", name: "注文を受け付けた", english: "OrderPlaced", eventId: "ev_order_received" },
+    { id: "de_order_confirmed", boundedContextId: "bc_ordering", aggregateId: "ag_order", name: "注文が確定した", english: "OrderConfirmed", eventId: "ev_order_confirmed" },
+    { id: "de_order_cancelled", boundedContextId: "bc_ordering", aggregateId: "ag_order", name: "注文が取り消された", english: "OrderCancelled", eventId: "ev_order_cancelled" },
+    { id: "de_order_paid", boundedContextId: "bc_ordering", aggregateId: "ag_order", name: "注文が入金済になった", english: "OrderPaid" },
+    { id: "de_return_accepted", boundedContextId: "bc_ordering", aggregateId: "ag_return", name: "返品を受け付けた", english: "ReturnAccepted", eventId: "ev_return_accepted" },
+    { id: "de_return_inspected", boundedContextId: "bc_ordering", aggregateId: "ag_return", name: "返品の検品が済んだ", english: "ReturnInspected", eventId: "ev_return_inspected" },
+    { id: "de_stock_received", boundedContextId: "bc_inventory", aggregateId: "ag_stock", name: "入荷を受け入れた", english: "StockReceived", eventId: "ev_received" },
+    { id: "de_stock_allocated", boundedContextId: "bc_inventory", aggregateId: "ag_stock", name: "在庫が引き当てられた", english: "StockAllocated", eventId: "ev_stock_allocated" },
+    { id: "de_label_issued", boundedContextId: "bc_shipping", aggregateId: "ag_shipment", name: "送り状が発行された", english: "ShippingLabelIssued", eventId: "ev_label_issued" },
+    {
+      id: "de_shipped",
+      boundedContextId: "bc_shipping",
+      aggregateId: "ag_shipment",
+      name: "出荷した",
+      english: "OrderShipped",
+      eventId: "ev_shipped",
+      properties: [{ name: "出荷", informationId: "info_shipment" }, { name: "出荷日" }],
+    },
+    // 決済サービス (外部) で起きる。販売管理システムはこれを受けて、注文を入金済にする
+    { id: "de_payment_confirmed", boundedContextId: "bc_payment", name: "入金が確認された", english: "PaymentConfirmed", eventId: "ev_payment_confirmed" },
+  ],
+  policies: [{ id: "po_mark_paid", eventId: "de_payment_confirmed", commandId: "cm_mark_paid", auto: true }],
+  excluded: [],
+  relations: [
+    { id: "cr_ordering_inventory", upstreamId: "bc_ordering", downstreamId: "bc_inventory", kind: "customerSupplier", integration: "messaging", note: "注文が確定したら、在庫を引き当てる。" },
+    { id: "cr_payment_ordering", upstreamId: "bc_payment", downstreamId: "bc_ordering", kind: "acl", integration: "messaging", note: "決済サービスの通知 (Webhook) を、受注の言葉 (入金済) に訳す。" },
+    { id: "cr_ordering_shipping", upstreamId: "bc_ordering", downstreamId: "bc_shipping", kind: "customerSupplier", integration: "rpc", note: "出荷は、注文の届け先を読む。" },
+    { id: "cr_shipping_accounting", upstreamId: "bc_shipping", downstreamId: "bc_accounting", kind: "publishedLanguage", integration: "messaging", note: "出荷したら、会計が売掛金を計上する。" },
+    { id: "cr_ordering_accounting", upstreamId: "bc_ordering", downstreamId: "bc_accounting", kind: "conformist", integration: "file", note: "会計は、注文のデータをそのままの形で取り込む。" },
+  ],
+  terms: [
+    { id: "tm_order", term: "注文", english: "Order", definition: "購入者からの 1 回の申し込み。受け付けから出荷か取り消しまでを 1 件として扱う。", boundedContextId: "bc_ordering", elementId: "info_order" },
+    { id: "tm_stock", term: "在庫", english: "Stock", definition: "商品ごとの、倉庫にある数と引き当て済みの数。", boundedContextId: "bc_inventory", elementId: "info_stock" },
+    { id: "tm_allocation", term: "引き当て", english: "Allocation", definition: "注文の分の在庫を、ほかの注文に使われないよう取り置くこと。", boundedContextId: "bc_inventory" },
+  ],
+};
+
 export const netshopSample: UntieModel = {
   version: MODEL_VERSION,
   meta: {
@@ -702,6 +836,7 @@ export const netshopSample: UntieModel = {
   ],
   designs: [],
   databases: [],
+  domain,
 };
 
 /** 呼ぶたびに独立したコピーを返す (JSON の往復。core は DOM に依存しないので structuredClone を使わない) */

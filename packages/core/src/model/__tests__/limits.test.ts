@@ -19,6 +19,8 @@ import {
   VERIFICATION_MAX_LENGTH,
   TRIGGER_NOTE_MAX_LENGTH,
   DSL_MAX_LENGTH,
+  ENGLISH_MAX_LENGTH,
+  EXCLUDED_KEY_MAX_LENGTH,
   LIMITS,
 } from "../limits";
 import { repairModel } from "../repair";
@@ -38,6 +40,9 @@ const def = (name: string) => schema.$defs[name];
 describe("limits.ts はスキーマの maxLength と一致する", () => {
   it("名前・説明・グループ・値・分析・リンク", () => {
     expect(NAME_MAX_LENGTH).toBe(def("name").maxLength);
+    expect(ENGLISH_MAX_LENGTH).toBe(def("englishName").maxLength);
+    expect(EXCLUDED_KEY_MAX_LENGTH).toBe(def("domainModel").properties!.excluded!.items!.maxLength);
+    expect(GROUP_MAX_LENGTH).toBe(def("aggregate").properties!.stateGroup!.maxLength);
     expect(DESCRIPTION_MAX_LENGTH).toBe(def("description").maxLength);
     expect(GROUP_MAX_LENGTH).toBe(def("state").properties!.group.maxLength);
     expect(VALUE_MAX_LENGTH).toBe(def("variation").properties!.values.items!.maxLength);
@@ -87,6 +92,12 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "persona.goals",
         "persona.notes",
         "eventTiming.note",
+        // ドメインモデル (0.6.0)。名前・説明の型 ($ref) を使う項目は name / description に含まれる
+        "englishName",
+        "domainModel.excluded[]",
+        "aggregate.stateGroup",
+        // 代替パターン (0.6.1)
+        "relation.alternate.then",
       ].sort(),
     );
   });

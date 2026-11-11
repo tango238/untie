@@ -4,7 +4,7 @@
   "title": "UntieModel",
   "description": "Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。",
   "type": "object",
-  "required": ["version", "meta", "elements", "relations", "boards", "designs", "databases"],
+  "required": ["version", "meta", "elements", "relations", "boards", "designs", "databases", "domain"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.5.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.5.4"
+      "const": "0.6.2"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -42,7 +42,8 @@
       "description": "設計をまたいで共有するデータベース (0.5.0 から)。id は一意。",
       "type": "array",
       "items": { "$ref": "#/$defs/database" }
-    }
+    },
+    "domain": { "$ref": "#/$defs/domainModel" }
   },
   "$defs": {
     "id": {
@@ -530,6 +531,47 @@
           "description": "操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。",
           "type": "string",
           "enum": ["read", "write"]
+        },
+        "alternate": {
+          "description": "代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。",
+          "type": "object",
+          "required": ["when", "then"],
+          "additionalProperties": false,
+          "properties": {
+            "when": {
+              "description": "ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。",
+              "type": "string",
+              "enum": ["met", "unmet"]
+            },
+            "then": {
+              "description": "そのときどうなるか (業務の言葉で。1〜2 文)。",
+              "type": "string",
+              "maxLength": 4000
+            },
+            "eventId": {
+              "description": "そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。",
+              "$ref": "#/$defs/id"
+            },
+            "error": {
+              "description": "そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。",
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "description": "input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。",
+                  "type": "string",
+                  "enum": ["input", "server"]
+                },
+                "status": {
+                  "description": "HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。",
+                  "type": "integer",
+                  "minimum": 400,
+                  "maximum": 599
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -826,6 +868,265 @@
               }
             }
           }
+        }
+      }
+    },
+    "englishName": {
+      "description": "コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "domainModel": {
+      "description": "ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。",
+      "type": "object",
+      "required": ["contexts", "aggregates", "commands", "events", "policies", "excluded", "relations", "terms"],
+      "additionalProperties": false,
+      "properties": {
+        "contexts": {
+          "description": "境界づけられたコンテキスト。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boundedContext" }
+        },
+        "aggregates": {
+          "description": "集約。boundedContextId でコンテキストに属する。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/aggregate" }
+        },
+        "commands": {
+          "description": "コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainCommand" }
+        },
+        "events": {
+          "description": "ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainEvent" }
+        },
+        "policies": {
+          "description": "ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainPolicy" }
+        },
+        "excluded": {
+          "description": "分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "relations": {
+          "description": "コンテキスト間の関係 (コンテキストマップ)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/contextRelation" }
+        },
+        "terms": {
+          "description": "用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainTerm" }
+        }
+      }
+    },
+    "boundedContext": {
+      "description": "境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。",
+      "type": "object",
+      "required": ["id", "name", "contextIds", "systemIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "english": { "$ref": "#/$defs/englishName" },
+        "description": { "$ref": "#/$defs/description" },
+        "subdomain": {
+          "description": "サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。",
+          "enum": ["core", "supporting", "generic"]
+        },
+        "team": {
+          "description": "所有するチーム (任意)。",
+          "$ref": "#/$defs/name"
+        },
+        "contextIds": {
+          "description": "言語の範囲にする分析のコンテキスト (context 要素の id)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "systemIds": {
+          "description": "実装するシステム (system 要素の id)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "aggregate": {
+      "description": "集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。",
+      "type": "object",
+      "required": ["id", "boundedContextId", "name", "rootInformationId", "memberInformationIds", "invariants"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "boundedContextId": {
+          "description": "属する境界づけられたコンテキスト (domain.contexts の id)。",
+          "$ref": "#/$defs/id"
+        },
+        "name": { "$ref": "#/$defs/name" },
+        "english": { "$ref": "#/$defs/englishName" },
+        "rootInformationId": {
+          "description": "ルートの情報 (information 要素の id)。",
+          "$ref": "#/$defs/id"
+        },
+        "memberInformationIds": {
+          "description": "中に入れる情報 (information 要素の id。ルートは入れない)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "stateGroup": {
+          "description": "ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "invariants": {
+          "description": "不変条件 (集約の境界の中で常に守るルール)。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "text": { "$ref": "#/$defs/description" },
+              "conditionId": {
+                "description": "もとにした分析の条件 (condition 要素の id)。任意。",
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        }
+      }
+    },
+    "domainCommand": {
+      "description": "コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。",
+      "type": "object",
+      "required": ["id", "aggregateId", "name", "emits"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "aggregateId": {
+          "description": "受け持つ集約 (domain.aggregates の id)。",
+          "$ref": "#/$defs/id"
+        },
+        "name": { "$ref": "#/$defs/name" },
+        "english": { "$ref": "#/$defs/englishName" },
+        "source": {
+          "description": "出どころ (分析の操作。作業ごとに分けたなら作業も)。",
+          "type": "object",
+          "required": ["usecaseId"],
+          "additionalProperties": false,
+          "properties": {
+            "usecaseId": { "$ref": "#/$defs/id" },
+            "activityId": { "$ref": "#/$defs/id" }
+          }
+        },
+        "emits": {
+          "description": "発生させるドメインイベント (domain.events の id)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "domainEvent": {
+      "description": "ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。",
+      "type": "object",
+      "required": ["id", "boundedContextId", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "boundedContextId": {
+          "description": "発生させる境界づけられたコンテキスト (domain.contexts の id)。",
+          "$ref": "#/$defs/id"
+        },
+        "aggregateId": {
+          "description": "発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。",
+          "$ref": "#/$defs/id"
+        },
+        "name": { "$ref": "#/$defs/name" },
+        "english": { "$ref": "#/$defs/englishName" },
+        "eventId": {
+          "description": "分析のイベント (event 要素の id)。任意。",
+          "$ref": "#/$defs/id"
+        },
+        "properties": {
+          "description": "属性。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/name" },
+              "informationId": {
+                "description": "もとにした分析の情報 (information 要素の id)。任意。",
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        }
+      }
+    },
+    "domainPolicy": {
+      "description": "ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。",
+      "type": "object",
+      "required": ["id", "eventId", "commandId", "auto"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "eventId": { "$ref": "#/$defs/id" },
+        "commandId": { "$ref": "#/$defs/id" },
+        "auto": {
+          "description": "true は自動で実行する。false は人の判断をはさむ。",
+          "type": "boolean"
+        }
+      }
+    },
+    "contextRelation": {
+      "description": "コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。",
+      "type": "object",
+      "required": ["id", "upstreamId", "downstreamId", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "upstreamId": { "$ref": "#/$defs/id" },
+        "downstreamId": { "$ref": "#/$defs/id" },
+        "kind": {
+          "description": "関係の種類 (DDD のコンテキストマップ)。",
+          "enum": ["partnership", "sharedKernel", "customerSupplier", "conformist", "acl", "ohs", "publishedLanguage", "separateWays", "bigBallOfMud"]
+        },
+        "integration": {
+          "description": "統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。",
+          "enum": ["messaging", "rest", "rpc", "file", "manual"]
+        },
+        "note": { "$ref": "#/$defs/description" }
+      }
+    },
+    "domainTerm": {
+      "description": "用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。",
+      "type": "object",
+      "required": ["id", "term", "definition", "boundedContextId"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "term": { "$ref": "#/$defs/name" },
+        "english": {
+          "description": "英語 (コードでの名前)。",
+          "$ref": "#/$defs/name"
+        },
+        "definition": { "$ref": "#/$defs/description" },
+        "boundedContextId": {
+          "description": "属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "elementId": {
+          "description": "分析の要素の id。任意。",
+          "$ref": "#/$defs/id"
         }
       }
     },

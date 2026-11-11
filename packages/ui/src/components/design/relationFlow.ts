@@ -1,4 +1,5 @@
 // 関連ボードの情報・テーブル・画面を React Flow のノード・エッジに直す。位置は保存せず、毎回ここで決める (3 列。各列は上から縦に積む)。
+// 情報は、集約 (ドメインモデル) が決まっていれば集約ごとの枠にまとめる。
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { DesignRelationSelection, RelationEdge, RelationGraph } from "@untie/core/model/designRelation";
 
@@ -68,6 +69,8 @@ export const informationNodeId = (id: string) => `information:${id}`;
 export const tableNodeId = (databaseId: string, table: string) => `table:${databaseId}:${table}`;
 export const screenNodeId = (id: string) => `screen:${id}`;
 const frameNodeId = (databaseId: string) => `db:${databaseId}`;
+/** 集約の枠のノード id */
+export const aggregateFrameNodeId = (aggregateId: string) => `aggregate:${aggregateId}`;
 
 const edgeId = (e: RelationEdge): string =>
   e.kind === "informationTable" ? `ie:${e.informationId}:${e.databaseId}:${e.table}` : `ce:${e.databaseId}:${e.table}:${e.column}:${e.screenId}`;
@@ -121,25 +124,56 @@ export function relationHighlight(graph: RelationGraph, sel: DesignRelationSelec
   return { nodes, edges };
 }
 
-export function buildRelationFlow(graph: RelationGraph, sel: DesignRelationSelection | undefined): { nodes: RelationFlowNode[]; edges: Edge[] } {
+export function buildRelationFlow(graph: RelationGraph, sel: DesignRelationSelection | undefined, options: { aggregates?: boolean } = {}): { nodes: RelationFlowNode[]; edges: Edge[] } {
   const hl = relationHighlight(graph, sel);
   const dimmed = (id: string) => hl !== null && !hl.nodes.has(id);
   const nodes: RelationFlowNode[] = [];
 
-  // 左の列: 情報
+  // 左の列: 情報。集約 (ドメインモデル) が決まっている情報は、集約ごとの枠にまとめる (ルートを先頭に、中の情報を続ける。枠は最初の情報の位置に置く)
   let y = 0;
-  for (const info of graph.informations) {
+  const infoNode = (info: RelationGraph["informations"][number], position: { x: number; y: number }, parentId?: string): RelationFlowNode => {
     const id = informationNodeId(info.id);
-    nodes.push({
+    return {
       id,
       type: "information",
-      position: { x: RELATION_COLUMN_X.information, y },
+      position,
+      ...(parentId ? { parentId, extent: "parent" as const } : {}),
       width: RELATION_INFO_WIDTH,
       height: RELATION_INFO_HEIGHT,
       draggable: false,
       data: { selection: { kind: "information", id: info.id }, informationId: info.id, name: info.name, unmapped: info.unmapped, selected: sel?.kind === "information" && sel.id === info.id, dim: dimmed(id) },
+    };
+  };
+  const placed = new Set<string>();
+  for (const info of graph.informations) {
+    if (placed.has(info.id)) continue;
+    // 集約の枠は、内部のドメインモデルを見せることになるので、開発モードのときだけ (options.aggregates)
+    const aggregate = options.aggregates ? info.aggregate : undefined;
+    if (!aggregate) {
+      placed.add(info.id);
+      nodes.push(infoNode(info, { x: RELATION_COLUMN_X.information, y }));
+      y += RELATION_INFO_HEIGHT + GAP_Y;
+      continue;
+    }
+    const members = graph.informations.filter((i) => i.aggregate?.id === aggregate.id).sort((a, b) => Number(b.aggregate!.role === "root") - Number(a.aggregate!.role === "root"));
+    const frameId = aggregateFrameNodeId(aggregate.id);
+    const frameHeight = FRAME_HEAD + members.length * RELATION_INFO_HEIGHT + (members.length - 1) * (GAP_Y / 2) + FRAME_PAD;
+    // 親 (枠) のノードは、子より前に置く
+    nodes.push({
+      id: frameId,
+      type: "frame",
+      position: { x: RELATION_COLUMN_X.information - FRAME_PAD, y },
+      width: RELATION_INFO_WIDTH + FRAME_PAD * 2,
+      height: frameHeight,
+      draggable: false,
+      selectable: false,
+      data: { name: `集約: ${aggregate.name}` },
     });
-    y += RELATION_INFO_HEIGHT + GAP_Y;
+    members.forEach((m, k) => {
+      placed.add(m.id);
+      nodes.push(infoNode(m, { x: FRAME_PAD, y: FRAME_HEAD + k * (RELATION_INFO_HEIGHT + GAP_Y / 2) }, frameId));
+    });
+    y += frameHeight + GAP_Y;
   }
 
   // 中の列: テーブル。データベースが 2 つ以上なら、データベースごとに枠にまとめる

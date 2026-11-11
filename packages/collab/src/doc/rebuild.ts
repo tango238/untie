@@ -1,10 +1,10 @@
 import * as Y from "yjs";
-import { EDGE_SIDES, isValidDesignShape, isPersonaItSkill, normalizeEventTiming, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
-import type { Board, BoardEdge, BoardNode, Database, DesignScreen, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
+import { cleanDomainPart, EDGE_SIDES, isHttpErrorStatus, isValidDesignShape, isPersonaItSkill, normalizeEventTiming, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
+import type { Board, BoardEdge, BoardNode, Database, DesignScreen, DomainModel, DomainPartKind, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
-import { databaseKey, designKey, getRoots, keyOwner, ORDER_KEY } from "./roots";
-import type { EdgeRecord, NodeRecord, RelationRecord } from "./roots";
+import { databaseKey, designKey, excludedKey, getRoots, keyOwner, ORDER_KEY } from "./roots";
+import type { DomainPart, EdgeRecord, NodeRecord, RelationRecord } from "./roots";
 
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isString = (v: unknown): v is string => typeof v === "string";
@@ -51,7 +51,19 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
   map.forEach((r, id) => {
     if (typeof r !== "object" || r === null || !isString(r.kind) || !isString(r.sourceId) || !isString(r.targetId)) return;
     const access = r.access === "read" || r.access === "write" ? { access: r.access } : {};
-    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access } as Relation });
+    // 代替パターン (0.6.1) は、形が合うものだけ読む (合わなければ、決めていないものとして扱う)
+    const a = r.alternate;
+    // エラーの種類 (0.6.2) も、形が合うものだけ読む。HTTP ステータスは 400〜599 の整数だけ
+    const e = typeof a === "object" && a !== null ? a.error : undefined;
+    const error =
+      typeof e === "object" && e !== null && (e.type === "input" || e.type === "server")
+        ? { error: { type: e.type, ...(isHttpErrorStatus(e.status) ? { status: e.status } : {}) } }
+        : {};
+    const alternate =
+      typeof a === "object" && a !== null && (a.when === "met" || a.when === "unmet") && isString(a.then)
+        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}), ...error } }
+        : {};
+    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access, ...alternate } as Relation });
   });
   return sortedValues(items);
 }
@@ -227,6 +239,65 @@ function readDatabases(map: Y.Map<unknown>): Database[] {
   return sortedValues(items);
 }
 
+// ---------------------------------------------------------------- ドメインモデル (0.6.0)
+// 部品は id をキーにした値で置いてある (roots.ts)。形の壊れた部品は、スキーマの検証関数で読む時点で読み飛ばす
+// (長すぎる文字列・形の合わない英語名などは、直した写しで検査し、値はそのまま返す。直すのは truncateModelStrings と repairModel)。
+// 参照の整合 (消えた集約を指すコマンドなど) はここでは見ない (rebuildModel の repairModel が直す)。
+
+const DOMAIN_PART_SHAPES: Record<DomainPart, { list: Exclude<keyof DomainModel, "excluded">; shape: DomainPartKind }> = {
+  context: { list: "contexts", shape: "boundedContext" },
+  aggregate: { list: "aggregates", shape: "aggregate" },
+  command: { list: "commands", shape: "domainCommand" },
+  event: { list: "events", shape: "domainEvent" },
+  policy: { list: "policies", shape: "domainPolicy" },
+  relation: { list: "relations", shape: "contextRelation" },
+  term: { list: "terms", shape: "domainTerm" },
+};
+
+function readDomain(map: Y.Map<unknown>): DomainModel {
+  const lists: Record<Exclude<keyof DomainModel, "excluded">, Ordered<{ id: string }>[]> = { contexts: [], aggregates: [], commands: [], events: [], policies: [], relations: [], terms: [] };
+  const excluded: Ordered<string>[] = [];
+  map.forEach((record, key) => {
+    if (!isRecord(record) || !isString(record.part)) return;
+    if (record.part === "excluded") {
+      // キーと値の候補のキーが合うものだけ (壊れた値は読み飛ばす)
+      if (isString(record.key) && record.key !== "" && excludedKey(record.key) === key) excluded.push({ order: orderOf(record.order), id: key, value: record.key });
+      return;
+    }
+    const def = (DOMAIN_PART_SHAPES as Record<string, (typeof DOMAIN_PART_SHAPES)[DomainPart] | undefined>)[record.part];
+    if (!def) return;
+    const { part: _part, order: _order, ...rest } = record;
+    const value = cloneJson({ ...rest, id: key }) as { id: string };
+    if (!isValidDesignShape(def.shape, cleanDomainPart(def.shape, value).value)) return;
+    lists[def.list].push({ order: orderOf(record.order), id: key, value });
+  });
+  return {
+    contexts: sortedValues(lists.contexts) as DomainModel["contexts"],
+    aggregates: sortedValues(lists.aggregates) as DomainModel["aggregates"],
+    commands: sortedValues(lists.commands) as DomainModel["commands"],
+    events: sortedValues(lists.events) as DomainModel["events"],
+    policies: sortedValues(lists.policies) as DomainModel["policies"],
+    excluded: sortedValues(excluded),
+    relations: sortedValues(lists.relations) as DomainModel["relations"],
+    terms: sortedValues(lists.terms) as DomainModel["terms"],
+  };
+}
+
+/** ドメインモデル。部品を id ごとに共有する (1 つの集約を変えても、ほかの部品の参照は変わらない)。全部同じなら prev 自体 */
+function shareDomain(n: DomainModel, p: DomainModel): DomainModel {
+  const byId = <T extends { id: string }>(a: T[], b: T[]) => shareList(a, b, (x) => x.id, shareDeep);
+  const contexts = byId(n.contexts, p.contexts);
+  const aggregates = byId(n.aggregates, p.aggregates);
+  const commands = byId(n.commands, p.commands);
+  const events = byId(n.events, p.events);
+  const policies = byId(n.policies, p.policies);
+  const relations = byId(n.relations, p.relations);
+  const terms = byId(n.terms, p.terms);
+  const excluded = shareDeep(n.excluded, p.excluded);
+  if (contexts === p.contexts && aggregates === p.aggregates && commands === p.commands && events === p.events && policies === p.policies && relations === p.relations && terms === p.terms && excluded === p.excluded) return p;
+  return { contexts, aggregates, commands, events, policies, excluded, relations, terms };
+}
+
 /** next の各項目を、prev に同じ id で内容が同じ項目があればその参照にする。全部同じなら prev の配列自体 */
 function shareList<T>(next: readonly T[], prev: readonly T[], idOf: (t: T) => string, share: (n: T, p: T) => T): T[] {
   const prevById = new Map(prev.map((t) => [idOf(t), t]));
@@ -270,8 +341,9 @@ function shareModel(next: UntieModel, prev: UntieModel): UntieModel {
   const boards = shareList(next.boards as Board[], prev.boards as Board[], (b) => b.id, shareBoard) as UntieModel["boards"];
   const designs = shareList(next.designs, prev.designs, (d) => d.systemId, shareDesign);
   const databases = shareList(next.databases, prev.databases, (d) => d.id, shareDeep);
-  if (meta === prev.meta && elements === prev.elements && relations === prev.relations && boards === prev.boards && designs === prev.designs && databases === prev.databases) return prev;
-  return { ...next, meta, elements, relations, boards, designs, databases };
+  const domain = shareDomain(next.domain, prev.domain);
+  if (meta === prev.meta && elements === prev.elements && relations === prev.relations && boards === prev.boards && designs === prev.designs && databases === prev.databases && domain === prev.domain) return prev;
+  return { ...next, meta, elements, relations, boards, designs, databases, domain };
 }
 
 /**
@@ -291,6 +363,7 @@ export function readRawModel(doc: Y.Doc): UntieModel {
     boards: readBoards(roots.boards) as UntieModel["boards"],
     designs: readDesigns(roots),
     databases: readDatabases(roots.databases),
+    domain: readDomain(roots.domain as Y.Map<unknown>),
   };
 }
 

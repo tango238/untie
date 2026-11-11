@@ -8,7 +8,7 @@ import { AGENT_PANE_MIN_HEIGHT, clampAgentPaneHeight, loadAgentPaneHeight, saveA
 /** キーボードで大きさを変えるときの 1 回の幅 (px) */
 const KEY_STEP = 24;
 
-/** 下のペイン: AI エージェントとの会話。編集中のモデルを自然言語で直す。課題の深掘りと困りごとのヒアリングもここで行う */
+/** 下のペイン: AI エージェントとの会話。編集中のモデルを自然言語で直す。課題の深掘り・困りごとのヒアリング・ドメインモデルの対話もここで行う */
 export function AgentPane() {
   const items = useAgentStore((s) => s.items);
   const running = useAgentStore((s) => s.running);
@@ -19,10 +19,12 @@ export function AgentPane() {
   const newConversation = useAgentStore((s) => s.newConversation);
   const endGrill = useAgentStore((s) => s.endGrill);
   const endHearing = useAgentStore((s) => s.endHearing);
+  const endDomainTalk = useAgentStore((s) => s.endDomainTalk);
   const setOpen = useAgentStore((s) => s.setOpen);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const grillIssue = useUntieStore((s) => (mode.kind === "grill" ? s.model.elements.find((e) => e.id === mode.issueId) : undefined));
   const hearingActor = useUntieStore((s) => (mode.kind === "hearing" ? s.model.elements.find((e) => e.id === mode.actorId) : undefined));
+  const domainSystem = useUntieStore((s) => (mode.kind === "domain" ? s.model.elements.find((e) => e.id === mode.systemId) : undefined));
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLElement>(null);
@@ -120,6 +122,10 @@ export function AgentPane() {
                 「{hearingActor?.name || (hearingActor ? "(名前なし)" : "(削除されたアクター)")}」({HEARING_ANSWERER_LABELS[mode.answerer]})
               </span>
             </>
+          ) : mode.kind === "domain" ? (
+            <>
+              ドメインモデルを決める: <span className="agent-grill-issue">「{domainSystem?.name || (domainSystem ? "(名前なし)" : "(削除されたシステム)")}」</span>
+            </>
           ) : (
             "AI エージェント"
           )}
@@ -141,6 +147,10 @@ export function AgentPane() {
               ヒアリングを終える
             </button>
           </>
+        ) : mode.kind === "domain" ? (
+          <button type="button" onClick={endDomainTalk}>
+            対話を終える
+          </button>
         ) : (
           <button type="button" onClick={newConversation} disabled={running || items.length === 0}>
             新しい会話
@@ -176,7 +186,7 @@ export function AgentPane() {
         <textarea
           aria-label="AI への依頼"
           placeholder={
-            mode.kind === "grill"
+            mode.kind === "grill" || mode.kind === "domain"
               ? "質問に答えて Enter で送信 (Shift+Enter で改行)。「はい」で推奨を採ります"
               : mode.kind === "hearing"
                 ? mode.answerer === "persona"

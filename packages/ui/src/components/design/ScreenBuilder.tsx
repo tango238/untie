@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clearDesignScreenView, setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
-import { effectiveDatabaseIds } from "@untie/core/model/design";
+import { designBoardId, effectiveDatabaseIds } from "@untie/core/model/design";
 import { LIMITS } from "@untie/core/model/limits";
+import { usecaseIsReadOnly } from "@untie/core/model/placement";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { designScreenName, SHELL_LABELS } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
@@ -32,9 +33,20 @@ export function databaseInfos(model: UntieModel, design: SystemDesign): DbInfo[]
   });
 }
 
-/** 画面 UI の新規作成の中身: 目的と、空の入力セクション 1 つ */
-function newView(title: string, goal: string): Json {
+/**
+ * 画面 UI の新規作成の中身: 目的と、セクション 1 つ。
+ * 画面を使う操作が情報を読むだけ (問い合わせ) なら一覧、書く (コマンド) なら入力を既定にする
+ */
+export function newView(title: string, goal: string, readOnly = false): Json {
+  if (readOnly) return { title, goal, sections: [{ id: "main", title: "一覧", kind: "list", list: { columns: [{ id: "name", label: "名前" }] } }] };
   return { title, goal, sections: [{ id: "main", title: "入力", kind: "form", fields: [] }] };
+}
+
+/** 画面を使う操作が、情報を読むだけか (扱う情報があり、すべて取得だけで、状態を変えず、出来事も起こさない) */
+export function screenIsReadOnly(model: UntieModel, analysisScreenId: string | undefined): boolean {
+  if (!analysisScreenId) return false;
+  const usecases = [...new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === analysisScreenId).map((r) => r.sourceId))];
+  return usecases.length > 0 && usecases.every((id) => usecaseIsReadOnly(model, id));
 }
 
 /** 右のペイン (設計モードの画面ボード): 選んだ画面の画面 UI を、フォームか YAML で組み立てる。AI で作ることもできる */
@@ -72,6 +84,8 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
   const description = (analysis?.kind === "screen" && analysis.description?.trim()) || "";
   const screens = useMemo(() => design.screens.map((s) => ({ id: s.id, name: designScreenName(model, s) })), [design.screens, model]);
   const databases = useMemo(() => databaseInfos(model, design), [model, design]);
+  // 設計は、先にデータを作り、そこから画面を作る。テーブルが 1 つも無いあいだは、データボードへ案内する
+  const noTables = databases.every((d) => d.tables.length === 0);
   const view = screen.view as Json | undefined;
   const bindings: Binding[] = screen.bindings ?? [];
 
@@ -221,12 +235,21 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
         </p>
       )}
       {readOnly && <p className="hint">閲覧専用です。編集はできません。</p>}
+      {noTables && !readOnly && (
+        <p className="hint screen-data-first" data-testid="screen-data-first">
+          データがまだありません。先に
+          <button type="button" className="link" onClick={() => useUntieStore.getState().setCurrentBoard(designBoardId("data"))}>
+            データボード
+          </button>
+          でテーブルを作ると、画面の項目をテーブルの列に結べます (設計は、データ → 画面の順に進めます)。
+        </p>
+      )}
 
       {!view ? (
         <div className="screen-empty">
           <p className="hint">この画面には、画面 UI がまだありません。</p>
           {!readOnly && (
-            <button type="button" onClick={() => save(newView(name, description || name), [])}>
+            <button type="button" onClick={() => save(newView(name, description || name, screenIsReadOnly(model, analysis?.id)), [])}>
               画面 UI を作る
             </button>
           )}

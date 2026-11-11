@@ -16,6 +16,12 @@ export interface MemoryPlatform extends Platform {
   opened: OpenedFile | null;
   /** saveTextFile で書いた内容 (新しい順ではなく書いた順) */
   saved: { text: string; path: string | null; name: string }[];
+  /** saveTextFiles で選ぶフォルダ (null なら取り消し) */
+  folder: string | null;
+  /** saveTextFiles で書いた内容 */
+  savedFolders: { folder: string; files: { name: string; text: string }[]; options: { zipName: string; zipFolder: string; keep?: readonly string[] } }[];
+  /** saveTextFiles のフォルダに、既にあるファイルの名前 */
+  existingFiles: Set<string>;
   /** confirmDiscard の答え */
   discard: boolean;
   /** openExternalUrl で開いた URL */
@@ -49,6 +55,9 @@ export function memoryPlatform(): MemoryPlatform {
     cloud: true,
     opened: null,
     saved: [],
+    folder: "/repo/docs/domain",
+    savedFolders: [],
+    existingFiles: new Set(),
     discard: true,
     openedUrls: [],
     contents: new Map(),
@@ -72,6 +81,13 @@ export function memoryPlatform(): MemoryPlatform {
       const target = path ?? `/docs/${suggestedName}`;
       p.contents.set(target, text);
       return { path: target, name: baseName(target) };
+    },
+    async saveTextFiles(files, options) {
+      if (p.folder === null) return null;
+      const kept = files.filter((f) => options.keep?.includes(f.name) && p.existingFiles.has(f.name)).map((f) => f.name);
+      const written = files.filter((f) => !kept.includes(f.name));
+      p.savedFolders.push({ folder: p.folder, files: written.map((f) => ({ ...f })), options });
+      return { where: p.folder, count: written.length, kept };
     },
     canReopenFiles: () => true,
     async confirmDiscard() {
