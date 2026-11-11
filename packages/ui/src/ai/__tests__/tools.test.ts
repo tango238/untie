@@ -61,6 +61,35 @@ describe("AI の道具", () => {
     expect(executeTool(e, "remove_relation", { source_id: id, target_id: "ext_guest" }).ok).toBe(true);
   });
 
+  it("画面・非機能要件は system_id で属するシステムを指定して作れ、move_to_system で移せる。system_id が無いと失敗する", () => {
+    const e = editorOf(sample());
+    const before = e.model;
+    const missing = executeTool(e, "add_element", { kind: "screen", name: "鍵の受け渡し画面" });
+    expect(missing.ok).toBe(false);
+    expect(parse(missing.content).error).toMatch(/属するシステム/);
+    expect(e.model).toBe(before);
+
+    const scr = executeTool(e, "add_element", { kind: "screen", name: "鍵の受け渡し画面", system_id: "sys_pms" });
+    expect(scr.ok && scr.changed).toBe(true);
+    const scrId = parse(scr.content).id as string;
+    expect(e.model.elements.find((x) => x.id === scrId)).toMatchObject({ kind: "screen", systemId: "sys_pms" });
+    expect(executeTool(e, "set_screen_usecase", { screen_id: scrId, usecase_id: e.model.elements.find((x) => x.kind === "usecase")!.id }).ok).toBe(true);
+
+    const nfr = executeTool(e, "add_element", { kind: "nfr", name: "二重予約の防止", system_id: "sys_pms", category: "availability", verification: "並行予約のテスト" });
+    expect(nfr.ok).toBe(true);
+    const nfrId = parse(nfr.content).id as string;
+    expect(e.model.elements.find((x) => x.id === nfrId)).toMatchObject({ systemId: "sys_pms", category: "availability", verification: "並行予約のテスト" });
+    expect(executeTool(e, "update_element", { id: nfrId, category: null, verification: "" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === nfrId)).not.toHaveProperty("category");
+    expect(executeTool(e, "add_element", { kind: "nfr", name: "x", system_id: "sys_pms", category: "nope" }).ok).toBe(false);
+
+    expect(executeTool(e, "move_to_system", { element_id: scrId, system_id: "sys_accounting" }).ok).toBe(true);
+    expect(e.model.elements.find((x) => x.id === scrId)).toMatchObject({ systemId: "sys_accounting" });
+    expect(executeTool(e, "move_to_system", { element_id: scrId, system_id: "act_hand_key" }).ok).toBe(false);
+    expect(executeTool(e, "move_to_system", { element_id: "act_hand_key", system_id: "sys_pms" }).ok).toBe(false);
+    expect(validateModel(JSON.parse(JSON.stringify(e.model))).ok).toBe(true);
+  });
+
   it("長すぎる名前・説明はコマンドの失敗がそのまま返り、要素もモデルも変わらない (スキーマに合わない要素を作らない)", () => {
     const e = editorOf(sample());
     const before = e.model;
