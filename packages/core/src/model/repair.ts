@@ -239,6 +239,17 @@ export function repairModel(input: UntieModel): RepairResult {
           changes.push(`関係 ${r.id} の代替パターンのイベントの参照を外した (イベントが無い)`);
           delete r.alternate.eventId;
         }
+        // エラー (0.6.2): 起きる出来事と両方あれば、出来事を外す (エラーのほうが、あとから決めた細かい判断)。入力エラーに付いた HTTP ステータスは外す
+        if (r.alternate?.error !== undefined) {
+          if (r.alternate.eventId !== undefined) {
+            changes.push(`関係 ${r.id} の代替パターンのイベントの参照を外した (エラーと両方は持てない)`);
+            delete r.alternate.eventId;
+          }
+          if (r.alternate.error.status !== undefined && r.alternate.error.type !== "server") {
+            changes.push(`関係 ${r.id} の代替パターンのエラーから HTTP ステータスを外した (サーバーエラーにだけ付けられる)`);
+            delete r.alternate.error.status;
+          }
+        }
       }
       const key = `${r.kind}\0${r.sourceId}\0${r.targetId}`;
       const first = seenRelations.get(key);

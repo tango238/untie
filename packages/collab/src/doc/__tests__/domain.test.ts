@@ -193,9 +193,22 @@ describe("代替パターン (関係の alternate。0.6.1) の往復", () => {
     sync(doc, other);
     expect(rebuildModel(other).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "受け付けない", eventId: "ev_stock_changed" });
     expect(rebuildModel(other)).toStrictEqual(next);
+    // エラーの種類 (0.6.2) も、関係の値ごと届く
+    const failing = okModel(setRelationAlternate(next, { id: r.id, alternate: { when: "unmet", then: "見つからないと伝える", error: { type: "server", status: 404 } } }));
+    applyModelDiff(doc, next, failing, "local");
+    sync(doc, other);
+    expect(rebuildModel(other).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "見つからないと伝える", error: { type: "server", status: 404 } });
+    expect(rebuildModel(other)).toStrictEqual(failing);
+    // 形の合わないエラー (知らない種類・範囲の外のステータス) は読まない
+    const relations = getRoots(doc).relations;
+    relations.set(r.id, { ...relations.get(r.id)!, alternate: { when: "unmet", then: "x", error: { type: "server", status: 200 } } as never });
+    expect(rebuildModel(doc).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "x", error: { type: "server" } });
+    relations.set(r.id, { ...relations.get(r.id)!, alternate: { when: "unmet", then: "x", error: { type: "other" } } as never });
+    expect(rebuildModel(doc).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "x" });
+    applyModelDiff(doc, rebuildModel(doc), failing, "local");
     // 未定に戻す
-    const cleared = okModel(setRelationAlternate(next, { id: r.id, alternate: null }));
-    applyModelDiff(doc, next, cleared, "local");
+    const cleared = okModel(setRelationAlternate(failing, { id: r.id, alternate: null }));
+    applyModelDiff(doc, failing, cleared, "local");
     expect("alternate" in rebuildModel(doc).relations.find((x) => x.id === r.id)!).toBe(false);
     // 形の合わない値 (古いクライアントや壊れた書き込み) は読まない
     const root = getRoots(doc).relations;

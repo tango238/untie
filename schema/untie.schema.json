@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.6.1"
+      "const": "0.6.2"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -549,8 +549,27 @@
               "maxLength": 4000
             },
             "eventId": {
-              "description": "そのとき起きる出来事 (分析のイベントの id。任意)。",
+              "description": "そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。",
               "$ref": "#/$defs/id"
+            },
+            "error": {
+              "description": "そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。",
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "description": "input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。",
+                  "type": "string",
+                  "enum": ["input", "server"]
+                },
+                "status": {
+                  "description": "HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。",
+                  "type": "integer",
+                  "minimum": 400,
+                  "maximum": 599
+                }
+              }
             }
           }
         }

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { cleanDomainPart, EDGE_SIDES, isValidDesignShape, isPersonaItSkill, normalizeEventTiming, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
+import { cleanDomainPart, EDGE_SIDES, isHttpErrorStatus, isValidDesignShape, isPersonaItSkill, normalizeEventTiming, isValidElementShape, MODEL_VERSION, repairModel, truncateDatabase, truncateDesignScreen, truncateElementStrings, truncateLayoutBase, truncateModelStrings, truncateNavGroup, truncateTransition } from "@untie/core";
 import type { Board, BoardEdge, BoardNode, Database, DesignScreen, DomainModel, DomainPartKind, Element, Layout, Meta, NavGroup, Relation, SystemDesign, Transition, UntieModel } from "@untie/core";
 import { cloneJson, deepEqual } from "./json";
 import { compareByOrder } from "./order";
@@ -53,9 +53,15 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
     const access = r.access === "read" || r.access === "write" ? { access: r.access } : {};
     // 代替パターン (0.6.1) は、形が合うものだけ読む (合わなければ、決めていないものとして扱う)
     const a = r.alternate;
+    // エラーの種類 (0.6.2) も、形が合うものだけ読む。HTTP ステータスは 400〜599 の整数だけ
+    const e = typeof a === "object" && a !== null ? a.error : undefined;
+    const error =
+      typeof e === "object" && e !== null && (e.type === "input" || e.type === "server")
+        ? { error: { type: e.type, ...(isHttpErrorStatus(e.status) ? { status: e.status } : {}) } }
+        : {};
     const alternate =
       typeof a === "object" && a !== null && (a.when === "met" || a.when === "unmet") && isString(a.then)
-        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}) } }
+        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}), ...error } }
         : {};
     items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access, ...alternate } as Relation });
   });

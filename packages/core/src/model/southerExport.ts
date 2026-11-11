@@ -7,7 +7,7 @@
 // 条件の式 (何で判断するか)・情報の項目・不変条件は、ここでは書けない (分析に無い)。条件は真偽の入力にしておき、あとで詰める。
 // まだ決まっていない組み合わせは、答えを `<?>` にした行にする (Souther が「答え待ち」と数える)。純粋関数だけを置く。
 import { usecasePlaces } from "./placement";
-import type { Element, Relation, UntieModel } from "./types";
+import { alternateErrorLabel, type Element, type Relation, type UntieModel } from "./types";
 
 /** まだ決まっていない組み合わせ 1 件 */
 export interface SoutherOpenPattern {
@@ -253,7 +253,7 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
     if (events.length > 0) block.push(`//   起きる出来事: ${line(events.join("・"))}`);
     for (const a of alternates) {
       const event = a.alternate.eventId ? byId.get(a.alternate.eventId) : undefined;
-      block.push(`//   ${line(nameOf(a.condition))}${a.alternate.when === "met" ? "" : " でない"}とき: ${line(a.alternate.then)}${event ? ` (出来事: ${line(nameOf(event))})` : ""}`);
+      block.push(`//   ${line(nameOf(a.condition))}${a.alternate.when === "met" ? "" : " でない"}とき: ${line(a.alternate.then)}${a.alternate.error ? ` (${alternateErrorLabel(a.alternate.error)})` : event ? ` (出来事: ${line(nameOf(event))})` : ""}`);
     }
     block.push(...declarations);
     block.push(`behavior ${behavior} : (${params.map((p) => `${p.name}: ${p.type}`).join(", ")}) -> ${output}`);

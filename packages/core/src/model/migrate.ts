@@ -96,6 +96,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.6.1",
     migrate: (json) => json,
   },
+  {
+    // 0.6.2: 代替パターン (alternate) に、任意のエラーの種類 (error: 入力エラー・サーバーエラーと HTTP ステータス) を足す。省略できる項目を足すだけなので変換は要らない
+    from: "0.6.1",
+    to: "0.6.2",
+    migrate: (json) => json,
+  },
 ];
 
 /**

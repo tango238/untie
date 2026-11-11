@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { setRelationAlternate } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH } from "@untie/core/model/limits";
 import { deriveSequences, sequenceAlternateLines, sequenceCallLabel, type BusinessSequence, type SequenceStep } from "@untie/core/model/sequence";
-import { ALTERNATE_WHEN_LABELS, ALTERNATE_WHENS, type AlternateWhen, type UntieModel } from "@untie/core/model/types";
+import { ALTERNATE_ERROR_LABELS, ALTERNATE_ERROR_TYPES, ALTERNATE_WHEN_LABELS, ALTERNATE_WHENS, COMMON_HTTP_STATUSES, HTTP_STATUS_MAX, HTTP_STATUS_MIN, type AlternateErrorType, type AlternateWhen, type UntieModel } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../../store";
 import { CommitField } from "../CommitField";
 
@@ -190,10 +190,31 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
   const [draftWhen, setDraftWhen] = useState<AlternateWhen>("met");
   const a = step.alternate;
   const when = a?.when ?? draftWhen;
-  const save = (next: { when?: AlternateWhen; then?: string; eventId?: string | null }) => {
+  const save = (next: { when?: AlternateWhen; then?: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null }) => {
     const then = next.then ?? a?.then ?? "";
-    const r = dispatch((m) => setRelationAlternate(m, { id: step.relationId, alternate: then.trim() === "" ? null : { when: next.when ?? when, then, eventId: next.eventId === undefined ? (a?.eventId ?? null) : next.eventId } }));
+    // 起きる出来事とエラーは、どちらか一方。片方を選んだら、もう片方は外す
+    const outcome = next.error ? { eventId: null, error: next.error } : next.eventId ? { eventId: next.eventId, error: null } : next.eventId === null || next.error === null ? { eventId: null, error: null } : { eventId: a?.eventId ?? null, error: a?.error ?? null };
+    const r = dispatch((m) => setRelationAlternate(m, { id: step.relationId, alternate: then.trim() === "" ? null : { when: next.when ?? when, then, ...outcome } }));
     if (!r.ok) pushToast(r.reason, "error");
+    return r.ok;
+  };
+  /** 選択肢の値: エラーは error:<種類>、出来事はイベントの id */
+  const outcomeValue = a?.error ? `error:${a.error.type}` : (a?.eventId ?? "");
+  const pickOutcome = (value: string) => {
+    if (value.startsWith("error:")) save({ error: { type: value.slice("error:".length) as AlternateErrorType } });
+    else save({ eventId: value === "" ? null : value });
+  };
+  /** HTTP ステータスを確定する。空なら外す。数でない・範囲の外なら、知らせて、もとの値に戻す */
+  const commitStatus = (input: HTMLInputElement) => {
+    const text = input.value.trim();
+    const status = text === "" ? null : Number(text);
+    if (status !== null && !Number.isInteger(status)) {
+      pushToast(`HTTP ステータスは ${HTTP_STATUS_MIN}〜${HTTP_STATUS_MAX} の整数にしてください: ${text}`, "error");
+      input.value = a?.error?.status !== undefined ? String(a.error.status) : "";
+      return;
+    }
+    if ((status ?? undefined) === a?.error?.status) return;
+    if (!save({ error: { type: "server", status } })) input.value = a?.error?.status !== undefined ? String(a.error.status) : "";
   };
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView?.({ block: "nearest" });
@@ -229,14 +250,43 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
         <CommitField label={`${label} のとき、どうなるか`} value={a?.then ?? ""} multiline maxLength={DESCRIPTION_MAX_LENGTH} readOnly={readOnly} placeholder="未定 (例: 受け付けずに、理由を伝える)" onCommit={(v) => v.trim() !== (a?.then ?? "") && save({ then: v })} />
       </td>
       <td>
-        <select aria-label={`${label} のとき、起きる出来事`} value={a?.eventId ?? ""} disabled={readOnly || !a} title={a ? undefined : "先に、どうなるかを書いてください"} onChange={(e) => save({ eventId: e.target.value === "" ? null : e.target.value })}>
+        <select aria-label={`${label} のとき、起きる出来事`} value={outcomeValue} disabled={readOnly || !a} title={a ? undefined : "先に、どうなるかを書いてください"} onChange={(e) => pickOutcome(e.target.value)}>
           <option value="">(なし)</option>
-          {events.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.name || "(名前なし)"}
-            </option>
-          ))}
+          <optgroup label="エラー">
+            {ALTERNATE_ERROR_TYPES.map((type) => (
+              <option key={type} value={`error:${type}`}>
+                {ALTERNATE_ERROR_LABELS[type]}
+              </option>
+            ))}
+          </optgroup>
+          {events.length > 0 && (
+            <optgroup label="出来事 (分析のイベント)">
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.name || "(名前なし)"}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
+        {a?.error?.type === "server" && (
+          <label className="seq-status">
+            HTTP ステータス
+            <input
+              key={`${step.relationId}:${a.error.status ?? ""}`}
+              aria-label={`${label} のとき、HTTP ステータス`}
+              inputMode="numeric"
+              list="seq-http-statuses"
+              placeholder="例: 404"
+              defaultValue={a.error.status ?? ""}
+              disabled={readOnly}
+              onBlur={(e) => commitStatus(e.currentTarget)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+          </label>
+        )}
       </td>
     </tr>
   );
@@ -317,13 +367,23 @@ export function SequenceBoard() {
           <p className="hint">この業務には、条件で流れが変わるところがありません。条件があるのに出ていなければ、分析で、操作に「判断」の条件を結んでください</p>
         ) : (
           <table className="an-table seq-alternates" aria-label="分岐">
+            <caption className="seq-caption">
+              {/* HTTP ステータスの候補 (ほかの値も入れられる) */}
+              <datalist id="seq-http-statuses">
+                {COMMON_HTTP_STATUSES.map((x) => (
+                  <option key={x.status} value={x.status}>
+                    {x.label}
+                  </option>
+                ))}
+              </datalist>
+            </caption>
             <thead>
               <tr>
                 <th>操作</th>
                 <th>条件</th>
                 <th>いつ</th>
                 <th>どうなるか</th>
-                <th>起きる出来事</th>
+                <th>起きる出来事・エラー</th>
               </tr>
             </thead>
             <tbody>
@@ -371,6 +431,10 @@ export function SequenceHelp() {
           <div>
             <dt>破線の矢印</dt>
             <dd>出来事が起きて、次の操作が動く。(自動) は、人が担当しない操作</dd>
+          </div>
+          <div>
+            <dt>エラー</dt>
+            <dd>分岐の結果がエラーのとき、表の「起きる出来事・エラー」で選ぶ。入力エラーは、利用者が入力を直せば進めるもの。サーバーエラーは、利用者には直せない失敗で、HTTP ステータス (404 など) を入れると、ステータス別の共通のメッセージの画面になる</dd>
           </div>
           <div>
             <dt>小さな枠</dt>

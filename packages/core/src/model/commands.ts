@@ -10,7 +10,13 @@ import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
+  ALTERNATE_ERROR_TYPES,
   ALTERNATE_WHENS,
+  HTTP_STATUS_MAX,
+  HTTP_STATUS_MIN,
+  isHttpErrorStatus,
+  type AlternateError,
+  type AlternateErrorType,
   DEFAULT_EDGE_SIDES,
   emptyDomain,
   EDGE_SIDES,
@@ -1411,10 +1417,13 @@ export function setRelationAccess(model: UntieModel, payload: SetRelationAccessP
 
 export const ALTERNATE_KIND_REASON = "代替パターンは、操作が判断する条件の関係にだけ付けられます";
 
+/** 代替パターンに、起きる出来事とエラーの両方は持てない */
+export const ALTERNATE_ERROR_EVENT_REASON = "代替パターンの「起きる出来事」と「エラー」は、どちらか一方だけにしてください";
+
 export interface SetRelationAlternatePayload {
   id: string;
   /** null で、まだ決めていない状態に戻す */
-  alternate: { when: AlternateWhen; then: string; eventId?: string | null } | null;
+  alternate: { when: AlternateWhen; then: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null } | null;
 }
 
 /**
@@ -1432,10 +1441,23 @@ export function setRelationAlternate(model: UntieModel, payload: SetRelationAlte
     const tooLong = checkLength("description", a.then.trim());
     if (tooLong) return fail(tooLong);
     if (a.eventId !== undefined && a.eventId !== null && model.elements.find((e) => e.id === a.eventId)?.kind !== "event") return fail(`イベントが存在しません: ${a.eventId}`);
-    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}) };
+    // エラー (0.6.2): 入力エラーか、サーバーエラー (HTTP ステータスを持てる)。起きる出来事とは、どちらか一方
+    let error: AlternateError | undefined;
+    if (a.error !== undefined && a.error !== null) {
+      if (!ALTERNATE_ERROR_TYPES.includes(a.error.type)) return fail(`代替パターンのエラーの種類が正しくありません: ${String(a.error.type)}`);
+      if (a.eventId) return fail(ALTERNATE_ERROR_EVENT_REASON);
+      const status = a.error.status;
+      if (status !== undefined && status !== null) {
+        if (a.error.type !== "server") return fail("HTTP ステータスは、サーバーエラーにだけ付けられます");
+        if (!isHttpErrorStatus(status)) return fail(`HTTP ステータスは ${HTTP_STATUS_MIN}〜${HTTP_STATUS_MAX} の整数にしてください: ${String(status)}`);
+        error = { type: a.error.type, status };
+      } else error = { type: a.error.type };
+    }
+    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}), ...(error ? { error } : {}) };
   }
   const before = r.alternate ?? null;
-  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId) return { ok: true, model };
+  const sameError = (x: AlternateError | undefined, y: AlternateError | undefined) => x?.type === y?.type && x?.status === y?.status;
+  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId && sameError(before.error, next.error)) return { ok: true, model };
   const out = produce(model, (draft) => {
     const d = draft.relations.find((x) => x.id === payload.id)!;
     if (next === null) delete d.alternate;

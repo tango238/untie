@@ -70,6 +70,12 @@ describe("exportSouther: 業務ルールの骨組みを Souther に書き出す"
     expect(r.owed).toBe(1);
   });
 
+  it("代替パターンがエラーなら、コメントにエラーの種類を書く", () => {
+    let m = createHotelSample();
+    m = okModel(setRelationAlternate(m, { id: cond(m, "uc_cancel_reservation", "cond_cancel_fee").id, alternate: { when: "met", then: "予約が見つからないと伝える", error: { type: "server", status: 404 } } }));
+    expect(exportSouther(m, "sys_pms").text).toContain("//   取消料が発生するとき: 予約が見つからないと伝える (サーバーエラー 404)");
+  });
+
   it("複数のグループの状態が同時に変わる操作は、結果を 1 つの data にまとめる", () => {
     const r = exportSouther(createHotelSample(), "sys_pms");
     expect(r.text).toContain("data チェックアウトを記録する_結果 = { 予約の状態: チェックアウト済, 部屋の状態: 清掃待ち }");

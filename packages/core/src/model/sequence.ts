@@ -5,7 +5,7 @@
 //   分岐:     操作が判断する条件ごとに 1 つ。代替パターンが決まっていなければ「未定」(開発を始める前に決めること)
 //   出来事:   操作が発生させる出来事 → それをきっかけに動く操作の対象へ。人が担当しない操作 (自動) は、その場で続けて書く
 import type { Activity, Business, Condition, Element, EventElement, RelationAlternate, Screen, UntieModel, Usecase } from "./types";
-import { ALTERNATE_WHEN_LABELS } from "./types";
+import { ALTERNATE_WHEN_LABELS, alternateErrorLabel } from "./types";
 
 /** 図の縦の線 (登場するもの) */
 export interface SequenceParticipant {
@@ -258,11 +258,18 @@ export function sequenceCallLabel(step: Extract<SequenceStep, { type: "call" }>)
   return step.auto ? `${step.via ? `${nameOf(step.via)} → ` : ""}${base} (自動)` : base;
 }
 
+/** 代替パターンで起きること (出来事か、エラー) の添え書き。どちらも無ければ空 */
+export function sequenceAlternateOutcome(step: Extract<SequenceStep, { type: "alternate" }>): string {
+  const error = step.alternate?.error;
+  if (error) return ` (${alternateErrorLabel(error)})`;
+  return step.event ? ` (出来事: ${nameOf(step.event)})` : "";
+}
+
 /** 図に出す、分岐の文言 (2 行: いつ・どうなるか) */
 export function sequenceAlternateLines(step: Extract<SequenceStep, { type: "alternate" }>): [string, string] {
   const a = step.alternate;
   const when = a ? (a.when === "met" ? "のとき" : "でないとき") : "のとき / でないとき";
-  return [`［${nameOf(step.condition)}］${when}`, a ? `→ ${a.then}${step.event ? ` (出来事: ${nameOf(step.event)})` : ""}` : "→ 未定 (どうなるかを決める)"];
+  return [`［${nameOf(step.condition)}］${when}`, a ? `→ ${a.then}${sequenceAlternateOutcome(step)}` : "→ 未定 (どうなるかを決める)"];
 }
 
 /** 設計の対象のシステムが登場する業務の、開発を始める前に決めておくこと */
@@ -294,7 +301,8 @@ export function sequenceToMermaid(sequence: BusinessSequence): string {
       const a = step.alternate;
       lines.push(`  alt ${mermaidText(`${nameOf(step.condition)} (${a ? ALTERNATE_WHEN_LABELS[a.when] : "未定"})`)}`);
       lines.push(`    ${alias.get(step.to)}-->>${alias.get(step.from)}: ${mermaidText(a ? a.then : "未定")}`);
-      if (step.event) lines.push(`    Note right of ${alias.get(step.to)}: 出来事 ${mermaidText(nameOf(step.event))}`);
+      if (a?.error) lines.push(`    Note right of ${alias.get(step.to)}: ${mermaidText(alternateErrorLabel(a.error))}`);
+      else if (step.event) lines.push(`    Note right of ${alias.get(step.to)}: 出来事 ${mermaidText(nameOf(step.event))}`);
       lines.push("  end");
     } else {
       lines.push(step.to === null ? `  Note right of ${alias.get(step.from)}: 出来事 ${mermaidText(nameOf(step.event))}` : `  ${alias.get(step.from)}-)${alias.get(step.to)}: ${mermaidText(nameOf(step.event))}`);

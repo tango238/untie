@@ -5,7 +5,7 @@ import { repairModel } from "../repair";
 import { deriveSequences, SEQUENCE_AUTO, sequenceAlternateLines, sequenceCallLabel, sequenceGaps, sequenceToMermaid, type SequenceStep } from "../sequence";
 import type { UntieModel } from "../types";
 import { validateModel } from "../validate";
-import { okModel } from "./helpers";
+import { expectFail, okModel } from "./helpers";
 
 const steps = <T extends SequenceStep["type"]>(list: SequenceStep[], type: T) => list.filter((s): s is Extract<SequenceStep, { type: T }> => s.type === type);
 const cond = (m: UntieModel, usecaseId: string, conditionId: string) => m.relations.find((r) => r.kind === "usecaseCondition" && r.sourceId === usecaseId && r.targetId === conditionId)!;
@@ -132,6 +132,43 @@ describe("代替パターン (操作 → 条件 の関係の alternate。0.6.1)"
     const other = m.relations.find((x) => x.kind === "usecaseInformation")!;
     expect(setRelationAlternate(m, { id: other.id, alternate: { when: "met", then: "x" } }).ok).toBe(false);
     expect(setRelationAlternate(m, { id: "rel_nope", alternate: null }).ok).toBe(false);
+  });
+
+  it("エラー (0.6.2): 入力エラーか、サーバーエラー (HTTP ステータスを持てる)。起きる出来事とは、どちらか一方", () => {
+    let m = createNetshopSample();
+    const id = cond(m, "uc_allocate_stock", "cond_out_of_stock").id;
+    const alt = () => cond(m, "uc_allocate_stock", "cond_out_of_stock").alternate;
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "入力を直してもらう", error: { type: "input" } } }));
+    expect(alt()).toEqual({ when: "met", then: "入力を直してもらう", error: { type: "input" } });
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 } } }));
+    expect(alt()).toEqual({ when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 } });
+    expect(validateModel(m)).toMatchObject({ ok: true });
+    // 同じ内容なら何も変えない。ステータスを外すと、サーバーエラーだけが残る
+    const same = setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 } } });
+    expect(same.ok && same.model).toBe(m);
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: { type: "server", status: null } } }));
+    expect(alt()).toEqual({ when: "met", then: "見つからないと伝える", error: { type: "server" } });
+    // 断るもの: 入力エラーに HTTP ステータス・範囲の外や整数でないステータス・知らない種類・出来事との両方
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", error: { type: "input", status: 400 } } }), /サーバーエラーにだけ/);
+    for (const status of [200, 600, 404.5, Number.NaN]) expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", error: { type: "server", status } } }), /400〜599/);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", error: { type: "other" as never } } }), /エラーの種類/);
+    expectFail(setRelationAlternate(m, { id, alternate: { when: "met", then: "x", eventId: "ev_stock_changed", error: { type: "server" } } }), /どちらか一方/);
+    // 図の添え書きと Mermaid に、エラーの種類が出る
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: { type: "server", status: 404 } } }));
+    const order = deriveSequences(m, "sys_oms").find((s) => s.name === "受注処理")!;
+    const step = steps(order.steps, "alternate").find((s) => s.relationId === id)!;
+    expect(sequenceAlternateLines(step)[1]).toBe("→ 見つからないと伝える (サーバーエラー 404)");
+    expect(sequenceToMermaid(order)).toContain("サーバーエラー 404");
+    // エラーを外す
+    m = okModel(setRelationAlternate(m, { id, alternate: { when: "met", then: "見つからないと伝える", error: null } }));
+    expect(alt()).toEqual({ when: "met", then: "見つからないと伝える" });
+    // 壊れたもの (出来事とエラーの両方・入力エラーにステータス) は、修復で直す
+    const broken = JSON.parse(JSON.stringify(m)) as UntieModel;
+    broken.relations.find((x) => x.id === id)!.alternate = { when: "met", then: "x", eventId: "ev_stock_changed", error: { type: "input", status: 400 } };
+    expect(validateModel(broken).ok).toBe(false);
+    const repaired = repairModel(broken);
+    expect(repaired.model.relations.find((x) => x.id === id)!.alternate).toEqual({ when: "met", then: "x", error: { type: "input" } });
+    expect(validateModel(repaired.model)).toMatchObject({ ok: true });
   });
 
   it("起きる出来事を消すと、出来事の参照だけ外れる (どうなるかの文は残る)。壊れたものは修復で直す", () => {

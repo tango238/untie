@@ -86,6 +86,49 @@ describe("設計モードのシーケンス図", () => {
     expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す" });
   });
 
+  it("起きる出来事の選択肢は、エラー (入力エラー・サーバーエラー) と、分析のイベント。サーバーエラーには HTTP ステータスを入れられる", () => {
+    const r = relation("uc_cancel_reservation", "cond_cancel_fee");
+    render(<SequenceBoard />);
+    const alt = () => relation("uc_cancel_reservation", "cond_cancel_fee").alternate;
+    const then = alt()!.then;
+    const outcome = () => within(screen.getByTestId(`alternate-${r.id}`)).getByLabelText("予約を取り消す・取消料が発生する のとき、起きる出来事") as HTMLSelectElement;
+    const status = () => within(screen.getByTestId(`alternate-${r.id}`)).queryByLabelText("予約を取り消す・取消料が発生する のとき、HTTP ステータス") as HTMLInputElement | null;
+    // 選択肢: (なし)、エラーの 2 つ、分析のイベント
+    expect([...outcome().querySelectorAll("optgroup")].map((g) => g.label)).toEqual(["エラー", "出来事 (分析のイベント)"]);
+    expect([...outcome().querySelectorAll('optgroup[label="エラー"] option')].map((o) => o.textContent)).toEqual(["入力エラー", "サーバーエラー"]);
+    const events = st().model.elements.filter((e) => e.kind === "event");
+    expect(outcome().querySelectorAll('optgroup[label="出来事 (分析のイベント)"] option')).toHaveLength(events.length);
+    // 入力エラー: HTTP ステータスの欄は出ない
+    fireEvent.change(outcome(), { target: { value: "error:input" } });
+    expect(alt()).toEqual({ when: "met", then, error: { type: "input" } });
+    expect(status()).toBeNull();
+    expect(screen.getByRole("img", { name: "予約受付 のシーケンス図" }).textContent).toContain("(入力エラー)");
+    // サーバーエラー: HTTP ステータスを入れられる
+    fireEvent.change(outcome(), { target: { value: "error:server" } });
+    expect(alt()).toEqual({ when: "met", then, error: { type: "server" } });
+    type(status()!, "404");
+    expect(alt()).toEqual({ when: "met", then, error: { type: "server", status: 404 } });
+    expect(screen.getByRole("img", { name: "予約受付 のシーケンス図" }).textContent).toContain("(サーバーエラー 404)");
+    expect(outcome().value).toBe("error:server");
+    // 範囲の外・数でないものは、知らせて、もとの値のまま
+    type(status()!, "200");
+    expect(alt()!.error).toEqual({ type: "server", status: 404 });
+    type(status()!, "abc");
+    expect(alt()!.error).toEqual({ type: "server", status: 404 });
+    expect(st().toasts.filter((t) => t.message.includes("400〜599"))).toHaveLength(2);
+    // 空にすると、ステータスだけ外れる
+    type(status()!, "");
+    expect(alt()).toEqual({ when: "met", then, error: { type: "server" } });
+    // 出来事を選ぶと、エラーは外れる (どちらか一方)。(なし) で、どちらも外れる
+    fireEvent.change(outcome(), { target: { value: events[0]!.id } });
+    expect(alt()).toEqual({ when: "met", then, eventId: events[0]!.id });
+    expect(status()).toBeNull();
+    fireEvent.change(outcome(), { target: { value: "error:server" } });
+    expect(alt()).toEqual({ when: "met", then, error: { type: "server" } });
+    fireEvent.change(outcome(), { target: { value: "" } });
+    expect(alt()).toEqual({ when: "met", then });
+  });
+
   it("検証パネルに、業務の流れで決まっていないことを出し、押すとシーケンス図でその業務を開く", () => {
     const { unmount } = render(<DesignCheckPanel />);
     expect(screen.queryByTestId("sequence-gaps")).toBeNull();

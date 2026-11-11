@@ -245,7 +245,15 @@ export function checkIntegrity(model: UntieModel): string[] {
     // 代替パターン (alternate) は、操作が判断する条件の関係にだけ付けられる。そのとき起きる出来事は、分析のイベント (0.6.1)
     if (r.alternate !== undefined) {
       if (r.kind !== "usecaseCondition") errors.push(`関係 ${r.id} (${r.kind}) に alternate が付いています (usecaseCondition だけに付けられます)`);
-      else if (r.alternate.eventId !== undefined && byId.get(r.alternate.eventId)?.kind !== "event") errors.push(`関係 ${r.id} の代替パターンのイベント ${r.alternate.eventId} が存在しません`);
+      else {
+        if (r.alternate.eventId !== undefined && byId.get(r.alternate.eventId)?.kind !== "event") errors.push(`関係 ${r.id} の代替パターンのイベント ${r.alternate.eventId} が存在しません`);
+        // エラー (0.6.2): 起きる出来事とは、どちらか一方。HTTP ステータスは、サーバーエラーにだけ付けられる
+        const error = r.alternate.error;
+        if (error !== undefined) {
+          if (r.alternate.eventId !== undefined) errors.push(`関係 ${r.id} の代替パターンに、起きる出来事とエラーの両方が付いています (どちらか一方だけ)`);
+          if (error.status !== undefined && error.type !== "server") errors.push(`関係 ${r.id} の代替パターンのエラー (${error.type}) に HTTP ステータスが付いています (サーバーエラーにだけ付けられます)`);
+        }
+      }
     }
     for (let j = 0; j < i; j++) {
       if (sameRelation(model.relations[j], r)) {

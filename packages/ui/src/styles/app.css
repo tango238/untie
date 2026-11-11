@@ -1128,3 +1128,8 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .souther-line.is-comment { color: #7a8a6f; }
 .souther-line.is-owed { background: #fcf6e8; }
 .souther-no { display: inline-block; width: 44px; padding-right: 12px; text-align: right; color: #b5ada0; user-select: none; }
+
+/* シーケンス図の分岐: サーバーエラーの HTTP ステータス */
+.seq-caption { display: none; }
+.seq-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.seq-status input { width: 72px; }
