@@ -1088,3 +1088,22 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .event-timing-field { flex: 1 1 70px; min-width: 70px; }
 .event-timing-field select { width: 100%; }
 .event-timing-summary { margin-top: 2px; }
+
+/* 実装を始める準備 (設計モードの検証パネルの先頭) */
+.readiness { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px; }
+.readiness-bar { margin: 0 12px 8px; height: 6px; border-radius: 3px; background: #ece7df; overflow: hidden; }
+.readiness-bar span { display: block; height: 100%; background: #5c9a50; }
+.readiness-list { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.readiness-row { padding: 5px 12px; line-height: 1.5; }
+.readiness-row.is-done { color: var(--muted); display: flex; gap: 6px; }
+.readiness-row summary { cursor: pointer; display: flex; gap: 6px; align-items: baseline; list-style: none; }
+.readiness-row summary::-webkit-details-marker { display: none; }
+.readiness-mark { flex: none; width: 14px; text-align: center; }
+.readiness-row.is-done .readiness-mark { color: #3c6b34; }
+.readiness-row:not(.is-done) .readiness-mark { color: #c9922b; }
+.readiness-row:not(.is-done) .readiness-title { font-weight: 600; }
+.readiness-title { flex: 1; }
+.readiness-count { flex: none; color: #8a6414; background: #fcf6e8; border-radius: 10px; padding: 0 7px; font-size: 11px; }
+.readiness-hint { margin: 4px 0 4px 20px; color: var(--muted); }
+.readiness-items { list-style: none; margin: 0 0 4px 20px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.readiness-items .chip-link { text-align: left; white-space: normal; line-height: 1.5; border-radius: 5px; }
