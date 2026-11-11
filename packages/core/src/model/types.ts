@@ -117,6 +117,12 @@ export const RELATION_KINDS: readonly RelationKind[] = [
 /** 操作が情報をどう扱うか (usecaseInformation の access)。省略は取得も保存もする */
 export type InformationAccess = NonNullable<Relation["access"]>;
 
+/** 代替パターン (操作が条件を判断した結果、ふだんと違う流れになるときの中身。usecaseCondition の関係に付ける。0.6.1) */
+export type RelationAlternate = NonNullable<Relation["alternate"]>;
+export type AlternateWhen = RelationAlternate["when"];
+export const ALTERNATE_WHENS: readonly AlternateWhen[] = ["met", "unmet"];
+export const ALTERNATE_WHEN_LABELS: Record<AlternateWhen, string> = { met: "条件を満たすとき", unmet: "条件を満たさないとき" };
+
 export const INFORMATION_ACCESSES: readonly InformationAccess[] = ["read", "write"];
 
 export const INFORMATION_ACCESS_LABELS: Record<InformationAccess, string> = { read: "取得", write: "保存" };
@@ -355,7 +361,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.6.0";
+export const MODEL_VERSION = "0.6.1";
 
 /** 空のドメインモデル (0.6.0) */
 export function emptyDomain(): DomainModel {

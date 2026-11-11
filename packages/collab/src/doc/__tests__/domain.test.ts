@@ -1,5 +1,7 @@
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
+import { setRelationAlternate } from "@untie/core";
+import { createNetshopSample } from "@untie/core/sample";
 import { addAggregate, addBoundedContext, addDomainCommand, addDomainPolicy, adoptCommandCandidate, emptyDomain, updateDomainEvent, removeBoundedContext, removeElement, setCandidateExcluded, setDomainTerm, updateAggregate, updateBoundedContext, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { okModel, sampleWithDomain } from "@untie/core/testing";
@@ -176,5 +178,29 @@ describe("ドメインモデル (0.6.0) の往復", () => {
     const event = merged.domain.events.find((e) => e.id === "de_calc")!;
     expect(event).toMatchObject({ aggregateId: "ag_bill", boundedContextId: "bc_res" });
     expect(validateModel(merged)).toMatchObject({ ok: true });
+  });
+});
+
+describe("代替パターン (関係の alternate。0.6.1) の往復", () => {
+  it("サンプルの代替パターンがそのまま戻り、決め直すと関係の値ごと届く。形の合わないものは、決めていないものとして読む", () => {
+    const m = createNetshopSample();
+    const doc = fresh(m);
+    expect(rebuildModel(doc)).toStrictEqual(m);
+    const r = m.relations.find((x) => x.kind === "usecaseCondition" && x.alternate)!;
+    const next = okModel(setRelationAlternate(m, { id: r.id, alternate: { when: "unmet", then: "受け付けない", eventId: "ev_stock_changed" } }));
+    const other = cloneDoc(doc);
+    applyModelDiff(doc, m, next, "local");
+    sync(doc, other);
+    expect(rebuildModel(other).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "受け付けない", eventId: "ev_stock_changed" });
+    expect(rebuildModel(other)).toStrictEqual(next);
+    // 未定に戻す
+    const cleared = okModel(setRelationAlternate(next, { id: r.id, alternate: null }));
+    applyModelDiff(doc, next, cleared, "local");
+    expect("alternate" in rebuildModel(doc).relations.find((x) => x.id === r.id)!).toBe(false);
+    // 形の合わない値 (古いクライアントや壊れた書き込み) は読まない
+    const root = getRoots(doc).relations;
+    root.set(r.id, { ...root.get(r.id)!, alternate: { when: "maybe", then: 1 } as never });
+    expect("alternate" in rebuildModel(doc).relations.find((x) => x.id === r.id)!).toBe(false);
+    expect(validateModel(rebuildModel(doc))).toMatchObject({ ok: true });
   });
 });

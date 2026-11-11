@@ -54,7 +54,7 @@ export function edgeFields(e: BoardEdge): Omit<EdgeRecord, "order"> {
 }
 
 export function relationFields(r: Relation): Omit<RelationRecord, "order"> {
-  return { kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...(r.access !== undefined ? { access: r.access } : {}) };
+  return { kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...(r.access !== undefined ? { access: r.access } : {}), ...(r.alternate !== undefined ? { alternate: { ...r.alternate } } : {}) };
 }
 
 /** ボードを Y.Map にする。nodes と edges は空でも必ず作る (別々に足した 2 人が同じ Y.Map に入るように) */

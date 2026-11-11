@@ -28,6 +28,7 @@ export * from "./domainResolve";
 export * from "./domainAdopt";
 export * from "./domainDraft";
 export * from "./domainExport";
+export * from "./sequence";
 export * from "./domainMap";
 export * from "./domainCheck";
 export * from "./domainCache";

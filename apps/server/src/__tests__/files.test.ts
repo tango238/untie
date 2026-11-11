@@ -32,7 +32,7 @@ describe("作成", () => {
 
     // 書き出すと、名前とボード 1 枚だけの空のモデル
     const exported = await taro.json(`/api/files/${body.id}/export`);
-    expect(exported.body).toMatchObject({ version: "0.6.0", meta: { name: "宿泊の業務" }, elements: [], relations: [] });
+    expect(exported.body).toMatchObject({ version: "0.6.1", meta: { name: "宿泊の業務" }, elements: [], relations: [] });
     expect(exported.body.boards).toHaveLength(1);
   });
 
@@ -52,7 +52,7 @@ describe("作成", () => {
     const created = await create(taro, { model: { ...JSON.parse(JSON.stringify(hotelSample)), version: 1 } });
     expect(created.status).toBe(201);
     const exported = (await taro.json(`/api/files/${created.body.id}/export`)).body;
-    expect(exported.version).toBe("0.6.0");
+    expect(exported.version).toBe("0.6.1");
 
     const newer = await create(taro, { model: { ...JSON.parse(JSON.stringify(hotelSample)), version: "9.0.0" } });
     expect(newer.status).toBe(400);

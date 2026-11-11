@@ -96,6 +96,8 @@ describe("limits.ts はスキーマの maxLength と一致する", () => {
         "englishName",
         "domainModel.excluded[]",
         "aggregate.stateGroup",
+        // 代替パターン (0.6.1)
+        "relation.alternate.then",
       ].sort(),
     );
   });

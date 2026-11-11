@@ -230,6 +230,16 @@ export function repairModel(input: UntieModel): RepairResult {
         changes.push(`関係 ${r.id} の access を外した (${r.kind} には付けられない)`);
         delete r.access;
       }
+      if (r.alternate !== undefined) {
+        // 代替パターンは操作が判断する条件の関係にだけ付けられる。そのとき起きる出来事が無ければ、出来事の参照だけ外す (0.6.1)
+        if (r.kind !== "usecaseCondition") {
+          changes.push(`関係 ${r.id} の alternate を外した (${r.kind} には付けられない)`);
+          delete r.alternate;
+        } else if (r.alternate.eventId !== undefined && kindOf.get(r.alternate.eventId) !== "event") {
+          changes.push(`関係 ${r.id} の代替パターンのイベントの参照を外した (イベントが無い)`);
+          delete r.alternate.eventId;
+        }
+      }
       const key = `${r.kind}\0${r.sourceId}\0${r.targetId}`;
       const first = seenRelations.get(key);
       if (first !== undefined) {

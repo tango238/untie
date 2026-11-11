@@ -10,6 +10,7 @@ import { applyPrismaEdit, type PrismaEdit } from "./prismaEdit";
 import { checkLength, LINK_TITLE_MAX_LENGTH, truncateText } from "./limits";
 import { relationKindFor, sameRelation } from "./relations";
 import {
+  ALTERNATE_WHENS,
   DEFAULT_EDGE_SIDES,
   emptyDomain,
   EDGE_SIDES,
@@ -39,7 +40,9 @@ import {
   type Link,
   type NfrCategory,
   type UntieModel,
+  type AlternateWhen,
   type InformationAccess,
+  type RelationAlternate,
 } from "./types";
 
 export interface Fail {
@@ -208,6 +211,8 @@ function checkValues(values: readonly string[]): string | null {
 /** 削除した要素への参照を、関係・ボードのノード・課題の対象から掃除する */
 function sweepReferences(draft: UntieModel, removed: ReadonlySet<string>): void {
   draft.relations = draft.relations.filter((r) => !removed.has(r.sourceId) && !removed.has(r.targetId));
+  // 代替パターン (0.6.1) の、そのとき起きる出来事が消えたら、出来事の参照だけ外す (どうなるかの文は残す)
+  for (const r of draft.relations) if (r.alternate?.eventId !== undefined && removed.has(r.alternate.eventId)) delete r.alternate.eventId;
   const relationIds = new Set(draft.relations.map((r) => r.id));
   for (const board of draft.boards) {
     board.nodes = board.nodes.filter((n) => !removed.has(n.elementId));
@@ -1402,6 +1407,41 @@ export function setRelationAccess(model: UntieModel, payload: SetRelationAccessP
     else d.access = payload.access;
   });
   return { ok: true, model: next };
+}
+
+export const ALTERNATE_KIND_REASON = "代替パターンは、操作が判断する条件の関係にだけ付けられます";
+
+export interface SetRelationAlternatePayload {
+  id: string;
+  /** null で、まだ決めていない状態に戻す */
+  alternate: { when: AlternateWhen; then: string; eventId?: string | null } | null;
+}
+
+/**
+ * 代替パターン (操作が条件を判断した結果、ふだんと違う流れになるときの中身) を決める。usecaseCondition だけ (0.6.1)。
+ * then (どうなるか) が空なら、決めていない状態に戻す。eventId は、そのとき起きる出来事 (分析のイベント)
+ */
+export function setRelationAlternate(model: UntieModel, payload: SetRelationAlternatePayload): CommandResult {
+  const r = model.relations.find((x) => x.id === payload.id);
+  if (!r) return fail(`関係が存在しません: ${payload.id}`);
+  if (r.kind !== "usecaseCondition") return fail(ALTERNATE_KIND_REASON);
+  let next: RelationAlternate | null = null;
+  if (payload.alternate !== null && payload.alternate.then.trim() !== "") {
+    const a = payload.alternate;
+    if (!ALTERNATE_WHENS.includes(a.when)) return fail(`代替パターンの「いつ」が正しくありません: ${String(a.when)}`);
+    const tooLong = checkLength("description", a.then.trim());
+    if (tooLong) return fail(tooLong);
+    if (a.eventId !== undefined && a.eventId !== null && model.elements.find((e) => e.id === a.eventId)?.kind !== "event") return fail(`イベントが存在しません: ${a.eventId}`);
+    next = { when: a.when, then: a.then.trim(), ...(a.eventId ? { eventId: a.eventId } : {}) };
+  }
+  const before = r.alternate ?? null;
+  if (before === null ? next === null : next !== null && before.when === next.when && before.then === next.then && before.eventId === next.eventId) return { ok: true, model };
+  const out = produce(model, (draft) => {
+    const d = draft.relations.find((x) => x.id === payload.id)!;
+    if (next === null) delete d.alternate;
+    else d.alternate = next;
+  });
+  return { ok: true, model: out };
 }
 
 /** 操作の対象の関係 (システム・帳票 / 画面)。1 つの操作に合わせて 1 本まで (0.3.0) */

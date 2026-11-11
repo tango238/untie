@@ -242,6 +242,11 @@ export function checkIntegrity(model: UntieModel): string[] {
     }
     // 取得・保存の区別 (access) は、操作が扱う情報の関係にだけ付けられる (0.4.0)
     if (r.access !== undefined && r.kind !== "usecaseInformation") errors.push(`関係 ${r.id} (${r.kind}) に access が付いています (usecaseInformation だけに付けられます)`);
+    // 代替パターン (alternate) は、操作が判断する条件の関係にだけ付けられる。そのとき起きる出来事は、分析のイベント (0.6.1)
+    if (r.alternate !== undefined) {
+      if (r.kind !== "usecaseCondition") errors.push(`関係 ${r.id} (${r.kind}) に alternate が付いています (usecaseCondition だけに付けられます)`);
+      else if (r.alternate.eventId !== undefined && byId.get(r.alternate.eventId)?.kind !== "event") errors.push(`関係 ${r.id} の代替パターンのイベント ${r.alternate.eventId} が存在しません`);
+    }
     for (let j = 0; j < i; j++) {
       if (sameRelation(model.relations[j], r)) {
         errors.push(`関係 ${r.id} は ${model.relations[j].id} と重複しています`);

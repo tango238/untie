@@ -2,7 +2,7 @@
 // 請求・入金・支払・経費精算・記帳・月次決算・年次決算の流れと、現場の困りごとを置く。
 // 1 つの業務の主担当は 1 人にする (業務に複数のアクターを結ぶと検証が警告を出す)。ほかの人は作業の担当にする。
 import { relationKindFor } from "../model/relations";
-import { emptyDomain, MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { emptyDomain, MODEL_VERSION, type BoardNode, type Element, type InformationAccess, type Relation, type UntieModel, type RelationAlternate } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -412,12 +412,20 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
+// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+const alternates: Record<string, RelationAlternate> = {
+  "rel_uc_clear_receivable__cond_diff": { when: "met", then: "差額の理由 (振込手数料・まとめ払い) を確かめ、差額を別に記録してから消し込む。" },
+  "rel_uc_approve_payment__cond_approval_limit": { when: "met", then: "経営者の承認をもらってから、支払を承認する。" },
+  "rel_uc_register_vendor_invoice__cond_invoice_no": { when: "unmet", then: "仕入税額控除の対象にせずに登録し、取引先に登録番号を確かめる。" },
+};
+
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
+  const id = `rel_${sourceId}__${targetId}`;
+  return { id, kind, sourceId, targetId, ...(access ? { access } : {}), ...(alternates[id] ? { alternate: alternates[id] } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

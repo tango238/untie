@@ -51,7 +51,13 @@ function readRelations(map: Y.Map<RelationRecord>): Relation[] {
   map.forEach((r, id) => {
     if (typeof r !== "object" || r === null || !isString(r.kind) || !isString(r.sourceId) || !isString(r.targetId)) return;
     const access = r.access === "read" || r.access === "write" ? { access: r.access } : {};
-    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access } as Relation });
+    // 代替パターン (0.6.1) は、形が合うものだけ読む (合わなければ、決めていないものとして扱う)
+    const a = r.alternate;
+    const alternate =
+      typeof a === "object" && a !== null && (a.when === "met" || a.when === "unmet") && isString(a.then)
+        ? { alternate: { when: a.when, then: a.then, ...(isString(a.eventId) ? { eventId: a.eventId } : {}) } }
+        : {};
+    items.push({ order: orderOf(r.order), id, value: { id, kind: r.kind, sourceId: r.sourceId, targetId: r.targetId, ...access, ...alternate } as Relation });
   });
   return sortedValues(items);
 }

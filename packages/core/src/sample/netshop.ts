@@ -4,7 +4,7 @@
 // 人が担当しない処理 (在庫の引き当て・売掛金の計上) は作業にせず、イベントをきっかけにした自動の処理にする。
 // 画面と非機能要件もシステムに持たせる。検証のエラーも警告も出ない形にする (サンプルのテストで確かめる)
 import { relationKindFor } from "../model/relations";
-import { MODEL_VERSION, type BoardNode, type DomainModel, type Element, type InformationAccess, type Relation, type UntieModel } from "../model/types";
+import { MODEL_VERSION, type BoardNode, type DomainModel, type Element, type InformationAccess, type Relation, type UntieModel, type RelationAlternate } from "../model/types";
 
 // ---------------------------------------------------------------- 要素
 
@@ -601,12 +601,20 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
+// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+const alternates: Record<string, RelationAlternate> = {
+  "rel_uc_allocate_stock__cond_out_of_stock": { when: "met", then: "引き当てずに、入荷を待つ注文として残す。" },
+  "rel_uc_register_return__cond_return_period": { when: "unmet", then: "返品を受け付けず、理由を購入者に伝える。" },
+  "rel_uc_issue_pick_list__cond_gift": { when: "met", then: "ピッキングリストに、ギフト包装の指示を載せる。" },
+};
+
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {
   const s = kindOf.get(sourceId);
   const t = kindOf.get(targetId);
   const kind = s && t ? relationKindFor(s, t) : null;
   if (!kind) throw new Error(`サンプルの関係が引けません: ${sourceId} -> ${targetId}`);
-  return { id: `rel_${sourceId}__${targetId}`, kind, sourceId, targetId, ...(access ? { access } : {}) };
+  const id = `rel_${sourceId}__${targetId}`;
+  return { id, kind, sourceId, targetId, ...(access ? { access } : {}), ...(alternates[id] ? { alternate: alternates[id] } : {}) };
 });
 
 // ---------------------------------------------------------------- ボード

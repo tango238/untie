@@ -26,6 +26,8 @@ export interface RelationRecord {
   targetId: string;
   /** 操作が情報をどう扱うか (usecaseInformation だけ。read / write。無ければ取得も保存も) */
   access?: string;
+  /** 代替パターン (usecaseCondition だけ。0.6.1)。値ごと置く */
+  alternate?: { when: string; then: string; eventId?: string };
   order: string;
 }
 

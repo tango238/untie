@@ -12,9 +12,9 @@
       "type": "string"
     },
     "version": {
-      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.0。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
+      "description": "モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.1。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。",
       "type": "string",
-      "const": "0.6.0"
+      "const": "0.6.1"
     },
     "meta": { "$ref": "#/$defs/meta" },
     "elements": {
@@ -531,6 +531,28 @@
           "description": "操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。",
           "type": "string",
           "enum": ["read", "write"]
+        },
+        "alternate": {
+          "description": "代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。",
+          "type": "object",
+          "required": ["when", "then"],
+          "additionalProperties": false,
+          "properties": {
+            "when": {
+              "description": "ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。",
+              "type": "string",
+              "enum": ["met", "unmet"]
+            },
+            "then": {
+              "description": "そのときどうなるか (業務の言葉で。1〜2 文)。",
+              "type": "string",
+              "maxLength": 4000
+            },
+            "eventId": {
+              "description": "そのとき起きる出来事 (分析のイベントの id。任意)。",
+              "$ref": "#/$defs/id"
+            }
+          }
         }
       }
     },

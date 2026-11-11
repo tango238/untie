@@ -42,12 +42,13 @@ describe("開発モード", () => {
   it("既定は off。開発用のボード (イベントストーミング・ドメイン・コンテキストマップ) は、選べるボードに入らない", () => {
     expect(isDevMode()).toBe(false);
     expect(visibleAnalysisKinds()).toEqual(["issues", "people", "informationLocation"]);
-    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation"]);
+    // シーケンス図は、利用者にも見せる (開発を始める前に、分岐を決め切るため)
+    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence"]);
     for (const id of ["analysis:storming", "design:domain", "design:contextmap"]) expect(isBoardAvailable(id)).toBe(false);
     for (const id of ["analysis:issues", "design:sitemap", "fixed:activity", "board_overview"]) expect(isBoardAvailable(id)).toBe(true);
     setDevModeForTest(true);
     expect(visibleAnalysisKinds()).toContain("storming");
-    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "domain", "contextmap"]);
+    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap"]);
     expect(isBoardAvailable("design:domain")).toBe(true);
   });
 
@@ -56,12 +57,12 @@ describe("開発モード", () => {
     expect(boardOptions()).not.toContain("イベントストーミング");
     act(() => st().enterDesign("sys_oms"));
     const options = boardOptions();
-    expect(options.slice(0, 5)).toEqual(["サイトマップ", "ナビゲーション", "画面", "データ", "関連"]);
+    expect(options.slice(0, 6)).toEqual(["サイトマップ", "ナビゲーション", "画面", "データ", "関連", "シーケンス図"]);
     expect(options).not.toContain("ドメイン");
     expect(options).not.toContain("コンテキストマップ");
     // ショートカット (E・M・K) も効かない
     expect(analysisEntries().map((e) => e.key)).not.toContain("e");
-    expect(designEntries().map((e) => e.key)).toEqual(["s", "v", "g", "t", "r"]);
+    expect(designEntries().map((e) => e.key)).toEqual(["s", "v", "g", "t", "r", "q"]);
     for (const key of ["e", "m", "k"]) expect(resolveChordKey(key)).toBeNull();
     // 直に開こうとしても、今のボードのまま
     const before = st().ui.currentBoardId;

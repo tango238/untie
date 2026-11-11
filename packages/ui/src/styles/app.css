@@ -787,6 +787,38 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 /* 表の中の入力欄は、見出しを見せない (aria-label は入力欄にある) */
 .domain-terms td .field-label, .contextmap-relations td .field-label { display: none; }
 .domain-terms td .field, .contextmap-relations td .field { margin: 0; }
+/* 設計モード: シーケンス図 (業務の流れと分岐) */
+.seq-pick { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.seq-canvas { overflow-x: auto; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 4px 0; }
+.seq-svg { display: block; font-size: 12px; }
+.seq-svg text { fill: #2f2b24; }
+.seq-participant line { stroke: #cfc8ba; stroke-dasharray: 4 4; }
+.seq-participant rect { fill: #f6f4ef; stroke: #b9b2a3; }
+.seq-participant text { font-weight: 600; }
+.seq-participant.is-actor rect { fill: #f5f9f3; stroke: #6a8f5f; }
+.seq-participant.is-target rect { fill: #e9f1fa; stroke: #4a7fb5; stroke-width: 2; }
+.seq-participant.is-missing rect { fill: #fdecea; stroke: #c0392b; stroke-dasharray: 4 3; }
+.seq-activity rect { fill: #efece6; }
+.seq-activity text { font-weight: 600; fill: #5b564c; }
+.seq-message line, .seq-message path { stroke: #4a4539; stroke-width: 1.4; }
+.seq-message.is-auto line, .seq-message.is-auto path, .seq-message.is-event line, .seq-message.is-event path { stroke: #d0703a; }
+.seq-message.is-event text, .seq-message.is-auto text { fill: #a04f20; }
+.seq-note rect { fill: #fbfaf7; stroke: #e2ddd2; }
+.seq-note text { font-size: 11px; fill: #6b6558; }
+.seq-alternate { cursor: pointer; }
+.seq-alternate rect { fill: #fdf6e3; stroke: #c9962b; stroke-width: 1.4; }
+.seq-alternate .seq-alternate-tag { font-weight: 700; fill: #8a6414; }
+.seq-alternate .seq-alternate-then { fill: #5b564c; }
+.seq-alternate.is-undecided rect { fill: #fdecea; stroke: #c0392b; stroke-dasharray: 5 3; }
+.seq-alternate.is-undecided .seq-alternate-then, .seq-alternate.is-undecided .seq-alternate-tag { fill: #a5281b; }
+.seq-alternate.is-focus rect { stroke-width: 2.6; }
+.seq-alternate:focus-visible { outline: 2px solid var(--selected); outline-offset: 2px; }
+.seq-alternates tr.is-undecided th { background: #fdecea; }
+.seq-alternates tr.is-focus th, .seq-alternates tr.is-focus td { box-shadow: inset 0 0 0 9999px rgba(74, 127, 181, 0.08); }
+.seq-alternates td .field-label { display: none; }
+.seq-alternates td .field { margin: 0; }
+.seq-alternates td textarea { width: 100%; box-sizing: border-box; min-width: 240px; }
+.seq-gaps { margin: 0; padding-left: 18px; font-size: 12px; color: #8a3a2c; }
 /* コンテキストマップ */
 .contextmap-title { margin: 12px 0 6px; font-size: 13px; }
 .contextmap-canvas { position: relative; height: 300px; background: #f6f4ef; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; }

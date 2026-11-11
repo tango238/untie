@@ -10,6 +10,7 @@ import { DataProperties } from "./components/design/DataProperties";
 import { NavigationLayoutPane } from "./components/design/NavigationLayoutPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
 import { ContextMapLegend } from "./components/design/ContextMapBoard";
+import { SequenceHelp } from "./components/design/SequenceBoard";
 import { DomainLeftPane } from "./components/design/DomainLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
 import { DomainProperties } from "./components/design/DomainProperties";
@@ -67,6 +68,8 @@ export default function App() {
   const domain = design === "domain";
   // コンテキストマップは、左のペインを出さず、右に関係の種類の説明を出す
   const contextmap = design === "contextmap";
+  // シーケンス図は、左のペインを出さず、右に図の読み方を出す
+  const sequence = design === "sequence";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
@@ -148,6 +151,8 @@ export default function App() {
                 <DomainProperties />
               ) : contextmap ? (
                 <ContextMapLegend />
+              ) : sequence ? (
+                <SequenceHelp />
               ) : navigation ? (
                 <NavigationLayoutPane />
               ) : screenBoard ? (

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
 import { designBoardId, type DesignBoardKind } from "@untie/core/model/design";
 import { cachedDomainCheck } from "@untie/core/model/domainCache";
+import { sequenceGaps } from "@untie/core/model/sequence";
 import { DOMAIN_CHECK_ORDER, DOMAIN_CHECK_TITLES, type DomainCheckProblem } from "@untie/core/model/domainCheck";
 import { isDevMode } from "../../devMode";
 import { useUntieStore } from "../../store";
@@ -61,6 +62,8 @@ export function DesignCheckPanel() {
   const domain = isDevMode() ? cachedDomainCheck(model) : [];
   const domainErrors = domain.filter((p) => p.level === "error");
   const domainWarnings = domain.filter((p) => p.level === "warning");
+  // 業務の流れ (シーケンス図) で、開発を始める前に決めておくこと: 分岐のときにどうなるか・担当や対象の抜け
+  const flowGaps = useMemo(() => (systemId ? sequenceGaps(model, systemId) : []), [model, systemId]);
   const hasDesign = model.designs.some((d) => d.systemId === systemId);
   const systemName = model.elements.find((e) => e.id === systemId)?.name || "(名前なし)";
   return (
@@ -76,6 +79,32 @@ export function DesignCheckPanel() {
       {result.warnings.length > 0 && <p className="hint">警告が {result.warnings.length} 件あります (エラーではありません)。</p>}
       <Groups list={result.problems} warning={false} />
       <Groups list={result.warnings} warning />
+      {flowGaps.length > 0 && (
+        <section className="trace-warnings" aria-label="警告: 業務の流れで決まっていないこと" data-testid="sequence-gaps">
+          <h3 className="trace-warning-title">警告: 業務の流れで決まっていないこと ({flowGaps.length})</h3>
+          <ul className="trace-rows">
+            {flowGaps.map(({ sequence, gap }, i) => (
+              <li key={i} className="trace-row is-warning">
+                <button
+                  type="button"
+                  className="chip-link design-problem-link"
+                  onClick={() => {
+                    // シーケンス図で、その業務を開く
+                    try {
+                      localStorage.setItem("untie.design.sequenceBusiness", sequence.id);
+                    } catch {
+                      // 覚えられなくても、ボードへは移る
+                    }
+                    useUntieStore.getState().setCurrentBoard(designBoardId("sequence"));
+                  }}
+                >
+                  {sequence.name}: {gap.message}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {domain.length > 0 && (
         <>
           <h2 className="panel-title">検証: ドメインモデル</h2>
@@ -89,6 +118,7 @@ export function DesignCheckPanel() {
         <summary>調べること</summary>
         <ul>
           <li>エラー: システムが使う情報がテーブルに対応しているか／対応のあるテーブルが DSL にあるか／DSL に解析エラーが無いか／画面の項目の対応が無い列を指していないか／使うデータベースがあるか</li>
+          <li>警告 (業務の流れ): このシステムを使う業務で、条件のときにどうなるか (分岐) が決まっていない／作業の担当や操作の対象が決まっていない。シーケンス図で決める</li>
           <li>警告: 遷移のきっかけが未定／メニューからも遷移からも辿れない画面／画面 UI がまだ無い画面／画面 UI の項目に列の対応が無い</li>
           {isDevMode() && <li>ドメインモデル (保存した判断があるとき。すべてのシステムの分): 同じコンテキストの 2 つの集約に同じ情報が入っていないか (エラー)／集約に入っていない情報・関係を決めていないコンテキストの組・実装するシステムや分類が未定のコンテキスト・不変条件の無い集約・英語名の無いもの (警告)</li>}
         </ul>
