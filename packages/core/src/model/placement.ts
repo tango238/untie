@@ -118,3 +118,14 @@ export function screenConditions(model: UntieModel): Map<string, DerivedConditio
   }
   return result;
 }
+
+/**
+ * 操作が、情報を読むだけ (問い合わせ) か: 扱う情報があって、すべて取得だけで、状態を変えず、出来事も起こさない。
+ * 取得だけに見えても、次の状態 (usecaseState) や起こす出来事 (usecaseEvent) があれば、何かを変える操作 (帳票を出す、など)。
+ * 画面の既定 (一覧か入力か) と、AI に渡す操作の種類が、同じ判定を使う
+ */
+export function usecaseIsReadOnly(model: UntieModel, usecaseId: string): boolean {
+  const access = model.relations.filter((r) => r.kind === "usecaseInformation" && r.sourceId === usecaseId);
+  if (access.length === 0 || !access.every((r) => r.access === "read")) return false;
+  return !model.relations.some((r) => (r.kind === "usecaseEvent" || r.kind === "usecaseState") && r.sourceId === usecaseId);
+}

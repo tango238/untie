@@ -195,7 +195,13 @@ describe("applyDomainDraft: AI の下書きをドメインモデルへ当てる"
     );
     expect(d.policies).toHaveLength(1);
     expect(d.policies[0]).toMatchObject({ eventId: "de_payment_confirmed", commandId: d.commands.find((c) => c.english === "MarkOrderPaid")!.id, auto: true });
-    expect(r.summary).toMatchObject({ reattached: 6, lost: [] });
+    // 関係 4・ポリシー 1・発生させるイベント 1 に、用語の境界 3 (注文・在庫・引き当て) を足した 9 件を付け直す
+    expect(r.summary).toMatchObject({ reattached: 9, lost: [] });
+    expect(d.terms.map((t) => [t.term, d.contexts.find((c) => c.id === t.boundedContextId)?.english])).toEqual([
+      ["注文", "Ordering"],
+      ["在庫", "Inventory"],
+      ["引き当て", "Inventory"],
+    ]);
     expect(validateModel(r.model)).toMatchObject({ ok: true });
 
     // 英語名を変えると付け直せないので、消えたものを知らせる (何が消えたかは名前で)
@@ -256,6 +262,36 @@ describe("applyDomainDraft: AI の下書きをドメインモデルへ当てる"
       // コンテキストと集約の「Reservation」は重なりにしない
       expect(r.reason.split("\n")).toHaveLength(2);
     }
+  });
+
+  it("置き換えるコンテキストに属していた用語は、同じ英語名のコンテキストへ付け直す。無ければ、付け直せなかったものとして返す", () => {
+    const m = createNetshopSample();
+    const english = (id: string) => m.domain.contexts.find((c) => c.id === id)!.english!;
+    expect(m.domain.terms.map((t) => [t.term, t.boundedContextId])).toEqual([
+      ["注文", "bc_ordering"],
+      ["在庫", "bc_inventory"],
+      ["引き当て", "bc_inventory"],
+    ]);
+    // 受注と在庫を、同じ英語名で作り直す (出荷は書かない)
+    const r = applyDomainDraft(m, {
+      systemId: "sys_oms",
+      draft: {
+        contexts: [
+          { name: "受注", english: english("bc_ordering"), contextIds: ["ctx_order"], aggregates: [{ english: "Order", rootInformationId: "info_order" }] },
+          { name: "在庫", english: english("bc_inventory"), aggregates: [{ english: "Stock", rootInformationId: "info_stock" }] },
+        ],
+      },
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const contextOf = (term: string) => r.model.domain.contexts.find((c) => c.id === r.model.domain.terms.find((t) => t.term === term)?.boundedContextId)?.english;
+    expect([contextOf("注文"), contextOf("在庫"), contextOf("引き当て")]).toEqual([english("bc_ordering"), english("bc_inventory"), english("bc_inventory")]);
+    expect(r.summary.lost.filter((x) => x.startsWith("用語"))).toEqual([]);
+    expect(validateModel(r.model)).toMatchObject({ ok: true });
+    // 英語名が変わると付け直せない (共通に戻り、そのことを返す)
+    const renamed = applyDomainDraft(m, { systemId: "sys_oms", draft: { contexts: [{ name: "販売", english: "Sales", contextIds: ["ctx_order"], aggregates: [{ english: "Order", rootInformationId: "info_order" }] }] } });
+    if (!renamed.ok) throw new Error(renamed.reason);
+    expect(renamed.model.domain.terms.every((t) => t.boundedContextId == null)).toBe(true);
+    expect(renamed.summary.lost.filter((x) => x.startsWith("用語"))).toHaveLength(3);
   });
 
   it("サンプル (ネットショップ) の販売管理システムにも当てられ、残すコンテキスト (決済・会計) との関係を英語名で書ける", () => {

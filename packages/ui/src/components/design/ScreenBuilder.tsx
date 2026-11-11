@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { clearDesignScreenView, setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { LIMITS } from "@untie/core/model/limits";
+import { usecaseIsReadOnly } from "@untie/core/model/placement";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { designScreenName, SHELL_LABELS } from "@untie/core/model/sitemap";
 import type { DesignScreen, SystemDesign, UntieModel } from "@untie/core/model/types";
@@ -41,12 +42,11 @@ export function newView(title: string, goal: string, readOnly = false): Json {
   return { title, goal, sections: [{ id: "main", title: "入力", kind: "form", fields: [] }] };
 }
 
-/** 画面を使う操作が、情報を読むだけか (扱う情報があり、すべて取得だけ) */
+/** 画面を使う操作が、情報を読むだけか (扱う情報があり、すべて取得だけで、状態を変えず、出来事も起こさない) */
 export function screenIsReadOnly(model: UntieModel, analysisScreenId: string | undefined): boolean {
   if (!analysisScreenId) return false;
-  const usecases = new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === analysisScreenId).map((r) => r.sourceId));
-  const access = model.relations.filter((r) => r.kind === "usecaseInformation" && usecases.has(r.sourceId));
-  return access.length > 0 && access.every((r) => r.access === "read");
+  const usecases = [...new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === analysisScreenId).map((r) => r.sourceId))];
+  return usecases.length > 0 && usecases.every((id) => usecaseIsReadOnly(model, id));
 }
 
 /** 右のペイン (設計モードの画面ボード): 選んだ画面の画面 UI を、フォームか YAML で組み立てる。AI で作ることもできる */

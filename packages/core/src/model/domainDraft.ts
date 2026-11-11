@@ -259,6 +259,7 @@ function applyDraft(model: UntieModel, payload: { systemId: string; draft: Domai
   const contextById = new Map(before.contexts.map((c) => [c.id, c]));
   const keptRelations = before.relations.filter((r) => inScope.has(r.upstreamId) || inScope.has(r.downstreamId));
   const keptPolicies = before.policies.filter((p) => goneEvents.has(p.eventId) || goneCommands.has(p.commandId));
+  const keptTerms = before.terms.filter((t) => t.boundedContextId != null && inScope.has(t.boundedContextId));
   const keptEmits = before.commands.filter((c) => !goneCommands.has(c.id)).flatMap((c) => c.emits.filter((id) => goneEvents.has(id)).map((eventId) => ({ command: c, event: goneEvents.get(eventId)! })));
   for (const id of scope) {
     const r = removeBoundedContext(next, { id });
@@ -489,6 +490,21 @@ function applyDraft(model: UntieModel, payload: { systemId: string; draft: Domai
     }
     if (upstreamId && downstreamId && next.domain.relations.some((x) => (x.upstreamId === upstreamId && x.downstreamId === downstreamId) || (x.upstreamId === downstreamId && x.downstreamId === upstreamId))) continue;
     reattach(label, upstreamId && downstreamId ? addContextRelation(next, { upstreamId, downstreamId, kind: r.kind, ...(r.integration ? { integration: r.integration } : {}), ...(r.note ? { note: r.note } : {}) }) : null);
+  }
+  // 用語の境界 (どのコンテキストの言葉か): コンテキストを消すと「共通」に戻るので、同じ英語名のコンテキストへ付け直す。下書きが境界を決めていれば、そちらを使う
+  for (const t of keptTerms) {
+    const current = next.domain.terms.find((x) => (t.elementId ? x.elementId === t.elementId : x.elementId === undefined && x.term === t.term));
+    if (current?.boundedContextId) continue;
+    const contextId = newContext(t.boundedContextId!);
+    const label = `用語「${t.term}」の境界 (${nameOf(contextById.get(t.boundedContextId!))})`;
+    reattach(
+      label,
+      !contextId
+        ? null
+        : current
+          ? setDomainTerm(next, { id: current.id, boundedContextId: contextId })
+          : setDomainTerm(next, { ...(t.elementId ? { elementId: t.elementId } : { term: t.term }), ...(t.english ? { english: t.english } : {}), ...(t.definition ? { definition: t.definition } : {}), boundedContextId: contextId }),
+    );
   }
   for (const p of keptPolicies) {
     const eventId = newEvent(p.eventId);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createNetshopSample } from "../../sample";
 import { adoptAggregateCandidate, adoptCommandCandidate, adoptEventCandidate, addPolicyBetween, splitCommandByActivity } from "../domainAdopt";
 import { checkDomain } from "../domainCheck";
-import { excludeInformation, includeInformation, removeContextRelation, removeDomainCommand, setCandidateExcluded, updateDomainEvent } from "../domainCommands";
+import { addDomainPolicy, excludeInformation, includeInformation, removeContextRelation, removeDomainCommand, setCandidateExcluded, updateDomainEvent } from "../domainCommands";
 import { deriveContextMap } from "../domainMap";
 import { adoptDomainCandidates, normalizeDomainSelection, resolveDomain } from "../domainResolve";
 import { emptyDomain, type UntieModel } from "../types";
@@ -74,6 +74,17 @@ describe("resolveDomain: 候補に保存した判断を重ねる", () => {
     // 出荷のコンテキストの「出荷した」は、売掛金を登録するきっかけ
     expect(r.events.find((e) => e.key === "de_shipped")).toMatchObject({ origin: "outside", contextKey: "bc_shipping", name: "出荷した", english: "OrderShipped" });
     expect(r.events.some((e) => e.key === "de_order_confirmed" || e.key === "de_payment_confirmed")).toBe(false);
+  });
+
+  it("分析から導ける組に保存したポリシーは、導いたものに重ねる (人の判断を挟む、と保存したら、そう出る)", () => {
+    const before = resolveDomain(netshop(), "sys_oms").policies.filter((p) => p.eventKey === "de_order_confirmed" && p.commandKey === "cm_allocate_stock");
+    expect(before.map((p) => [p.auto, p.saved, !!p.derived])).toEqual([[true, null, true]]);
+    const m = okModel(addDomainPolicy(netshop(), { id: "po_allocate", eventId: "de_order_confirmed", commandId: "cm_allocate_stock", auto: false }));
+    const after = resolveDomain(m, "sys_oms").policies.filter((p) => p.eventKey === "de_order_confirmed" && p.commandKey === "cm_allocate_stock");
+    // 同じ組は 1 本のまま。保存した判断 (auto: false) が出て、プロパティ欄で直せる (saved がある)
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ key: before[0]!.key, auto: false, saved: { id: "po_allocate" } });
+    expect(after[0]!.derived).not.toBeNull();
   });
 
   it("あるべき姿: 決済のイベントを受けて、販売管理システムが注文を入金済にする (保存したポリシー)", () => {

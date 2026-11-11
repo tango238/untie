@@ -418,7 +418,16 @@ export function resolveDomain(model: UntieModel, systemId: string, givenScope?: 
   for (const p of d.policies) {
     const event = eventByKey.get(p.eventId);
     const command = commandBySavedId.get(p.commandId);
-    if (!event || !command || pairs.has(`${event.key}\n${command.key}`)) continue;
+    if (!event || !command) continue;
+    if (pairs.has(`${event.key}\n${command.key}`)) {
+      // 分析から導ける組に、判断を保存してある (自動か、人の判断を挟むか): 保存したほうを重ねる
+      const derived = policies.find((x) => x.saved === null && x.eventKey === event.key && x.commandKey === command.key);
+      if (derived) {
+        derived.saved = p;
+        derived.auto = p.auto;
+      }
+      continue;
+    }
     policies.push({ key: p.id, saved: p, derived: null, eventKey: event.key, commandKey: command.key, auto: p.auto });
   }
 

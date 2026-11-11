@@ -781,6 +781,9 @@ describe("画面 UI の新規作成の既定", () => {
     expect(screenIsReadOnly(shop, screenOf("uc_search_order"))).toBe(true);
     expect(screenIsReadOnly(shop, screenOf("uc_confirm_order"))).toBe(false);
     expect(screenIsReadOnly(shop, undefined)).toBe(false);
+    // ピッキングリストを出す は情報を読むだけだが、出来事 (ピッキングリストが出た) を起こすので、問い合わせではない
+    expect(shop.relations.filter((r) => r.kind === "usecaseInformation" && r.sourceId === "uc_issue_pick_list").every((r) => r.access === "read")).toBe(true);
+    expect(screenIsReadOnly(shop, screenOf("uc_issue_pick_list"))).toBe(false);
     // 問い合わせの既定は一覧、コマンドの既定は入力。どちらも mokkun の検証に通る
     const { newView } = await import("../design/ScreenBuilder");
     const { validateView } = await import("../design/viewValidate");

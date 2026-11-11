@@ -1,7 +1,7 @@
 // 設計モードの画面ボード「AI で作る」: 画面の材料 (使う操作・情報・遷移)、使うデータベースのテーブルと列から、
 // 画面 UI (mokkun v2 の view) と、項目と列の対応 (bindings) を一回きりで作らせる。AI は submit_screen で結果を提出する。
 // view は mokkun の検証 (parseV2Document) に通し、エラーがあれば 1 回だけ出し直させる。存在しないデータベース・テーブル・列の対応は捨てる。
-import { screenConditions, screenInformations } from "@untie/core/model/placement";
+import { screenConditions, screenInformations, usecaseIsReadOnly } from "@untie/core/model/placement";
 import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { viewBindingSlots } from "@untie/core/model/designView";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
@@ -92,9 +92,8 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
             return biz ? [nameOf(biz)] : [];
           });
           const informations = model.relations.filter((i) => i.kind === "usecaseInformation" && i.sourceId === r.sourceId).map((i) => nameOf(byId.get(i.targetId)));
-          const access = model.relations.filter((i) => i.kind === "usecaseInformation" && i.sourceId === r.sourceId);
-          // 書く情報が 1 つでもあればコマンド、読むだけなら問い合わせ (access の省略は読み書きの両方)
-          const kind = access.length > 0 && access.every((i) => i.access === "read") ? "query" : "command";
+          // 書く情報が 1 つでもあるか、状態を変えるか、出来事を起こすならコマンド。読むだけなら問い合わせ (access の省略は読み書きの両方)
+          const kind = usecaseIsReadOnly(model, r.sourceId) ? "query" : "command";
           const command = model.domain.commands.find((c) => c.source?.usecaseId === r.sourceId && c.source.activityId === undefined);
           return { usecase: nameOf(byId.get(r.sourceId)), kind, ...(kind === "command" && command ? { command: command.name } : {}), activities: activities.map(nameOf), businesses: [...new Set(businesses)], informations };
         })
