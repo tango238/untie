@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useAgentStore } from "../../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, HEARING_SUMMARY_REQUEST } from "../../ai/hearing";
 import { PROVIDERS } from "../../ai/providers";
 import { useUntieStore } from "../../store";
+import { AGENT_PANE_MIN_HEIGHT, clampAgentPaneHeight, loadAgentPaneHeight, saveAgentPaneHeight } from "../../store/agentPanePrefs";
+
+/** キーボードで大きさを変えるときの 1 回の幅 (px) */
+const KEY_STEP = 24;
 
 /** 下のペイン: AI エージェントとの会話。編集中のモデルを自然言語で直す。課題の深掘り・困りごとのヒアリング・ドメインモデルの対話もここで行う */
 export function AgentPane() {
@@ -23,6 +27,57 @@ export function AgentPane() {
   const domainSystem = useUntieStore((s) => (mode.kind === "domain" ? s.model.elements.find((e) => e.id === mode.systemId) : undefined));
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLElement>(null);
+  // null は既定の高さ (CSS)。ドラッグ・キーボードで変えると px で持ち、このブラウザに覚える
+  const [height, setHeight] = useState<number | null>(() => {
+    const saved = loadAgentPaneHeight();
+    return saved === null ? null : clampAgentPaneHeight(saved, window.innerHeight);
+  });
+  const drag = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  // 画面が小さくなったら、上に残す高さを割り込まないよう縮める
+  useEffect(() => {
+    if (height === null) return;
+    const onResize = () => setHeight((h) => (h === null ? h : clampAgentPaneHeight(h, window.innerHeight)));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [height === null]);
+
+  const currentHeight = () => height ?? paneRef.current?.getBoundingClientRect().height ?? AGENT_PANE_MIN_HEIGHT;
+  const resizeTo = (next: number) => {
+    const h = clampAgentPaneHeight(next, window.innerHeight);
+    setHeight(h);
+    return h;
+  };
+
+  // 上端の取っ手を上へ引くと大きく、下へ引くと小さくなる
+  const onHandlePointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { startY: e.clientY, startHeight: currentHeight() };
+  };
+  const onHandlePointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    resizeTo(drag.current.startHeight + (drag.current.startY - e.clientY));
+  };
+  const onHandlePointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    saveAgentPaneHeight(height === null ? null : clampAgentPaneHeight(height, window.innerHeight));
+  };
+  const onHandleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step = e.key === "ArrowUp" ? KEY_STEP : e.key === "ArrowDown" ? -KEY_STEP : 0;
+    if (step === 0) return;
+    e.preventDefault();
+    saveAgentPaneHeight(resizeTo(currentHeight() + step));
+  };
+  // ダブルクリックで既定の高さに戻す
+  const resetHeight = () => {
+    setHeight(null);
+    saveAgentPaneHeight(null);
+  };
   const provider = PROVIDERS[settings.provider];
   const model = settings.models[settings.provider] || provider.defaultModel;
 
@@ -37,7 +92,23 @@ export function AgentPane() {
   };
 
   return (
-    <section className="agent-pane" aria-label="AI エージェント">
+    <section ref={paneRef} className="agent-pane" aria-label="AI エージェント" style={height === null ? undefined : { height, maxHeight: "none" }}>
+      <div
+        className="agent-resize"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="AI エージェントの高さ"
+        aria-valuemin={AGENT_PANE_MIN_HEIGHT}
+        {...(height === null ? {} : { "aria-valuenow": height })}
+        tabIndex={0}
+        title="ドラッグで高さを変える (ダブルクリックで元の高さ)"
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
+        onKeyDown={onHandleKeyDown}
+        onDoubleClick={resetHeight}
+      />
       <header className="agent-head">
         <h2 className="agent-title">
           {mode.kind === "grill" ? (

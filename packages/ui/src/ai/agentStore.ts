@@ -73,7 +73,8 @@ let controller: AbortController | null = null;
 /** いまのヒアリングで add_issue が作った課題の id (追記できる課題の範囲。会話を捨てると空になる) */
 const hearingCreated = new Set<string>();
 
-const TOOL_LABELS: Record<string, string> = {
+/** 実行ログに出す道具の表示名。道具を足したらここにも足す (無いと内部名が出る) */
+export const TOOL_LABELS: Record<string, string> = {
   get_model: "モデルを読む",
   add_element: "要素を追加",
   update_element: "要素を変更",
@@ -83,6 +84,12 @@ const TOOL_LABELS: Record<string, string> = {
   move_activity: "作業の所属を変更",
   move_buc: "活動の所属を変更",
   set_context: "コンテキストを変更",
+  move_to_system: "属するシステムを変更",
+  set_information_access: "情報の扱い方を変更",
+  set_screen_usecase: "画面を使う操作を変更",
+  list_design_screens: "設計の画面を読む",
+  get_design_screen: "設計の画面を読む",
+  set_design_screen_view: "画面 UI を変更",
   list_databases: "データベースを読む",
   get_database_dsl: "DSL を読む",
   set_database_dsl: "DSL を変更",

@@ -84,6 +84,17 @@ beforeEach(() => {
   useAgentStore.getState().newConversation();
 });
 
+describe("AI エージェント: 実行ログの表示名", () => {
+  it("どのモードの道具にも日本語の表示名がある (内部名を画面に出さない)", async () => {
+    const { TOOL_LABELS } = await import("../agentStore");
+    const { MODEL_TOOLS } = await import("../tools");
+    const { GRILL_TOOLS } = await import("../grill");
+    const { HEARING_TOOLS } = await import("../hearing");
+    const missing = [...MODEL_TOOLS, ...GRILL_TOOLS, ...HEARING_TOOLS].map((t) => t.name).filter((n) => !TOOL_LABELS[n]);
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("AI エージェント", () => {
   it("1 回の返答の編集を 1 件の履歴にまとめ、Undo で一度に戻せる。発言には画面の状態を添える", async () => {
     act(() => st().select({ type: "element", id: "act_hand_key" }));

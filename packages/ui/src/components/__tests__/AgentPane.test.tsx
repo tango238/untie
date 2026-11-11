@@ -78,3 +78,57 @@ describe("AgentPane: ヒアリング", () => {
     expect(useUntieStore.getState().model).toBeDefined();
   });
 });
+
+describe("AgentPane: 高さを変える", () => {
+  const pane = () => screen.getByRole("region", { name: "AI エージェント" });
+  const handle = () => screen.getByRole("separator", { name: "AI エージェントの高さ" });
+  const drag = (fromY: number, toY: number) => {
+    // jsdom はペインの高さを測れないので、既定の高さを 300px として始める
+    vi.spyOn(pane(), "getBoundingClientRect").mockReturnValue({ height: 300 } as DOMRect);
+    fireEvent.pointerDown(handle(), { button: 0, clientY: fromY, pointerId: 1 });
+    fireEvent.pointerMove(handle(), { clientY: toY, pointerId: 1 });
+    fireEvent.pointerUp(handle(), { clientY: toY, pointerId: 1 });
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    window.innerHeight = 900;
+  });
+
+  it("上端の取っ手を上へ引くと大きく、下へ引くと小さくなり、高さを覚える", () => {
+    const { unmount } = render(<AgentPane />);
+    expect(pane().style.height).toBe("");
+    drag(600, 500);
+    expect(pane().style.height).toBe("400px");
+    expect(localStorage.getItem("untie.agent.paneHeight")).toBe("400");
+    unmount();
+    render(<AgentPane />);
+    expect(pane().style.height).toBe("400px");
+    fireEvent.pointerDown(handle(), { button: 0, clientY: 500, pointerId: 1 });
+    fireEvent.pointerMove(handle(), { clientY: 650, pointerId: 1 });
+    fireEvent.pointerUp(handle(), { clientY: 650, pointerId: 1 });
+    expect(pane().style.height).toBe("250px");
+  });
+
+  it("下限と、画面の上に残す高さで止まる", () => {
+    render(<AgentPane />);
+    drag(600, 0);
+    expect(pane().style.height).toBe("740px");
+    drag(0, 2000);
+    expect(pane().style.height).toBe("120px");
+  });
+
+  it("矢印キーで変え、ダブルクリックで既定の高さに戻して忘れる", () => {
+    render(<AgentPane />);
+    vi.spyOn(pane(), "getBoundingClientRect").mockReturnValue({ height: 300 } as DOMRect);
+    fireEvent.keyDown(handle(), { key: "ArrowUp" });
+    expect(pane().style.height).toBe("324px");
+    fireEvent.keyDown(handle(), { key: "ArrowDown" });
+    fireEvent.keyDown(handle(), { key: "ArrowDown" });
+    expect(pane().style.height).toBe("276px");
+    expect(localStorage.getItem("untie.agent.paneHeight")).toBe("276");
+    fireEvent.doubleClick(handle());
+    expect(pane().style.height).toBe("");
+    expect(localStorage.getItem("untie.agent.paneHeight")).toBeNull();
+  });
+});
