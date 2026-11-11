@@ -214,6 +214,37 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
     else if (value.startsWith("state:")) save({ after: { type: "states", stateIds: [value.slice("state:".length)] } });
     else save({ after: { type: value as AlternateAfterType } });
   };
+  // 操作が 2 つ以上の状態グループに関わるときは、グループごとに状態を選べるようにする (予約は取消、部屋は清掃待ち、のように)
+  const afterGroups = useMemo(() => {
+    const groups: { key: string; label: string; states: typeof afterStates }[] = [];
+    for (const st of afterStates) {
+      const key = stateGroupKey(st);
+      const g = groups.find((x) => x.key === key);
+      if (g) g.states.push(st);
+      else groups.push({ key, label: st.group?.trim() || st.name || "(名前なし)", states: [st] });
+    }
+    return groups;
+  }, [afterStates]);
+  const multi = afterGroups.length > 1;
+  // 「状態を選ぶ」を選んでから、最初の状態を選ぶまでのあいだ (状態が 1 つも無いままでは保存できない)
+  const [choosing, setChoosing] = useState(false);
+  const chosenIds = a?.after?.type === "states" ? (a.after.stateIds ?? []) : [];
+  const chosenIn = (key: string): string => afterStates.find((st) => stateGroupKey(st) === key && chosenIds.includes(st.id))?.id ?? "";
+  const multiValue = !a ? "" : a.error ? "unchanged" : a.after?.type === "states" || choosing ? "states" : (a.after?.type ?? "");
+  const pickMulti = (value: string) => {
+    setChoosing(value === "states");
+    if (value === "states") return;
+    pickAfter(value);
+  };
+  /** グループごとの状態を選ぶ。どのグループも「変えない」になったら、全体を「変えない」にする */
+  const pickGroupState = (key: string, stateId: string) => {
+    const ids = afterGroups.flatMap((g) => {
+      const id = g.key === key ? stateId : chosenIn(g.key);
+      return id ? [id] : [];
+    });
+    setChoosing(false);
+    save({ after: ids.length > 0 ? { type: "states", stateIds: ids } : { type: "unchanged" } });
+  };
   /** そのあとの状態が、まだ決まっていない (操作がふだん状態を変えるのに、分岐のあとの状態が無い) */
   const afterUndecided = !!a && step.changesState && step.after === null;
   /** 選択肢の値: エラーは error:<種類>、出来事はイベントの id */
@@ -311,6 +342,36 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
           <span className="an-sub" title="この操作は、状態に関わらない">
             —
           </span>
+        ) : multi ? (
+          <>
+            <select
+              aria-label={`${label} のとき、そのあとの状態`}
+              value={multiValue}
+              disabled={readOnly || !a || !!a.error}
+              title={!a ? "先に、どうなるかを書いてください" : a.error ? "エラーのときは、状態を変えません" : undefined}
+              className={afterUndecided && !choosing ? "is-undecided" : undefined}
+              onChange={(e) => pickMulti(e.target.value)}
+            >
+              <option value="">(未定)</option>
+              <option value="unchanged">{ALTERNATE_AFTER_LABELS.unchanged}</option>
+              {step.changesState && <option value="normal">{ALTERNATE_AFTER_LABELS.normal}</option>}
+              <option value="states">{ALTERNATE_AFTER_LABELS.states}</option>
+            </select>
+            {multiValue === "states" &&
+              afterGroups.map((g) => (
+                <label key={g.key} className="seq-status seq-after-group">
+                  {g.label}
+                  <select aria-label={`${label} のとき、そのあとの「${g.label}」`} value={chosenIn(g.key)} disabled={readOnly} onChange={(e) => pickGroupState(g.key, e.target.value)}>
+                    <option value="">(変えない)</option>
+                    {g.states.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name || "(名前なし)"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+          </>
         ) : (
           <select
             aria-label={`${label} のとき、そのあとの状態`}
