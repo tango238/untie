@@ -205,6 +205,21 @@ describe("ScreenBuilder: 画面 UI の無い画面", () => {
   });
 });
 
+describe("ScreenBuilder: データが先", () => {
+  it("使うデータベースにテーブルが 1 つも無いあいだは、先にデータボードで作るよう案内する。押すとデータボードへ移る", () => {
+    // テーブルがある (Item・Sale) ので、案内は出ない
+    const { unmount } = render(<ScreenBuilder />);
+    expect(screen.queryByTestId("screen-data-first")).toBeNull();
+    unmount();
+    // DSL を空にすると、案内が出る
+    act(() => void st().dispatch((m) => setDatabaseDesign(m, { id: "db_x", dsl: "", tables: [] })));
+    render(<ScreenBuilder />);
+    expect(screen.getByTestId("screen-data-first").textContent).toContain("データ → 画面の順");
+    fireEvent.click(within(screen.getByTestId("screen-data-first")).getByRole("button", { name: "データボード" }));
+    expect(st().ui.currentBoardId).toBe("design:data");
+  });
+});
+
 describe("ScreenBuilder: この画面が判断する条件", () => {
   it("画面を使う操作が判断する条件を、根拠の操作つきで読み取りで出す。条件の無い画面・組み込みの画面には出さない", () => {
     render(<ScreenBuilder />);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clearDesignScreenView, setDesignScreenShell, setDesignScreenView } from "@untie/core/model/commands";
-import { effectiveDatabaseIds } from "@untie/core/model/design";
+import { designBoardId, effectiveDatabaseIds } from "@untie/core/model/design";
 import { LIMITS } from "@untie/core/model/limits";
 import { usecaseIsReadOnly } from "@untie/core/model/placement";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
@@ -84,6 +84,8 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
   const description = (analysis?.kind === "screen" && analysis.description?.trim()) || "";
   const screens = useMemo(() => design.screens.map((s) => ({ id: s.id, name: designScreenName(model, s) })), [design.screens, model]);
   const databases = useMemo(() => databaseInfos(model, design), [model, design]);
+  // 設計は、先にデータを作り、そこから画面を作る。テーブルが 1 つも無いあいだは、データボードへ案内する
+  const noTables = databases.every((d) => d.tables.length === 0);
   const view = screen.view as Json | undefined;
   const bindings: Binding[] = screen.bindings ?? [];
 
@@ -233,6 +235,15 @@ function ScreenBuilderFor({ model, systemId, design, screen }: { model: UntieMod
         </p>
       )}
       {readOnly && <p className="hint">閲覧専用です。編集はできません。</p>}
+      {noTables && !readOnly && (
+        <p className="hint screen-data-first" data-testid="screen-data-first">
+          データがまだありません。先に
+          <button type="button" className="link" onClick={() => useUntieStore.getState().setCurrentBoard(designBoardId("data"))}>
+            データボード
+          </button>
+          でテーブルを作ると、画面の項目をテーブルの列に結べます (設計は、データ → 画面の順に進めます)。
+        </p>
+      )}
 
       {!view ? (
         <div className="screen-empty">

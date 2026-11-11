@@ -30,7 +30,7 @@ describe("設計モードのシーケンス図", () => {
   it("開発モードでなくても、設計ボードの選択肢とショートカット (Q) から開ける。右のペインは図の読み方", () => {
     render(<App />);
     const select = screen.getByLabelText("ボード", { selector: "select" }) as HTMLSelectElement;
-    expect([...select.querySelectorAll('optgroup[label="設計ボード"] option')].map((o) => o.textContent)).toEqual(["サイトマップ", "ナビゲーション", "画面", "データ", "関連", "シーケンス図"]);
+    expect([...select.querySelectorAll('optgroup[label="設計ボード"] option')].map((o) => o.textContent)).toEqual(["サイトマップ", "ナビゲーション", "データ", "画面", "関連", "シーケンス図"]);
     fireEvent.keyDown(document, { key: "b", ctrlKey: true });
     fireEvent.keyDown(document, { key: "q" });
     expect(st().ui.currentBoardId).toBe("design:sequence");

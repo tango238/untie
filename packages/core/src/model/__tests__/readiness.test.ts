@@ -120,7 +120,7 @@ describe("checkReadiness: 実装を始める準備", () => {
 
   it("設計: 設計が無い・画面がサイトマップに無い・情報がテーブルに無い・テーブルがひな形のまま", () => {
     let m = createHotelSample();
-    expect(open(m, "sys_pms")).toEqual(["origins", "screens", "data"]);
+    expect(open(m, "sys_pms")).toEqual(["origins", "data", "screens"]);
     expect(messages(m, "sys_pms", "data")).toEqual(["このシステムの設計がまだありません"]);
     m = okModel(ensureDesign(m, { systemId: "sys_pms" }));
     expect(messages(m, "sys_pms", "screens")).toContain("画面「予約の確定画面」がサイトマップに入っていません");

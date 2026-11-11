@@ -12,7 +12,7 @@ import { designScreenName } from "./sitemap";
 import { traceToActors } from "./trace";
 import { ELEMENT_KIND_LABELS, type Element, type UntieModel } from "./types";
 
-export type ReadinessConditionId = "analysis" | "usecases" | "information" | "origins" | "rules" | "states" | "flow" | "screens" | "navigation" | "data";
+export type ReadinessConditionId = "analysis" | "usecases" | "information" | "origins" | "rules" | "states" | "flow" | "data" | "screens" | "navigation";
 
 /** 行を押したときの移動先 */
 export type ReadinessTarget =
@@ -51,7 +51,7 @@ export interface Readiness {
   ready: boolean;
 }
 
-/** 条件の見出しと説明 (並べる順) */
+/** 条件の見出しと説明 (並べる順。設計は、先にデータを作り、そこから画面を作る) */
 export const READINESS_CONDITIONS: readonly { id: ReadinessConditionId; title: string; hint: string }[] = [
   { id: "analysis", title: "分析に抜けが無い", hint: "分析モードの検証で、エラーが無いこと。誰の何のためのものか辿れない要素があると、作るものの根拠が欠ける" },
   { id: "usecases", title: "このシステムで行う操作がある", hint: "操作の対象に、このシステム (か、このシステムの画面) を結ぶ。操作が、作る機能の単位になる" },
@@ -60,9 +60,9 @@ export const READINESS_CONDITIONS: readonly { id: ReadinessConditionId; title: s
   { id: "rules", title: "条件と区分の中身が決まっている", hint: "条件は、何で判断するか (説明か、区分・状態との結びつき)。区分は、取りうる値" },
   { id: "states", title: "状態の移り変わりがつながっている", hint: "操作の前提にしている状態には、その状態になる操作が要る。無いと、その操作は永久に行えない" },
   { id: "flow", title: "業務の流れが決まっている", hint: "条件で流れが変わるときにどうなるか、作業の担当、操作の対象。シーケンス図で決める" },
-  { id: "screens", title: "画面がそろっている", hint: "操作が使う画面がサイトマップにあり、画面 UI と、項目とデータの対応がある" },
-  { id: "navigation", title: "画面の行き来が決まっている", hint: "どの画面にも辿り着けて、遷移のきっかけが決まっている" },
   { id: "data", title: "データの置き場所が決まっている", hint: "このシステムが使う情報が、すべてデータベースのテーブルに対応していて、テーブルに名前と列がある" },
+  { id: "screens", title: "画面がそろっている", hint: "操作が使う画面がサイトマップにあり、画面 UI と、項目とデータの対応がある (データを先に作ってから、画面を作る)" },
+  { id: "navigation", title: "画面の行き来が決まっている", hint: "どの画面にも辿り着けて、遷移のきっかけが決まっている" },
 ];
 
 /** 設計の検証 (checkDesign) の種類を、どの条件に数えるか */
