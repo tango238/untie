@@ -180,7 +180,19 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
       local.add(name);
       return name;
     };
-    for (const p of pre) params.push({ name: param(`前の${southerIdentifier(p.group.label)}`), type: p.states.join(" | ") });
+    // behavior の引数には、名前の無い和 (`状態 | 状態`) を書けない。前提の状態が複数あるときは、グループの和をそのまま使うか
+    // (グループの状態のすべてが前提のとき)、その操作の前提だけの和を宣言する (1 つの状態は、複数の和の場合になれる)
+    const preDeclarations: string[] = [];
+    for (const p of pre) {
+      const name = param(southerIdentifier(`前の${p.group.label}`));
+      let type = p.states[0]!;
+      if (p.states.length > 1) {
+        const whole = p.states.length === p.group.states.length ? groupName.get(p.group.key) : undefined;
+        type = whole ?? alloc(`${behavior}_${name}`);
+        if (!whole) preDeclarations.push(`data ${type} = ${p.states.join(" | ")}`);
+      }
+      params.push({ name, type });
+    }
     const conds = conditions.map(({ relation, condition }) => ({ relation, condition, name: param(southerIdentifier(nameOf(condition))) }));
     for (const c of conds) params.push({ name: c.name, type: "Bool" });
 
@@ -189,7 +201,7 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
     let normalType: string;
     let normalValue: string | null;
     let normalLabel: string;
-    const declarations: string[] = [];
+    const declarations: string[] = [...preDeclarations];
     if (ambiguous.length > 0) {
       // 同じグループに次の状態が複数ある: どのときにどれになるかは、分析からは決まらない
       normalValue = null;

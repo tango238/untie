@@ -76,6 +76,25 @@ describe("exportSouther: 業務ルールの骨組みを Souther に書き出す"
     expect(r.text).toContain("let チェックアウトを記録する (前の予約の状態) = チェックアウトを記録する_結果 { 予約の状態 = チェックアウト済, 部屋の状態 = 清掃待ち }");
   });
 
+  it("前提の状態が複数ある操作は、引数の型を名前の付いた和にする (behavior の引数に、名前の無い和は書けない)", () => {
+    const accounting = SAMPLES.find((s) => s.id === "accounting")!.create();
+    const system = accounting.elements.find((e) => e.kind === "system" && e.name === "会計システム")!;
+    const r = exportSouther(accounting, system.id);
+    // グループの状態の一部が前提: その操作の前提だけの和を宣言する
+    expect(r.text).toContain("data 売掛金を消し込む_前の売掛金の状態 = 未入金 | 一部入金");
+    expect(r.text).toContain("behavior 売掛金を消し込む : (前の売掛金の状態: 売掛金を消し込む_前の売掛金の状態, 入金額が請求額と違う: Bool)");
+    expect(r.text).not.toMatch(/^behavior [^\n]*\([^)]*: [^,)]* \| /m);
+    // 次の状態が同じグループに複数あるので、中身は書かず、答え待ちの行にする
+    expect(r.open.map((o) => o.kind)).toContain("nextStateUndecided");
+    expect(r.text).not.toContain("let 売掛金を消し込む");
+    // グループの状態のすべてが前提なら、グループの和をそのまま使う
+    let m = createHotelSample();
+    for (const id of ["st_res_tentative", "st_res_checkedin", "st_res_checkedout", "st_res_cancelled"]) {
+      m = { ...m, relations: [...m.relations, { id: `rel_extra_${id}`, kind: "stateUsecase", sourceId: id, targetId: "uc_change_reservation" }] };
+    }
+    expect(exportSouther(m, "sys_pms").text).toContain("behavior 予約を変更する : (前の予約の状態: 予約の状態) -> 確定");
+  });
+
   it("前提の状態が無くなっても、条件があれば書き出す。操作の無いシステムは空", () => {
     let m = createHotelSample();
     const pre = m.relations.find((x) => x.kind === "stateUsecase" && x.targetId === "uc_cancel_reservation")!;
