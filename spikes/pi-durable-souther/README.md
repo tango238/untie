@@ -24,7 +24,7 @@ untie の設計を材料に、[Pi Durable](https://github.com/earendil-works/pi/
 ## 本物の LLM での結果 (Claude Sonnet 5.5)
 
 `node run.ts llm` で、`harness/task.md` の依頼 (予約まわりの 7 つの操作の HTTP API を作る。業務ルールは書き直さずにモデルを呼ぶ。テストが通るまで直す) を渡した。
-出来上がったものと記録は `results/sonnet-5-5/` にある (`app/`・`package.json`・`run.log`)。
+出来上がったものと記録は `results/sonnet-5-5/` にある (`app/`・`package.json`・`run.txt`)。
 
 | | |
 | --- | --- |
@@ -111,5 +111,5 @@ ANTHROPIC_API_KEY=... WORKSPACE=/path/to/empty-dir STORAGE=/path/to/run.sqlite n
 - `harness/run.ts` … Pi Durable の実行基盤を開き、依頼を出して、完了を待つ。ストレージは SQLite、実行環境は Node (作業フォルダは `workspace/`)
 - `harness/script.ts` … 台本 (モデルの応答)。書くアプリケーションのコードも、ここにある
 - `harness/task.md` … 本物の LLM に渡す依頼
-- `results/sonnet-5-5/` … Claude Sonnet 5.5 が作ったアプリケーション (`app/`) と、実行の記録 (`run.log`)
+- `results/sonnet-5-5/` … Claude Sonnet 5.5 が作ったアプリケーション (`app/`) と、実行の記録 (`run.txt`)
 - `workspace/app/` … 出来上がるアプリケーション (コミットしない)
