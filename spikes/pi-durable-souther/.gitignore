@@ -1,0 +1,7 @@
+node_modules/
+workspace/app/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.submission
+.souther-home/

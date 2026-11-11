@@ -1,0 +1,19 @@
+{
+  "name": "untie-spike-pi-durable-souther",
+  "private": true,
+  "type": "module",
+  "description": "Pi Durable と Souther で、設計からアプリケーションが出来るかの検証 (本体のワークスペースには入れない)",
+  "scripts": {
+    "full": "node run.ts full",
+    "crash": "node run.ts crash",
+    "resume": "node run.ts resume"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-durable": "1.5.2"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
