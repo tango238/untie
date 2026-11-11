@@ -45,7 +45,7 @@ const errorsOf = (m: unknown) => {
 
 describe("設計ボードの id", () => {
   it("順序・ラベル・id の往復", () => {
-    expect([...DESIGN_BOARD_KINDS]).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap"]);
+    expect([...DESIGN_BOARD_KINDS]).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap", "rules"]);
     expect(DESIGN_BOARD_LABELS.sequence).toBe("シーケンス図");
     expect(DESIGN_BOARD_LABELS.domain).toBe("ドメイン");
     expect(DESIGN_BOARD_LABELS.contextmap).toBe("コンテキストマップ");

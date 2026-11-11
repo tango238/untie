@@ -1,5 +1,6 @@
 // モデルの保存・読み込み (ストアとファイルをつなぐ)。
 import { DOMAIN_DOCS_DIR, DOMAIN_SESSION_FILE, exportDomainDocs } from "@untie/core/model/domainExport";
+import { exportSoutherAll } from "@untie/core/model/southerExport";
 import { loadModelJson } from "@untie/core/model/migrate";
 import { emptyModel, type UntieModel } from "@untie/core/model/types";
 import { SAMPLES, type SampleEntry } from "@untie/core/sample";
@@ -144,6 +145,37 @@ export async function exportModelToFile(): Promise<boolean> {
     const saved = await getPlatform().saveTextFile(serializeModel(model), null, name);
     if (!saved) return false;
     st.pushToast(`「${saved.name}」に書き出しました`, "info");
+    return true;
+  } catch (e) {
+    st.pushToast(`書き出せませんでした: ${String(e)}`, "error");
+    return false;
+  }
+}
+
+/** 書き出す Souther のソースを入れるフォルダの名前 (zip の中) */
+export const SOUTHER_DIR = "souther";
+
+/**
+ * 業務ルールの骨組みを、Souther のソース (.sou) で書き出す (開発モード)。システムごとに 1 ファイル。
+ * 書き出せる操作 (前提の状態か、判断する条件のある操作) が 1 つも無ければ、何もしない
+ */
+export async function exportSoutherToFolder(): Promise<boolean> {
+  const st = useUntieStore.getState();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const { model } = useUntieStore.getState();
+  const files = exportSoutherAll(model);
+  if (files.length === 0) {
+    st.pushToast("書き出せる操作がありません。分析で、操作に前提の状態か、判断する条件を結んでください", "error");
+    return false;
+  }
+  try {
+    const saved = await getPlatform().saveTextFiles(
+      files.map((f) => ({ name: f.fileName, text: f.text })),
+      { zipName: `${safeFileName(model.meta.name.trim() || "名前なし")}-souther.zip`, zipFolder: SOUTHER_DIR },
+    );
+    if (!saved) return false;
+    const owed = files.reduce((n, f) => n + f.owed, 0);
+    st.pushToast(`業務ルールを「${saved.where}」に書き出しました (${saved.count} ファイル)${owed > 0 ? `。答え待ちの行が ${owed} 件あります` : ""}`, "info");
     return true;
   } catch (e) {
     st.pushToast(`書き出せませんでした: ${String(e)}`, "error");

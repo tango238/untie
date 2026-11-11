@@ -23,7 +23,7 @@ export function setDevModeForTest(value: boolean | undefined): void {
 /** 開発モードのときだけ出す分析ボード: イベントストーミング (分析から導いたドメインモデルの候補) */
 export const DEV_ONLY_ANALYSIS_KINDS: readonly AnalysisKind[] = ["storming"];
 /** 開発モードのときだけ出す設計ボード: ドメイン・コンテキストマップ (内部のドメインモデルを直に見る・直す) */
-export const DEV_ONLY_DESIGN_KINDS: readonly DesignBoardKind[] = ["domain", "contextmap"];
+export const DEV_ONLY_DESIGN_KINDS: readonly DesignBoardKind[] = ["domain", "contextmap", "rules"];
 
 /** いま選べる分析ボード (並べる順) */
 export function visibleAnalysisKinds(): AnalysisKind[] {

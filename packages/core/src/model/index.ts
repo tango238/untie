@@ -30,6 +30,7 @@ export * from "./domainDraft";
 export * from "./domainExport";
 export * from "./sequence";
 export * from "./readiness";
+export * from "./southerExport";
 export * from "./domainMap";
 export * from "./domainCheck";
 export * from "./domainCache";

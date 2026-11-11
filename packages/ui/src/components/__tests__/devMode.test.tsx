@@ -44,11 +44,11 @@ describe("開発モード", () => {
     expect(visibleAnalysisKinds()).toEqual(["issues", "people", "informationLocation"]);
     // シーケンス図は、利用者にも見せる (開発を始める前に、分岐を決め切るため)
     expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence"]);
-    for (const id of ["analysis:storming", "design:domain", "design:contextmap"]) expect(isBoardAvailable(id)).toBe(false);
+    for (const id of ["analysis:storming", "design:domain", "design:contextmap", "design:rules"]) expect(isBoardAvailable(id)).toBe(false);
     for (const id of ["analysis:issues", "design:sitemap", "fixed:activity", "board_overview"]) expect(isBoardAvailable(id)).toBe(true);
     setDevModeForTest(true);
     expect(visibleAnalysisKinds()).toContain("storming");
-    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap"]);
+    expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap", "rules"]);
     expect(isBoardAvailable("design:domain")).toBe(true);
   });
 

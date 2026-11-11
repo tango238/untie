@@ -11,6 +11,7 @@ import { NavigationLayoutPane } from "./components/design/NavigationLayoutPane";
 import { RelationLeftPane } from "./components/design/RelationLeftPane";
 import { ContextMapLegend } from "./components/design/ContextMapBoard";
 import { SequenceHelp } from "./components/design/SequenceBoard";
+import { SoutherHelp } from "./components/design/SoutherBoard";
 import { DomainLeftPane } from "./components/design/DomainLeftPane";
 import { RelationProperties } from "./components/design/RelationProperties";
 import { DomainProperties } from "./components/design/DomainProperties";
@@ -70,6 +71,8 @@ export default function App() {
   const contextmap = design === "contextmap";
   // シーケンス図は、左のペインを出さず、右に図の読み方を出す
   const sequence = design === "sequence";
+  // 業務ルール (Souther。開発モード) は、左のペインを出さず、右に書き出しの読み方を出す
+  const rules = design === "rules";
   const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
@@ -153,6 +156,8 @@ export default function App() {
                 <ContextMapLegend />
               ) : sequence ? (
                 <SequenceHelp />
+              ) : rules ? (
+                <SoutherHelp />
               ) : navigation ? (
                 <NavigationLayoutPane />
               ) : screenBoard ? (

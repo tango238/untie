@@ -161,8 +161,8 @@ describe("設計モードのツールバー", () => {
     expect(boardOptions()).not.toContain("サイトマップ");
     act(() => st().enterDesign("sys_pms"));
     const options = boardOptions();
-    expect(options.slice(0, 8)).toEqual(["サイトマップ", "ナビゲーション", "画面", "データ", "関連", "シーケンス図", "ドメイン", "コンテキストマップ"]);
-    expect(options).toHaveLength(8 + st().model.boards.length);
+    expect(options.slice(0, 9)).toEqual(["サイトマップ", "ナビゲーション", "画面", "データ", "関連", "シーケンス図", "ドメイン", "コンテキストマップ", "業務ルール (Souther)"]);
+    expect(options).toHaveLength(9 + st().model.boards.length);
     expect(options).not.toContain("課題の分布");
     expect(within(screen.getByLabelText("ボード")).getAllByRole("group").map((g) => g.getAttribute("label"))).toEqual(["設計ボード", "自由ボード"]);
   });

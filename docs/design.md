@@ -391,7 +391,7 @@ DomainModel
 - **設定**: 環境変数 `UNTIE_DEV_MODE` (`1`・`true`・`on` で on)。起動のときに渡すか、リポジトリの直下かアプリのフォルダの `.env.local` に書く。各アプリ (`apps/web`・`apps/cloud`・`apps/desktop`) の `vite.config.ts` が `scripts/dev-mode.mjs` の `untieDevMode(env, appDir)` で値を決め、`define` で `__UNTIE_DEV_MODE__` に埋める。`untieDevMode` は、vite の `command` が `serve` (開発サーバー) のときだけ設定を見て、`build` では必ず `false` を返す (デプロイしたもの・リリースビルドに、開発用の画面を出さない)。
 - **画面側** (`packages/ui/src/devMode.ts`): `isDevMode()`。埋め込まれていないところ (テスト) では off。テストは `setDevModeForTest(true)` で切り替える。画面からは切り替えられない。
 - **開発モードのときだけ出すもの**:
-  - 分析ボード「イベントストーミング」(`DEV_ONLY_ANALYSIS_KINDS`)、設計ボード「ドメイン」「コンテキストマップ」(`DEV_ONLY_DESIGN_KINDS`)。ボードの選択肢 (`visibleAnalysisKinds()`・`visibleDesignKinds()`) とショートカット (E・M・K。`analysisEntries()`・`designEntries()`) に出さず、`setCurrentBoard`・`enterDesign` でも開けない (`isBoardAvailable`)。ドメインボードからしか始められない「AI で下書き」「AI と決める」も、一緒に隠れる。
+  - 分析ボード「イベントストーミング」(`DEV_ONLY_ANALYSIS_KINDS`)、設計ボード「ドメイン」「コンテキストマップ」「業務ルール (Souther)」(`DEV_ONLY_DESIGN_KINDS`)。ボードの選択肢 (`visibleAnalysisKinds()`・`visibleDesignKinds()`) とショートカット (E・M・K・U。`analysisEntries()`・`designEntries()`) に出さず、`setCurrentBoard`・`enterDesign` でも開けない (`isBoardAvailable`)。ドメインボードからしか始められない「AI で下書き」「AI と決める」も、一緒に隠れる。
   - 検証パネルの「検証: ドメインモデル」の節と、検証のバッジへのエラーの加算。
   - 「ファイル」メニューとコンテキストマップの「ドメインモデルを書き出す (distill-ddd)」。
   - 関連ボードの集約の枠 (`buildRelationFlow` の `aggregates`)。
@@ -703,6 +703,13 @@ DomainModel
   - `.ddd-session.json` は、Untie が書き出したフェーズ (`storming`・`contexts`・`mapping` (関係を決めていない組が無いとき)・`aggregates`・`events`・`glossary`) だけを `completedPhases` に入れ、`currentPhase` は `discover` にする (コアドメインの理由などは人が決めるので、そこから `/ddd --resume` で続ける)。`mapping` は、コンテキストが 2 つ以上あるときだけ判定する。未決のことは `openQuestions` に入れる。このファイルは distill-ddd が進み具合 (済んだフェーズ・キュー・食い違い) を書くものなので、フォルダに既にあれば上書きせずに残し、その旨を知らせる (`saveTextFiles` の `keep`。zip のときは、いつも入れる)。
   - 保存は `Platform.saveTextFiles(files, { zipName, zipFolder })`: フォルダを選んで、その中にファイルを書く (同じ名前は上書き。Web 版は `showDirectoryPicker`、デスクトップは dialog プラグインのフォルダ選択と `write_model_file`)。フォルダを選べないブラウザでは、`docs/domain/` に入れた zip (`packages/ui/src/io/zip.ts` の圧縮なしの zip) をダウンロードする。
   - 形式の保証: Untie は、サンプル (ネットショップ) の書き出しをスナップショットにしている (`packages/core/src/model/__tests__/__fixtures__/domain-export/`)。distill-ddd は、同じファイルを `scripts/fixtures/untie-export/` に持ち、パーサが読めることを確かめる (`test_untie_export_golden`)。形式を変えたら、両方を差し替える。
+- **業務ルールの書き出し (Souther)** (`exportSouther(model, systemId)`・`exportSoutherAll(model)`。`packages/core/src/model/southerExport.ts`。純粋。開発モード): 対象のシステムの操作を、[Souther](https://github.com/souther-lang/souther) のソース (`.sou`) に書き出す。Souther は、業務ルールを `data` と `behavior` で書き、`example` の行をコンパイルのときに評価して、どの組み合わせに行が無いかを測る言語。シーケンス図で決めた代替パターンを、コンパイラが確かめられる形にするために使う。書き出すのは、分析から機械的に導けるところまで。
+  - **対応**: 状態 → フィールドの無い `data` (同じグループの状態は 1 つの和 `data グループ = 状態 | 状態`。このシステムの操作が触るグループだけ)。操作 → `behavior` (入力は、前提の状態 (グループごとに 1 つ。複数あれば `状態 | 状態`) と、判断する条件の真偽 (`Bool`)。出力は、次の状態と、条件のときの別の結果)。次の状態が無ければ `操作_完了`、複数のグループにまたがれば `data 操作_結果 = { グループ: 状態, … }` にまとめる。代替パターン (`usecaseCondition` の `alternate`) → `guard … else 操作_条件` (満たすときに別の結果になるなら `guard Bool.not(条件)`、満たさないときなら `guard 条件` と `操作_条件_でない`)。作業・担当・扱う情報・起きる出来事・代替パターンの文は、コメントに書く。
+  - **例の行** (`example`): ふだんの流れ (前提の状態の組み合わせごと。12 行まで)、代替パターンごとに 1 行 (その条件だけを反対の側にする)。まだ決まっていないものは、答えを `<?>` (答え待ち) にする: 代替パターンの無い条件 (`alternateUndecided`)、同じグループに次の状態が複数ある操作 (`nextStateUndecided`。どのときにどれになるかが分析に無いので、`let` も書かない)。`SoutherExport` の `open` に、業務の言葉の文で返す。
+  - **書かないもの**: 条件の式 (何で判断するか)、情報の項目、不変条件、`>->` の合成 (条件を入力に持つ操作は、合成の 2 段目以降に置けない)。前提の状態も条件も無い操作は、確かめる組み合わせが無いので書き出さない (`skipped`。ファイルの末尾にコメントで並べる)。
+  - **名前**: 日本語の名前をそのまま識別子にする (`southerIdentifier`。文字と数字と `_` だけにし、予約語と標準ライブラリの名前には `_` を足す)。`data` と `behavior` は同じ名前を持てないので、重なったら番号を足す。モジュールは `untie.<システムの id>`、ファイルは `<システムの id>.sou`。
+  - **UI**: 設計ボード「業務ルール (Souther)」(`design:rules`。`SoutherBoard`。ショートカットは U) に、対象のシステムのソース・数 (操作・例の行・答え待ちの行・書き出していない操作)・まだ決まっていない組み合わせを出す。「書き出す…」(`exportSoutherToFolder`) で、すべてのシステムの分を、選んだフォルダ (Web 版で選べないときは zip) へ書き出す。右のペインは、書き出しの読み方 (`SoutherHelp`)。
+  - **形式の保証**: サンプルの書き出しをスナップショットにしている (`packages/core/src/model/__tests__/__fixtures__/souther/<サンプル>/<システム>.sou`)。CI の `souther` ジョブ (`scripts/souther-check.sh`) が、同じファイルを Souther のコンパイラ (`souther examples`。JDK 25。版と配布物の SHA-256 はスクリプトに固定) に通し、コンパイルできること・例の行が成り立つことを確かめる。行の無い組み合わせは報告に出るだけで、失敗にしない。Souther はブラウザでは動かない (コンパイラは JVM の上で動く) ので、アプリの中では実行しない。
 - デスクトップアプリでは、ファイル選択と保存先の選択に dialog プラグインを使い、読み書きは Rust のコマンド (`read_model_file` / `write_model_file`) で行う。パスはダイアログで選ばれたもの (と、それを覚えた最近開いたファイル) だけを渡す。ブラウザ (Web 版・開発用) では、File System Access API があれば (Chrome・Edge) `showOpenFilePicker` / `showSaveFilePicker` のハンドルを覚えて同じファイルに上書きする (ストアの `file.path` にはハンドルの代わりに `browser:<番号>` を入れる。ハンドルは最近開いたファイルとして IndexedDB にも残す)。無ければファイル選択とダウンロードで代わりにする。
 - **クラウドファイル**はファイルではなくサーバーが正本で、保存の操作は無い (つながっている間は常に反映される)。「JSON に書き出す」で同じ形式 (上のローカルファイルと同じ JSON) の中身を取り出し、「クラウドへ保存」でローカルのモデルをクラウドファイルとして複製する。クラウドファイルにはローカルの履歴 (Undo / Redo)・保存先・最近開いたファイル・「保存していない変更」の判定は無い。つながっていない間に溜めた変更だけが、閉じる前の確認の対象になる。読み込み・書き出しとも `validateModel()` を通す。詳細は collab-design 5 章・8.2。
 - Web 版 (ローカル専用) は Cloudflare Pages が `apps/web/dist/` を静的なサイトとして配る (`pnpm web:deploy`。手順は README の「Web 版の配信 (Cloudflare Pages)」)。`apps/web/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジンと各 AI プロバイダーの API だけに絞る。クラウド版は Cloudflare Worker (`apps/server`) が `apps/cloud/dist/` を配り (`pnpm cloud:deploy`)、`apps/server/public/_headers` で同じように絞る (通信先は自分のオリジンの WebSocket を含む)。
@@ -876,7 +883,7 @@ untie/
 │  │  │  ├ id.ts               … id 生成
 │  │  │  ├ relations.ts        … 関係ルール表と relationKindFor
 │  │  │  ├ fixedBoards.ts      … 固定ボードの枠の組み立て・絞り込み・枠への追加と紐づけ
-│  │  │  ├ design.ts           … 設計ボード (サイトマップ・ナビゲーション・画面・データ・関連・ドメイン・コンテキストマップ) の id・順序・ラベル
+│  │  │  ├ design.ts           … 設計ボード (サイトマップ・ナビゲーション・画面・データ・関連・シーケンス図・ドメイン・コンテキストマップ・業務ルール) の id・順序・ラベル
 │  │  │  ├ sitemap.ts          … サイトマップ: 遷移の導出・入口と注記・左の木・チェックの状態
 │  │  │  ├ prisma.ts / prismaCache.ts … データベースの DSL (Prisma の一部) の解析器と 1 件のキャッシュ
 │  │  │  ├ designData.ts       … システムが使う情報・未対応の情報・雛形・データベースの使われ方
@@ -888,6 +895,7 @@ untie/
 │  │  │  ├ domainResolve.ts / domainAdopt.ts … 候補に保存した判断を重ねる・候補を採用する
 │  │  │  ├ domainMap.ts / domainCheck.ts … コンテキストマップの下敷き・ドメインモデルの検証
 │  │  │  ├ domainDraft.ts / domainExport.ts … AI の下書きを当てる・distill-ddd の形式で書き出す
+│  │  │  ├ southerExport.ts    … 業務ルールの骨組みを Souther のソースに書き出す (exportSouther。開発モード)
 │  │  │  ├ commands.ts         … モデルを変える純粋関数
 │  │  │  ├ validate.ts         … スキーマ検証 + 参照整合性
 │  │  │  ├ repair.ts           … 壊れた参照を直す (同時編集の合流後)

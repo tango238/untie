@@ -3,7 +3,7 @@
 import type { DesignScreen, SystemDesign, UntieModel } from "./types";
 
 /** ボードの選択肢に並べる順 */
-export const DESIGN_BOARD_KINDS = ["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap"] as const;
+export const DESIGN_BOARD_KINDS = ["sitemap", "navigation", "screen", "data", "relation", "sequence", "domain", "contextmap", "rules"] as const;
 export type DesignBoardKind = (typeof DESIGN_BOARD_KINDS)[number];
 
 export const DESIGN_BOARD_LABELS: Record<DesignBoardKind, string> = {
@@ -15,6 +15,7 @@ export const DESIGN_BOARD_LABELS: Record<DesignBoardKind, string> = {
   sequence: "シーケンス図",
   domain: "ドメイン",
   contextmap: "コンテキストマップ",
+  rules: "業務ルール (Souther)",
 };
 
 const PREFIX = "design:";
