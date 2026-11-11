@@ -2,6 +2,8 @@
 //   node run.ts full    … はじめから終わりまで
 //   node run.ts crash   … テストの実行中に、プロセスを強制終了する (落ちたことにする)
 //   node run.ts resume  … 同じストレージを開き直して、続きから終わらせる
+//   node run.ts replay  … 前に本物の LLM が書いたもの (REPLAY_FROM の app/ と acceptance/driver.ts) を、台本として書かせる。
+//                         API キーなしで、依頼 → 書く → 完了の検査 → 判定 の流れを確かめるためのもの
 //   node run.ts gate    … 完了の検査だけを流す (WORKSPACE の出来上がったものを、外で確かめ直す)
 //   node run.ts llm     … 本物の LLM (Anthropic。ANTHROPIC_API_KEY が要る) に、task.md の依頼を渡す。モデルは MODEL (既定は claude-sonnet-5-5)
 //                         TASK で依頼文を差し替え、CRASH_AFTER=N で N 回めのツールの実行中に強制終了、RESUME=1 で同じストレージの続きから
@@ -16,12 +18,16 @@ import { AssistantEntry, createRegistry, defineExtension, GenerationTask, Harnes
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
-import { FULL_SCRIPT, RESUME_SCRIPT, TEST_COMMAND } from "./script.ts";
+import { FULL_SCRIPT, replayScript, RESUME_SCRIPT, TEST_COMMAND } from "./script.ts";
 
 const mode = process.argv[2] ?? "full";
 const workspace = process.env.WORKSPACE ?? new URL("../workspace", import.meta.url).pathname;
 const storagePath = process.env.STORAGE ?? new URL("../run.sqlite", import.meta.url).pathname;
 const submissionFile = `${storagePath}.submission`;
+/** start.ts が、本体の planBuild から作った計画 (依頼文・書き換えさせないファイル・完了の検査)。無ければ、この検証の既定のものを使う */
+const plan: { task: string; protectedPaths: string[]; checks: { name: string; command: string }[] } | null = process.env.PLAN ? JSON.parse(readFileSync(process.env.PLAN, "utf8")) : null;
+/** 完了の検査を付けるか (本物の LLM と、その再生) */
+const gated = mode === "llm" || mode === "replay";
 const context = BACKGROUND_CONTEXT;
 const log = (...args: unknown[]) => console.log(`[${mode}]`, ...args);
 const started = Date.now();
@@ -36,7 +42,7 @@ if (mode === "llm") {
   const faux = fauxProvider();
   models.setProvider(faux.provider);
   const model = faux.getModel();
-  faux.setResponses(mode === "resume" ? RESUME_SCRIPT : FULL_SCRIPT);
+  faux.setResponses(mode === "replay" ? replayScript(process.env.REPLAY_FROM ?? "") : mode === "resume" ? RESUME_SCRIPT : FULL_SCRIPT);
   agentModel = { provider: model.provider, modelId: model.id };
 }
 
@@ -84,7 +90,7 @@ function escapesWorkspace(path: string): boolean {
 const pristine = process.env.PRISTINE ?? new URL("../workspace", import.meta.url).pathname;
 const PROTECTED_DIRS = ["design", "model", "acceptance"];
 const GATE_MAX = 3;
-const GATE_CHECKS = [
+const GATE_CHECKS = plan?.checks ?? [
   { name: "受け入れテスト", command: "node --test acceptance/run.test.ts" },
   { name: "アプリのテスト", command: "npm test" },
 ];
@@ -117,16 +123,17 @@ function filesUnder(dir: string): string[] {
 /** 書き換えさせないものを、元に戻す。置き直したファイル (無かった・書き換えられていた・消されていたもの) を返す */
 function restoreProtected(): string[] {
   const restored: string[] = [];
-  for (const dir of PROTECTED_DIRS) {
-    for (const source of filesUnder(join(pristine, dir))) {
-      const path = relative(pristine, source);
-      const target = join(workspace, path);
-      const original = readFileSync(source);
-      if (existsSync(target) && readFileSync(target).equals(original)) continue;
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, original);
-      restored.push(path);
-    }
+  // 計画があれば、そこに挙がったファイル。無ければ、元のフォルダの design/・model/・acceptance/ にあるもの
+  const paths = plan ? plan.protectedPaths : PROTECTED_DIRS.flatMap((dir) => filesUnder(join(pristine, dir)).map((source) => relative(pristine, source)));
+  for (const path of paths) {
+    const source = join(pristine, path);
+    if (!existsSync(source)) throw new Error(`書き換えさせないファイルの元がありません: ${source}`);
+    const target = join(workspace, path);
+    const original = readFileSync(source);
+    if (existsSync(target) && readFileSync(target).equals(original)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, original);
+    restored.push(path);
   }
   return restored;
 }
@@ -195,7 +202,7 @@ const Project = defineExtension({
       () =>
         [
           "You implement an application from a design exported by Untie.",
-          "Read design/design.md first. Business rules are a Souther model compiled to WebAssembly in model/pms.wasm with TypeScript bindings in model/pms.ts.",
+          "Read design/design.md first. When a model/ folder exists, business rules are a Souther model compiled to WebAssembly there, with TypeScript bindings next to it.",
           "Never re-implement a business rule in application code: call the model. Write the application under app/ and prove it with tests.",
         ].join("\n"),
       { tag: false },
@@ -243,7 +250,7 @@ const Project = defineExtension({
     // 完了の検査: 最後の答えが出るたびに、外で検査を流す。落ちたら、結果を渡して続けさせる
     hook(GenerationTask, {
       onYield: () => {
-        if (mode !== "llm") return undefined;
+        if (!gated) return undefined;
         const result = runGate();
         if (result.ok) return undefined;
         if (gateHistory.length >= GATE_MAX) {
@@ -289,9 +296,11 @@ if (resuming) {
   submission = (await harness.submission(id, context))!;
 } else {
   const content =
-    mode === "llm"
-      ? readFileSync(process.env.TASK ?? new URL("./task.md", import.meta.url), "utf8")
-      : "design/design.md の設計から、予約の操作 (確定・取消・チェックイン) の HTTP API を app/ に作り、テストで確かめてください。";
+    plan && gated
+      ? plan.task
+      : mode === "llm"
+        ? readFileSync(process.env.TASK ?? new URL("./task.md", import.meta.url), "utf8")
+        : "design/design.md の設計から、予約の操作 (確定・取消・チェックイン) の HTTP API を app/ に作り、テストで確かめてください。";
   submission = await root.submit({ type: "input", content }, context);
   writeFileSync(submissionFile, JSON.stringify(submission.id));
   log("依頼を受け付けました:", submission.id);
@@ -305,7 +314,7 @@ if (settled.status === "done" && settled.type === "input") {
 }
 const usage = await harness.usage?.(context).catch(() => undefined);
 if (usage) log("usage:", JSON.stringify(usage).slice(0, 600));
-if (mode === "llm") {
+if (gated) {
   // 判定は、エージェントの答えではなく、最後の検査の結果で決める
   const last = gateHistory.at(-1);
   const verdict = { accepted: last?.ok === true, gateRuns: gateHistory.length, checks: gateHistory.map((g) => ({ ok: g.ok, restored: g.restored, checks: g.checks.map(({ output, ...c }) => c) })) };

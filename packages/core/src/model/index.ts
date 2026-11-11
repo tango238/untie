@@ -33,6 +33,7 @@ export * from "./readiness";
 export * from "./southerExport";
 export * from "./acceptance";
 export * from "./designBrief";
+export * from "./buildPlan";
 export * from "./domainMap";
 export * from "./domainCheck";
 export * from "./domainCache";

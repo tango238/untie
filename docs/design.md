@@ -724,6 +724,10 @@ DomainModel
   - **このシステムの外のもの**: このシステムのものでない操作は、名前に「ほかのシステム「…」」「帳票「…」」を添えて、作らないものだと分かるようにする。**作られたときの状態** は、前提の状態を何も持たない操作 (新しく作る操作) が移す先の状態。そういう操作が無いグループ (宿泊の部屋) は、「設計に無い」と書く。
   - **決まっていないこと**: その場所に「決まっていない」と書き、終わりの「まだ決まっていないこと」に、実装を始める準備の残りを条件ごとに並べる。
   - **UI**: 設計ボード「業務ルール (Souther)」の「設計書を書き出す…」(`exportDesignBriefToFolder`) で、操作のあるシステムの分を、選んだフォルダへ書き出す。形は、サンプルのスナップショットで固定している (`packages/core/src/model/__tests__/__fixtures__/designBrief/`)。
+- **実装を始めるときに渡すもの** (`planBuild(model, systemId)`。`packages/core/src/model/buildPlan.ts`。純粋。まだ画面からは呼んでいない): 設計書・業務ルール・受け入れテストを別々に書き出して渡すと、設計を直したあとの古いテストで判定してしまう。実装を始めるときは、その時点のモデルから、渡すものを 1 つにまとめて組み立てる。
+  - **返すもの** (`BuildPlan`): `ready` と `readiness`・`remaining` (実装を始める準備。そろっていなければ、呼び出す側は始めない)、`operations` (このシステムで作る操作の名前)、`files` (作業フォルダに置くファイル。`design/design.md` (設計書)、`design/<システムの id>.sou` (Souther のソース。前提の状態か条件のある操作が 1 つでもあれば)、`acceptance/` (このシステムのケース・テストの本体・説明。ケースも保留も無ければ付けない)、`package.json` (土台: 依存と、`npm start`・`npm test` の決まり))、`model` (Souther のソースを WebAssembly にしたものと、TypeScript の呼び出しコードの置き場所。コンパイルは JDK が要るので、呼び出す側が行う)、`protectedPaths` (実装する側が書き換えてはいけないファイル。完了の検査の前に、元から置き直す)、`checks` (完了の検査で流すコマンド。受け入れテストと、アプリのテスト)、`task` (実装する側への依頼文。作る操作の一覧、決まり、受け入れテストのドライバーの書き方、完了の検査のこと。準備がそろっていないときは、決まっていないところを作る範囲の外にする)。
+  - **いま作るものの範囲**: 依頼文が頼むのは、メモリにデータを持つ HTTP の API まで (画面とデータベースは、まだ作らせない)。
+  - **流れ** (検証の `spikes/pi-durable-souther/harness/start.ts`。手元の Node で一続きに動かす): 準備の確認 (そろっていなければ始めない) → 材料を作業フォルダに置く → 依存を入れる → 業務ルールを WebAssembly にする → エージェントに依頼する (「できた」と答えるたびに、外で検査を流し、落ちたら差し戻す。3 回まで) → 最後の検査の結果で判定する。画面から始めるボタンと、Cloudflare の上での実行 (Durable Object と Containers) は、まだ無い。
 - デスクトップアプリでは、ファイル選択と保存先の選択に dialog プラグインを使い、読み書きは Rust のコマンド (`read_model_file` / `write_model_file`) で行う。パスはダイアログで選ばれたもの (と、それを覚えた最近開いたファイル) だけを渡す。ブラウザ (Web 版・開発用) では、File System Access API があれば (Chrome・Edge) `showOpenFilePicker` / `showSaveFilePicker` のハンドルを覚えて同じファイルに上書きする (ストアの `file.path` にはハンドルの代わりに `browser:<番号>` を入れる。ハンドルは最近開いたファイルとして IndexedDB にも残す)。無ければファイル選択とダウンロードで代わりにする。
 - **クラウドファイル**はファイルではなくサーバーが正本で、保存の操作は無い (つながっている間は常に反映される)。「JSON に書き出す」で同じ形式 (上のローカルファイルと同じ JSON) の中身を取り出し、「クラウドへ保存」でローカルのモデルをクラウドファイルとして複製する。クラウドファイルにはローカルの履歴 (Undo / Redo)・保存先・最近開いたファイル・「保存していない変更」の判定は無い。つながっていない間に溜めた変更だけが、閉じる前の確認の対象になる。読み込み・書き出しとも `validateModel()` を通す。詳細は collab-design 5 章・8.2。
 - Web 版 (ローカル専用) は Cloudflare Pages が `apps/web/dist/` を静的なサイトとして配る (`pnpm web:deploy`。手順は README の「Web 版の配信 (Cloudflare Pages)」)。`apps/web/public/_headers` で CSP を付け、スクリプトは自分のオリジンだけ、通信先は自分のオリジンと各 AI プロバイダーの API だけに絞る。クラウド版は Cloudflare Worker (`apps/server`) が `apps/cloud/dist/` を配り (`pnpm cloud:deploy`)、`apps/server/public/_headers` で同じように絞る (通信先は自分のオリジンの WebSocket を含む)。
@@ -912,6 +916,7 @@ untie/
 │  │  │  ├ southerExport.ts    … 業務ルールの骨組みを Souther のソースに書き出す (exportSouther。開発モード)
 │  │  │  ├ acceptance.ts       … 設計から受け入れテストのケースを導く・書き出す (deriveAcceptanceCases。開発モード)
 │  │  │  ├ designBrief.ts      … 実装に渡す設計書を書き出す (exportDesignBrief。開発モード)
+│  │  │  ├ buildPlan.ts        … 実装を始めるときに渡すものを、まとめて組み立てる (planBuild)
 │  │  │  ├ commands.ts         … モデルを変える純粋関数
 │  │  │  ├ validate.ts         … スキーマ検証 + 参照整合性
 │  │  │  ├ repair.ts           … 壊れた参照を直す (同時編集の合流後)

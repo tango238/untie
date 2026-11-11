@@ -1,6 +1,8 @@
 // 台本: 「モデル」が出す応答 (どのツールを、どの引数で呼ぶか) を、あらかじめ決めておく。
 // API キーが無くても Pi Durable の実行基盤 (ツールでファイルを書く・コマンドを実行する・記録して再開する) を確かめるためのもの。
 // 書くアプリケーションは、宿泊管理システムの予約の操作 (確定・取消・チェックイン) の HTTP API。業務ルールは、Souther を WebAssembly にしたものを呼ぶ。
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 
 const RULES_TS = `// 業務ルール: untie が書き出した Souther のモデルを WebAssembly にしたもの (model/pms.wasm) を呼ぶ。
@@ -178,6 +180,29 @@ test("前提の状態が違う操作は 409、無い予約は 404、入力の誤
   assert.equal((await post("/reservations", { guest: "" })).status, 400);
 });
 `;
+
+/** フォルダの下のファイルを、相対パスで並べる */
+function filesUnder(dir: string, base = dir): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .sort()
+    .flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? filesUnder(path, base) : [relative(base, path)];
+    });
+}
+
+/**
+ * 再生の台本: 前に本物の LLM が書いたもの (from の app/ と acceptance/driver.ts) を、write のツールで 1 つずつ書かせて、「できた」と答える。
+ * 書かれる中身は記録のままなので、確かめているのは、依頼 → 書く → 完了の検査 → 判定 の流れ
+ */
+export function replayScript(from: string) {
+  const paths = [...filesUnder(join(from, "app")).map((p) => `app/${p}`), ...(existsSync(join(from, "acceptance/driver.ts")) ? ["acceptance/driver.ts"] : [])];
+  if (paths.length === 0) throw new Error(`再生するものがありません (REPLAY_FROM に、app/ のあるフォルダを指してください): ${from}`);
+  // 検査で差し戻されても、記録には続きが無いので、同じ答えを繰り返す (検査が上限まで落ちて、受け入れられないことを確かめられる)
+  const done = () => fauxAssistantMessage([fauxText(`記録にあった ${paths.length} 個のファイルを書きました。できました。`)]);
+  return [...paths.map((p) => write(p, readFileSync(join(from, p), "utf8"))), done(), done(), done(), done()];
+}
 
 const write = (path: string, content: string) => fauxAssistantMessage([fauxToolCall("write", { path, content })], { stopReason: "toolUse" });
 const bash = (command: string) => fauxAssistantMessage([fauxToolCall("bash", { command, timeout: 240 })], { stopReason: "toolUse" });

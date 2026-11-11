@@ -7,3 +7,4 @@ workspace/app/
 .souther-home/
 workspace/.home/
 *.gate.json
+harness/.cache/
