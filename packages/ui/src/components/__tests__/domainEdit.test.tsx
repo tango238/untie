@@ -1,3 +1,4 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addContextRelation, removeContextRelation } from "@untie/core/model/domainCommands";
@@ -46,6 +47,8 @@ function start(withDomain: boolean) {
 }
 
 beforeEach(() => {
+  // 内部のドメインモデルを見せる画面は、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
   (globalThis as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = DOMMatrixStub;
   localStorage.clear();

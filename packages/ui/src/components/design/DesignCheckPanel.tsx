@@ -3,6 +3,7 @@ import { DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type D
 import { designBoardId, type DesignBoardKind } from "@untie/core/model/design";
 import { cachedDomainCheck } from "@untie/core/model/domainCache";
 import { DOMAIN_CHECK_ORDER, DOMAIN_CHECK_TITLES, type DomainCheckProblem } from "@untie/core/model/domainCheck";
+import { isDevMode } from "../../devMode";
 import { useUntieStore } from "../../store";
 import { cachedCheckDesign } from "./checkCache";
 import { revealDomainSelection } from "./domainElementClick";
@@ -56,7 +57,8 @@ export function DesignCheckPanel() {
   const model = useUntieStore((s) => s.model);
   const systemId = useUntieStore((s) => s.ui.designSystemId);
   const result = useMemo(() => (systemId ? cachedCheckDesign(model, systemId) : { problems: [], warnings: [] }), [model, systemId]);
-  const domain = cachedDomainCheck(model);
+  // ドメインモデルの検証は、内部のモデルの言葉 (集約・コンテキスト) で出るので、開発モードのときだけ見せる
+  const domain = isDevMode() ? cachedDomainCheck(model) : [];
   const domainErrors = domain.filter((p) => p.level === "error");
   const domainWarnings = domain.filter((p) => p.level === "warning");
   const hasDesign = model.designs.some((d) => d.systemId === systemId);
@@ -88,7 +90,7 @@ export function DesignCheckPanel() {
         <ul>
           <li>エラー: システムが使う情報がテーブルに対応しているか／対応のあるテーブルが DSL にあるか／DSL に解析エラーが無いか／画面の項目の対応が無い列を指していないか／使うデータベースがあるか</li>
           <li>警告: 遷移のきっかけが未定／メニューからも遷移からも辿れない画面／画面 UI がまだ無い画面／画面 UI の項目に列の対応が無い</li>
-          <li>ドメインモデル (保存した判断があるとき。すべてのシステムの分): 同じコンテキストの 2 つの集約に同じ情報が入っていないか (エラー)／集約に入っていない情報・関係を決めていないコンテキストの組・実装するシステムや分類が未定のコンテキスト・不変条件の無い集約・英語名の無いもの (警告)</li>
+          {isDevMode() && <li>ドメインモデル (保存した判断があるとき。すべてのシステムの分): 同じコンテキストの 2 つの集約に同じ情報が入っていないか (エラー)／集約に入っていない情報・関係を決めていないコンテキストの組・実装するシステムや分類が未定のコンテキスト・不変条件の無い集約・英語名の無いもの (警告)</li>}
         </ul>
       </details>
     </aside>

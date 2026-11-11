@@ -1,3 +1,4 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addDatabase, setDesignDatabases } from "@untie/core/model/commands";
@@ -27,6 +28,8 @@ class DOMMatrixStub {
 }
 
 beforeEach(() => {
+  // 内部のドメインモデルを見せる画面は、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
   (globalThis as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = DOMMatrixStub;
   localStorage.clear();
@@ -69,7 +72,9 @@ describe("関連ボードの図の計算", () => {
     expect(graph.informations.find((i) => i.id === "info_order")!.aggregate).toEqual({ id: "ag_order", name: "注文 (Order)", role: "root" });
     expect(graph.informations.find((i) => i.id === "info_product")!.aggregate).toMatchObject({ id: "ag_stock", role: "member" });
     expect(graph.informations.find((i) => i.id === "info_customer")!.aggregate).toBeUndefined();
-    const { nodes } = buildRelationFlow(graph, undefined);
+    // 集約の枠は開発モードのときだけ (内部のドメインモデルを見せることになるため)。ふだんは、情報をそのまま並べる
+    expect(buildRelationFlow(graph, undefined).nodes.some((n) => n.id.startsWith("aggregate:"))).toBe(false);
+    const { nodes } = buildRelationFlow(graph, undefined, { aggregates: true });
     const frame = nodes.find((n) => n.id === "aggregate:ag_stock")!;
     expect(frame).toMatchObject({ type: "frame", data: { name: "集約: 在庫 (Stock)" } });
     const inside = nodes.filter((n) => n.parentId === "aggregate:ag_stock");

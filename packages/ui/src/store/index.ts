@@ -1,3 +1,4 @@
+import { isBoardAvailable } from "../devMode";
 import { create } from "zustand";
 import * as Y from "yjs";
 import { can, type Role } from "@untie/api";
@@ -668,6 +669,8 @@ export function createUntieStore(
 
     setCurrentBoard: (boardId) => {
       if (!isBuiltinBoard(boardId) && !get().model.boards.some((b) => b.id === boardId)) return;
+      // 開発用のボードは、開発モードのときだけ開ける
+      if (!isBoardAvailable(boardId)) return;
       const { ui } = get();
       const mode = ui.mode ?? "analysis";
       if (isDesignBoard(boardId)) {
@@ -690,7 +693,7 @@ export function createUntieStore(
       const { model, ui } = get();
       if (!model.elements.some((e) => e.id === systemId && e.kind === "system")) return;
       // ボードの指定 (ショートカットから) は設計ボードだけ受ける。それ以外は従来どおり
-      const target = boardId !== undefined && isDesignBoard(boardId) ? boardId : undefined;
+      const target = boardId !== undefined && isDesignBoard(boardId) && isBoardAvailable(boardId) ? boardId : undefined;
       saveLastDesignSystemId(systemId);
       const inDesign = (ui.mode ?? "analysis") === "design";
       set((s) => ({

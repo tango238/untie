@@ -12,8 +12,9 @@ import { useSessionStore } from "../cloud/session";
 import { confirmDiscardIfDirty, exportDomainDocsToFolder, exportModelToFile, newEmptyDocument, openDocument, openRecentDocument, saveDocument } from "../io/document";
 import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
-import { ANALYSIS_KINDS, ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
-import { DESIGN_BOARD_KINDS, DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
+import { DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { isDevMode, visibleAnalysisKinds, visibleDesignKinds } from "../devMode";
 import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
@@ -46,7 +47,8 @@ export function Toolbar() {
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
   const traceCount = useMemo(() => {
     // 設計モードは、対象のシステムの設計のエラーと、ドメインモデルのエラー (全体) を合わせる
-    if (designResult) return designResult.problems.length + cachedDomainCheck(model).filter((p) => p.level === "error").length;
+    // (ドメインモデルの検証は、開発モードのときだけ見せるので、数えるのもそのときだけ)
+    if (designResult) return designResult.problems.length + (isDevMode() ? cachedDomainCheck(model).filter((p) => p.level === "error").length : 0);
     const r = traceToActors(model);
     return r.problems.length + r.errors.length;
   }, [model, designResult]);
@@ -179,7 +181,7 @@ export function Toolbar() {
                 >
                   {mode === "design" ? (
                     <optgroup label="設計ボード">
-                      {DESIGN_BOARD_KINDS.map((kind) => (
+                      {visibleDesignKinds().map((kind) => (
                         <option key={kind} value={designBoardId(kind)}>
                           {DESIGN_BOARD_LABELS[kind]}
                         </option>
@@ -195,7 +197,7 @@ export function Toolbar() {
                         ))}
                       </optgroup>
                       <optgroup label="分析ボード">
-                        {ANALYSIS_KINDS.map((kind) => (
+                        {visibleAnalysisKinds().map((kind) => (
                           <option key={kind} value={analysisBoardId(kind)}>
                             {ANALYSIS_LABELS[kind]}
                           </option>
@@ -463,7 +465,8 @@ function FileMenu({
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const signedIn = useSessionStore((s) => s.status === "signedIn");
   // 保存したドメインモデル (境界づけられたコンテキスト) があるときだけ、書き出しの項目を出す
-  const hasDomain = useUntieStore((s) => s.model.domain.contexts.length > 0);
+  // 内部のドメインモデルを直に扱う機能なので、開発モードのときだけ
+  const hasDomain = useUntieStore((s) => s.model.domain.contexts.length > 0) && isDevMode();
   // クラウドへ保存している間は押せない (二重に作らない)
   const [savingToCloud, setSavingToCloud] = useState(false);
   const ref = useRef<HTMLDivElement>(null);

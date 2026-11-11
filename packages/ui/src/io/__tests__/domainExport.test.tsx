@@ -1,3 +1,4 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createNetshopSample } from "@untie/core/sample";
@@ -13,6 +14,8 @@ const st = () => useUntieStore.getState();
 const lastToast = () => st().toasts[st().toasts.length - 1]!;
 
 beforeEach(() => {
+  // 内部のドメインモデルを見せる画面は、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
   resetStore(createNetshopSample());
   useUntieStore.setState({ toasts: [] });
   memory().folder = "/repo/docs/domain";

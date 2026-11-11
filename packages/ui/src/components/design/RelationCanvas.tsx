@@ -1,5 +1,6 @@
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useEffect, useMemo } from "react";
+import { isDevMode } from "../../devMode";
 import { useUntieStore } from "../../store";
 import { cachedRelationGraph } from "./relationGraphCache";
 import { buildRelationFlow, type RelationFlowNode } from "./relationFlow";
@@ -93,7 +94,7 @@ function RelationCanvasInner() {
   const selected = useUntieStore((s) => s.ui.designRelation);
   const selectDesignRelation = useUntieStore((s) => s.selectDesignRelation);
   const graph = cachedRelationGraph(model, systemId);
-  const flow = useMemo(() => buildRelationFlow(graph, selected), [graph, selected]);
+  const flow = useMemo(() => buildRelationFlow(graph, selected, { aggregates: isDevMode() }), [graph, selected]);
 
   // 画面・情報・テーブルの集合か対象のシステムが変わったら、全体が見えるよう合わせ直す (選択では動かさない)
   const rf = useReactFlow();

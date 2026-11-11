@@ -1,3 +1,4 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureDesign, removeElement } from "@untie/core/model/commands";
@@ -14,6 +15,8 @@ vi.mock("../canvas/Canvas", () => ({ Canvas: () => <div data-testid="canvas" /> 
 const st = () => useUntieStore.getState();
 
 beforeEach(() => {
+  // 内部のドメインモデルを見せる画面は、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
   localStorage.clear();
   resetStore();
 });

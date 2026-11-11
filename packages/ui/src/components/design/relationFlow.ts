@@ -124,7 +124,7 @@ export function relationHighlight(graph: RelationGraph, sel: DesignRelationSelec
   return { nodes, edges };
 }
 
-export function buildRelationFlow(graph: RelationGraph, sel: DesignRelationSelection | undefined): { nodes: RelationFlowNode[]; edges: Edge[] } {
+export function buildRelationFlow(graph: RelationGraph, sel: DesignRelationSelection | undefined, options: { aggregates?: boolean } = {}): { nodes: RelationFlowNode[]; edges: Edge[] } {
   const hl = relationHighlight(graph, sel);
   const dimmed = (id: string) => hl !== null && !hl.nodes.has(id);
   const nodes: RelationFlowNode[] = [];
@@ -147,7 +147,8 @@ export function buildRelationFlow(graph: RelationGraph, sel: DesignRelationSelec
   const placed = new Set<string>();
   for (const info of graph.informations) {
     if (placed.has(info.id)) continue;
-    const aggregate = info.aggregate;
+    // 集約の枠は、内部のドメインモデルを見せることになるので、開発モードのときだけ (options.aggregates)
+    const aggregate = options.aggregates ? info.aggregate : undefined;
     if (!aggregate) {
       placed.add(info.id);
       nodes.push(infoNode(info, { x: RELATION_COLUMN_X.information, y }));

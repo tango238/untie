@@ -1,3 +1,4 @@
+import { setDevModeForTest } from "../../devMode";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ANALYSIS_KINDS, ANALYSIS_LABELS } from "@untie/core/model/analysis";
@@ -9,7 +10,11 @@ import { createAccountingSample, createNetshopSample } from "@untie/core/sample"
 import { Toolbar } from "../Toolbar";
 
 const st = () => useUntieStore.getState();
-beforeEach(() => resetStore());
+beforeEach(() => {
+  resetStore();
+  // イベントストーミングは、開発モードのときだけ出る (devMode.ts)
+  setDevModeForTest(true);
+});
 
 describe("AnalysisBoard", () => {
   it("4 種類とも見出しを出して描ける。ツールバーの「分析ボード」から切り替えられ、名前変更・削除はできない", () => {

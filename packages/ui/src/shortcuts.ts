@@ -1,7 +1,8 @@
 // キーボードショートカットの表 (純粋なデータと関数だけ。画面・ストアには触れない)。
 // ボードの並びと名前は @untie/core の定義から取り、ここには「どのキーでどこへ移るか」だけを置く。
-import { ANALYSIS_KINDS, ANALYSIS_LABELS, type AnalysisKind } from "@untie/core/model/analysis";
-import { DESIGN_BOARD_KINDS, DESIGN_BOARD_LABELS, type DesignBoardKind } from "@untie/core/model/design";
+import { ANALYSIS_LABELS, type AnalysisKind } from "@untie/core/model/analysis";
+import { DESIGN_BOARD_LABELS, type DesignBoardKind } from "@untie/core/model/design";
+import { visibleAnalysisKinds, visibleDesignKinds } from "./devMode";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, type FixedLayer } from "@untie/core/model/fixedBoards";
 
 /** macOS か (修飾キーの表示と判定を ⌘ / Ctrl で分ける) */
@@ -67,21 +68,19 @@ export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.ma
   label: FIXED_LAYER_LABELS[layer],
   target: { type: "fixed", layer },
 }));
-export const ANALYSIS_ENTRIES: readonly ShortcutEntry[] = ANALYSIS_KINDS.map((kind) => ({
-  key: ANALYSIS_KEYS[kind],
-  label: ANALYSIS_LABELS[kind],
-  target: { type: "analysis", kind },
-}));
-export const DESIGN_ENTRIES: readonly ShortcutEntry[] = DESIGN_BOARD_KINDS.map((kind) => ({
-  key: DESIGN_KEYS[kind],
-  label: DESIGN_BOARD_LABELS[kind],
-  target: { type: "design", kind },
-}));
+/** 分析ボードのショートカット (開発用のボードは、開発モードのときだけ) */
+export function analysisEntries(): ShortcutEntry[] {
+  return visibleAnalysisKinds().map((kind) => ({ key: ANALYSIS_KEYS[kind], label: ANALYSIS_LABELS[kind], target: { type: "analysis", kind } }));
+}
+/** 設計ボードのショートカット (開発用のボードは、開発モードのときだけ) */
+export function designEntries(): ShortcutEntry[] {
+  return visibleDesignKinds().map((kind) => ({ key: DESIGN_KEYS[kind], label: DESIGN_BOARD_LABELS[kind], target: { type: "design", kind } }));
+}
 
 /** Cmd+B のあとに押したキーの移り先。表に無ければ null */
 export function resolveChordKey(key: string): ShortcutTarget | null {
   const k = key.toLowerCase();
-  const all = [...MODE_ENTRIES, ...FIXED_ENTRIES, ...ANALYSIS_ENTRIES, ...DESIGN_ENTRIES];
+  const all = [...MODE_ENTRIES, ...FIXED_ENTRIES, ...analysisEntries(), ...designEntries()];
   return all.find((e) => e.key === k)?.target ?? null;
 }
 

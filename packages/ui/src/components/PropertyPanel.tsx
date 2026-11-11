@@ -1,3 +1,4 @@
+import { isDevMode } from "../devMode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addRelation,
@@ -445,7 +446,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             className="danger"
             onClick={() => {
               // 設計データが一緒に消えるときは、消えるものを見せて確かめる
-              const refs = [...designReferences(model, element.id), ...domainReferences(model, element.id)];
+              // 内部のドメインモデルから消える・外れるものは、開発モードでなければ 1 行にまとめる (集約などの言葉を出さない)
+              const internal = domainReferences(model, element.id);
+              const refs = [...designReferences(model, element.id), ...(isDevMode() ? internal : internal.length > 0 ? ["実装のための内部の設計 (この要素を使っているところ)"] : [])];
               if (refs.length > 0) setConfirmRemove(refs);
               else removeSelected();
             }}

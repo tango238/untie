@@ -4,8 +4,8 @@ import { analysisBoardId } from "@untie/core/model/analysis";
 import { designBoardId } from "@untie/core/model/design";
 import { fixedBoardId } from "@untie/core/model/fixedBoards";
 import {
-  ANALYSIS_ENTRIES,
-  DESIGN_ENTRIES,
+  analysisEntries,
+  designEntries,
   FIXED_ENTRIES,
   MODE_ENTRIES,
   otherShortcuts,
@@ -154,8 +154,8 @@ function ShortcutsPanel() {
         <div className="shortcuts-groups">
           <Group title="モード" entries={MODE_ENTRIES} current={current} chord={chord} />
           <Group title="固定ボード (分析)" entries={FIXED_ENTRIES} current={current} chord={chord} />
-          <Group title="分析ボード" entries={ANALYSIS_ENTRIES} current={current} chord={chord} />
-          <Group title="設計ボード" entries={DESIGN_ENTRIES} current={current} chord={chord} />
+          <Group title="分析ボード" entries={analysisEntries()} current={current} chord={chord} />
+          <Group title="設計ボード" entries={designEntries()} current={current} chord={chord} />
           <section className="shortcuts-group">
             <h3>自由ボード</h3>
             {freeEntries.length === 0 ? (
