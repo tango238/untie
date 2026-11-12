@@ -1138,3 +1138,51 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .seq-alternates select.is-undecided { border-color: #c0392b; background: #fbeee9; }
 .souther-pending { font-size: 12px; font-weight: 400; color: #8a6414; }
 .seq-after-group select { flex: 1; min-width: 0; }
+
+/* 分析（簡易）のワークフローボード: 登場人物 → 業務 → 活動 → 作業 */
+.workflow-board { --wf-bus-y: 24px; --wf-stub: 14px; --wf-line: #9a9488; }
+.wf-lane { display: flex; align-items: flex-start; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px dashed var(--border); }
+.wf-actor { flex: 0 0 168px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.wf-actor-card { min-height: calc(var(--wf-bus-y) * 2); display: flex; flex-direction: column; justify-content: center; text-align: left; background: #fff; border: 1.5px solid var(--c-actor); border-left-width: 5px; border-radius: 6px; padding: 4px 8px; }
+.wf-actor.kind-externalActor .wf-actor-card { border-color: var(--c-externalActor); }
+.wf-actor-card.is-selected, .wf-activity.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.wf-kind { font-size: 10px; font-weight: 600; color: var(--muted); }
+.wf-name { font-weight: 600; word-break: break-all; }
+.wf-note { font-size: 11px; color: var(--muted); margin: 2px 0; }
+.wf-add { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+.wf-trunk { flex: 0 0 28px; margin-top: var(--wf-bus-y); border-top: 2px solid var(--wf-line); }
+.wf-businesses { list-style: none; margin: 0; padding: calc(var(--wf-bus-y) + var(--wf-stub)) 4px 4px 0; display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; flex: 1; min-width: 0; }
+.wf-businesses.is-flat { padding: 4px; flex-wrap: wrap; overflow-x: visible; }
+.wf-branch-item { position: relative; flex: 0 0 auto; }
+/* 枝: 登場人物から伸びた線 (幹) につなげて行の上端に横の線を通し、各業務の枠へ縦の短い線を下ろす (最後は枠の中央までにとどめる) */
+.wf-branch-item::before { content: ""; position: absolute; top: calc(var(--wf-stub) * -1); left: -8px; right: -8px; border-top: 2px solid var(--wf-line); }
+.wf-branch-item:first-child::before { left: 0; }
+.wf-branch-item:last-child::before { right: 50%; }
+.wf-branch-item::after { content: ""; position: absolute; top: calc(var(--wf-stub) * -1); left: 50%; height: var(--wf-stub); border-left: 2px solid var(--wf-line); }
+.wf-frame { background: #fff; border: 1.5px solid var(--c, var(--border)); border-radius: 8px; padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 190px; cursor: pointer; }
+.wf-business { --c: var(--c-business); background: color-mix(in srgb, var(--c-business) 5%, #fff); }
+.wf-buc { --c: var(--c-buc); background: color-mix(in srgb, var(--c-buc) 7%, #fff); }
+.wf-frame.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+/* 枠の見出しは、枠の強調と二重にならないよう選択中の枠線を出さない (フォーカス時は出る) */
+.wf-frame-title.is-selected { outline: none; }
+.wf-frame-title.is-selected:focus-visible { outline: 2px solid var(--selected); }
+.wf-frame-head { display: flex; }
+.wf-frame-title { display: flex; flex-direction: column; text-align: left; background: transparent; border: none; padding: 2px 4px; border-radius: 4px; }
+.wf-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-activity { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-activity); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
+.wf-assignees { font-size: 11px; color: var(--muted); }
+.wf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.wf-warning { margin: 0; padding: 4px 8px; border-radius: 4px; background: #fbeee9; color: #8a3a2c; font-size: 11px; line-height: 1.5; }
+.wf-section { margin-top: 8px; }
+.wf-section-title { margin: 0 0 4px; font-size: 14px; }
+
+/* 狭い画面: 登場人物のカードの下に、業務を縦に並べる (枝は左端の縦線にする) */
+@media (max-width: 768px) {
+  .wf-lane { flex-direction: column; }
+  .wf-actor { flex-basis: auto; align-self: stretch; }
+  .wf-trunk { display: none; }
+  .wf-businesses { flex-direction: column; overflow-x: visible; width: 100%; padding: 8px 4px 4px 14px; margin-left: 10px; border-left: 2px solid var(--wf-line); gap: 12px; }
+  .wf-branch-item { width: 100%; }
+  .wf-branch-item::before, .wf-branch-item::after { display: none; }
+  .wf-frame { min-width: 0; }
+}

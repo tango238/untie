@@ -23,14 +23,14 @@ export function hasModKey(e: Pick<KeyboardEvent, "metaKey" | "ctrlKey">): boolea
 
 /** 移り先 */
 export type ShortcutTarget =
-  | { type: "mode"; mode: "analysis" | "design" }
+  | { type: "mode"; mode: "analysis" | "analysisSimple" | "design" }
   | { type: "fixed"; layer: FixedLayer }
   | { type: "analysis"; kind: AnalysisKind }
   | { type: "design"; kind: DesignBoardKind }
   | { type: "free"; boardId: string };
 
 /** モード: Cmd+B のあとに押すキー */
-export const MODE_KEYS = { analysis: "a", design: "d" } as const;
+export const MODE_KEYS = { analysisSimple: "f", analysis: "a", design: "d" } as const;
 
 /** 固定ボード (分析): Cmd+B のあとに押すキー。並びは FIXED_BOARD_MENU_ORDER のとおり (1〜9、0、C、N) */
 export const FIXED_KEYS: Record<FixedLayer, string> = {
@@ -60,7 +60,8 @@ export interface ShortcutEntry {
 }
 
 export const MODE_ENTRIES: readonly ShortcutEntry[] = [
-  { key: MODE_KEYS.analysis, label: "分析", target: { type: "mode", mode: "analysis" } },
+  { key: MODE_KEYS.analysisSimple, label: "分析（簡易）", target: { type: "mode", mode: "analysisSimple" } },
+  { key: MODE_KEYS.analysis, label: "分析（詳細）", target: { type: "mode", mode: "analysis" } },
   { key: MODE_KEYS.design, label: "設計", target: { type: "mode", mode: "design" } },
 ];
 export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.map((layer) => ({

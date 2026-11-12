@@ -29,12 +29,12 @@ const openModeMenu = () => {
 const boardOptions = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
 
 describe("モードのメニュー", () => {
-  it("ファイルメニューに「モード」があり、分析・設計を並べて今のモードに ✓ を付ける", () => {
+  it("ファイルメニューに「モード」があり、分析（簡易）・分析（詳細）・設計を並べて今のモードに ✓ を付ける", () => {
     render(<Toolbar />);
     const sub = openModeMenu();
     const items = within(sub).getAllByRole("menuitemradio");
-    expect(items.map((i) => i.textContent)).toEqual(["分析✓", "設計"]);
-    expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    expect(items.map((i) => i.textContent)).toEqual(["分析（簡易）", "分析（詳細）✓", "設計"]);
+    expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
   });
 
   it("設計を選ぶとシステムの選択が出て、選ぶと設計モードのサイトマップへ移る", () => {
@@ -54,7 +54,7 @@ describe("モードのメニュー", () => {
     expect(loadLastDesignSystemId()).toBe("sys_pms");
     // メニューの印が移る
     const sub = openModeMenu();
-    expect(within(sub).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["分析", "設計✓"]);
+    expect(within(sub).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["分析（簡易）", "分析（詳細）", "設計✓"]);
   });
 
   it("キャンセルしたら分析モードのまま、設計も足さない", () => {
@@ -66,10 +66,10 @@ describe("モードのメニュー", () => {
     expect(st().model.designs).toEqual([]);
   });
 
-  it("分析を選ぶと分析モード (analysis:issues) に戻る。対象のシステムが決まっていれば、設計は選択なしで戻れる", () => {
+  it("分析（詳細）を選ぶと分析モード (analysis:issues) に戻る。対象のシステムが決まっていれば、設計は選択なしで戻れる", () => {
     render(<Toolbar />);
     act(() => st().enterDesign("sys_pms"));
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "分析" }));
+    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "分析（詳細）" }));
     expect(st().ui.mode).toBe("analysis");
     expect(st().ui.currentBoardId).toBe("analysis:issues");
     fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));

@@ -10,6 +10,7 @@ import { domainSelectionElementExists, type DesignDomainSelection } from "@untie
 import { moveNode, type Position, type Size } from "@untie/core/model/commands";
 import { fixedBoardId, parseFixedBoardId, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { analysisBoardId, parseAnalysisBoardId } from "@untie/core/model/analysis";
+import { parseSimpleBoardId, simpleBoardId } from "@untie/core/model/workflow";
 import { designBoardId, effectiveDatabaseIds, parseDesignBoardId } from "@untie/core/model/design";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { saveLastDesignSystemId } from "./designPrefs";
@@ -24,8 +25,12 @@ export const HISTORY_LIMIT = 100;
 export type Selection = { type: "element"; id: string } | { type: "relation"; id: string } | null;
 export type RightPanel = "properties" | "issues" | "trace";
 
-/** モード。analysis は分析 (既定)、design は設計 (システムごとに、サイトマップ・ナビゲーション・データ・画面を設計する) */
-export type Mode = "analysis" | "design";
+/**
+ * モード。analysis は分析（詳細。既定）、analysisSimple は分析（簡易。ワークフローの 1 枚で書く）、
+ * design は設計 (システムごとに、サイトマップ・ナビゲーション・データ・画面を設計する)。
+ * 簡易と詳細は同じモデルを別の見せ方で扱うだけなので、行き来できる
+ */
+export type Mode = "analysis" | "analysisSimple" | "design";
 
 export interface UiState {
   /** 自由ボード (モデルのボード) の id か、固定ボードの id ("fixed:<レイヤー>")・分析ボードの id ("analysis:<種類>")・設計ボードの id ("design:<種類>") */
@@ -239,13 +244,15 @@ export const START_BOARD_ID = analysisBoardId("issues");
  * 狭い画面 (スマートフォン) では、ペインが画面の上に重なるので、最初は閉じておく
  * (開くのはツールバーのボタン)。広い画面ではこれまでどおり、右のペインを開いておく
  */
-function startUi() {
+function startUi(prev?: Pick<UiState, "mode">) {
   const narrow = isNarrowViewport();
+  // 簡易は表現の好みなので、ファイルを開き直す・新規作成・クラウドの開閉をしても保つ (設計は分析（詳細）へ戻す)
+  const simple = prev?.mode === "analysisSimple";
   return {
-    currentBoardId: START_BOARD_ID,
+    currentBoardId: simple ? SIMPLE_START_BOARD_ID : START_BOARD_ID,
     rightPanel: "issues" as const,
     rightPanelOpen: !narrow,
-    mode: "analysis" as const,
+    mode: simple ? ("analysisSimple" as const) : ("analysis" as const),
     designSystemId: undefined,
     designScreenId: undefined,
     designTransitionId: undefined,
@@ -257,6 +264,9 @@ function startUi() {
   };
 }
 
+/** 設計モードを離れる・設計ボード以外へ移るときに消す、設計ボードの選択 */
+const clearDesignUi = { designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined, designRelation: undefined, designDomain: undefined };
+
 /** 設計モードに入るとき、課題一覧のペインはプロパティに替え (設計では使わない)、右のペインを開く (設計ボードの選択はプロパティに出るため) */
 function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOpen"> {
   return { rightPanel: ui.rightPanel === "issues" ? "properties" : ui.rightPanel, rightPanelOpen: true };
@@ -265,15 +275,20 @@ function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOp
 /** 設計モードに入ったときの最初のボード */
 export const DESIGN_START_BOARD_ID = designBoardId("sitemap");
 
+/** 簡易モードに入ったときの (ただ 1 枚の) ボード */
+export const SIMPLE_START_BOARD_ID = simpleBoardId("workflow");
+
 /** そのモードの最初のボード */
 function firstBoardOf(mode: Mode): string {
-  return mode === "design" ? DESIGN_START_BOARD_ID : START_BOARD_ID;
+  if (mode === "design") return DESIGN_START_BOARD_ID;
+  return mode === "analysisSimple" ? SIMPLE_START_BOARD_ID : START_BOARD_ID;
 }
 
-/** ボードがそのモードで開けるか。分析モードは固定・分析・自由ボード、設計モードは設計・自由ボード */
+/** ボードがそのモードで開けるか。分析（詳細）は固定・分析・自由ボード、分析（簡易）はワークフローだけ、設計は設計・自由ボード */
 function boardFitsMode(boardId: string, mode: Mode): boolean {
-  if (mode === "design") return !isFixedBoard(boardId) && !isAnalysisBoard(boardId);
-  return !isDesignBoard(boardId);
+  if (mode === "analysisSimple") return isSimpleBoard(boardId);
+  if (mode === "design") return !isFixedBoard(boardId) && !isAnalysisBoard(boardId) && !isSimpleBoard(boardId);
+  return !isDesignBoard(boardId) && !isSimpleBoard(boardId);
 }
 
 /** 関連ボードの選択の指す先が (対象のシステムの設計に) あるか */
@@ -384,9 +399,14 @@ export function isDesignBoard(boardId: string): boolean {
   return parseDesignBoardId(boardId) !== null;
 }
 
-/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード・設計ボード) か */
+/** 簡易モードのボード (ワークフロー) を開いているか */
+export function isSimpleBoard(boardId: string): boolean {
+  return parseSimpleBoardId(boardId) !== null;
+}
+
+/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード・設計ボード・簡易モードのボード) か */
 export function isBuiltinBoard(boardId: string): boolean {
-  return isFixedBoard(boardId) || isAnalysisBoard(boardId) || isDesignBoard(boardId);
+  return isFixedBoard(boardId) || isAnalysisBoard(boardId) || isDesignBoard(boardId) || isSimpleBoard(boardId);
 }
 
 /** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
@@ -577,7 +597,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(s.ui), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
 
     loadDocument: (model, file) =>
@@ -591,7 +611,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(s.ui), selection: null, issueDraft: undefined, globalFilter: {} },
       })),
     markSaved: (file, model) => set({ file, savedModel: model }),
 
@@ -609,8 +629,8 @@ export function createUntieStore(
         docSeq: options?.keepUi ? s.docSeq : s.docSeq + 1,
         ui: {
           ...s.ui,
-          ...startUi(),
-          // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析に戻す
+          ...startUi(s.ui),
+          // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは簡易ならそのまま、設計なら分析（詳細）に戻す
           ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
@@ -663,7 +683,7 @@ export function createUntieStore(
         peers: [],
         pendingRemote: false,
         docSeq: s.docSeq + 1,
-        ui: { ...s.ui, ...startUi(), selection: null, issueDraft: undefined, globalFilter: {} },
+        ui: { ...s.ui, ...startUi(s.ui), selection: null, issueDraft: undefined, globalFilter: {} },
       }));
     },
 
@@ -679,15 +699,24 @@ export function createUntieStore(
         set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? {} : { mode: "design" as const, ...closeIssuePane(s.ui) }), currentBoardId: boardId, selection: null } }));
         return;
       }
-      // 固定ボード・分析ボードへ飛ぶと分析モードへ移る (設計モードから要素の場所へ飛べるように)。自由ボードはモードを変えない
-      const next: Mode = isFixedBoard(boardId) || isAnalysisBoard(boardId) ? "analysis" : mode;
-      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next === "analysis" ? { designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined, designRelation: undefined, designDomain: undefined } : {}) } }));
+      // 簡易モードのボードへ飛ぶと簡易モードへ移る。簡易モードでは、それ以外のボードは開けない (固定ボード・分析ボード・自由ボードは詳細モードへ移る)
+      if (isSimpleBoard(boardId)) {
+        set((s) => ({ ui: { ...s.ui, mode: "analysisSimple" as const, currentBoardId: boardId, selection: null, ...clearDesignUi } }));
+        return;
+      }
+      // 固定ボード・分析ボードへ飛ぶと分析（詳細）モードへ移る (設計モードから要素の場所へ飛べるように)。
+      // 簡易モードでは自由ボードも開けないので、同じく詳細へ移ってから開く。詳細・設計モードの自由ボードはモードを変えない
+      const next: Mode = isFixedBoard(boardId) || isAnalysisBoard(boardId) || mode === "analysisSimple" ? "analysis" : mode;
+      set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next !== "design" ? clearDesignUi : {}) } }));
     },
     setMode: (mode) => {
       const { ui } = get();
-      if ((ui.mode ?? "analysis") === mode) return;
+      const current = ui.mode ?? "analysis";
+      if (current === mode) return;
       if (mode === "design" && ui.designSystemId === undefined) return;
-      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: null, issueDraft: undefined, designScreenId: undefined, designTransitionId: undefined, designDatabaseId: undefined, designTableName: undefined, designRelation: undefined, designDomain: undefined } }));
+      // 簡易と詳細は同じモデルの別の見せ方なので、行き来しても選んでいるものは残す (reconcileUi が、無くなった参照だけ外す)
+      const keepSelection = current !== "design" && mode !== "design";
+      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? closeIssuePane(s.ui) : {}), mode, currentBoardId: firstBoardOf(mode), selection: keepSelection ? s.ui.selection : null, issueDraft: undefined, ...clearDesignUi } }));
     },
     enterDesign: (systemId, boardId) => {
       const { model, ui } = get();

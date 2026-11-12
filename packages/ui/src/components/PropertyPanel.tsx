@@ -71,7 +71,8 @@ import {
   type UntieModel,
   type Variation,
 } from "@untie/core/model/types";
-import { isAnalysisBoard, isFixedBoard, selectReadOnly, useUntieStore } from "../store";
+import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
+import { impactLines, isWorkflowElement, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
@@ -223,11 +224,19 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
   // 設計データが一緒に消える要素を消すときの確認 (消える設計データの要約)
-  const [confirmRemove, setConfirmRemove] = useState<string[] | null>(null);
+  // 簡易モード (ワークフロー) では、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
+  const [confirmRemove, setConfirmRemove] = useState<{ impact: string[]; refs: string[] } | null>(null);
+  // 主担当の登場人物を外すとき、その業務に子があれば確かめる (簡易モード)。外す関係の id
+  const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  const structural = !readOnly && (isFixedBoard(boardId) || element.kind === "issue");
+  // 分析（簡易）のワークフローボードも、固定ボードと同じに所属・関係・削除を扱える
+  // ただし直せるのはワークフローの種類 (登場人物・業務・活動・作業) だけ。システム・操作などは、巻き込まれるものを確かめる手立てが無いので、詳細で直す
+  const simple = isSimpleBoard(boardId);
+  const structural = !readOnly && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
+  // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
+  const kindLabel = (k: Element["kind"]) => (simple ? workflowKindLabel(k) : ELEMENT_KIND_LABELS[k]);
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
   // 処理済みの番号をモジュールに持ち、増えているときだけ発火する
@@ -268,7 +277,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
     <div className={`editor kind-${element.kind}`} data-testid="element-editor">
       <div className="kind-line">
         <span className="kind-dot" />
-        {ELEMENT_KIND_LABELS[element.kind]}
+        {kindLabel(element.kind)}
         {peers.length > 0 && (
           // 同時編集: 他の人が同じ要素を選んでいる (ロックはしない)
           <span className="peer-note" data-testid="peer-note">
@@ -309,8 +318,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       ) : (
         !structural && (
           <p className="hint">
-            {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
-            では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
+            {simple
+              ? "この種類は、ワークフローでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
+              : `${isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。`}
           </p>
         )
       )}
@@ -360,7 +370,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       <section className="subsection">
         <h3>関係</h3>
-        {structural && <RelationAdder element={element} model={model} />}
+        {structural && <RelationAdder element={element} model={model} simple={simple} />}
         {relations.length === 0 ? (
           <p className="hint">この要素につながる線はありません。</p>
         ) : (
@@ -378,7 +388,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                   {other && (
                     <span className={`relation-layer kind-${other.kind}`}>
                       <span className="kind-dot" />
-                      {ELEMENT_KIND_LABELS[other.kind]}
+                      {kindLabel(other.kind)}
                     </span>
                   )}
                   <button type="button" className="link" onClick={() => other && selectAndReveal(other.id)}>
@@ -390,7 +400,11 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                       type="button"
                       className="icon-button"
                       aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
-                      onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}
+                      onClick={() => {
+                        // 簡易モードで主担当を外すと、業務の子 (活動・作業) が「担当が決まっていない業務」にぶら下がることがあるので確かめる
+                        if (simple && relationRemovalImpact(model, r.id).length > 0) setConfirmUnlink(r.id);
+                        else dispatch((m) => removeRelation(m, { id: r.id }));
+                      }}
                     >
                       ×
                     </button>
@@ -449,7 +463,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
               // 内部のドメインモデルから消える・外れるものは、開発モードでなければ 1 行にまとめる (集約などの言葉を出さない)
               const internal = domainReferences(model, element.id);
               const refs = [...designReferences(model, element.id), ...(isDevMode() ? internal : internal.length > 0 ? ["実装のための内部の設計 (この要素を使っているところ)"] : [])];
-              if (refs.length > 0) setConfirmRemove(refs);
+              const impact = simple ? impactLines(removalImpact(model, element.id)) : [];
+              if (refs.length > 0 || impact.length > 0) setConfirmRemove({ impact, refs });
               else removeSelected();
             }}
           >
@@ -471,14 +486,37 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       {confirmRemove && (
         <ConfirmDialog
           title="削除の確認"
-          message={`「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`}
-          details={confirmRemove}
+          message={
+            confirmRemove.impact.length > 0
+              ? `「${element.name || "(名前なし)"}」を削除します。つながっているものは次のとおりです。${confirmRemove.refs.length > 0 ? "このほか、次の設計データも一緒に消えます。" : ""}`
+              : `「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`
+          }
+          details={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? [...confirmRemove.impact, "消える設計データ:", ...confirmRemove.refs] : [...confirmRemove.impact, ...confirmRemove.refs]}
           confirmLabel="削除する"
           danger
           onCancel={() => setConfirmRemove(null)}
           onConfirm={() => {
             setConfirmRemove(null);
             removeSelected();
+          }}
+        />
+      )}
+      {confirmUnlink && (
+        <ConfirmDialog
+          title="主担当を外す確認"
+          message={(() => {
+            const rel = model.relations.find((r) => r.id === confirmUnlink);
+            const name = (id?: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+            return `主担当の結び付き (${name(rel?.sourceId)} → ${name(rel?.targetId)}) を外します。この業務につながっているものは次のとおりです。`;
+          })()}
+          details={impactLines(relationRemovalImpact(model, confirmUnlink))}
+          confirmLabel="外す"
+          danger
+          onCancel={() => setConfirmUnlink(null)}
+          onConfirm={() => {
+            const id = confirmUnlink;
+            setConfirmUnlink(null);
+            dispatch((m) => removeRelation(m, { id }));
           }}
         />
       )}
@@ -696,7 +734,7 @@ function DerivedSection({ element, model }: { element: Element; model: UntieMode
 /** この要素と結べる要素を選んで関係を足す (両端の種類から関係が決まる)。固定ボードだけで出す */
 const isTriggerKind = (kind: string) => kind === "activityTrigger" || kind === "eventActivity";
 
-function RelationAdder({ element, model }: { element: Element; model: UntieModel }) {
+function RelationAdder({ element, model, simple = false }: { element: Element; model: UntieModel; simple?: boolean }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
   const options: { value: string; group: string; label: string }[] = [];
@@ -716,7 +754,7 @@ function RelationAdder({ element, model }: { element: Element; model: UntieModel
       const dir = relationRule(kind).undirected ? "↔" : sourceId === element.id ? "→" : "←";
       options.push({
         value: `${sourceId}>${targetId}`,
-        group: `${relationLabel(kind)} ${dir} ${ELEMENT_KIND_LABELS[other.kind]}`,
+        group: `${relationLabel(kind)} ${dir} ${simple ? workflowKindLabel(other.kind) : ELEMENT_KIND_LABELS[other.kind]}`,
         label: other.name || "(名前なし)",
       });
       break;
