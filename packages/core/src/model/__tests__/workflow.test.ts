@@ -105,10 +105,10 @@ describe("buildWorkflow は検証に通らないモデルでも要素を落と�
 });
 
 describe("isWorkflowElement / workflowKindLabel", () => {
-  it("ワークフローの種類は登場人物・業務・既定でない活動・作業だけ", () => {
+  it("簡易ボードで直せる種類は、登場人物・業務・既定でない活動・作業・操作・画面・情報・イベントだけ", () => {
     const kinds = (id: string) => isWorkflowElement(sample().elements.find((e) => e.id === id)!);
     expect(["actor_front", "ext_guest", "biz_stay", "buc_dining", "act_hand_key"].every(kinds)).toBe(true);
-    expect(["buc_default_stay", "sys_pms", "info_reservation"].some(kinds)).toBe(false);
+    expect(["buc_default_stay", "sys_pms", "ctx_reservation"].some(kinds)).toBe(false);
     expect(workflowKindLabel("actor")).toBe("登場人物");
     expect(workflowKindLabel("externalActor")).toBe("外部の登場人物");
     expect(workflowKindLabel("business")).toBe("業務");
@@ -208,7 +208,7 @@ describe("削除の影響 (removalImpact) は、removeElement の実際の振る
     m = okModel(addElement(m, { kind: "activity", name: "子なしの作業", id: "act_leaf" }));
     expect(removalImpact(m, "act_leaf")).toEqual([]);
     expect(removalImpact(m0, "buc_default_stay")).toEqual([]);
-    expect(removalImpact(m0, "info_reservation")).toEqual([]);
+    expect(removalImpact(m0, "ctx_reservation")).toEqual([]);
     expect(removalImpact(m0, "nothing")).toEqual([]);
   });
 });

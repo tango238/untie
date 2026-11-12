@@ -4,7 +4,7 @@ import type { Activity, Actor, ExternalActor, UntieModel } from "@untie/core/mod
 import { selectReadOnly, useUntieStore } from "../../store";
 import { canvasApi } from "../canvas/canvasApi";
 
-const nameOf = (e: { name: string }) => e.name || "(名前なし)";
+export const nameOf = (e: { name: string }) => e.name || "(名前なし)";
 
 /**
  * 分析（簡易）のワークフローボード。登場人物 → 業務 → 活動 → 作業 を 1 枚で書く。
@@ -126,7 +126,7 @@ interface Ctx {
 }
 
 /** 選べる箱 (カード・枠の見出し・作業の行)。ボタンなのでキーボードでも選べる */
-function Pick({ id, className, ctx, children, label }: { id: string; className: string; ctx: Ctx; children: ReactNode; label?: string }) {
+export function Pick({ id, className, ctx, children, label }: { id: string; className: string; ctx: { selectedId: string | null; choose: (id: string) => void }; children: ReactNode; label?: string }) {
   const selected = ctx.selectedId === id;
   return (
     <button
@@ -244,7 +244,7 @@ function ActivityStack({ activities, ctx }: { activities: Activity[]; ctx: Ctx }
         const assignees = ctx.assignees.get(a.id) ?? [];
         return (
           <li key={a.id} data-workflow-el={a.id}>
-            <Pick id={a.id} className="wf-activity" ctx={ctx} label={`作業 ${nameOf(a)}`}>
+            <Pick id={a.id} className="wf-activity" ctx={ctx} label={`作業 ${nameOf(a)}${assignees.length > 0 ? ` (担当: ${assignees.join("、")})` : ""}`}>
               <span className="wf-kind">作業</span>
               <span className="wf-name">{nameOf(a)}</span>
               {assignees.length > 0 && <span className="wf-assignees">担当: {assignees.join("、")}</span>}

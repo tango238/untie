@@ -72,7 +72,7 @@ import {
   type Variation,
 } from "@untie/core/model/types";
 import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
-import { impactLines, isWorkflowElement, isWorkflowLayer, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
+import { impactLines, isWorkflowElement, isSimpleModeLayer, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
@@ -224,15 +224,15 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
   // 設計データが一緒に消える要素を消すときの確認 (消える設計データの要約)
-  // 簡易モード (ワークフロー) では、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
+  // 簡易モードでは、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
   const [confirmRemove, setConfirmRemove] = useState<{ impact: string[]; refs: string[] } | null>(null);
-  // 主担当の登場人物を外すとき、その業務に子があれば確かめる (簡易モード)。外す関係の id
+  // 関係を外すとき、巻き込まれるもの (業務の子・操作の画面とイベント・条件の代替パターン) があれば確かめる (簡易モード)。外す関係の id
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  // 分析（簡易）のワークフローボードも、固定ボードと同じに所属・関係・削除を扱える
-  // ただし直せるのはワークフローの種類 (登場人物・業務・活動・作業) だけ。システム・操作などは、巻き込まれるものを確かめる手立てが無いので、詳細で直す
+  // 分析（簡易）のボード (ワークフロー・システム)も、固定ボードと同じに所属・関係・削除を扱える
+  // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
   const simple = isSimpleBoard(boardId);
   const structural = !readOnly && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
   // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
@@ -320,7 +320,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         !(simple && element.kind === "buc" && element.isDefault) && (
           <p className="hint">
             {simple
-              ? "この種類は、ワークフローでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
+              ? "この種類は、簡易モードでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
               : `${isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。`}
           </p>
         )
@@ -402,7 +402,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                       className="icon-button"
                       aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
                       onClick={() => {
-                        // 簡易モードで主担当を外すと、業務の子 (活動・作業) が「担当が決まっていない業務」にぶら下がることがあるので確かめる
+                        // 簡易モードで関係を外すと、子が宙に浮く (業務の活動・作業、操作の画面・イベント) か、関係が持つ代替パターンが消えるので確かめる
                         if (simple && relationRemovalImpact(model, r.id).length > 0) setConfirmUnlink(r.id);
                         else dispatch((m) => removeRelation(m, { id: r.id }));
                       }}
@@ -505,11 +505,15 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       )}
       {confirmUnlink && (
         <ConfirmDialog
-          title="主担当を外す確認"
+          title={model.relations.find((r) => r.id === confirmUnlink)?.kind === "actorBusiness" ? "主担当を外す確認" : "結び付きを外す確認"}
           message={(() => {
             const rel = model.relations.find((r) => r.id === confirmUnlink);
             const name = (id?: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
-            return `主担当の結び付き (${name(rel?.sourceId)} → ${name(rel?.targetId)}) を外します。この業務につながっているものは次のとおりです。`;
+            return rel?.kind === "actorBusiness"
+              ? `主担当の結び付き (${name(rel.sourceId)} → ${name(rel.targetId)}) を外します。この業務につながっているものは次のとおりです。`
+              : rel?.kind === "usecaseCondition"
+                ? `結び付き (${name(rel.sourceId)} → ${name(rel.targetId)}) を外します。この結び付きに付いているものは次のとおりです。`
+                : `結び付き (${name(rel?.sourceId)} → ${name(rel?.targetId)}) を外します。この操作につながっているものは次のとおりです。`;
           })()}
           details={impactLines(relationRemovalImpact(model, confirmUnlink))}
           confirmLabel="外す"
@@ -538,7 +542,7 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
-  // 簡易モードでは、ワークフローに統合された 4 つのレイヤー (登場人物・業務・活動・作業) の固定ボードへは移らない
+  // 簡易モードでは、簡易ボードに統合された 7 つのレイヤー (登場人物・業務・活動・作業・操作・画面・情報) の固定ボードへは移らない
   const simple = isSimpleBoard(boardId);
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
@@ -572,7 +576,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
               elements={r.elements}
               currentId={element.id}
               current={boardId === fixedBoardId(r.layer)}
-              canMove={!(simple && isWorkflowLayer(r.layer))}
+              canMove={!(simple && isSimpleModeLayer(r.layer))}
             />
           ))}
         </tbody>
@@ -1443,7 +1447,7 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
                   <button type="button" className="link" onClick={() => t && selectAndReveal(t.id)}>
                     {t?.name || "(名前なし)"}
                   </button>
-                  {t && !(simple && layer && isWorkflowLayer(layer)) && (
+                  {t && !(simple && layer && isSimpleModeLayer(layer)) && (
                     <button
                       type="button"
                       className="link"

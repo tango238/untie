@@ -1,6 +1,7 @@
 // キーボードショートカットの表 (純粋なデータと関数だけ。画面・ストアには触れない)。
 // ボードの並びと名前は @untie/core の定義から取り、ここには「どのキーでどこへ移るか」だけを置く。
 import { ANALYSIS_LABELS, type AnalysisKind } from "@untie/core/model/analysis";
+import { SIMPLE_BOARD_KINDS, SIMPLE_BOARD_LABELS, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { DESIGN_BOARD_LABELS, type DesignBoardKind } from "@untie/core/model/design";
 import { visibleAnalysisKinds, visibleDesignKinds } from "./devMode";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, type FixedLayer } from "@untie/core/model/fixedBoards";
@@ -26,6 +27,7 @@ export type ShortcutTarget =
   | { type: "mode"; mode: "analysis" | "analysisSimple" | "design" }
   | { type: "fixed"; layer: FixedLayer }
   | { type: "analysis"; kind: AnalysisKind }
+  | { type: "simple"; kind: SimpleBoardKind }
   | { type: "design"; kind: DesignBoardKind }
   | { type: "free"; boardId: string };
 
@@ -48,6 +50,9 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
   nfr: "n",
 };
 
+/** 簡易ボード: Cmd+B のあとに押すキー */
+export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", operation: "p" };
+
 export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
 
 export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", data: "t", screen: "g", relation: "r", sequence: "q", domain: "m", contextmap: "k", rules: "u" };
@@ -69,6 +74,8 @@ export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.ma
   label: FIXED_LAYER_LABELS[layer],
   target: { type: "fixed", layer },
 }));
+/** 分析（簡易）のボードのショートカット */
+export const SIMPLE_ENTRIES: readonly ShortcutEntry[] = SIMPLE_BOARD_KINDS.map((kind) => ({ key: SIMPLE_KEYS[kind], label: SIMPLE_BOARD_LABELS[kind], target: { type: "simple", kind } }));
 /** 分析ボードのショートカット (開発用のボードは、開発モードのときだけ) */
 export function analysisEntries(): ShortcutEntry[] {
   return visibleAnalysisKinds().map((kind) => ({ key: ANALYSIS_KEYS[kind], label: ANALYSIS_LABELS[kind], target: { type: "analysis", kind } }));
@@ -81,7 +88,7 @@ export function designEntries(): ShortcutEntry[] {
 /** Cmd+B のあとに押したキーの移り先。表に無ければ null */
 export function resolveChordKey(key: string): ShortcutTarget | null {
   const k = key.toLowerCase();
-  const all = [...MODE_ENTRIES, ...FIXED_ENTRIES, ...analysisEntries(), ...designEntries()];
+  const all = [...MODE_ENTRIES, ...SIMPLE_ENTRIES, ...FIXED_ENTRIES, ...analysisEntries(), ...designEntries()];
   return all.find((e) => e.key === k)?.target ?? null;
 }
 

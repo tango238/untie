@@ -1,18 +1,19 @@
-// 分析（簡易）のワークフローボード。登場人物 → 業務 → 活動 → 作業 を 1 枚で見る。
+// 分析（簡易）のボード (ワークフロー: 登場人物 → 業務 → 活動 → 作業。システム: 作業 → 操作 → 画面・情報は operationBoard.ts)。共通の id・種類・削除の影響を置く。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup, type FixedLayer } from "./fixedBoards";
-import { defaultBucOf } from "./selectors";
+import { defaultBucOf, issuesTargeting } from "./selectors";
 import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business, type Element, type ElementKind, type ExternalActor, type UntieModel } from "./types";
 
 // ---------------------------------------------------------------- ボードの id
 
-/** 簡易モードのボードの種類 (いまはワークフローだけ) */
-export const SIMPLE_BOARD_KINDS = ["workflow"] as const;
+/** 簡易モードのボードの種類 (選択肢に並べる順。最初がワークフロー) */
+export const SIMPLE_BOARD_KINDS = ["workflow", "operation"] as const;
 export type SimpleBoardKind = (typeof SIMPLE_BOARD_KINDS)[number];
 
 export const SIMPLE_BOARD_LABELS: Record<SimpleBoardKind, string> = {
   workflow: "ワークフロー",
+  operation: "システム",
 };
 
 const PREFIX = "simple:";
@@ -28,18 +29,22 @@ export function parseSimpleBoardId(boardId: string): SimpleBoardKind | null {
   return (SIMPLE_BOARD_KINDS as readonly string[]).includes(kind) ? (kind as SimpleBoardKind) : null;
 }
 
-/** ワークフローボードで構造 (関係・所属・削除) を直せる要素か。ほかの種類 (システム・操作・コンテキストなど) は、子の確認の対象外なので詳細で直す */
+/**
+ * 簡易モードのボード (ワークフロー・システム) で構造 (関係・所属・削除) を直せる要素か。
+ * ボードで選べる種類 (登場人物・業務・活動・作業・操作・画面・情報・イベント) だけ。システム・帳票・コンテキストなどは、
+ * 消すと巻き込まれるものが大きい (システムは画面と非機能要件ごと消える) ので、詳細で直す
+ */
 export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: boolean }): boolean {
   if (el.kind === "buc") return el.isDefault !== true;
-  return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity";
+  return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity" || el.kind === "usecase" || el.kind === "screen" || el.kind === "event" || el.kind === "information";
 }
 
-/** ワークフローボードに統合されている固定ボードのレイヤー。簡易モードでは、これらのレイヤーの固定ボードへ移る操作 (トレースの「移動」など) は出さない */
-export const WORKFLOW_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity"];
+/** 簡易モードのボードに統合されている固定ボードのレイヤー。簡易モードでは、これらのレイヤーの固定ボードへ移る操作 (トレースの「移動」など) は出さない */
+export const SIMPLE_MODE_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity", "usecase", "screen", "information"];
 
-/** そのレイヤーはワークフローボードに統合されているか */
-export function isWorkflowLayer(layer: FixedLayer): boolean {
-  return WORKFLOW_LAYERS.includes(layer);
+/** そのレイヤーは簡易モードのボードに統合されているか */
+export function isSimpleModeLayer(layer: FixedLayer): boolean {
+  return SIMPLE_MODE_LAYERS.includes(layer);
 }
 
 /** 簡易モードでの種別の呼び名 (アクター → 登場人物。ボードと同じ言い方) */
@@ -122,7 +127,7 @@ export function buildWorkflow(model: UntieModel): Workflow {
 /** 消す・外すことで巻き込まれるものの 1 種類分 */
 export interface ImpactItem {
   /** 何が巻き込まれるか (利用者向けの言葉) */
-  label: "業務" | "活動" | "作業" | "操作";
+  label: string;
   count: number;
   /**
    * removed: 一緒に消える
@@ -140,8 +145,22 @@ function activitiesOfBusiness(model: UntieModel, businessId: string): Activity[]
   return model.elements.filter((e): e is Activity => e.kind === "activity" && e.bucId !== null && owned.has(e.bucId));
 }
 
+/** その要素に付いた種類の関係の、相手の要素の数 (向きを問わず。同じ相手に複数の関係があっても 1 つと数える) */
+const countRelations = (model: UntieModel, id: string, kinds: readonly string[]): number => {
+  const others = new Set<string>();
+  for (const r of model.relations) {
+    if (!kinds.includes(r.kind)) continue;
+    if (r.sourceId === id) others.add(r.targetId);
+    else if (r.targetId === id) others.add(r.sourceId);
+  }
+  return others.size;
+};
+
 /**
  * 要素を消したとき、巻き込まれる子 (removeElement の実際の振る舞いのとおり)。
+ * 簡易モードのボードに見えない結び付き (操作の扱う情報・判断する条件・状態・「次に」、作業の起点、登場人物の求める非機能要件、
+ * 課題の対象) も数える。相手の要素自体は残り、結び付きだけが外れる (`sweepReferences`)。
+ * ボードに相手が見えている結び付き (業務の主担当・作業の担当・操作の対象のシステムなど) は、見えているので数えない
  * - 登場人物: 主担当の業務と担当の作業は消えず、結び付きが外れる (主担当が他にいない業務は「担当が決まっていない業務」へ移る)
  * - 業務: 活動は一緒に消える。属していた作業は消えず、どの業務にも属さない作業になる
  * - 活動: 作業は消えず、業務に直接属する作業に戻る
@@ -155,6 +174,8 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
   const push = (item: ImpactItem) => {
     if (item.count > 0) items.push(item);
   };
+  /** この要素を対象にした課題 (課題は残り、対象から外れる) */
+  const pushIssues = (id: string) => push({ label: "課題", count: issuesTargeting(model, id).length, effect: "kept", note: "対象から外れます" });
   switch (el.kind) {
     case "actor":
     case "externalActor": {
@@ -167,11 +188,14 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
         note: alone > 0 ? `主担当が外れます (ほかに主担当がいない ${alone} 件は「担当が決まっていない業務」に移ります)` : "主担当が外れます",
       });
       push({ label: "作業", count: model.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === el.id).length, effect: "kept", note: "担当が外れます" });
+      push({ label: "非機能要件", count: countRelations(model, el.id, ["actorNfr"]), effect: "kept", note: "「求める」の結び付きが外れます" });
+      pushIssues(el.id);
       break;
     }
     case "business": {
       push({ label: "活動", count: model.elements.filter((e) => e.kind === "buc" && e.businessId === el.id && !e.isDefault).length, effect: "removed" });
       push({ label: "作業", count: activitiesOfBusiness(model, el.id).length, effect: "kept", note: "業務に属さない作業になります" });
+      pushIssues(el.id);
       break;
     }
     case "buc": {
@@ -188,6 +212,53 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
     }
     case "activity": {
       push({ label: "操作", count: model.relations.filter((r) => r.kind === "activityUsecase" && r.sourceId === el.id).length, effect: "kept", note: "作業との結び付きが外れます" });
+      // 向きに注意: 起点の関係は 起点 (始点) → 始まる作業 (終点)。この作業自身の起点は一緒に無くなるだけで、
+      // 影響を受けるのは、この作業を起点にしている作業 (起点が外れる)
+      const started = new Set(model.relations.filter((r) => r.kind === "activityTrigger" && r.sourceId === el.id).map((r) => r.targetId));
+      push({ label: "この作業を起点にしている作業", count: started.size, effect: "kept", note: "起点が外れます" });
+      pushIssues(el.id);
+      break;
+    }
+    case "usecase": {
+      // 画面は消えず、操作との結び付きだけが外れる (どの操作にも結ばれていない画面になる)。イベントも同じ
+      push({ label: "画面", count: model.relations.filter((r) => r.kind === "usecaseScreen" && r.sourceId === el.id).length, effect: "kept", note: "操作との結び付きが外れます" });
+      push({ label: "イベント", count: eventsOfUsecase(model, el.id).size, effect: "kept", note: "操作との結び付きが外れます" });
+      const conditions = model.relations.filter((r) => r.kind === "usecaseCondition" && r.sourceId === el.id);
+      const withAlternate = conditions.filter((r) => r.alternate !== undefined).length;
+      push({ label: "扱う情報", count: countRelations(model, el.id, ["usecaseInformation"]), effect: "kept", note: "操作との結び付き (取得・保存の区別) が外れます" });
+      push({
+        label: "判断する条件",
+        count: conditions.length,
+        effect: "kept",
+        note: withAlternate > 0 ? `操作との結び付きが外れます。うち ${withAlternate} 件の代替パターン (ふだんと違う流れ) も消えます` : "操作との結び付きが外れます",
+      });
+      push({ label: "状態", count: countRelations(model, el.id, ["usecaseState", "stateUsecase"]), effect: "kept", note: "「実行可」「次の状態」の結び付きが外れます" });
+      push({ label: "前後の操作", count: countRelations(model, el.id, ["usecaseNext"]), effect: "kept", note: "前後の操作との「次に」の結び付きが外れます" });
+      pushIssues(el.id);
+      break;
+    }
+    case "event": {
+      push({ label: "操作", count: countRelations(model, el.id, ["eventUsecase", "usecaseEvent"]), effect: "kept", note: "きっかけ・発生の結び付きが外れます" });
+      push({ label: "作業", count: countRelations(model, el.id, ["eventActivity"]), effect: "kept", note: "起点が外れます (この出来事を起点にしている作業)" });
+      push({ label: "システム", count: countRelations(model, el.id, ["systemEvent"]), effect: "kept", note: "発生元の結び付きが外れます" });
+      push({
+        label: "代替パターン",
+        count: model.relations.filter((r) => r.alternate?.eventId === el.id).length,
+        effect: "kept",
+        note: "「そのとき起きる出来事」の参照だけが外れます (どうなるかの文は残ります)",
+      });
+      break;
+    }
+    case "screen": {
+      push({ label: "操作", count: model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === el.id).length, effect: "kept", note: "対象の画面が外れます" });
+      pushIssues(el.id);
+      break;
+    }
+    case "information": {
+      // 情報を扱っていた操作は残り、結び付き (取得・保存の区別) だけが外れる。ボードに見えない、関連する情報・バリエーションとの結び付きも外れる
+      push({ label: "操作", count: countRelations(model, el.id, ["usecaseInformation"]), effect: "kept", note: "扱う情報としての結び付きが外れます" });
+      push({ label: "関連する情報", count: countRelations(model, el.id, ["informationRelated"]), effect: "kept", note: "「関連」の結び付きが外れます" });
+      push({ label: "バリエーション", count: countRelations(model, el.id, ["informationVariation"]), effect: "kept", note: "「種別」の結び付きが外れます" });
       break;
     }
     default:
@@ -196,17 +267,44 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
   return items;
 }
 
-/** 関係を外したとき、巻き込まれる子。業務の主担当を外すときだけ (その業務の活動と作業はそのまま業務に残る) */
+/** 操作に結ばれたイベント (きっかけ・発生) */
+export function eventsOfUsecase(model: UntieModel, usecaseId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const r of model.relations) {
+    if (r.kind === "eventUsecase" && r.targetId === usecaseId) ids.add(r.sourceId);
+    if (r.kind === "usecaseEvent" && r.sourceId === usecaseId) ids.add(r.targetId);
+  }
+  return ids;
+}
+
+/**
+ * 関係を外したとき、巻き込まれる子。
+ * - 業務の主担当を外す: その業務の活動と作業はそのまま業務に残る
+ * - 操作と条件の結び付きを外す: 関係が持つ代替パターンが一緒に消える (関係が持つ項目は代替パターンと、操作が情報をどう扱うか (access) だけ。access は結び付きごと無くなるだけなので確認しない)
+ * - 作業と操作の結び付きを外す: 操作の画面・イベントは操作に付いたまま残る (ほかの作業にも使われていなければ、操作は「作業に結ばれていない操作」へ移る)
+ */
 export function relationRemovalImpact(model: UntieModel, relationId: string): ImpactItem[] {
   const rel = model.relations.find((r) => r.id === relationId);
-  if (!rel || rel.kind !== "actorBusiness") return [];
-  const others = model.relations.some((r) => r.kind === "actorBusiness" && r.targetId === rel.targetId && r.id !== rel.id);
-  const note = others ? "業務ごと残ります (ほかの主担当の行には、これまでどおり出ます)" : "業務ごと残り、「担当が決まっていない業務」に移ります";
+  if (!rel) return [];
   const items: ImpactItem[] = [];
-  const bucs = model.elements.filter((e) => e.kind === "buc" && e.businessId === rel.targetId && !e.isDefault).length;
-  const acts = activitiesOfBusiness(model, rel.targetId).length;
-  if (bucs > 0) items.push({ label: "活動", count: bucs, effect: "kept", note });
-  if (acts > 0) items.push({ label: "作業", count: acts, effect: "kept", note });
+  if (rel.kind === "actorBusiness") {
+    const others = model.relations.some((r) => r.kind === "actorBusiness" && r.targetId === rel.targetId && r.id !== rel.id);
+    const note = others ? "業務ごと残ります (ほかの主担当の行には、これまでどおり出ます)" : "業務ごと残り、「担当が決まっていない業務」に移ります";
+    const bucs = model.elements.filter((e) => e.kind === "buc" && e.businessId === rel.targetId && !e.isDefault).length;
+    const acts = activitiesOfBusiness(model, rel.targetId).length;
+    if (bucs > 0) items.push({ label: "活動", count: bucs, effect: "kept", note });
+    if (acts > 0) items.push({ label: "作業", count: acts, effect: "kept", note });
+  } else if (rel.kind === "usecaseCondition") {
+    // 代替パターンは関係が持つ項目なので、関係を外すと一緒に消える。相手の条件は残る
+    if (rel.alternate !== undefined) items.push({ label: "代替パターン", count: 1, effect: "removed" });
+  } else if (rel.kind === "activityUsecase") {
+    const others = model.relations.some((r) => r.kind === "activityUsecase" && r.targetId === rel.targetId && r.id !== rel.id);
+    const note = others ? "操作ごと残ります (ほかの作業の行には、これまでどおり出ます)" : "操作ごと残り、「作業に結ばれていない操作」に移ります";
+    const screens = model.relations.filter((r) => r.kind === "usecaseScreen" && r.sourceId === rel.targetId).length;
+    const events = eventsOfUsecase(model, rel.targetId).size;
+    if (screens > 0) items.push({ label: "画面", count: screens, effect: "kept", note });
+    if (events > 0) items.push({ label: "イベント", count: events, effect: "kept", note });
+  }
   return items;
 }
 

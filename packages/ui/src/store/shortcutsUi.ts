@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { analysisBoardId } from "@untie/core/model/analysis";
+import { simpleBoardId } from "@untie/core/model/workflow";
 import { designBoardId } from "@untie/core/model/design";
 import { fixedBoardId } from "@untie/core/model/fixedBoards";
 import { useUntieStore } from "./index";
@@ -37,6 +38,9 @@ export function navigateTo(target: ShortcutTarget): void {
       return;
     case "analysis":
       st.setCurrentBoard(analysisBoardId(target.kind));
+      return;
+    case "simple":
+      st.setCurrentBoard(simpleBoardId(target.kind));
       return;
     case "design": {
       const boardId = designBoardId(target.kind);

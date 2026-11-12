@@ -27,6 +27,7 @@ import { parseDesignBoardId } from "@untie/core/model/design";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { parseSimpleBoardId } from "@untie/core/model/workflow";
 import { WorkflowBoard } from "./components/workflow/WorkflowBoard";
+import { OperationBoard } from "./components/workflow/OperationBoard";
 import { DesignBoard } from "./components/design/DesignBoard";
 import { SitemapProperties } from "./components/design/SitemapProperties";
 import { SitemapTree } from "./components/design/SitemapTree";
@@ -122,7 +123,7 @@ export default function App() {
           ) : analysis ? (
             <AnalysisBoard key={analysis} kind={analysis} />
           ) : simple ? (
-            <WorkflowBoard key={simple} />
+            simple === "operation" ? <OperationBoard key={simple} /> : <WorkflowBoard key={simple} />
           ) : design ? (
             <DesignBoard key={design} kind={design} />
           ) : (

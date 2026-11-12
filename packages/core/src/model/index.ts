@@ -11,6 +11,7 @@ export * from "./contexts";
 export * from "./placement";
 export * from "./analysis";
 export * from "./workflow";
+export * from "./operationBoard";
 export * from "./repair";
 export * from "./limits";
 export * from "./truncate";

@@ -1167,7 +1167,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-buc { --c: var(--c-buc); background: color-mix(in srgb, var(--c-buc) 7%, #fff); }
 .wf-frame.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
 /* 枠の見出しは、枠の強調と二重にならないよう選択中の枠線を出さない (フォーカス時は出る) */
-.wf-frame-title.is-selected { outline: none; }
+.wf-frame-title.is-selected, .wf-frame-title.is-selected:hover { outline: none; background: transparent; }
 .wf-frame-title.is-selected:focus-visible { outline: 2px solid var(--selected); }
 .wf-frame-head { display: flex; }
 .wf-frame-title { display: flex; flex-direction: column; text-align: left; background: transparent; border: none; padding: 2px 4px; border-radius: 4px; }
@@ -1189,3 +1189,20 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .wf-branch-item::before, .wf-branch-item::after { display: none; }
   .wf-frame { min-width: 0; }
 }
+
+/* 分析（簡易）のボード「システム」: 作業 → 操作 → 画面。外側の枠は活動 (無ければ業務) */
+.wf-outers { display: flex; flex-direction: column; gap: 16px; }
+.wf-outer { min-width: 0; cursor: pointer; }
+.wf-outer .wf-lane.wf-row { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.wf-outer .wf-lane.wf-row:last-of-type { border-bottom: none; }
+.wf-actor-card.wf-activity { border-color: var(--c-activity); }
+.wf-operation { --c: var(--c-usecase); background: color-mix(in srgb, var(--c-usecase) 5%, #fff); cursor: pointer; }
+.wf-screen, .wf-information { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-screen); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
+.wf-information { border-color: var(--c-information); }
+.wf-screen.is-selected, .wf-information.is-selected, .wf-chip.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.wf-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-chips li { min-width: 0; max-width: 100%; }
+.wf-chip { max-width: 100%; font-size: 11px; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; background: #fff; border: 1.5px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.wf-chip.kind-system { border-color: var(--c-system); }
+.wf-chip.kind-ledger { border-color: var(--c-ledger); border-style: dashed; }
+.wf-chip.kind-event { border-color: var(--c-event); border-style: dashed; }

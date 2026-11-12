@@ -44,9 +44,9 @@ describe("ワークフローボードの描画", () => {
     // 業務に直接属する作業は、業務の枠の中に縦に並ぶ (モデルの順)
     const checkin = within(front).getByRole("region", { name: /^業務 チェックイン/ });
     const names = within(within(checkin).getAllByRole("list", { name: "作業の一覧" })[0]!).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
-    expect(names.slice(0, 2)).toEqual(["作業 到着を確認する", "作業 本人確認をする"]);
+    expect(names.slice(0, 2)).toEqual(["作業 到着を確認する (担当: フロント担当)", "作業 本人確認をする (担当: フロント担当、宿泊客)"]);
     // 作業の行には担当の名前を添える
-    expect(within(checkin).getByRole("button", { name: "作業 本人確認をする" }).textContent).toContain("担当: フロント担当、宿泊客");
+    expect(within(checkin).getByRole("button", { name: /^作業 本人確認をする/ }).textContent).toContain("担当: フロント担当、宿泊客");
   });
 
   it("業務を 1 つも持たない登場人物も行に出る。担当の決まっていない業務と業務に属さない作業は別の区画に出る", () => {
@@ -60,7 +60,7 @@ describe("ワークフローボードの描画", () => {
     const unassigned = screen.getByRole("region", { name: "担当が決まっていない業務" });
     expect(within(unassigned).getByRole("button", { name: "業務 宙ぶらりんの業務" })).toBeDefined();
     const orphans = screen.getByRole("region", { name: "業務に属さない作業" });
-    expect(within(orphans).getByRole("button", { name: "作業 迷子の作業" })).toBeDefined();
+    expect(within(orphans).getByRole("button", { name: /^作業 迷子の作業/ })).toBeDefined();
   });
 
   it("業務が複数の登場人物に結ばれているときは、どちらの行にも出て、知らせを添える", () => {
@@ -85,7 +85,7 @@ describe("選択", () => {
       ["活動 飲食提供", "buc_dining"],
       ["作業 鍵を渡す", "act_hand_key"],
     ] as const) {
-      const button = screen.getAllByRole("button", { name }).find((b) => b.tagName === "BUTTON")!;
+      const button = screen.getAllByRole("button", { name: new RegExp(`^${name}`) }).find((b) => b.tagName === "BUTTON")!;
       expect(button.tagName).toBe("BUTTON");
       fireEvent.click(button);
       expect(selectedId()).toBe(id);
@@ -99,7 +99,7 @@ describe("選択", () => {
     render(<WorkflowBoard />);
     fireEvent.click(screen.getByRole("region", { name: /^業務 滞在中の対応/ }));
     expect(selectedId()).toBe("biz_stay");
-    fireEvent.click(screen.getByRole("button", { name: "作業 客室の要望に応える" }));
+    fireEvent.click(screen.getByRole("button", { name: /^作業 客室の要望に応える/ }));
     expect(selectedId()).not.toBe("biz_stay");
   });
 });
@@ -155,13 +155,13 @@ describe("足す", () => {
     render(<WorkflowBoard />);
     expect(screen.queryByRole("button", { name: /を足す/ })).toBeNull();
     // 選ぶことはできる
-    fireEvent.click(screen.getByRole("button", { name: "作業 鍵を渡す" }));
+    fireEvent.click(screen.getByRole("button", { name: /^作業 鍵を渡す/ }));
     expect(selectedId()).toBe("act_hand_key");
   });
 });
 
 describe("プロパティからの関連の追加・削除と、削除の確認", () => {
-  const select = (name: string) => fireEvent.click(screen.getAllByRole("button", { name })[0]!);
+  const select = (name: string) => fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^${name}`) })[0]!);
   const dialog = () => screen.queryByRole("dialog", { name: "削除の確認" });
 
   it("プロパティで、関連の追加 (登場人物に業務を主担当として結ぶ) と削除ができる", () => {
@@ -238,9 +238,9 @@ describe("プロパティからの関連の追加・削除と、削除の確認"
     expect(text).not.toContain("ほかの活動");
   });
 
-  it("ワークフローの種類以外 (システム・操作など) は、簡易モードでは名前・説明などだけ。削除・関係の編集は出さず、詳細で直すよう案内する", () => {
+  it("簡易モードのボードで直せない種類 (システム・帳票など) は、簡易モードでは名前・説明などだけ。削除・関係の編集は出さず、詳細で直すよう案内する", () => {
     renderBoth();
-    for (const id of ["sys_pms", "uc_register_reservation"]) {
+    for (const id of ["sys_pms", "ldg_guest_register"]) {
       const el = st().model.elements.find((e) => e.id === id);
       expect(el).toBeDefined();
       act(() => st().select({ type: "element", id }));
@@ -294,21 +294,23 @@ describe("プロパティからの関連の追加・削除と、削除の確認"
     select("作業 鍵を渡す");
     act(() => void st().dispatch((m) => removeElement(m, { id: "act_hand_key" })));
     expect(selectedId()).toBeNull();
-    expect(screen.queryByRole("button", { name: "作業 鍵を渡す" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^作業 鍵を渡す/ })).toBeNull();
   });
 });
 
 describe("ツールバー", () => {
-  it("簡易モードではボードの選択肢はワークフローだけで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
+  it("簡易モードではボードの選択肢はワークフローとシステムの 2 つだけで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
     render(<Toolbar />);
     const options = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
-    expect(options()).toEqual(["ワークフロー"]);
+    expect(options()).toEqual(["ワークフロー", "システム"]);
     expect(screen.queryByRole("button", { name: "＋ボード" })).toBeNull();
     expect(screen.queryByRole("button", { name: "名前変更" })).toBeNull();
     act(() => st().setMode("analysis"));
     expect(options()).not.toContain("ワークフロー");
+    expect(options()).not.toContain("システム");
     act(() => st().enterDesign("sys_pms"));
     expect(options()).not.toContain("ワークフロー");
+    expect(options()).not.toContain("システム");
   });
 
   it("モードのメニューで簡易に切り替えると、ワークフローが開く", () => {
@@ -357,14 +359,14 @@ describe("トレース表の「移動」", () => {
   const moveLabel = (layer: string) => `固定ボード「${layer}」へ移る`;
   const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 
-  it("簡易モードでは、登場人物・業務・活動・作業の行に「移動」が無く、ほかのレイヤーの行にはある。行のセルは残る", () => {
+  it("簡易モードでは、登場人物・業務・活動・作業・操作・画面・情報の行に「移動」が無く、ほかのレイヤーの行にはある。行のセルは残る", () => {
     act(() => st().select({ type: "element", id: "act_room_request" }));
     render(<PropertyPanel />);
-    for (const layer of ["登場人物", "業務", "活動", "作業"]) {
+    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "情報"]) {
       expect(screen.queryByRole("button", { name: moveLabel(layer) })).toBeNull();
       expect(screen.getByRole("rowheader", { name: new RegExp(layer) })).toBeDefined();
     }
-    for (const layer of ["操作", "画面", "情報"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
+    for (const layer of ["条件", "状態", "バリエーション"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
     // ボタンの無い行も、要素と「移動」の 2 つのセル (cell。レイヤー名は rowheader) を持つ (列が崩れない)
     expect(rows().every((r) => within(r).getAllByRole("cell").length === 2)).toBe(true);
     // 要素を押して選ぶ動きは残る
@@ -372,23 +374,24 @@ describe("トレース表の「移動」", () => {
     expect(selectedId()).toBe("actor_front");
   });
 
-  it("詳細モードでは、4 つのレイヤーにも「移動」がある", () => {
+  it("詳細モードでは、6 つのレイヤーにも「移動」がある", () => {
     act(() => st().setMode("analysis"));
     act(() => st().select({ type: "element", id: "act_room_request" }));
     render(<PropertyPanel />);
-    for (const layer of ["登場人物", "業務", "活動", "作業", "操作"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
+    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
   });
 
-  it("課題の対象の「移動」: 簡易モードでは対象が作業なら無く、操作なら有る。詳細モードでは作業にも有る", () => {
+  it("課題の対象の「移動」: 簡易モードでは作業・操作のどちらにも無い。詳細モードでは有る", () => {
     act(() => st().select({ type: "element", id: "issue_extra_missing" }));
     const { unmount } = render(<PropertyPanel />);
     expect(screen.queryByRole("button", { name: "「追加料金を記録する」の固定ボードへ移る" })).toBeNull();
-    expect(screen.getByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeNull();
     unmount();
     act(() => st().setMode("analysis"));
     act(() => st().select({ type: "element", id: "issue_extra_missing" }));
     render(<PropertyPanel />);
     expect(screen.getByRole("button", { name: "「追加料金を記録する」の固定ボードへ移る" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeDefined();
   });
 
   it("上下に何もつながらないときの案内: 「移動」で…の一文は簡易モードでは出さず、詳細モードでは出す", () => {

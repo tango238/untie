@@ -122,3 +122,49 @@ describe("分析（簡易）モード", () => {
     expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
   });
 });
+
+describe("簡易モードの 2 枚のボード", () => {
+  const OPERATION = "simple:operation";
+
+  it("簡易モードの最初はワークフロー。システムへ移って、ワークフローへ戻れる。どちらも簡易モードのまま", () => {
+    const s = make();
+    s.getState().setMode("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
+    s.getState().setCurrentBoard(OPERATION);
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe(OPERATION);
+    s.getState().setCurrentBoard(WORKFLOW);
+    expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
+    expect(isBuiltinBoard(OPERATION)).toBe(true);
+  });
+
+  it("詳細・設計モードからシステムの id を開くと簡易モードへ移る。簡易以外のモードでは、reconcileUi がそのモードの最初のボードへ戻す", () => {
+    const s = make();
+    s.getState().setCurrentBoard(OPERATION);
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    // 簡易 → 詳細: 最初のボード。選択は残す
+    s.getState().select({ type: "element", id: "uc_register_reservation" });
+    s.getState().setMode("analysis");
+    expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
+    expect(s.getState().ui.selection).toEqual({ type: "element", id: "uc_register_reservation" });
+    // 簡易へ戻ると、ワークフローから (開いていたのはシステムでも、最初のボード)
+    s.getState().setMode("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
+    // 設計 → 簡易
+    s.getState().enterDesign("sys_pms");
+    s.getState().setCurrentBoard(OPERATION);
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+  });
+
+  it("簡易モードでシステムのボードを開いたまま、ファイルを開き直す・選択した要素が消えても、システムのボードは保たれる (ファイルを開き直すとワークフローから)", () => {
+    const s = make();
+    s.getState().setCurrentBoard(OPERATION);
+    s.getState().select({ type: "element", id: "scr_checkin" });
+    s.getState().dispatch((m) => removeElement(m, { id: "scr_checkin" }));
+    expect(s.getState().ui.selection).toBeNull();
+    expect(s.getState().ui.currentBoardId).toBe(OPERATION);
+    s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
+  });
+});

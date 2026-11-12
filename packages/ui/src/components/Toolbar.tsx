@@ -189,7 +189,7 @@ export function Toolbar() {
                       ))}
                     </optgroup>
                   ) : mode === "analysisSimple" ? (
-                    // 簡易モードで開けるのはワークフローだけ (自由ボード・固定ボードは出さない)
+                    // 簡易モードで開けるのは簡易ボード (ワークフロー・システム) だけ (自由ボード・固定ボードは出さない)
                     <optgroup label="ボード">
                       {SIMPLE_BOARD_KINDS.map((kind) => (
                         <option key={kind} value={simpleBoardId(kind)}>
