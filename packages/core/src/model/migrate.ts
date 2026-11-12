@@ -102,6 +102,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.6.2",
     migrate: (json) => json,
   },
+  {
+    // 0.6.3: 代替パターン (alternate) に、任意の「そのあとの状態」(after) を足す。省略できる項目を足すだけなので変換は要らない (古いファイルの代替パターンは、そのあとの状態が未定になる)
+    from: "0.6.2",
+    to: "0.6.3",
+    migrate: (json) => json,
+  },
 ];
 
 /**

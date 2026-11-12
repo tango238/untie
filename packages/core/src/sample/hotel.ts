@@ -384,12 +384,12 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+// 代替パターン (0.6.1。そのあとの状態 after は 0.6.3): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
 const alternates: Record<string, RelationAlternate> = {
-  "rel_uc_register_reservation__cond_full": { when: "met", then: "予約を受けず、別の日か別の部屋タイプを案内する。" },
-  "rel_uc_assign_room__cond_full": { when: "met", then: "部屋を割り当てず、空きが出るまで待ってもらう。" },
-  "rel_uc_cancel_reservation__cond_cancel_fee": { when: "met", then: "取消料を請求に加えてから、予約を取り消す。" },
-  "rel_uc_record_checkin__cond_early_checkin": { when: "unmet", then: "部屋の準備が済むまで、ロビーで待ってもらう。" },
+  "rel_uc_register_reservation__cond_full": { when: "met", then: "予約を受けず、別の日か別の部屋タイプを案内する。", after: { type: "unchanged" } },
+  "rel_uc_assign_room__cond_full": { when: "met", then: "部屋を割り当てず、空きが出るまで待ってもらう。", after: { type: "unchanged" } },
+  "rel_uc_cancel_reservation__cond_cancel_fee": { when: "met", then: "取消料を請求に加えてから、予約を取り消す。", after: { type: "normal" } },
+  "rel_uc_record_checkin__cond_early_checkin": { when: "unmet", then: "部屋の準備が済むまで、ロビーで待ってもらう。", after: { type: "unchanged" } },
 };
 
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {

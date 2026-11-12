@@ -412,11 +412,11 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+// 代替パターン (0.6.1。そのあとの状態 after は 0.6.3): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
 const alternates: Record<string, RelationAlternate> = {
-  "rel_uc_clear_receivable__cond_diff": { when: "met", then: "差額の理由 (振込手数料・まとめ払い) を確かめ、差額を別に記録してから消し込む。" },
-  "rel_uc_approve_payment__cond_approval_limit": { when: "met", then: "経営者の承認をもらってから、支払を承認する。" },
-  "rel_uc_register_vendor_invoice__cond_invoice_no": { when: "unmet", then: "仕入税額控除の対象にせずに登録し、取引先に登録番号を確かめる。" },
+  "rel_uc_clear_receivable__cond_diff": { when: "met", then: "差額の理由 (振込手数料・まとめ払い) を確かめ、差額を別に記録してから消し込む。", after: { type: "normal" } },
+  "rel_uc_approve_payment__cond_approval_limit": { when: "met", then: "経営者の承認をもらってから、支払を承認する。", after: { type: "normal" } },
+  "rel_uc_register_vendor_invoice__cond_invoice_no": { when: "unmet", then: "仕入税額控除の対象にせずに登録し、取引先に登録番号を確かめる。", after: { type: "normal" } },
 };
 
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {

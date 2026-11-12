@@ -1,0 +1,30 @@
+{
+  "accepted": true,
+  "gateRuns": 1,
+  "checks": [
+    {
+      "ok": true,
+      "restored": [],
+      "checks": [
+        {
+          "name": "受け入れテスト",
+          "command": "node --test acceptance/run.test.ts",
+          "exit": 0,
+          "tests": 39,
+          "pass": 39,
+          "fail": 0,
+          "ok": true
+        },
+        {
+          "name": "アプリのテスト",
+          "command": "npm test",
+          "exit": 0,
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

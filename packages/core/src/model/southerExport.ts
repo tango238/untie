@@ -1,9 +1,10 @@
 // 業務ルールの骨組みを Souther (https://github.com/souther-lang/souther) のソース (.sou) に書き出す (6.1)。開発モードの中で使う。
 // Souther は、業務ルールを data と behavior で書き、example の行をコンパイルのときに評価して、どの組み合わせに行が無いかを測る言語。
 // ここで書き出すのは、分析から機械的に導けるところまで:
-//   状態 → フィールドの無い data と、状態のグループの和
-//   操作 → behavior (入力: 前提の状態と、判断する条件の真偽。出力: 次の状態か、条件のときの別の結果)
-//   代替パターン (条件のときにどうなるか) → guard … else と、その example の行
+//   状態 → 状態のグループの和 (どれか 1 つの値)
+//   操作 → behavior (入力: 今の状態と、判断する条件の真偽。出力: 次の状態か、条件のときの別の結果か、「状態が違う」)
+//   前提の状態 → guard 今の状態 == 前提の状態 else 状態が違う (前提の確認を、モデルが答える)
+//   代替パターン (条件のときにどうなるか・そのあとの状態) → guard … else と、その example の行
 // 条件の式 (何で判断するか)・情報の項目・不変条件は、ここでは書けない (分析に無い)。条件は真偽の入力にしておき、あとで詰める。
 // まだ決まっていない組み合わせは、答えを `<?>` にした行にする (Souther が「答え待ち」と数える)。純粋関数だけを置く。
 import { usecasePlaces } from "./placement";
@@ -12,8 +13,8 @@ import { alternateErrorLabel, type Element, type Relation, type UntieModel } fro
 /** まだ決まっていない組み合わせ 1 件 */
 export interface SoutherOpenPattern {
   usecaseId: string;
-  /** alternateUndecided: 条件のときにどうなるかが未定。nextStateUndecided: 次の状態が同じグループに複数あり、どれになるかが未定 */
-  kind: "alternateUndecided" | "nextStateUndecided";
+  /** alternateUndecided: 条件のときにどうなるかが未定。alternateAfterUndecided: そのあとの状態が未定。nextStateUndecided: 次の状態が同じグループに複数あり、どれになるかが未定 */
+  kind: "alternateUndecided" | "alternateAfterUndecided" | "nextStateUndecided";
   message: string;
 }
 
@@ -97,6 +98,8 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
   const usecaseIds = new Set(usecases.map((u) => u.id));
   for (const r of rel("stateUsecase")) if (usecaseIds.has(r.targetId)) touched.add(r.sourceId);
   for (const r of rel("usecaseState")) if (usecaseIds.has(r.sourceId)) touched.add(r.targetId);
+  // 代替パターンの「そのあとの状態」に選んだ状態のグループも、宣言に入れる
+  for (const r of rel("usecaseCondition")) if (usecaseIds.has(r.sourceId)) for (const id of r.alternate?.after?.stateIds ?? []) touched.add(id);
   const groupKey = (s: Extract<Element, { kind: "state" }>) => (s.group?.trim() ? `g:${s.group.trim()}` : `s:${s.id}`);
   const groups = new Map<string, StateGroup>();
   const touchedKeys = new Set([...touched].flatMap((id) => (stateOf(id) ? [groupKey(stateOf(id)!)] : [])));
@@ -121,8 +124,9 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
     "// untie が分析から書き出した、業務ルールの骨組み (自動生成。手で直しても、書き出し直すと消える)",
     `// システム: ${line(nameOf(system))}`,
     "//",
-    "// 状態は data、操作は behavior。条件は真偽の入力にしてある (何で判断するかの式は、分析に無いのでまだ書いていない)。",
-    "// example の行は、ふだんの流れと、条件のときの流れ (代替パターン)。答えが `<?>` の行は、まだ決まっていない組み合わせ。",
+    "// 状態は data (グループごとに、どれか 1 つの値)、操作は behavior。操作は今の状態を受け取り、前提の状態でなければ「状態が違う」を返す。",
+    "// 条件は真偽の入力にしてある (何で判断するかの式は、分析に無いのでまだ書いていない)。",
+    "// example の行は、ふだんの流れ・前提の状態が違うとき・条件のときの流れ (代替パターン)。答えが `<?>` の行は、まだ決まっていない組み合わせ。",
     `module ${moduleName}`,
     "",
   ];
@@ -159,6 +163,10 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
   let rows = 0;
   let owed = 0;
 
+  /** グループの型: 状態が 2 つ以上あれば和の名前、1 つだけなら、その状態 (比べる相手が無いので、前提の確認はしない) */
+  const groupType = (g: StateGroup): string => groupName.get(g.key) ?? stateName.get(g.states[0]!.id)!;
+  const checkable = (g: StateGroup): boolean => g.states.length > 1;
+
   for (const u of usecases) {
     const pre = byGroup(sourcesOf("stateUsecase", u.id));
     const post = byGroup(targetsOf("usecaseState", u.id));
@@ -171,7 +179,7 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
     }
     const behavior = alloc(southerIdentifier(nameOf(u)));
 
-    // 入力: 前提の状態 (グループごと) と、条件の真偽
+    // 入力: 今の状態 (グループごと) と、条件の真偽
     const params: { name: string; type: string }[] = [];
     const local = new Set<string>();
     const param = (base: string): string => {
@@ -180,64 +188,73 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
       local.add(name);
       return name;
     };
-    // behavior の引数には、名前の無い和 (`状態 | 状態`) を書けない。前提の状態が複数あるときは、グループの和をそのまま使うか
-    // (グループの状態のすべてが前提のとき)、その操作の前提だけの和を宣言する (1 つの状態は、複数の和の場合になれる)
-    const preDeclarations: string[] = [];
-    for (const p of pre) {
-      const name = param(southerIdentifier(`前の${p.group.label}`));
-      let type = p.states[0]!;
-      if (p.states.length > 1) {
-        const whole = p.states.length === p.group.states.length ? groupName.get(p.group.key) : undefined;
-        type = whole ?? alloc(`${behavior}_${name}`);
-        if (!whole) preDeclarations.push(`data ${type} = ${p.states.join(" | ")}`);
-      }
-      params.push({ name, type });
-    }
+    const preParams = pre.map((p) => ({ ...p, name: param(southerIdentifier(`今の${p.group.label}`)) }));
+    for (const p of preParams) params.push({ name: p.name, type: groupType(p.group) });
     const conds = conditions.map(({ relation, condition }) => ({ relation, condition, name: param(southerIdentifier(nameOf(condition))) }));
     for (const c of conds) params.push({ name: c.name, type: "Bool" });
 
-    // 出力: ふだんの結果 (次の状態) と、条件のときの別の結果
+    /** 結果 1 つ: 状態を変えないなら名前だけの data、変えるなら、グループごとの状態を持つ data (1 つのグループの「ふだんの結果」は、状態そのもの) */
+    const declarations: string[] = [];
+    const outcome = (name: string, states: { group: StateGroup; state: string }[], bare = false): { type: string; value: string; label: string } => {
+      if (states.length === 0) {
+        const type = alloc(name);
+        return { type, value: type, label: "状態は変えない" };
+      }
+      if (bare && states.length === 1) return { type: states[0]!.state, value: states[0]!.state, label: states[0]!.state };
+      const type = alloc(name);
+      const fields = states.map((x) => ({ field: southerIdentifier(x.group.label), type: groupType(x.group), state: x.state }));
+      declarations.push(`data ${type} = { ${fields.map((f) => `${f.field}: ${f.type}`).join(", ")} }`);
+      return { type, value: `${type} { ${fields.map((f) => `${f.field} = ${f.state}`).join(", ")} }`, label: fields.map((f) => f.state).join("・") };
+    };
+
+    // ふだんの結果 (次の状態)
     const ambiguous = post.filter((p) => p.states.length > 1);
-    let normalType: string;
-    let normalValue: string | null;
-    let normalLabel: string;
-    const declarations: string[] = [...preDeclarations];
+    const normalStates = post.map((p) => ({ group: p.group, state: p.states[0]! }));
+    let normal: { type: string; value: string | null; label: string };
     if (ambiguous.length > 0) {
       // 同じグループに次の状態が複数ある: どのときにどれになるかは、分析からは決まらない
-      normalValue = null;
-      normalType = post.length === 1 ? post[0]!.states.join(" | ") : alloc(`${behavior}_完了`);
-      normalLabel = ambiguous.map((p) => p.states.join(" か ")).join("、");
+      const label = ambiguous.map((p) => p.states.join(" か ")).join("、");
+      normal = { type: post.length === 1 ? post[0]!.states.join(" | ") : alloc(`${behavior}_完了`), value: null, label };
       open.push({
         usecaseId: u.id,
         kind: "nextStateUndecided",
-        message: `操作「${nameOf(u)}」の次の状態が、同じ「${ambiguous.map((p) => p.group.label).join("」「")}」に複数あります (${normalLabel})。どのときにどれになるかを決めてください`,
+        message: `操作「${nameOf(u)}」の次の状態が、同じ「${ambiguous.map((p) => p.group.label).join("」「")}」に複数あります (${label})。どのときにどれになるかを決めてください`,
       });
     } else if (post.length === 0) {
-      normalType = alloc(`${behavior}_完了`);
-      normalValue = normalType;
-      normalLabel = "完了";
-    } else if (post.length === 1) {
-      normalType = post[0]!.states[0]!;
-      normalValue = normalType;
-      normalLabel = normalType;
+      const o = outcome(`${behavior}_完了`, []);
+      normal = { ...o, label: "完了" };
     } else {
-      // 複数のグループの状態が同時に変わる: 結果を 1 つの data にまとめる
-      normalType = alloc(`${behavior}_結果`);
-      const fields = post.map((p) => ({ field: southerIdentifier(p.group.label), state: p.states[0]! }));
-      declarations.push(`data ${normalType} = { ${fields.map((f) => `${f.field}: ${f.state}`).join(", ")} }`);
-      normalValue = `${normalType} { ${fields.map((f) => `${f.field} = ${f.state}`).join(", ")} }`;
-      normalLabel = fields.map((f) => f.state).join("・");
+      normal = outcome(`${behavior}_結果`, normalStates, true);
     }
+
+    // 条件のときの別の結果。そのあとの状態 (変えない・ふだんと同じ・選んだ状態) で、持つ状態が決まる
     const alternates = conds.flatMap((c) => {
       const a = c.relation.alternate;
       if (!a) return [];
-      return [{ ...c, alternate: a, type: alloc(`${behavior}_${southerIdentifier(nameOf(c.condition))}${a.when === "met" ? "" : "_でない"}`) }];
+      const name = `${behavior}_${southerIdentifier(nameOf(c.condition))}${a.when === "met" ? "" : "_でない"}`;
+      const after = a.error ? ({ type: "unchanged" } as const) : a.after;
+      // 操作がふだん状態を変えるのに、そのあとの状態が決まっていない: 結果の中身は書けないので、答え待ちにする
+      const owed = after === undefined && post.length > 0;
+      if (owed) open.push({ usecaseId: u.id, kind: "alternateAfterUndecided", message: `操作「${nameOf(u)}」で、条件「${nameOf(c.condition)}」のときに、そのあとの状態がどうなるかが決まっていません` });
+      const states =
+        after?.type === "states"
+          ? (after.stateIds ?? []).flatMap((id) => {
+              const st = stateOf(id);
+              return st && stateName.has(id) ? [{ group: groups.get(groupKey(st))!, state: stateName.get(id)! }] : [];
+            })
+          : after?.type === "normal" && ambiguous.length === 0
+            ? normalStates
+            : [];
+      return [{ ...c, alternate: a, owed, afterLabel: after === undefined ? null : after.type === "normal" ? "ふだんと同じ" : after.type === "unchanged" ? "変えない" : states.map((x) => x.state).join("・"), ...outcome(name, states) }];
     });
     const undecided = conds.filter((c) => !c.relation.alternate);
     for (const c of undecided) {
       open.push({ usecaseId: u.id, kind: "alternateUndecided", message: `操作「${nameOf(u)}」で、条件「${nameOf(c.condition)}」のときにどうなるかが決まっていません` });
     }
-    const output = [normalType, ...alternates.map((a) => a.type)].join(" | ");
+    // 前提の状態が違うとき (グループに状態が 2 つ以上あるときだけ、確かめられる)
+    const checks = preParams.filter((p) => checkable(p.group));
+    const wrong = checks.length > 0 ? alloc(`${behavior}_状態が違う`) : null;
+    const output = [normal.type, ...alternates.map((a) => a.type), ...(wrong ? [wrong] : [])].join(" | ");
 
     // コメント: どの作業の操作か、扱う情報、起きる出来事
     const activities = sourcesOf("activityUsecase", u.id).map((id) => byId.get(id));
@@ -253,25 +270,26 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
     if (events.length > 0) block.push(`//   起きる出来事: ${line(events.join("・"))}`);
     for (const a of alternates) {
       const event = a.alternate.eventId ? byId.get(a.alternate.eventId) : undefined;
-      block.push(`//   ${line(nameOf(a.condition))}${a.alternate.when === "met" ? "" : " でない"}とき: ${line(a.alternate.then)}${a.alternate.error ? ` (${alternateErrorLabel(a.alternate.error)})` : event ? ` (出来事: ${line(nameOf(event))})` : ""}`);
+      const tail = a.alternate.error ? ` (${alternateErrorLabel(a.alternate.error)})` : event ? ` (出来事: ${line(nameOf(event))})` : "";
+      block.push(`//   ${line(nameOf(a.condition))}${a.alternate.when === "met" ? "" : " でない"}とき: ${line(a.alternate.then)}${tail}${a.afterLabel !== null ? ` [そのあとの状態: ${a.afterLabel}]` : post.length > 0 ? " [そのあとの状態: 未定]" : ""}`);
     }
     block.push(...declarations);
     block.push(`behavior ${behavior} : (${params.map((p) => `${p.name}: ${p.type}`).join(", ")}) -> ${output}`);
-    if (normalValue !== null) {
+    if (normal.value !== null) {
       const head = `let ${behavior} (${params.map((p) => p.name).join(", ")}) =`;
-      if (alternates.length === 0) block.push(`${head} ${normalValue}`);
-      else {
-        block.push(`${head} {`);
-        // 条件を満たすときに別の結果になるなら「満たさないこと」を、満たさないときに別の結果になるなら「満たすこと」を確かめる
-        for (const a of alternates) block.push(`    guard ${a.alternate.when === "met" ? `Bool.not(${a.name})` : a.name} else ${a.type}`);
-        block.push(`    ${normalValue}`, "}");
-      }
+      const guards: string[] = [];
+      // 前提の状態でなければ、状態が違う
+      for (const p of checks) guards.push(`    guard ${p.states.map((st) => `${p.name} == ${st}`).join(" || ")} else ${wrong}`);
+      // 条件を満たすときに別の結果になるなら「満たさないこと」を、満たさないときに別の結果になるなら「満たすこと」を確かめる
+      for (const a of alternates) guards.push(`    guard ${a.alternate.when === "met" ? `Bool.not(${a.name})` : a.name} else ${a.value}`);
+      if (guards.length === 0) block.push(`${head} ${normal.value}`);
+      else block.push(`${head} {`, ...guards, `    ${normal.value}`, "}");
     } else {
       block.push("// 次の状態が決まっていないので、中身はまだ書けない (行は、何が要るかを記録するだけ)");
     }
 
-    // 例の行: ふだんの流れ (前提の状態の組み合わせごと)、代替パターン、まだ決まっていない条件
-    const combos = pre.reduce<string[][]>((acc, p) => acc.flatMap((c) => p.states.map((s) => [...c, s])), [[]]).slice(0, MAX_COMBINATIONS);
+    // 例の行: ふだんの流れ (前提の状態の組み合わせごと)、前提の状態が違うとき、代替パターン、まだ決まっていない条件
+    const combos = preParams.reduce<string[][]>((acc, p) => acc.flatMap((c) => p.states.map((st) => [...c, st])), [[]]).slice(0, MAX_COMBINATIONS);
     /** ふだんの流れになる側の真偽 */
     const calm = (c: (typeof conds)[number]): boolean => (c.relation.alternate ? c.relation.alternate.when !== "met" : false);
     // flipped: その条件だけを、ふだんと反対の側にする (条件の名前で見分ける)
@@ -289,8 +307,16 @@ export function exportSouther(model: UntieModel, systemId: string): SoutherExpor
       rows++;
       if (answer === null) owed++;
     };
-    for (const combo of combos) row(`ふだんの流れ${combo.length > 0 ? `: ${combo.join("・")} から` : ""} → ${normalLabel}`, args(combo), normalValue === null ? null : normalType);
-    for (const a of alternates) row(`${nameOf(a.condition)}${a.alternate.when === "met" ? "" : " でない"}とき: ${a.alternate.then}`, args(combos[0]!, a), a.type);
+    for (const combo of combos) row(`ふだんの流れ${combo.length > 0 ? `: ${combo.join("・")} から` : ""} → ${normal.label}`, args(combo), normal.value);
+    preParams.forEach((p, index) => {
+      if (!wrong || !checkable(p.group)) return;
+      for (const st of p.group.states) {
+        const other = stateName.get(st.id)!;
+        if (p.states.includes(other)) continue;
+        row(`前提の状態が違う: ${other} では行えない`, args(combos[0]!.map((x, i) => (i === index ? other : x))), wrong);
+      }
+    });
+    for (const a of alternates) row(`${nameOf(a.condition)}${a.alternate.when === "met" ? "" : " でない"}とき: ${a.alternate.then}`, args(combos[0]!, a), a.owed ? null : a.value);
     for (const c of undecided) row(`${nameOf(c.condition)} のとき: まだ決まっていない`, args(combos[0]!, c), null);
     block.push(`example ${behavior}`, ...lines);
     blocks.push(block.join("\n"));

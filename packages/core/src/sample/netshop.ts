@@ -601,11 +601,11 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+// 代替パターン (0.6.1。そのあとの状態 after は 0.6.3): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
 const alternates: Record<string, RelationAlternate> = {
-  "rel_uc_allocate_stock__cond_out_of_stock": { when: "met", then: "引き当てずに、入荷を待つ注文として残す。" },
-  "rel_uc_register_return__cond_return_period": { when: "unmet", then: "返品を受け付けず、理由を購入者に伝える。" },
-  "rel_uc_issue_pick_list__cond_gift": { when: "met", then: "ピッキングリストに、ギフト包装の指示を載せる。" },
+  "rel_uc_allocate_stock__cond_out_of_stock": { when: "met", then: "引き当てずに、入荷を待つ注文として残す。", after: { type: "unchanged" } },
+  "rel_uc_register_return__cond_return_period": { when: "unmet", then: "返品を受け付けず、理由を購入者に伝える。", after: { type: "unchanged" } },
+  "rel_uc_issue_pick_list__cond_gift": { when: "met", then: "ピッキングリストに、ギフト包装の指示を載せる。", after: { type: "normal" } },
 };
 
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {

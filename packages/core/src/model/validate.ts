@@ -4,7 +4,7 @@ import type { ErrorObject } from "ajv";
 import * as generated from "./schemaValidator.gen.js";
 import { inspectDomain } from "./domain";
 import { relationKindFor, sameRelation } from "./relations";
-import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind, issueScopeOfKind } from "./types";
+import { ELEMENT_KIND_LABELS, ELEMENT_KINDS, isContextMemberKind, isIssueTargetKind, issueScopeOfKind, stateGroupKey } from "./types";
 import type { Element, UntieModel } from "./types";
 
 export type ValidationResult = { ok: true; model: UntieModel } | { ok: false; errors: string[] };
@@ -252,6 +252,21 @@ export function checkIntegrity(model: UntieModel): string[] {
         if (error !== undefined) {
           if (r.alternate.eventId !== undefined) errors.push(`関係 ${r.id} の代替パターンに、起きる出来事とエラーの両方が付いています (どちらか一方だけ)`);
           if (error.status !== undefined && error.type !== "server") errors.push(`関係 ${r.id} の代替パターンのエラー (${error.type}) に HTTP ステータスが付いています (サーバーエラーにだけ付けられます)`);
+        }
+        // そのあとの状態 (0.6.3): エラーのときは持てない。stateIds は states のときだけで、分析の状態を、状態グループごとに 1 つまで
+        const after = r.alternate.after;
+        if (after !== undefined) {
+          if (error !== undefined) errors.push(`関係 ${r.id} の代替パターンに、エラーと「そのあとの状態」の両方が付いています (エラーのときは状態を変えません)`);
+          if (after.type === "states") {
+            if (after.stateIds === undefined || after.stateIds.length === 0) errors.push(`関係 ${r.id} の代替パターンの「そのあとの状態」に、状態がありません`);
+            const groups = new Set<string>();
+            for (const id of after.stateIds ?? []) {
+              const state = byId.get(id);
+              if (state?.kind !== "state") errors.push(`関係 ${r.id} の代替パターンの「そのあとの状態」の状態 ${id} が存在しません`);
+              else if (groups.has(stateGroupKey(state))) errors.push(`関係 ${r.id} の代替パターンの「そのあとの状態」に、同じ状態グループの状態が複数あります (${state.group ?? state.name})`);
+              else groups.add(stateGroupKey(state));
+            }
+          } else if (after.stateIds !== undefined) errors.push(`関係 ${r.id} の代替パターンの「そのあとの状態」(${after.type}) に、状態が付いています (states のときだけ付けられます)`);
         }
       }
     }

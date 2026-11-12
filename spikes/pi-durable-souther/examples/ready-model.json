@@ -1,0 +1,128 @@
+{
+  "version": "0.6.3",
+  "meta": {
+    "name": "受付 (準備がそろった最小の例)"
+  },
+  "elements": [
+    {
+      "id": "ctx",
+      "kind": "context",
+      "name": "受付"
+    },
+    {
+      "id": "actor",
+      "kind": "actor",
+      "name": "受付係"
+    },
+    {
+      "id": "sys",
+      "kind": "system",
+      "name": "受付システム"
+    },
+    {
+      "id": "biz",
+      "kind": "business",
+      "name": "受付"
+    },
+    {
+      "id": "buc",
+      "kind": "buc",
+      "name": "受付",
+      "businessId": "biz",
+      "isDefault": true
+    },
+    {
+      "id": "act",
+      "kind": "activity",
+      "name": "申し込みを受ける",
+      "bucId": "buc"
+    },
+    {
+      "id": "uc",
+      "kind": "usecase",
+      "name": "申し込みを登録する"
+    },
+    {
+      "id": "info",
+      "kind": "information",
+      "name": "申し込み",
+      "contextId": "ctx"
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_0",
+      "kind": "actorBusiness",
+      "sourceId": "actor",
+      "targetId": "biz"
+    },
+    {
+      "id": "rel_1",
+      "kind": "actorActivity",
+      "sourceId": "actor",
+      "targetId": "act"
+    },
+    {
+      "id": "rel_2",
+      "kind": "activityUsecase",
+      "sourceId": "act",
+      "targetId": "uc"
+    },
+    {
+      "id": "rel_3",
+      "kind": "usecaseSystem",
+      "sourceId": "uc",
+      "targetId": "sys"
+    },
+    {
+      "id": "rel_4",
+      "kind": "usecaseInformation",
+      "sourceId": "uc",
+      "targetId": "info"
+    }
+  ],
+  "boards": [
+    {
+      "id": "board_main",
+      "name": "ボード 1",
+      "nodes": []
+    }
+  ],
+  "designs": [
+    {
+      "systemId": "sys",
+      "databaseIds": [],
+      "screens": [],
+      "transitions": [],
+      "layout": {
+        "shell": "shell",
+        "navigation": []
+      }
+    }
+  ],
+  "databases": [
+    {
+      "id": "db_default",
+      "name": "既定のデータベース",
+      "dsl": "model Application {\n  id String @id\n  name String\n  @@map(\"申し込み\")\n}\n",
+      "tables": [
+        {
+          "table": "Application",
+          "informationIds": [
+            "info"
+          ]
+        }
+      ]
+    }
+  ],
+  "domain": {
+    "contexts": [],
+    "aggregates": [],
+    "commands": [],
+    "events": [],
+    "policies": [],
+    "excluded": [],
+    "relations": [],
+    "terms": []
+  }
+}

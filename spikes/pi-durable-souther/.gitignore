@@ -1,0 +1,10 @@
+node_modules/
+workspace/app/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.submission
+.souther-home/
+workspace/.home/
+*.gate.json
+harness/.cache/

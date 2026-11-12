@@ -1,0 +1,13 @@
+{
+  "name": "pms",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node app/src/server.ts",
+    "test": "node --test \"app/test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@raoh/core": "0.9.0",
+    "@souther-lang/wasm": "0.4.1"
+  }
+}

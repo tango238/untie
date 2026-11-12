@@ -475,11 +475,11 @@ const elements: Element[] = [
 
 const kindOf = new Map(elements.map((e) => [e.id, e.kind]));
 
-// 代替パターン (0.6.1): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
+// 代替パターン (0.6.1。そのあとの状態 after は 0.6.3): 操作が条件を判断した結果、ふだんと違う流れになるときにどうなるか (設計モードのシーケンス図の分岐)
 const alternates: Record<string, RelationAlternate> = {
-  "rel_uc_register_order__cond_low_stock": { when: "unmet", then: "発注せず、次の確認まで待つ。" },
-  "rel_uc_register_return__cond_receipt": { when: "unmet", then: "返品・交換を受けず、理由をお客様に伝える。" },
-  "rel_uc_record_cash__cond_difference": { when: "met", then: "原因を調べて、ずれの理由を記録してから報告する。" },
+  "rel_uc_register_order__cond_low_stock": { when: "unmet", then: "発注せず、次の確認まで待つ。", after: { type: "unchanged" } },
+  "rel_uc_register_return__cond_receipt": { when: "unmet", then: "返品・交換を受けず、理由をお客様に伝える。", after: { type: "unchanged" } },
+  "rel_uc_record_cash__cond_difference": { when: "met", then: "原因を調べて、ずれの理由を記録してから報告する。", after: { type: "normal" } },
 };
 
 const relations: Relation[] = pairs.map(([sourceId, targetId, access]) => {

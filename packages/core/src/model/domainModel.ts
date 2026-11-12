@@ -132,7 +132,7 @@ export interface AggregateCandidate {
 export interface StateGroupOwner {
   group: string;
   states: State[];
-  /** 持ち主の情報 (次の状態へ遷移させる操作が最も多く書く情報。決まらなければ null) */
+  /** 持ち主の情報 (候補のうち、グループの名前に合う情報。無ければ、次の状態へ遷移させる操作が最も多く書く情報。決まらなければ null) */
   owner: Information | null;
   /** 候補 (書かれる回数の多い順) */
   candidates: { information: Information; count: number }[];
@@ -236,6 +236,11 @@ function informationAccess(ix: Index, usecaseId: string): { writes: Information[
 
 // ---------------------------------------------------------------- 導出
 
+/** 状態グループの名前から、何の状態かを取り出す (「発注の状態」→「発注」、「部屋状態」→「部屋」)。取り出せなければ空 */
+export function stateGroupSubject(group: string): string {
+  return group.trim().replace(/(の)?(状態|ステータス)$/, "").trim();
+}
+
 function stateGroupOwnersWith(ix: Index): StateGroupOwner[] {
   const groups = new Map<string, State[]>();
   for (const s of ix.ofKind("state")) {
@@ -257,7 +262,9 @@ function stateGroupOwnersWith(ix: Index): StateGroupOwner[] {
       }
     }
     const candidates = [...counts.values()].sort((a, b) => b.count - a.count);
-    const owner = candidates.length > 0 && (candidates.length === 1 || candidates[0]!.count > candidates[1]!.count) ? candidates[0]!.information : null;
+    // 名前が合う情報 (「発注の状態」と「発注」) があれば、それが持ち主。無ければ、書かれる回数がいちばん多い情報 (同数なら決めない)
+    const named = candidates.find((c) => c.information.name.trim() === stateGroupSubject(group));
+    const owner = named ? named.information : candidates.length > 0 && (candidates.length === 1 || candidates[0]!.count > candidates[1]!.count) ? candidates[0]!.information : null;
     result.push({ group, states, owner, candidates, usecases });
   }
   return result;

@@ -316,7 +316,7 @@ create index invitations_accepted on invitations(accepted_at) where accepted_at 
 doc
 ├ meta:      Y.Map { name, description }
 ├ elements:  Y.Map<id, Y.Map>   … kind, name, description, 種類固有の項目, order
-├ relations: Y.Map<id, JSON>    … { kind, sourceId, targetId, access?, alternate? } (値ごと置く。取得・保存の区別 access と、代替パターン alternate (0.6.1。エラーの種類 error は 0.6.2) を変えるときも、値ごと置き直す。同じ関係を同時に直すと後勝ち)
+├ relations: Y.Map<id, JSON>    … { kind, sourceId, targetId, access?, alternate? } (値ごと置く。取得・保存の区別 access と、代替パターン alternate (0.6.1。エラーの種類 error は 0.6.2、そのあとの状態 after は 0.6.3) を変えるときも、値ごと置き直す。同じ関係を同時に直すと後勝ち)
 ├ boards:    Y.Map<id, Y.Map { name, order,
 │                              nodes: Y.Map<elementId, { x, y, width?, height? }>,
 │                              edges: Y.Map<relationId, { sourceSide, targetSide }> }>

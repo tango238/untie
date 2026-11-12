@@ -1,0 +1,18 @@
+{
+  "name": "llm-workspace",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test app/test/api.test.ts",
+    "start": "node app/src/server.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@raoh/core": "^0.9.0",
+    "@souther-lang/wasm": "^0.4.1"
+  },
+  "type": "module"
+}

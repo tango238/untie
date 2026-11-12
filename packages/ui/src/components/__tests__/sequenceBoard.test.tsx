@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setRelationAlternate } from "@untie/core/model/commands";
+import { addRelation, setRelationAlternate } from "@untie/core/model/commands";
 import { createHotelSample } from "@untie/core/sample";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -74,16 +74,65 @@ describe("設計モードのシーケンス図", () => {
     expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toBeUndefined();
     type(within(row).getByLabelText("予約を取り消す・取消料が発生する のとき、どうなるか"), "取消料なしで取り消す");
     expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す" });
+    // 予約を取り消す は状態を変える操作なので、そのあとの状態を決めるまでは、未定のまま
+    expect(screen.getByTestId(`alternate-${r.id}`).className).toContain("is-undecided");
+    expect((screen.getByLabelText("業務") as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("予約受付 (未定 1)");
+    const after = () => within(screen.getByTestId(`alternate-${r.id}`)).getByLabelText("予約を取り消す・取消料が発生する のとき、そのあとの状態") as HTMLSelectElement;
+    expect([...after().querySelectorAll("option")].map((o) => o.textContent)).toEqual(["(未定)", "変えない", "ふだんと同じ", "仮予約", "確定", "チェックイン済", "チェックアウト済", "取消"]);
+    fireEvent.change(after(), { target: { value: "normal" } });
+    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す", after: { type: "normal" } });
     expect(screen.getByTestId(`alternate-${r.id}`).className).not.toContain("is-undecided");
     expect((screen.getByLabelText("業務") as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("予約受付");
+    expect(screen.getByRole("img", { name: "予約受付 のシーケンス図" }).textContent).toContain("(そのあと: ふだんと同じ)");
     // 起きる出来事を選ぶ
     const event = st().model.elements.find((e) => e.kind === "event")!;
     fireEvent.change(within(screen.getByTestId(`alternate-${r.id}`)).getByLabelText("予約を取り消す・取消料が発生する のとき、起きる出来事"), { target: { value: event.id } });
-    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toMatchObject({ eventId: event.id });
+    // ほかを直しても、そのあとの状態は残る
+    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す", eventId: event.id, after: { type: "normal" } });
     expect(screen.getByRole("img", { name: "予約受付 のシーケンス図" }).textContent).toContain(`(出来事: ${event.name})`);
     // 1 回の変更ごとに、元に戻せる
     act(() => st().undo());
-    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す" });
+    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate).toEqual({ when: "unmet", then: "取消料なしで取り消す", after: { type: "normal" } });
+    // 状態を選ぶ・未定に戻す
+    fireEvent.change(after(), { target: { value: "state:st_res_cancelled" } });
+    expect(relation("uc_cancel_reservation", "cond_cancel_fee").alternate!.after).toEqual({ type: "states", stateIds: ["st_res_cancelled"] });
+    expect(after().value).toBe("state:st_res_cancelled");
+    fireEvent.change(after(), { target: { value: "" } });
+    expect("after" in relation("uc_cancel_reservation", "cond_cancel_fee").alternate!).toBe(false);
+    expect(screen.getByTestId(`alternate-${r.id}`).className).toContain("is-undecided");
+  });
+
+  it("操作が 2 つ以上の状態グループに関わるときは、そのあとの状態を、グループごとに選べる", () => {
+    // 予約を取り消す が、部屋の状態にも関わるようにする (取り消すと、部屋が清掃待ちになる)
+    act(() => void st().dispatch((m) => addRelation(m, { sourceId: "uc_cancel_reservation", targetId: "st_room_waiting" })));
+    const r = relation("uc_cancel_reservation", "cond_cancel_fee");
+    render(<SequenceBoard />);
+    const row = () => screen.getByTestId(`alternate-${r.id}`);
+    const main = () => within(row()).getByLabelText("予約を取り消す・取消料が発生する のとき、そのあとの状態") as HTMLSelectElement;
+    const group = (name: string) => within(row()).queryByLabelText(`予約を取り消す・取消料が発生する のとき、そのあとの「${name}」`) as HTMLSelectElement | null;
+    const after = () => relation("uc_cancel_reservation", "cond_cancel_fee").alternate!.after;
+    expect([...main().querySelectorAll("option")].map((o) => o.textContent)).toEqual(["(未定)", "変えない", "ふだんと同じ", "状態を選ぶ"]);
+    expect(main().value).toBe("normal");
+    expect(group("予約の状態")).toBeNull();
+    // 「状態を選ぶ」を選ぶと、グループごとの欄が出る。最初の状態を選ぶまでは、保存しない
+    fireEvent.change(main(), { target: { value: "states" } });
+    expect(after()).toEqual({ type: "normal" });
+    expect(group("予約の状態")!.value).toBe("");
+    expect([...group("部屋の状態")!.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["(変えない)", "清掃待ち", "清掃中", "準備完了", "使用中"]);
+    fireEvent.change(group("予約の状態")!, { target: { value: "st_res_cancelled" } });
+    expect(after()).toEqual({ type: "states", stateIds: ["st_res_cancelled"] });
+    fireEvent.change(group("部屋の状態")!, { target: { value: "st_room_cleaning" } });
+    expect(after()).toEqual({ type: "states", stateIds: ["st_res_cancelled", "st_room_cleaning"] });
+    expect(screen.getByRole("img", { name: "予約受付 のシーケンス図" }).textContent).toContain("(そのあと: 取消・清掃中)");
+    // グループの状態を入れ替える・外す。どのグループも「変えない」になったら、全体が「変えない」
+    fireEvent.change(group("予約の状態")!, { target: { value: "st_res_tentative" } });
+    expect(after()).toEqual({ type: "states", stateIds: ["st_res_tentative", "st_room_cleaning"] });
+    fireEvent.change(group("予約の状態")!, { target: { value: "" } });
+    expect(after()).toEqual({ type: "states", stateIds: ["st_room_cleaning"] });
+    fireEvent.change(group("部屋の状態")!, { target: { value: "" } });
+    expect(after()).toEqual({ type: "unchanged" });
+    expect(main().value).toBe("unchanged");
+    expect(group("部屋の状態")).toBeNull();
   });
 
   it("起きる出来事の選択肢は、エラー (入力エラー・サーバーエラー) と、分析のイベント。サーバーエラーには HTTP ステータスを入れられる", () => {

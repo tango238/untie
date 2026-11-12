@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { setRelationAlternate } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH } from "@untie/core/model/limits";
 import { deriveSequences, sequenceAlternateLines, sequenceCallLabel, type BusinessSequence, type SequenceStep } from "@untie/core/model/sequence";
-import { ALTERNATE_ERROR_LABELS, ALTERNATE_ERROR_TYPES, ALTERNATE_WHEN_LABELS, ALTERNATE_WHENS, COMMON_HTTP_STATUSES, HTTP_STATUS_MAX, HTTP_STATUS_MIN, type AlternateErrorType, type AlternateWhen, type UntieModel } from "@untie/core/model/types";
+import { ALTERNATE_AFTER_LABELS, ALTERNATE_ERROR_LABELS, ALTERNATE_ERROR_TYPES, ALTERNATE_WHEN_LABELS, ALTERNATE_WHENS, COMMON_HTTP_STATUSES, HTTP_STATUS_MAX, HTTP_STATUS_MIN, stateGroupKey, type AlternateAfterType, type AlternateErrorType, type AlternateWhen, type UntieModel } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../../store";
 import { CommitField } from "../CommitField";
 
@@ -148,7 +148,7 @@ function Diagram({ sequence, focus, onPickAlternate }: { sequence: BusinessSeque
         return (
           <g
             key={step.key}
-            className={`seq-alternate${step.alternate ? "" : " is-undecided"}${focus === step.relationId ? " is-focus" : ""}`}
+            className={`seq-alternate${step.alternate && !(step.changesState && step.after === null) ? "" : " is-undecided"}${focus === step.relationId ? " is-focus" : ""}`}
             role="button"
             tabIndex={0}
             aria-label={`分岐 ${when} ${then}`}
@@ -190,14 +190,63 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
   const [draftWhen, setDraftWhen] = useState<AlternateWhen>("met");
   const a = step.alternate;
   const when = a?.when ?? draftWhen;
-  const save = (next: { when?: AlternateWhen; then?: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null }) => {
+  type After = { type: AlternateAfterType; stateIds?: readonly string[] } | null;
+  const save = (next: { when?: AlternateWhen; then?: string; eventId?: string | null; error?: { type: AlternateErrorType; status?: number | null } | null; after?: After }) => {
     const then = next.then ?? a?.then ?? "";
     // 起きる出来事とエラーは、どちらか一方。片方を選んだら、もう片方は外す
     const outcome = next.error ? { eventId: null, error: next.error } : next.eventId ? { eventId: next.eventId, error: null } : next.eventId === null || next.error === null ? { eventId: null, error: null } : { eventId: a?.eventId ?? null, error: a?.error ?? null };
-    const r = dispatch((m) => setRelationAlternate(m, { id: step.relationId, alternate: then.trim() === "" ? null : { when: next.when ?? when, then, ...outcome } }));
+    // そのあとの状態は、ほかを直しても残す。エラーのときは状態を変えないので、持たない (コマンドが捨てる)
+    const after: After = next.after !== undefined ? next.after : (a?.after ?? null);
+    const r = dispatch((m) => setRelationAlternate(m, { id: step.relationId, alternate: then.trim() === "" ? null : { when: next.when ?? when, then, ...outcome, after } }));
     if (!r.ok) pushToast(r.reason, "error");
     return r.ok;
   };
+  // そのあとの状態の選択肢: 変えない・ふだんと同じ (操作が状態を変えるときだけ)・この操作が関わる状態グループの状態
+  const afterStates = useMemo(() => {
+    const touched = model.relations.filter((r) => (r.kind === "stateUsecase" && r.targetId === step.usecase.id) || (r.kind === "usecaseState" && r.sourceId === step.usecase.id)).map((r) => (r.kind === "stateUsecase" ? r.sourceId : r.targetId));
+    const states = model.elements.filter((e): e is Extract<UntieModel["elements"][number], { kind: "state" }> => e.kind === "state");
+    const keys = new Set(states.filter((e) => touched.includes(e.id)).map(stateGroupKey));
+    return states.filter((e) => keys.has(stateGroupKey(e)));
+  }, [model, step.usecase.id]);
+  const afterValue = !a ? "" : a.error ? "unchanged" : !a.after ? "" : a.after.type === "states" ? `state:${a.after.stateIds?.[0] ?? ""}` : a.after.type;
+  const pickAfter = (value: string) => {
+    if (value === "") save({ after: null });
+    else if (value.startsWith("state:")) save({ after: { type: "states", stateIds: [value.slice("state:".length)] } });
+    else save({ after: { type: value as AlternateAfterType } });
+  };
+  // 操作が 2 つ以上の状態グループに関わるときは、グループごとに状態を選べるようにする (予約は取消、部屋は清掃待ち、のように)
+  const afterGroups = useMemo(() => {
+    const groups: { key: string; label: string; states: typeof afterStates }[] = [];
+    for (const st of afterStates) {
+      const key = stateGroupKey(st);
+      const g = groups.find((x) => x.key === key);
+      if (g) g.states.push(st);
+      else groups.push({ key, label: st.group?.trim() || st.name || "(名前なし)", states: [st] });
+    }
+    return groups;
+  }, [afterStates]);
+  const multi = afterGroups.length > 1;
+  // 「状態を選ぶ」を選んでから、最初の状態を選ぶまでのあいだ (状態が 1 つも無いままでは保存できない)
+  const [choosing, setChoosing] = useState(false);
+  const chosenIds = a?.after?.type === "states" ? (a.after.stateIds ?? []) : [];
+  const chosenIn = (key: string): string => afterStates.find((st) => stateGroupKey(st) === key && chosenIds.includes(st.id))?.id ?? "";
+  const multiValue = !a ? "" : a.error ? "unchanged" : a.after?.type === "states" || choosing ? "states" : (a.after?.type ?? "");
+  const pickMulti = (value: string) => {
+    setChoosing(value === "states");
+    if (value === "states") return;
+    pickAfter(value);
+  };
+  /** グループごとの状態を選ぶ。どのグループも「変えない」になったら、全体を「変えない」にする */
+  const pickGroupState = (key: string, stateId: string) => {
+    const ids = afterGroups.flatMap((g) => {
+      const id = g.key === key ? stateId : chosenIn(g.key);
+      return id ? [id] : [];
+    });
+    setChoosing(false);
+    save({ after: ids.length > 0 ? { type: "states", stateIds: ids } : { type: "unchanged" } });
+  };
+  /** そのあとの状態が、まだ決まっていない (操作がふだん状態を変えるのに、分岐のあとの状態が無い) */
+  const afterUndecided = !!a && step.changesState && step.after === null;
   /** 選択肢の値: エラーは error:<種類>、出来事はイベントの id */
   const outcomeValue = a?.error ? `error:${a.error.type}` : (a?.eventId ?? "");
   const pickOutcome = (value: string) => {
@@ -222,7 +271,7 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
   const events = model.elements.filter((e) => e.kind === "event");
   const label = `${step.usecase.name}・${step.condition.name}`;
   return (
-    <tr ref={ref} className={`${a ? "" : "is-undecided"}${focused ? " is-focus" : ""}`} data-testid={`alternate-${step.relationId}`}>
+    <tr ref={ref} className={`${a && !afterUndecided ? "" : "is-undecided"}${focused ? " is-focus" : ""}`} data-testid={`alternate-${step.relationId}`}>
       <th scope="row">{step.usecase.name || "(名前なし)"}</th>
       <td>
         {step.condition.name || "(名前なし)"}
@@ -288,6 +337,65 @@ function AlternateRow({ step, model, readOnly, focused }: { step: AlternateStep;
           </label>
         )}
       </td>
+      <td>
+        {afterStates.length === 0 && !step.changesState ? (
+          <span className="an-sub" title="この操作は、状態に関わらない">
+            —
+          </span>
+        ) : multi ? (
+          <>
+            <select
+              aria-label={`${label} のとき、そのあとの状態`}
+              value={multiValue}
+              disabled={readOnly || !a || !!a.error}
+              title={!a ? "先に、どうなるかを書いてください" : a.error ? "エラーのときは、状態を変えません" : undefined}
+              className={afterUndecided && !choosing ? "is-undecided" : undefined}
+              onChange={(e) => pickMulti(e.target.value)}
+            >
+              <option value="">(未定)</option>
+              <option value="unchanged">{ALTERNATE_AFTER_LABELS.unchanged}</option>
+              {step.changesState && <option value="normal">{ALTERNATE_AFTER_LABELS.normal}</option>}
+              <option value="states">{ALTERNATE_AFTER_LABELS.states}</option>
+            </select>
+            {multiValue === "states" &&
+              afterGroups.map((g) => (
+                <label key={g.key} className="seq-status seq-after-group">
+                  {g.label}
+                  <select aria-label={`${label} のとき、そのあとの「${g.label}」`} value={chosenIn(g.key)} disabled={readOnly} onChange={(e) => pickGroupState(g.key, e.target.value)}>
+                    <option value="">(変えない)</option>
+                    {g.states.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name || "(名前なし)"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+          </>
+        ) : (
+          <select
+            aria-label={`${label} のとき、そのあとの状態`}
+            value={afterValue}
+            disabled={readOnly || !a || !!a.error}
+            title={!a ? "先に、どうなるかを書いてください" : a.error ? "エラーのときは、状態を変えません" : undefined}
+            className={afterUndecided ? "is-undecided" : undefined}
+            onChange={(e) => pickAfter(e.target.value)}
+          >
+            <option value="">(未定)</option>
+            <option value="unchanged">{ALTERNATE_AFTER_LABELS.unchanged}</option>
+            {step.changesState && <option value="normal">{ALTERNATE_AFTER_LABELS.normal}</option>}
+            {afterStates.length > 0 && (
+              <optgroup label="この状態になる">
+                {afterStates.map((st) => (
+                  <option key={st.id} value={`state:${st.id}`}>
+                    {st.name || "(名前なし)"}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        )}
+      </td>
     </tr>
   );
 }
@@ -326,7 +434,7 @@ export function SequenceBoard() {
     }
   };
   const systemName = model.elements.find((e) => e.id === systemId)?.name || "このシステム";
-  const undecided = (s: BusinessSequence) => s.gaps.filter((g) => g.type === "alternateUndecided").length;
+  const undecided = (s: BusinessSequence) => s.gaps.filter((g) => g.type === "alternateUndecided" || g.type === "alternateAfterUndecided").length;
   if (!sequence) {
     return (
       <section className="domain-board seq-board" aria-label="設計ボード: シーケンス図">
@@ -338,7 +446,7 @@ export function SequenceBoard() {
     );
   }
   const alternates = sequence.steps.filter((s): s is AlternateStep => s.type === "alternate");
-  const others = sequence.gaps.filter((g) => g.type !== "alternateUndecided");
+  const others = sequence.gaps.filter((g) => g.type !== "alternateUndecided" && g.type !== "alternateAfterUndecided");
   return (
     <section className="domain-board seq-board" aria-label="設計ボード: シーケンス図">
       <div className="dsl-toolbar domain-toolbar">
@@ -384,6 +492,7 @@ export function SequenceBoard() {
                 <th>いつ</th>
                 <th>どうなるか</th>
                 <th>起きる出来事・エラー</th>
+                <th>そのあとの状態</th>
               </tr>
             </thead>
             <tbody>
@@ -435,6 +544,10 @@ export function SequenceHelp() {
           <div>
             <dt>エラー</dt>
             <dd>分岐の結果がエラーのとき、表の「起きる出来事・エラー」で選ぶ。入力エラーは、利用者が入力を直せば進めるもの。サーバーエラーは、利用者には直せない失敗で、HTTP ステータス (404 など) を入れると、ステータス別の共通のメッセージの画面になる</dd>
+          </div>
+          <div>
+            <dt>そのあとの状態</dt>
+            <dd>操作がふだん状態を変えるなら、分岐のあとの状態も決める。変えない (受け付けない、など)・ふだんと同じ (ひと手間を足して、そのまま進む)・別の状態になる、のどれか。エラーのときは、変えない</dd>
           </div>
           <div>
             <dt>小さな枠</dt>

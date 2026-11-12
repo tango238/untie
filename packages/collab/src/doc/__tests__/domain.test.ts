@@ -206,6 +206,18 @@ describe("代替パターン (関係の alternate。0.6.1) の往復", () => {
     relations.set(r.id, { ...relations.get(r.id)!, alternate: { when: "unmet", then: "x", error: { type: "other" } } as never });
     expect(rebuildModel(doc).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "x" });
     applyModelDiff(doc, rebuildModel(doc), failing, "local");
+    // そのあとの状態 (0.6.3) も、関係の値ごと届く。形の合わないものは、決めていないものとして読む
+    const state = m.elements.find((e) => e.kind === "state")!;
+    const moved = okModel(setRelationAlternate(failing, { id: r.id, alternate: { when: "unmet", then: "受け付けない", after: { type: "states", stateIds: [state.id] } } }));
+    applyModelDiff(doc, failing, moved, "local");
+    sync(doc, other);
+    expect(rebuildModel(other).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "受け付けない", after: { type: "states", stateIds: [state.id] } });
+    expect(rebuildModel(other)).toStrictEqual(moved);
+    relations.set(r.id, { ...relations.get(r.id)!, alternate: { when: "unmet", then: "x", after: { type: "states", stateIds: [] } } as never });
+    expect(rebuildModel(doc).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "x" });
+    relations.set(r.id, { ...relations.get(r.id)!, alternate: { when: "unmet", then: "x", after: { type: "normal", stateIds: [state.id] } } as never });
+    expect(rebuildModel(doc).relations.find((x) => x.id === r.id)!.alternate).toEqual({ when: "unmet", then: "x", after: { type: "normal" } });
+    applyModelDiff(doc, rebuildModel(doc), failing, "local");
     // 未定に戻す
     const cleared = okModel(setRelationAlternate(failing, { id: r.id, alternate: null }));
     applyModelDiff(doc, failing, cleared, "local");

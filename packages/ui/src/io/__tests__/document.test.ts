@@ -21,10 +21,10 @@ describe("保存・読み込み", () => {
     const old = { ...createHotelSample(), version: 1 };
     const parsed = parseModel(JSON.stringify(old));
     expect(parsed.ok).toBe(true);
-    expect(parsed.ok && parsed.model.version).toBe("0.6.2");
+    expect(parsed.ok && parsed.model.version).toBe("0.6.3");
     expect(parsed.ok && parsed.migrated).toBe(true);
     // 書き出すと現行の版になる
-    expect(parsed.ok && JSON.parse(serializeModel(parsed.model)).version).toBe("0.6.2");
+    expect(parsed.ok && JSON.parse(serializeModel(parsed.model)).version).toBe("0.6.3");
   });
 
   it("新しい版の Untie で作られたファイルは、更新を促して開かない", () => {

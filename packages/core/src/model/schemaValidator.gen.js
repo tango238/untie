@@ -5,7 +5,7 @@ const func2 = func2Module.default ?? func2Module;
 import func0Module from "ajv/dist/runtime/equal.js";
 const func0 = func0Module.default ?? func0Module;
 export const validateModelSchema = validate20;
-const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases","domain"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.2。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.6.2"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}},"domain":{"$ref":"#/$defs/domainModel"}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}},"eventTiming":{"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}}}}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"englishName":{"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"},"domainModel":{"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}},"boundedContext":{"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"aggregate":{"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainCommand":{"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"domainEvent":{"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainPolicy":{"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}},"contextRelation":{"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}},"domainTerm":{"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
+const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:untie:schema:model:1","title":"UntieModel","description":"Untie の業務モデル。要素 (elements) と型付きの関係 (relations) と、要素をどこに置くかだけを持つボード (boards) から成る。要素・関係・ボードは安定した id を持ち、参照はすべて id で行う。参照整合性はスキーマでは表現できないので validateModel() で別途検査する。","type":"object","required":["version","meta","elements","relations","boards","designs","databases","domain"],"additionalProperties":false,"properties":{"$schema":{"description":"任意。エディタ補完用のスキーマ参照。","type":"string"},"version":{"description":"モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。","type":"string","const":"0.6.3"},"meta":{"$ref":"#/$defs/meta"},"elements":{"description":"全要素。kind で 17 種を判別する。id はモデル内で一意。","type":"array","items":{"$ref":"#/$defs/element"}},"relations":{"description":"型付きの関係。kind は両端の要素の種類から一意に決まるが、検証と出力を単純にするため冗長に持つ。","type":"array","items":{"$ref":"#/$defs/relation"}},"boards":{"description":"ボードの一覧。1 件以上。要素は複数のボードに置け、座標はボードごとに持つ。","type":"array","minItems":1,"items":{"$ref":"#/$defs/board"}},"designs":{"description":"システムごとの設計 (設計モード。0.5.0 から)。systemId は一意。参照整合性は validateModel() で検査する。","type":"array","items":{"$ref":"#/$defs/systemDesign"}},"databases":{"description":"設計をまたいで共有するデータベース (0.5.0 から)。id は一意。","type":"array","items":{"$ref":"#/$defs/database"}},"domain":{"$ref":"#/$defs/domainModel"}},"$defs":{"id":{"description":"安定した識別子。作成時に『種類の短い接頭辞 + ランダム文字列』で振り、名前を変えても変わらない。","type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"name":{"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200},"description":{"description":"説明文。メモ代わりに自由に書ける。","type":"string","maxLength":4000},"meta":{"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"elementKind":{"description":"要素の種類。","type":"string","enum":["actor","externalActor","system","ledger","business","buc","activity","usecase","context","information","state","variation","condition","issue","event","screen","nfr"]},"elementBase":{"description":"全要素に共通する項目。","type":"object","required":["id","kind","name"],"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/elementKind"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"element":{"description":"要素。kind ごとに固有の項目を持つ。","oneOf":[{"$ref":"#/$defs/actor"},{"$ref":"#/$defs/externalActor"},{"$ref":"#/$defs/system"},{"$ref":"#/$defs/ledger"},{"$ref":"#/$defs/business"},{"$ref":"#/$defs/buc"},{"$ref":"#/$defs/activity"},{"$ref":"#/$defs/usecase"},{"$ref":"#/$defs/context"},{"$ref":"#/$defs/information"},{"$ref":"#/$defs/state"},{"$ref":"#/$defs/variation"},{"$ref":"#/$defs/condition"},{"$ref":"#/$defs/issue"},{"$ref":"#/$defs/event"},{"$ref":"#/$defs/screen"},{"$ref":"#/$defs/nfr"}]},"actor":{"description":"アクター。業務を行う社内の人・役割。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"actor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"externalActor":{"description":"外部アクター。顧客・取引先など社外の人や組織。社外のシステムは system にする。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"externalActor"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"persona":{"$ref":"#/$defs/persona"}}},"system":{"description":"システム。情報システム (自社・社外を問わない)。操作の対象になり、イベントを発生させる。情報の置き場所 (取得元・保存先) は、このシステムを対象にした操作が扱う情報から導く (0.4.0 から)。画面と非機能要件を持てる (screen / nfr の systemId)。作業の担当にはならない (0.2.0 から)。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"system"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"ledger":{"description":"帳票。紙の台帳・伝票など。操作の対象になる。情報の置き場所 (取得元・保存先) は、この帳票を対象にした操作が扱う情報から導く (0.4.0 から)。作業の担当にはならない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"ledger"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"business":{"description":"業務。ボード上では枠 (グループノード) になる。作成時に既定 BUC が 1 つ作られる。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"business"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"buc":{"description":"BUC (Business Use Case)。業務の中の作業のまとまり。各業務に isDefault: true の既定 BUC がちょうど 1 つある。既定 BUC はボードに置けず、一覧にも出さない。","type":"object","required":["id","kind","name","businessId","isDefault"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"buc"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"businessId":{"description":"所属する業務の id。必須。","$ref":"#/$defs/id"},"isDefault":{"description":"業務に直接置いたアクティビティを受ける既定 BUC なら true。","type":"boolean"}}},"activity":{"description":"アクティビティ。業務の中の個々の作業。bucId で所属 BUC を指す。null は未所属。","type":"object","required":["id","kind","name","bucId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"activity"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"bucId":{"description":"所属する BUC の id。業務の枠に直接置いた場合はその業務の既定 BUC。未所属なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000},"triggerNote":{"description":"起点のうち、作業・イベント以外の自由入力 (例: 電話)。空文字は持たず、無ければ項目ごと省く (0.4.1 から)。","type":"string","minLength":1,"maxLength":4000}}},"usecase":{"description":"ユースケース。システムに期待する振る舞い。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"usecase"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"links":{"description":"マニュアルなどへのリンク。順序を保つ。","type":"array","items":{"$ref":"#/$defs/link"}},"hours":{"description":"かかる時間 (時間単位、小数点第一位まで)。任意。","type":"number","minimum":0,"maximum":100000}}},"context":{"description":"コンテキスト。役割の同じ情報と、それに関係の深い状態・条件・バリエーションをまとめる親カテゴリ (RDRA のコンテキスト)。所属する要素から contextId で参照され、自身は関係を持たない。","type":"object","required":["id","kind","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"context"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}},"information":{"description":"情報。業務で扱う情報。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"information"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"state":{"description":"状態。情報やモノの状態。group で状態グループ (例: 予約の状態) をまとめる。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"state"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"group":{"description":"状態グループ名 (RDRA の state.group)。任意。","type":"string","maxLength":200},"contextId":{"description":"所属するコンテキストの id。未分類なら null。状態グループごとに同じコンテキストに属する。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"variation":{"description":"バリエーション。種別・区分と、その値の一覧。","type":"object","required":["id","kind","name","contextId","values"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"variation"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"values":{"description":"値の一覧。順序を保つ。","type":"array","items":{"type":"string","maxLength":200}},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"condition":{"description":"条件。判断の条件・ルール。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"condition"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]}}},"issue":{"description":"課題。現場で困っていること。ボードには置かず、課題一覧と対象要素のバッジで見る。対象の種類で、全体的な課題 (登場人物が対象) と具体的な課題 (業務・作業・操作・画面が対象) に分かれる (対象が無ければ未整理)。","type":"object","required":["id","kind","name","severity","targetIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"issue"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"severity":{"description":"重要度。1 (低) 〜 5 (高)。","type":"integer","minimum":1,"maximum":5},"targetIds":{"description":"対象要素の id。登場人物 (アクター・外部アクター・システム・帳票) だけ、または業務・作業・操作・画面だけ (混ぜない)。0 件も可 (未整理)。重複なし。","type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true},"analysis":{"$ref":"#/$defs/issueAnalysis"}}},"event":{"description":"イベント。操作の実行やシステムが発生させる出来事 (人の動きは含めない)。操作のきっかけになる。contextId で所属コンテキストを指す。null は未分類。","type":"object","required":["id","kind","name","contextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"event"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"contextId":{"description":"所属するコンテキストの id。未分類なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"timing":{"$ref":"#/$defs/eventTiming"}}},"eventTiming":{"description":"イベントの発生タイミング (任意。0.5.4 から)。type が scheduled (定期) なら、every の周期 (毎月・毎日・毎時) で繰り返すバッチ処理で、day・hour・minute で起きる時刻を決める。adhoc (不定期・随時) なら、Webhook などから API が呼ばれたときのような不定期の処理で、いつ起きるかは note に書く。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"種類。scheduled は定期、adhoc は不定期 (随時)。","enum":["scheduled","adhoc"]},"every":{"description":"定期の周期。month は毎月、day は毎日、hour は毎時。type が scheduled のときだけ持つ。","enum":["month","day","hour"]},"day":{"description":"毎月の何日に起きるか (1〜31。月末に無い日はその月の末日)。every が month のときだけ持つ。","type":"integer","minimum":1,"maximum":31},"hour":{"description":"何時に起きるか (0〜23)。every が month か day のときだけ持つ。","type":"integer","minimum":0,"maximum":23},"minute":{"description":"何分に起きるか (0〜59)。type が scheduled のときだけ持つ。","type":"integer","minimum":0,"maximum":59},"note":{"description":"補足。定期なら「営業日だけ」など、不定期ならいつ起きるか (例: 決済サービスから入金の Webhook を受けたとき)。","type":"string","maxLength":4000}}},"screen":{"description":"画面。1 つのシステムに属する (systemId)。操作が使う。扱う情報は、この画面を使う操作が扱う情報から導く (0.4.0 から)。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"screen"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は画面を持たない)。","$ref":"#/$defs/id"}}},"nfr":{"description":"非機能要件。1 つのシステムに属する (systemId)。求める人はアクター・外部アクターから関係 (actorNfr) で結ぶ。","type":"object","required":["id","kind","name","systemId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"const":"nfr"},"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"},"systemId":{"description":"属するシステムの id。必須 (帳票は非機能要件を持たない)。","$ref":"#/$defs/id"},"category":{"description":"分類 (IPA 非機能要求グレードの大項目)。省略は未分類。availability: 可用性、performance: 性能・拡張性、operability: 運用・保守性、migration: 移行性、security: セキュリティ、environment: システム環境・エコロジー。","type":"string","enum":["availability","performance","operability","migration","security","environment"]},"verification":{"description":"検証方法。満たしていることをどう確かめるか。","type":"string","maxLength":4000}}},"persona":{"description":"ペルソナ (任意)。アクター・外部アクターの人物像。AI のヒアリングで、この人になりきって答える材料になる。項目はすべて任意で、全部空なら持たない。","type":"object","additionalProperties":false,"properties":{"handle":{"description":"呼び名。例: 田中さん (店長・45歳)。","type":"string","maxLength":200},"attributes":{"description":"属性。年代・経験年数・勤務形態などを 1 行で。","type":"string","maxLength":200},"background":{"description":"背景と役割。何を任され、何を気にしているか。","type":"string","maxLength":4000},"goals":{"description":"目標。この人が達成したいこと。","type":"string","maxLength":4000},"itSkill":{"description":"IT の習熟。comfortable は慣れている、normal は普通、uncomfortable は苦手。","enum":["comfortable","normal","uncomfortable"]},"notes":{"description":"備考。","type":"string","maxLength":4000}}},"issueAnalysis":{"description":"課題の分析 (任意)。AI との深掘りや手入力で埋める。担当者が書いた課題の説明 (原文) は残し、突き止めた内容をここに分けて持つ。","type":"object","additionalProperties":false,"properties":{"phenomenon":{"description":"現象。何が、いつ、どのくらいの頻度で起きるか。","type":"string","maxLength":4000},"location":{"description":"所在。どの業務・活動・作業・操作 (または登場人物) で起きるか。","type":"string","maxLength":4000},"cause":{"description":"理由。なぜそこで起きるか。","type":"string","maxLength":4000},"impact":{"description":"影響。誰にどう響くか。","type":"string","maxLength":4000}}},"link":{"description":"リンク。表示名と URL (http / https)。","type":"object","required":["title","url"],"additionalProperties":false,"properties":{"title":{"type":"string","maxLength":200},"url":{"type":"string","maxLength":2000,"pattern":"^https?://"}}},"relationKind":{"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]},"relation":{"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}},"after":{"description":"そのあとの状態 (任意。0.6.3)。ふだんと違う流れになったあと、操作の対象の状態がどうなるか。省略は、まだ決めていない。error があるときは持てない (エラーのときは状態を変えない。validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"unchanged は状態を変えない。normal はふだんの流れと同じ状態になる (操作の「次の状態」)。states は stateIds の状態になる。","type":"string","enum":["unchanged","normal","states"]},"stateIds":{"description":"そのあとの状態 (分析の状態の id)。type が states のときだけ持ち、そのときは 1 つ以上が必須。1 つの状態グループから 1 つまで (どちらも validateModel で検査する)。","type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/id"}}}}}}}},"systemDesign":{"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}},"designScreen":{"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}},"transition":{"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}},"layout":{"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}},"navGroup":{"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}},"database":{"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}},"englishName":{"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"},"domainModel":{"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}},"boundedContext":{"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"aggregate":{"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainCommand":{"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}},"domainEvent":{"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}},"domainPolicy":{"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}},"contextRelation":{"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}},"domainTerm":{"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}},"board":{"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}},"boardNode":{"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}},"boardEdge":{"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}},"edgeSide":{"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]}}};
 const func1 = Object.prototype.hasOwnProperty;
 const schema32 = {"description":"モデル全体の情報。","type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"description":{"$ref":"#/$defs/description"}}};
 const schema33 = {"description":"表示名。空文字は許す (作成直後など) が、前後の空白は保存時に除く。","type":"string","maxLength":200};
@@ -5592,7 +5592,7 @@ return errors === 0;
 }
 validate23.evaluated = {"dynamicProps":true,"dynamicItems":false};
 
-const schema120 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}}}}}};
+const schema120 = {"description":"型付きの関係。同じ (kind, sourceId, targetId) は 1 本まで。informationRelated は無向で、(a, b) と (b, a) を同一とみなす。自己参照は不可 (usecaseNext の自分自身への「次に」、activityTrigger の自分自身への起点も不可)。activityTrigger (作業 → 作業) と eventActivity (イベント → 作業) は作業の起点で、起点の循環は許す (0.4.1 から)。1 つの操作が持てる対象は、usecaseSystem (システム・帳票) と usecaseScreen (画面) を合わせて 1 本まで (0.3.0 から。validateModel で検査する)。情報の置き場所 (システム・帳票の取得元・保存先) と画面が扱う情報は保存せず、操作が扱う情報 (usecaseInformation) と操作の対象から導く (0.4.0 から)。","type":"object","required":["id","kind","sourceId","targetId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"kind":{"$ref":"#/$defs/relationKind"},"sourceId":{"description":"始点の要素 id。","$ref":"#/$defs/id"},"targetId":{"description":"終点の要素 id。","$ref":"#/$defs/id"},"access":{"description":"操作が情報をどう扱うか (usecaseInformation だけに付ける。validateModel で検査する)。read: 取得 (読む)、write: 保存 (書く)。省略は取得も保存もする。導いた置き場所の取得元・保存先はこれで決まる。","type":"string","enum":["read","write"]},"alternate":{"description":"代替パターン (usecaseCondition だけに付ける。validateModel で検査する。0.6.1)。操作がその条件を判断した結果、ふだんと違う流れになるときの中身。設計モードのシーケンス図に、分岐として出す。省略は、まだ決めていない。","type":"object","required":["when","then"],"additionalProperties":false,"properties":{"when":{"description":"ふだんと違う流れになるのは、条件を満たすとき (met) か、満たさないとき (unmet) か。","type":"string","enum":["met","unmet"]},"then":{"description":"そのときどうなるか (業務の言葉で。1〜2 文)。","type":"string","maxLength":4000},"eventId":{"description":"そのとき起きる出来事 (分析のイベントの id。任意)。error とは一緒に持てない (validateModel で検査する)。","$ref":"#/$defs/id"},"error":{"description":"そのときの結果がエラーなら、その種類 (任意。0.6.2)。eventId とは一緒に持てない (validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"input は入力エラー (入力の誤り。利用者が入力を直せば進める)。server はサーバーエラー (利用者には直せない失敗。ステータス別の共通のメッセージの画面を出す)。","type":"string","enum":["input","server"]},"status":{"description":"HTTP ステータス (400〜599。任意)。type が server のときだけ持てる (validateModel で検査する)。例: 404 (見つからない)、403 (権限がない)、500 (サーバーの中の失敗)、503 (利用できない)。","type":"integer","minimum":400,"maximum":599}}},"after":{"description":"そのあとの状態 (任意。0.6.3)。ふだんと違う流れになったあと、操作の対象の状態がどうなるか。省略は、まだ決めていない。error があるときは持てない (エラーのときは状態を変えない。validateModel で検査する)。","type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"description":"unchanged は状態を変えない。normal はふだんの流れと同じ状態になる (操作の「次の状態」)。states は stateIds の状態になる。","type":"string","enum":["unchanged","normal","states"]},"stateIds":{"description":"そのあとの状態 (分析の状態の id)。type が states のときだけ持ち、そのときは 1 つ以上が必須。1 つの状態グループから 1 つまで (どちらも validateModel で検査する)。","type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/id"}}}}}}}};
 const schema122 = {"description":"関係の種類。両端の要素の種類から一意に決まる。","type":"string","enum":["actorBusiness","actorActivity","activityUsecase","usecaseInformation","usecaseCondition","informationRelated","informationVariation","conditionVariation","conditionState","stateUsecase","usecaseState","usecaseSystem","usecaseEvent","systemEvent","eventUsecase","usecaseNext","activityTrigger","eventActivity","usecaseScreen","actorNfr"]};
 
 function validate59(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -5863,7 +5863,7 @@ vErrors.push(err22);
 errors++;
 }
 for(const key1 in data5){
-if(!((((key1 === "when") || (key1 === "then")) || (key1 === "eventId")) || (key1 === "error"))){
+if(!(((((key1 === "when") || (key1 === "then")) || (key1 === "eventId")) || (key1 === "error")) || (key1 === "after"))){
 const err23 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err23];
@@ -6062,9 +6062,11 @@ vErrors.push(err39);
 errors++;
 }
 }
-}
-else {
-const err40 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data5.after !== undefined){
+let data12 = data5.after;
+if(data12 && typeof data12 == "object" && !Array.isArray(data12)){
+if(data12.type === undefined){
+const err40 = {instancePath:instancePath+"/alternate/after",schemaPath:"#/properties/alternate/properties/after/required",keyword:"required",params:{missingProperty: "type"},message:"must have required property '"+"type"+"'"};
 if(vErrors === null){
 vErrors = [err40];
 }
@@ -6073,10 +6075,9 @@ vErrors.push(err40);
 }
 errors++;
 }
-}
-}
-else {
-const err41 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+for(const key3 in data12){
+if(!((key3 === "type") || (key3 === "stateIds"))){
+const err41 = {instancePath:instancePath+"/alternate/after",schemaPath:"#/properties/alternate/properties/after/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key3},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err41];
 }
@@ -6085,13 +6086,153 @@ vErrors.push(err41);
 }
 errors++;
 }
+}
+if(data12.type !== undefined){
+let data13 = data12.type;
+if(typeof data13 !== "string"){
+const err42 = {instancePath:instancePath+"/alternate/after/type",schemaPath:"#/properties/alternate/properties/after/properties/type/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err42];
+}
+else {
+vErrors.push(err42);
+}
+errors++;
+}
+if(!(((data13 === "unchanged") || (data13 === "normal")) || (data13 === "states"))){
+const err43 = {instancePath:instancePath+"/alternate/after/type",schemaPath:"#/properties/alternate/properties/after/properties/type/enum",keyword:"enum",params:{allowedValues: schema120.properties.alternate.properties.after.properties.type.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err43];
+}
+else {
+vErrors.push(err43);
+}
+errors++;
+}
+}
+if(data12.stateIds !== undefined){
+let data14 = data12.stateIds;
+if(Array.isArray(data14)){
+const len0 = data14.length;
+for(let i0=0; i0<len0; i0++){
+let data15 = data14[i0];
+if(typeof data15 === "string"){
+if(func2(data15) > 64){
+const err44 = {instancePath:instancePath+"/alternate/after/stateIds/" + i0,schemaPath:"#/$defs/id/maxLength",keyword:"maxLength",params:{limit: 64},message:"must NOT have more than 64 characters"};
+if(vErrors === null){
+vErrors = [err44];
+}
+else {
+vErrors.push(err44);
+}
+errors++;
+}
+if(func2(data15) < 1){
+const err45 = {instancePath:instancePath+"/alternate/after/stateIds/" + i0,schemaPath:"#/$defs/id/minLength",keyword:"minLength",params:{limit: 1},message:"must NOT have fewer than 1 characters"};
+if(vErrors === null){
+vErrors = [err45];
+}
+else {
+vErrors.push(err45);
+}
+errors++;
+}
+if(!pattern4.test(data15)){
+const err46 = {instancePath:instancePath+"/alternate/after/stateIds/" + i0,schemaPath:"#/$defs/id/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""};
+if(vErrors === null){
+vErrors = [err46];
+}
+else {
+vErrors.push(err46);
+}
+errors++;
+}
+}
+else {
+const err47 = {instancePath:instancePath+"/alternate/after/stateIds/" + i0,schemaPath:"#/$defs/id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err47];
+}
+else {
+vErrors.push(err47);
+}
+errors++;
+}
+}
+let i1 = data14.length;
+let j0;
+if(i1 > 1){
+outer0:
+for(;i1--;){
+for(j0 = i1; j0--;){
+if(func0(data14[i1], data14[j0])){
+const err48 = {instancePath:instancePath+"/alternate/after/stateIds",schemaPath:"#/properties/alternate/properties/after/properties/stateIds/uniqueItems",keyword:"uniqueItems",params:{i: i1, j: j0},message:"must NOT have duplicate items (items ## "+j0+" and "+i1+" are identical)"};
+if(vErrors === null){
+vErrors = [err48];
+}
+else {
+vErrors.push(err48);
+}
+errors++;
+break outer0;
+}
+}
+}
+}
+}
+else {
+const err49 = {instancePath:instancePath+"/alternate/after/stateIds",schemaPath:"#/properties/alternate/properties/after/properties/stateIds/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err49];
+}
+else {
+vErrors.push(err49);
+}
+errors++;
+}
+}
+}
+else {
+const err50 = {instancePath:instancePath+"/alternate/after",schemaPath:"#/properties/alternate/properties/after/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err50];
+}
+else {
+vErrors.push(err50);
+}
+errors++;
+}
+}
+}
+else {
+const err51 = {instancePath:instancePath+"/alternate",schemaPath:"#/properties/alternate/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err51];
+}
+else {
+vErrors.push(err51);
+}
+errors++;
+}
+}
+}
+else {
+const err52 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err52];
+}
+else {
+vErrors.push(err52);
+}
+errors++;
+}
 validate59.errors = vErrors;
 return errors === 0;
 }
 validate59.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema126 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
-const schema129 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
+const schema127 = {"description":"ボード。要素をどこに置くかだけを持ち、業務データは持たない。","type":"object","required":["id","name","nodes"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"nodes":{"description":"このボードに置かれた要素と座標。同じ elementId は 1 件まで。課題と既定 BUC は置けない。","type":"array","items":{"$ref":"#/$defs/boardNode"}},"edges":{"description":"このボードでの線の見た目。省略した線は既定 (始点の右から終点の左へ)。同じ relationId は 1 件まで。","type":"array","items":{"$ref":"#/$defs/boardEdge"}}}};
+const schema130 = {"description":"ボード上の要素の配置。座標はボード内の絶対座標 (親の枠に入っていても相対にしない)。","type":"object","required":["elementId","x","y"],"additionalProperties":false,"properties":{"elementId":{"$ref":"#/$defs/id"},"x":{"type":"number"},"y":{"type":"number"},"width":{"description":"枠 (業務・BUC) の幅。カードでは省略し、表示側の既定サイズを使う。","type":"number","minimum":1},"height":{"description":"枠 (業務・BUC) の高さ。","type":"number","minimum":1}}};
 
 function validate62(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6281,8 +6422,8 @@ return errors === 0;
 }
 validate62.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema131 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
-const schema133 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
+const schema132 = {"description":"ボード上の線の見た目。どちらの辺から出て、どちらの辺に入るかをボードごとに持つ。","type":"object","required":["relationId"],"additionalProperties":false,"properties":{"relationId":{"$ref":"#/$defs/id"},"sourceSide":{"description":"始点の要素のどの辺から線を出すか。省略時は right。","$ref":"#/$defs/edgeSide"},"targetSide":{"description":"終点の要素のどの辺に線を入れるか。省略時は left。","$ref":"#/$defs/edgeSide"}}};
+const schema134 = {"description":"要素の辺。","type":"string","enum":["left","right","top","bottom"]};
 
 function validate64(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6375,7 +6516,7 @@ vErrors.push(err6);
 errors++;
 }
 if(!((((data1 === "left") || (data1 === "right")) || (data1 === "top")) || (data1 === "bottom"))){
-const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema133.enum},message:"must be equal to one of the allowed values"};
+const err7 = {instancePath:instancePath+"/sourceSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema134.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -6398,7 +6539,7 @@ vErrors.push(err8);
 errors++;
 }
 if(!((((data2 === "left") || (data2 === "right")) || (data2 === "top")) || (data2 === "bottom"))){
-const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema133.enum},message:"must be equal to one of the allowed values"};
+const err9 = {instancePath:instancePath+"/targetSide",schemaPath:"#/$defs/edgeSide/enum",keyword:"enum",params:{allowedValues: schema134.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -6608,8 +6749,8 @@ return errors === 0;
 }
 validate61.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema135 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
-const schema138 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
+const schema136 = {"description":"1 つのシステムの設計。サイトマップ (画面と遷移)・レイアウト・画面 UI・データベースへの対応を持つ。","type":"object","required":["systemId","databaseIds","screens","transitions","layout"],"additionalProperties":false,"properties":{"systemId":{"description":"elements の system の id。","$ref":"#/$defs/id"},"databaseIds":{"description":"使うデータベース (databases の id)。空なら既定のデータベース。","type":"array","items":{"$ref":"#/$defs/id"}},"screens":{"description":"サイトマップの画面。","type":"array","items":{"$ref":"#/$defs/designScreen"}},"transitions":{"description":"画面遷移。","type":"array","items":{"$ref":"#/$defs/transition"}},"layout":{"$ref":"#/$defs/layout"}}};
+const schema139 = {"description":"サイトマップの画面 1 つ。分析の画面を指すか、組み込みの画面。id は設計をまたいで一意。","type":"object","required":["id","source"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"source":{"oneOf":[{"type":"object","required":["kind","screenId"],"additionalProperties":false,"properties":{"kind":{"const":"screen"},"screenId":{"description":"分析の画面 (screen 要素) の id。同じシステムの画面だけ指せる。","$ref":"#/$defs/id"}}},{"type":"object","required":["kind","builtin"],"additionalProperties":false,"properties":{"kind":{"const":"builtin"},"builtin":{"enum":["signIn","home","top","signUp","passwordReminder"]}}}]},"shell":{"description":"この画面のレイアウト (枠)。省略は設計のレイアウト (layout.shell) に従う。","enum":["shell","plain"]},"view":{"description":"画面 UI (mokkun v2 の ViewV2 を JSON で持つ)。中身は検証しない。","type":"object","additionalProperties":true},"bindings":{"description":"画面の項目とテーブルの列の対応。","type":"array","items":{"type":"object","required":["item","databaseId","table","column"],"additionalProperties":false,"properties":{"item":{"$ref":"#/$defs/name"},"databaseId":{"$ref":"#/$defs/id"},"table":{"$ref":"#/$defs/name"},"column":{"$ref":"#/$defs/name"}}}}}};
 
 function validate68(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6861,7 +7002,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema138.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema139.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -6921,7 +7062,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema138.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema139.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -7165,7 +7306,7 @@ return errors === 0;
 }
 validate68.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema145 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
+const schema146 = {"description":"画面遷移。from と to は同じ設計の画面 (DesignScreen.id)。id は設計をまたいで一意。","type":"object","required":["id","from","to"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"from":{"$ref":"#/$defs/id"},"to":{"$ref":"#/$defs/id"},"via":{"description":"遷移のきっかけ。省略は未定。","enum":["button","row","nav","afterSubmit"]},"label":{"$ref":"#/$defs/name"}}};
 
 function validate70(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -7358,7 +7499,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema145.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema146.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -7409,8 +7550,8 @@ return errors === 0;
 }
 validate70.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema150 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
-const schema154 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
+const schema151 = {"description":"システム共通のレイアウト。","type":"object","required":["shell","navigation"],"additionalProperties":false,"properties":{"shell":{"description":"shell は共通の枠 (ヘッダー・ナビ) つき、plain は枠なし。","enum":["shell","plain"]},"header":{"type":"object","additionalProperties":false,"properties":{"systemName":{"$ref":"#/$defs/name"},"userName":{"$ref":"#/$defs/name"},"tenantName":{"$ref":"#/$defs/name"}}},"navigation":{"description":"ナビゲーション。グループごとに画面を並べる。","type":"array","items":{"$ref":"#/$defs/navGroup"}}}};
+const schema155 = {"description":"ナビゲーションのグループ。id は設計をまたいで一意 (同時編集で別々に足しても合流できるようにするため)。","type":"object","required":["id","group","items"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"group":{"$ref":"#/$defs/name"},"items":{"type":"array","items":{"type":"object","required":["screenId"],"additionalProperties":false,"properties":{"screenId":{"description":"DesignScreen.id","$ref":"#/$defs/id"},"label":{"$ref":"#/$defs/name"}}}}}};
 
 function validate73(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -7721,7 +7862,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema150.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema151.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -8117,7 +8258,7 @@ return errors === 0;
 }
 validate67.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema159 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
+const schema160 = {"description":"データベース。設計をまたいで共有する。","type":"object","required":["id","name","dsl","tables"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"dsl":{"description":"Prisma 風の DSL (今は解析しない)。","type":"string","maxLength":200000},"tables":{"description":"テーブルと、それが表す情報 (1 つの情報に複数のテーブルがあってよい)。","type":"array","items":{"type":"object","required":["table","informationIds"],"additionalProperties":false,"properties":{"table":{"$ref":"#/$defs/name"},"informationIds":{"type":"array","items":{"$ref":"#/$defs/id"}}}}}}};
 
 function validate77(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -8442,10 +8583,10 @@ return errors === 0;
 }
 validate77.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema164 = {"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}};
-const schema165 = {"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
-const schema168 = {"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"};
-const pattern53 = new RegExp("^[A-Za-z][A-Za-z0-9_]*$", "u");
+const schema165 = {"description":"ドメインモデル (DDD。0.6.0 から)。分析から導ける候補は保存せず、人の判断 (境界づけられたコンテキスト・集約・不変条件・コンテキスト間の関係・用語) と、分析に無いあるべき姿の振る舞い (コマンド・イベント・ポリシー) だけを持つ。id は domain の中で一意。参照整合性は validateModel() で検査する。","type":"object","required":["contexts","aggregates","commands","events","policies","excluded","relations","terms"],"additionalProperties":false,"properties":{"contexts":{"description":"境界づけられたコンテキスト。","type":"array","items":{"$ref":"#/$defs/boundedContext"}},"aggregates":{"description":"集約。boundedContextId でコンテキストに属する。","type":"array","items":{"$ref":"#/$defs/aggregate"}},"commands":{"description":"コマンド。分析から導いた候補を採用したもの (source つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainCommand"}},"events":{"description":"ドメインイベント。分析のイベントを指すもの (eventId つき) と、分析に無いあるべき姿のもの。","type":"array","items":{"$ref":"#/$defs/domainEvent"}},"policies":{"description":"ポリシー (イベントが起きたらコマンドを実行する)。分析から導けるもの (イベント → 操作) は保存しない。","type":"array","items":{"$ref":"#/$defs/domainPolicy"}},"excluded":{"description":"分析から導いた候補のうち、あるべき姿から外したもの。候補の出どころのキー (usecase:<操作の id>、usecase:<操作の id>/activity:<作業の id>、event:<イベントの id>、policy:<関係の id>)。","type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"relations":{"description":"コンテキスト間の関係 (コンテキストマップ)。","type":"array","items":{"$ref":"#/$defs/contextRelation"}},"terms":{"description":"用語集 (ユビキタス言語)。分析の要素の名前と説明から導ける分は保存せず、人が決めた定義と英語名だけを持つ。","type":"array","items":{"$ref":"#/$defs/domainTerm"}}}};
+const schema166 = {"description":"境界づけられたコンテキスト。言語の範囲を分析のコンテキスト (contextIds) で、実装するシステムを systemIds で指す。systemIds が空なら未割り当て。社外のシステムだけを指し、集約を持たなければ、中身の無い外部のコンテキスト。","type":"object","required":["id","name","contextIds","systemIds"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"description":{"$ref":"#/$defs/description"},"subdomain":{"description":"サブドメインの分類 (1 つのコンテキスト = 1 つのサブドメインとみなす)。core: 競争優位の源泉、supporting: core を支えるが差別化ではない、generic: 既製品で代替できる。省略は未定。","enum":["core","supporting","generic"]},"team":{"description":"所有するチーム (任意)。","$ref":"#/$defs/name"},"contextIds":{"description":"言語の範囲にする分析のコンテキスト (context 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}},"systemIds":{"description":"実装するシステム (system 要素の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
+const schema169 = {"description":"コードで使う英語名 (識別子)。英字で始まり、英数字とアンダースコアだけ。distill-ddd の形式で書き出すときの名前になる。","type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z][A-Za-z0-9_]*$"};
+const pattern54 = new RegExp("^[A-Za-z][A-Za-z0-9_]*$", "u");
 
 function validate80(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -8603,7 +8744,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(!pattern53.test(data2)){
+if(!pattern54.test(data2)){
 const err13 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err13];
@@ -8653,7 +8794,7 @@ errors++;
 if(data.subdomain !== undefined){
 let data4 = data.subdomain;
 if(!(((data4 === "core") || (data4 === "supporting")) || (data4 === "generic"))){
-const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema165.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
+const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema166.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -8826,7 +8967,7 @@ return errors === 0;
 }
 validate80.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema173 = {"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
+const schema174 = {"description":"集約。ルートの情報と、同じトランザクションで整合させる中の情報をまとめる。ほかの情報との関連は ID で参照するものとみなす。","type":"object","required":["id","boundedContextId","name","rootInformationId","memberInformationIds","invariants"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"rootInformationId":{"description":"ルートの情報 (information 要素の id)。","$ref":"#/$defs/id"},"memberInformationIds":{"description":"中に入れる情報 (information 要素の id。ルートは入れない)。","type":"array","items":{"$ref":"#/$defs/id"}},"stateGroup":{"description":"ライフサイクルを表す状態グループの名前 (state 要素の group)。任意。","type":"string","minLength":1,"maxLength":200},"invariants":{"description":"不変条件 (集約の境界の中で常に守るルール)。","type":"array","items":{"type":"object","required":["id","text"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"text":{"$ref":"#/$defs/description"},"conditionId":{"description":"もとにした分析の条件 (condition 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
 
 function validate82(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -9049,7 +9190,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(!pattern53.test(data3)){
+if(!pattern54.test(data3)){
 const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err19];
@@ -9406,7 +9547,7 @@ return errors === 0;
 }
 validate82.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema183 = {"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
+const schema184 = {"description":"コマンド。source があれば分析の操作 (と作業) から採用したもので、同じ出どころの候補を置き換える。無ければ分析に無いあるべき姿のコマンド。","type":"object","required":["id","aggregateId","name","emits"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"aggregateId":{"description":"受け持つ集約 (domain.aggregates の id)。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"source":{"description":"出どころ (分析の操作。作業ごとに分けたなら作業も)。","type":"object","required":["usecaseId"],"additionalProperties":false,"properties":{"usecaseId":{"$ref":"#/$defs/id"},"activityId":{"$ref":"#/$defs/id"}}},"emits":{"description":"発生させるドメインイベント (domain.events の id)。","type":"array","items":{"$ref":"#/$defs/id"}}}};
 
 function validate84(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -9609,7 +9750,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(!pattern53.test(data3)){
+if(!pattern54.test(data3)){
 const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -9835,7 +9976,7 @@ return errors === 0;
 }
 validate84.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema191 = {"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
+const schema192 = {"description":"ドメインイベント。eventId があれば分析のイベントを指し、同じイベントの候補を置き換える。無ければ分析に無いあるべき姿のイベント。集約を持たないコンテキスト (外部) のイベントは aggregateId を持たない。","type":"object","required":["id","boundedContextId","name"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"boundedContextId":{"description":"発生させる境界づけられたコンテキスト (domain.contexts の id)。","$ref":"#/$defs/id"},"aggregateId":{"description":"発生させる集約 (domain.aggregates の id。同じコンテキストの集約)。任意。","$ref":"#/$defs/id"},"name":{"$ref":"#/$defs/name"},"english":{"$ref":"#/$defs/englishName"},"eventId":{"description":"分析のイベント (event 要素の id)。任意。","$ref":"#/$defs/id"},"properties":{"description":"属性。","type":"array","items":{"type":"object","required":["name"],"additionalProperties":false,"properties":{"name":{"$ref":"#/$defs/name"},"informationId":{"description":"もとにした分析の情報 (information 要素の id)。任意。","$ref":"#/$defs/id"}}}}}};
 
 function validate86(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -10073,7 +10214,7 @@ vErrors.push(err19);
 }
 errors++;
 }
-if(!pattern53.test(data4)){
+if(!pattern54.test(data4)){
 const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -10279,7 +10420,7 @@ return errors === 0;
 }
 validate86.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema200 = {"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}};
+const schema201 = {"description":"ポリシー。イベント (domain.events の id) が起きたら、コマンド (domain.commands の id) を実行する。","type":"object","required":["id","eventId","commandId","auto"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"eventId":{"$ref":"#/$defs/id"},"commandId":{"$ref":"#/$defs/id"},"auto":{"description":"true は自動で実行する。false は人の判断をはさむ。","type":"boolean"}}};
 
 function validate88(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -10507,7 +10648,7 @@ return errors === 0;
 }
 validate88.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema204 = {"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}};
+const schema205 = {"description":"コンテキスト間の関係。upstreamId が上流 (影響を与える側)、downstreamId が下流。対等な関係 (partnership・sharedKernel・separateWays) でも 2 つの端として持つ。","type":"object","required":["id","upstreamId","downstreamId","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"upstreamId":{"$ref":"#/$defs/id"},"downstreamId":{"$ref":"#/$defs/id"},"kind":{"description":"関係の種類 (DDD のコンテキストマップ)。","enum":["partnership","sharedKernel","customerSupplier","conformist","acl","ohs","publishedLanguage","separateWays","bigBallOfMud"]},"integration":{"description":"統合の方式。messaging: イベント・メッセージ、rest / rpc: 同期の呼び出し、file: ファイルの受け渡し、manual: 人の手での転記。省略は未定。","enum":["messaging","rest","rpc","file","manual"]},"note":{"$ref":"#/$defs/description"}}};
 
 function validate90(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -10710,7 +10851,7 @@ errors++;
 if(data.kind !== undefined){
 let data3 = data.kind;
 if(!(((((((((data3 === "partnership") || (data3 === "sharedKernel")) || (data3 === "customerSupplier")) || (data3 === "conformist")) || (data3 === "acl")) || (data3 === "ohs")) || (data3 === "publishedLanguage")) || (data3 === "separateWays")) || (data3 === "bigBallOfMud"))){
-const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema204.properties.kind.enum},message:"must be equal to one of the allowed values"};
+const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema205.properties.kind.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -10723,7 +10864,7 @@ errors++;
 if(data.integration !== undefined){
 let data4 = data.integration;
 if(!(((((data4 === "messaging") || (data4 === "rest")) || (data4 === "rpc")) || (data4 === "file")) || (data4 === "manual"))){
-const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema204.properties.integration.enum},message:"must be equal to one of the allowed values"};
+const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema205.properties.integration.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err18];
 }
@@ -10774,7 +10915,7 @@ return errors === 0;
 }
 validate90.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema209 = {"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}};
+const schema210 = {"description":"用語。boundedContextId が null なら全体で共通の用語。elementId があれば分析の要素の用語で、その要素の英語名と定義を持つ。","type":"object","required":["id","term","definition","boundedContextId"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"term":{"$ref":"#/$defs/name"},"english":{"description":"英語 (コードでの名前)。","$ref":"#/$defs/name"},"definition":{"$ref":"#/$defs/description"},"boundedContextId":{"description":"属する境界づけられたコンテキスト (domain.contexts の id)。全体で共通なら null。","oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"elementId":{"description":"分析の要素の id。任意。","$ref":"#/$defs/id"}}};
 
 function validate92(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -11571,8 +11712,8 @@ vErrors.push(err10);
 }
 errors++;
 }
-if("0.6.2" !== data1){
-const err11 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.6.2"},message:"must be equal to constant"};
+if("0.6.3" !== data1){
+const err11 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/const",keyword:"const",params:{allowedValue: "0.6.3"},message:"must be equal to constant"};
 if(vErrors === null){
 vErrors = [err11];
 }
@@ -17098,7 +17239,7 @@ errors++;
 if(data1.builtin !== undefined){
 let data5 = data1.builtin;
 if(!(((((data5 === "signIn") || (data5 === "home")) || (data5 === "top")) || (data5 === "signUp")) || (data5 === "passwordReminder"))){
-const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema138.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
+const err20 = {instancePath:instancePath+"/source/builtin",schemaPath:"#/properties/source/oneOf/1/properties/builtin/enum",keyword:"enum",params:{allowedValues: schema139.properties.source.oneOf[1].properties.builtin.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -17158,7 +17299,7 @@ vErrors = null;
 if(data.shell !== undefined){
 let data6 = data.shell;
 if(!((data6 === "shell") || (data6 === "plain"))){
-const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema138.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err23 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema139.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -17595,7 +17736,7 @@ errors++;
 if(data.via !== undefined){
 let data3 = data.via;
 if(!((((data3 === "button") || (data3 === "row")) || (data3 === "nav")) || (data3 === "afterSubmit"))){
-const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema145.properties.via.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/via",schemaPath:"#/properties/via/enum",keyword:"enum",params:{allowedValues: schema146.properties.via.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -17694,7 +17835,7 @@ errors++;
 if(data.shell !== undefined){
 let data0 = data.shell;
 if(!((data0 === "shell") || (data0 === "plain"))){
-const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema150.properties.shell.enum},message:"must be equal to one of the allowed values"};
+const err3 = {instancePath:instancePath+"/shell",schemaPath:"#/properties/shell/enum",keyword:"enum",params:{allowedValues: schema151.properties.shell.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -18591,7 +18732,7 @@ vErrors.push(err12);
 }
 errors++;
 }
-if(!pattern53.test(data2)){
+if(!pattern54.test(data2)){
 const err13 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err13];
@@ -18641,7 +18782,7 @@ errors++;
 if(data.subdomain !== undefined){
 let data4 = data.subdomain;
 if(!(((data4 === "core") || (data4 === "supporting")) || (data4 === "generic"))){
-const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema165.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
+const err17 = {instancePath:instancePath+"/subdomain",schemaPath:"#/properties/subdomain/enum",keyword:"enum",params:{allowedValues: schema166.properties.subdomain.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -19037,7 +19178,7 @@ vErrors.push(err18);
 }
 errors++;
 }
-if(!pattern53.test(data3)){
+if(!pattern54.test(data3)){
 const err19 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err19];
@@ -19597,7 +19738,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(!pattern53.test(data3)){
+if(!pattern54.test(data3)){
 const err17 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -20061,7 +20202,7 @@ vErrors.push(err19);
 }
 errors++;
 }
-if(!pattern53.test(data4)){
+if(!pattern54.test(data4)){
 const err20 = {instancePath:instancePath+"/english",schemaPath:"#/$defs/englishName/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z][A-Za-z0-9_]*$"},message:"must match pattern \""+"^[A-Za-z][A-Za-z0-9_]*$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -20698,7 +20839,7 @@ errors++;
 if(data.kind !== undefined){
 let data3 = data.kind;
 if(!(((((((((data3 === "partnership") || (data3 === "sharedKernel")) || (data3 === "customerSupplier")) || (data3 === "conformist")) || (data3 === "acl")) || (data3 === "ohs")) || (data3 === "publishedLanguage")) || (data3 === "separateWays")) || (data3 === "bigBallOfMud"))){
-const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema204.properties.kind.enum},message:"must be equal to one of the allowed values"};
+const err17 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema205.properties.kind.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -20711,7 +20852,7 @@ errors++;
 if(data.integration !== undefined){
 let data4 = data.integration;
 if(!(((((data4 === "messaging") || (data4 === "rest")) || (data4 === "rpc")) || (data4 === "file")) || (data4 === "manual"))){
-const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema204.properties.integration.enum},message:"must be equal to one of the allowed values"};
+const err18 = {instancePath:instancePath+"/integration",schemaPath:"#/properties/integration/enum",keyword:"enum",params:{allowedValues: schema205.properties.integration.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err18];
 }
