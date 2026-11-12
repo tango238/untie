@@ -299,18 +299,22 @@ describe("プロパティからの関連の追加・削除と、削除の確認"
 });
 
 describe("ツールバー", () => {
-  it("簡易モードではボードの選択肢はワークフローとシステムの 2 つだけで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
+  it("簡易モードではボードの選択肢は簡易ボードの 3 枚だけで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
     render(<Toolbar />);
     const options = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
-    expect(options()).toEqual(["ワークフロー", "システム"]);
+    expect(options()).toEqual(["ワークフロー", "システム操作", "情報と状態"]);
     expect(screen.queryByRole("button", { name: "＋ボード" })).toBeNull();
     expect(screen.queryByRole("button", { name: "名前変更" })).toBeNull();
     act(() => st().setMode("analysis"));
     expect(options()).not.toContain("ワークフロー");
-    expect(options()).not.toContain("システム");
+    expect(options()).not.toContain("システム操作");
+    // サンプルには同じ名前の自由ボード「情報と状態」があるので、簡易ボードかどうかは値 (id) で見る
+    const values = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+    expect(values().some((v) => v.startsWith("simple:"))).toBe(false);
     act(() => st().enterDesign("sys_pms"));
     expect(options()).not.toContain("ワークフロー");
-    expect(options()).not.toContain("システム");
+    expect(options()).not.toContain("システム操作");
+    expect(values().some((v) => v.startsWith("simple:"))).toBe(false);
   });
 
   it("モードのメニューで簡易に切り替えると、ワークフローが開く", () => {
@@ -359,26 +363,31 @@ describe("トレース表の「移動」", () => {
   const moveLabel = (layer: string) => `固定ボード「${layer}」へ移る`;
   const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 
-  it("簡易モードでは、登場人物・業務・活動・作業・操作・画面・情報の行に「移動」が無く、ほかのレイヤーの行にはある。行のセルは残る", () => {
+  it("簡易モードでは、統合された 11 のレイヤー (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション) の行に「移動」が無い。残るのは非機能要件などだけ。行のセルは残る", () => {
     act(() => st().select({ type: "element", id: "act_room_request" }));
-    render(<PropertyPanel />);
-    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "情報"]) {
+    const { unmount } = render(<PropertyPanel />);
+    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "情報", "条件", "状態", "バリエーション"]) {
       expect(screen.queryByRole("button", { name: moveLabel(layer) })).toBeNull();
       expect(screen.getByRole("rowheader", { name: new RegExp(layer) })).toBeDefined();
     }
-    for (const layer of ["条件", "状態", "バリエーション"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
     // ボタンの無い行も、要素と「移動」の 2 つのセル (cell。レイヤー名は rowheader) を持つ (列が崩れない)
     expect(rows().every((r) => within(r).getAllByRole("cell").length === 2)).toBe(true);
     // 要素を押して選ぶ動きは残る
     fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /フロント担当/ }));
     expect(selectedId()).toBe("actor_front");
+    unmount();
+    // コンテキストも統合されたレイヤー。統合されていない非機能要件の「移動」は残る
+    act(() => void st().dispatch((m) => addElement(m, { kind: "nfr", name: "速く応答する", id: "nfr_fast", init: { systemId: "sys_pms" } })));
+    act(() => st().select({ type: "element", id: "nfr_fast" }));
+    render(<PropertyPanel />);
+    expect(screen.getByRole("button", { name: moveLabel("非機能要件") })).toBeDefined();
   });
 
-  it("詳細モードでは、6 つのレイヤーにも「移動」がある", () => {
+  it("詳細モードでは、統合された各レイヤーにも「移動」がある", () => {
     act(() => st().setMode("analysis"));
     act(() => st().select({ type: "element", id: "act_room_request" }));
     render(<PropertyPanel />);
-    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
+    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "条件", "状態"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
   });
 
   it("課題の対象の「移動」: 簡易モードでは作業・操作のどちらにも無い。詳細モードでは有る", () => {

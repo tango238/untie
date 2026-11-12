@@ -1,9 +1,9 @@
-// 分析（簡易）のボード「システム」。作業 → 操作 → 画面・情報 を 1 枚で見る。作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。
+// 分析（簡易）のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で見る。作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, addRelation, USECASE_TARGET_LIMIT_REASON, isUsecaseTargetKind, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup } from "./fixedBoards";
 import { defaultBucOf } from "./selectors";
-import type { Activity, Buc, Business, Element, EventElement, InformationAccess, Information, Ledger, Screen, System, UntieModel, Usecase } from "./types";
+import type { Activity, Buc, Business, Condition, Element, EventElement, InformationAccess, Information, Ledger, RelationAlternate, Screen, System, UntieModel, Usecase } from "./types";
 
 /** 操作が扱う情報 1 つ (usecaseInformation)。access は取得 (read)・保存 (write)。省略は両方 */
 export interface OperationInformation {
@@ -11,7 +11,13 @@ export interface OperationInformation {
   access?: InformationAccess;
 }
 
-/** 操作の枠: 使う画面・対象 (システム・帳票)・扱う情報・きっかけと発生のイベント */
+/** 操作が判断する条件 1 つ (usecaseCondition)。alternate は、その判断の結果ふだんと違う流れになるときの代替パターン */
+export interface OperationCondition {
+  condition: Condition;
+  alternate?: RelationAlternate;
+}
+
+/** 操作の枠: 使う画面・対象 (システム・帳票)・扱う情報・判断する条件・きっかけと発生のイベント */
 export interface OperationBox {
   usecase: Usecase;
   screens: Screen[];
@@ -19,6 +25,8 @@ export interface OperationBox {
   targets: (System | Ledger)[];
   /** 操作が扱う情報 (情報の入れ物のコンテキストは出さない) */
   informations: OperationInformation[];
+  /** 操作が判断する条件 */
+  conditions: OperationCondition[];
   /** きっかけのイベント (イベント → 操作) */
   triggers: EventElement[];
   /** 発生するイベント (操作 → イベント) */
@@ -52,10 +60,12 @@ export interface OperationBoardData {
   unlinkedScreens: Screen[];
   /** どの操作にも扱われていない情報 */
   unlinkedInformations: Information[];
+  /** どの操作にも判断されていない条件 */
+  unlinkedConditions: Condition[];
 }
 
 /**
- * システムのボードを組み立てる。枠は業務の順 → (業務に直接の作業の枠 → 活動の枠) の順。
+ * システム操作ボードを組み立てる。枠は業務の順 → (業務に直接の作業の枠 → 活動の枠) の順。
  * 活動の枠は作業が無くても出す (そこに作業を足せる)。業務の枠は、活動の無い業務か、直下に作業が残っている業務だけ (混在させない決まり)。
  * 検証に通らないモデル (存在しない活動を指す作業など) でも要素が消えないよう、どの枠にも出ない作業は「業務に属さない作業」に入れる
  */
@@ -73,6 +83,7 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
   const usecasesOfActivity = new Map<string, string[]>();
   const screensOf = new Map<string, Screen[]>();
   const informationsOf = new Map<string, OperationInformation[]>();
+  const conditionsOf = new Map<string, OperationCondition[]>();
   const targetsOf = new Map<string, (System | Ledger)[]>();
   const triggersOf = new Map<string, EventElement[]>();
   const emitsOf = new Map<string, EventElement[]>();
@@ -92,6 +103,11 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
       const list = informationsOf.get(r.sourceId) ?? [];
       if (information && !list.some((x) => x.information.id === information.id)) list.push({ information, ...(r.access !== undefined ? { access: r.access } : {}) });
       informationsOf.set(r.sourceId, list);
+    } else if (r.kind === "usecaseCondition") {
+      const condition = kindOf<Condition>(r.targetId, "condition");
+      const list = conditionsOf.get(r.sourceId) ?? [];
+      if (condition && !list.some((x) => x.condition.id === condition.id)) list.push({ condition, ...(r.alternate !== undefined ? { alternate: r.alternate } : {}) });
+      conditionsOf.set(r.sourceId, list);
     } else if (r.kind === "usecaseSystem") push(targetsOf, r.sourceId, kindOf<System>(r.targetId, "system") ?? kindOf<Ledger>(r.targetId, "ledger"));
     else if (r.kind === "eventUsecase") push(triggersOf, r.targetId, kindOf<EventElement>(r.sourceId, "event"));
     else if (r.kind === "usecaseEvent") push(emitsOf, r.sourceId, kindOf<EventElement>(r.targetId, "event"));
@@ -101,6 +117,7 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
     screens: screensOf.get(u.id) ?? [],
     targets: targetsOf.get(u.id) ?? [],
     informations: informationsOf.get(u.id) ?? [],
+    conditions: conditionsOf.get(u.id) ?? [],
     triggers: triggersOf.get(u.id) ?? [],
     emits: emitsOf.get(u.id) ?? [],
   });
@@ -129,19 +146,21 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
   if (orphans.length > 0) addFrame({ key: "__none", kind: "none", element: null, business: null }, orphans);
 
   const usedScreens = new Set([...boxes.values()].flatMap((b) => b.screens.map((s) => s.id)));
+  const usedConditions = new Set([...boxes.values()].flatMap((b) => b.conditions.map((x) => x.condition.id)));
   const usedInformations = new Set([...boxes.values()].flatMap((b) => b.informations.map((x) => x.information.id)));
   return {
     frames,
     unlinkedOperations: usecases.filter((u) => (activitiesOf.get(u.id) ?? []).length === 0).map((u) => boxes.get(u.id)!),
     unlinkedScreens: model.elements.filter((e): e is Screen => e.kind === "screen" && !usedScreens.has(e.id)),
+    unlinkedConditions: model.elements.filter((e): e is Condition => e.kind === "condition" && !usedConditions.has(e.id)),
     unlinkedInformations: model.elements.filter((e): e is Information => e.kind === "information" && !usedInformations.has(e.id)),
   };
 }
 
 // ---------------------------------------------------------------- 足す
 
-/** システムのボードで足せるもの */
-export type OperationAddKind = "usecase" | "screen" | "information";
+/** システム操作ボードで足せるもの */
+export type OperationAddKind = "usecase" | "screen" | "information" | "condition";
 
 /** 画面を足せるシステム (画面はシステムに属すので、システムが要る) */
 export function systemsForScreens(model: UntieModel): System[] {
@@ -156,8 +175,9 @@ export function whyCannotAddScreen(model: UntieModel, usecaseId: string, hasSyst
 }
 
 /**
- * システムのボードで足す。足したものは、持ち主に結ぶ (作成と結び付けで 1 件の履歴)。
+ * システム操作ボードで足す。足したものは、持ち主に結ぶ (作成と結び付けで 1 件の履歴)。
  * - usecase: 親は作業 (その作業が使う操作として結ぶ。固定ボード「操作」の「枠に足す」と同じ)
+ * - condition: 親は操作 (その操作が判断する条件として結ぶ。入れ物のコンテキストは付けない。代替パターンは付けない)
  * - information: 親は操作 (その操作が扱う情報として結ぶ。取得・保存の区別は省略 = 両方。入れ物のコンテキストは付けない)
  * - screen: 親は操作 (操作の対象の画面として結ぶ。画面はシステムに属すので systemId を渡す。システムが 1 つだけなら省略できる)。
  *   対象は 1 つだけ (システム・帳票・画面のどれか) なので、すでに対象のある操作には足せない
@@ -168,6 +188,13 @@ export function addOperationElement(model: UntieModel, kind: OperationAddKind, p
     if (!parent || parent.kind !== "activity") return { ok: false, reason: "操作は作業の中に足します" };
     const group: FixedGroup = { key: parent.id, title: parent.name, parentId: parent.id, childKind: "usecase", link: { type: "relation", parentId: parent.id }, items: [] };
     return addToGroup(model, group, "新しい操作");
+  }
+  if (kind === "condition") {
+    if (!parent || parent.kind !== "usecase") return { ok: false, reason: "条件は操作の中に足します" };
+    const created = addElement(model, { kind: "condition", name: "新しい条件" });
+    if (!created.ok) return created;
+    const linked = addRelation(created.model, { sourceId: parent.id, targetId: created.id });
+    return linked.ok ? { ok: true, model: linked.model, id: created.id } : linked;
   }
   if (kind === "information") {
     if (!parent || parent.kind !== "usecase") return { ok: false, reason: "情報は操作の中に足します" };

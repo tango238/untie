@@ -123,7 +123,7 @@ describe("分析（簡易）モード", () => {
   });
 });
 
-describe("簡易モードの 2 枚のボード", () => {
+describe("簡易モードのワークフローとシステム操作の 2 枚", () => {
   const OPERATION = "simple:operation";
 
   it("簡易モードの最初はワークフロー。システムへ移って、ワークフローへ戻れる。どちらも簡易モードのまま", () => {
@@ -156,7 +156,7 @@ describe("簡易モードの 2 枚のボード", () => {
     expect(s.getState().ui.mode).toBe("analysisSimple");
   });
 
-  it("簡易モードでシステムのボードを開いたまま、ファイルを開き直す・選択した要素が消えても、システムのボードは保たれる (ファイルを開き直すとワークフローから)", () => {
+  it("簡易モードでシステム操作のボードを開いたまま、ファイルを開き直す・選択した要素が消えても、システムのボードは保たれる (ファイルを開き直すとワークフローから)", () => {
     const s = make();
     s.getState().setCurrentBoard(OPERATION);
     s.getState().select({ type: "element", id: "scr_checkin" });
@@ -166,5 +166,27 @@ describe("簡易モードの 2 枚のボード", () => {
     s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
     expect(s.getState().ui.mode).toBe("analysisSimple");
     expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
+  });
+});
+
+describe("簡易モードの 3 枚のボード", () => {
+  it("ワークフロー・システム操作・情報と状態を行き来できる。どれも簡易モードのまま。モードを離れると最初のボードに直る", () => {
+    const s = make();
+    s.getState().setMode("analysisSimple");
+    for (const id of ["simple:operation", "simple:information", "simple:workflow", "simple:information"]) {
+      s.getState().setCurrentBoard(id);
+      expect(s.getState().ui.mode).toBe("analysisSimple");
+      expect(s.getState().ui.currentBoardId).toBe(id);
+      expect(isBuiltinBoard(id)).toBe(true);
+    }
+    s.getState().setMode("analysis");
+    expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
+    // 詳細から情報と状態の id を開くと簡易モードへ移る
+    s.getState().setCurrentBoard("simple:information");
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    // 簡易モードに入り直すと、最初はワークフロー
+    s.getState().setMode("analysis");
+    s.getState().setMode("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe("simple:workflow");
   });
 });

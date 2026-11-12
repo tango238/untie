@@ -231,8 +231,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  // 分析（簡易）のボード (ワークフロー・システム)も、固定ボードと同じに所属・関係・削除を扱える
-  // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
+  // 分析（簡易）のボード (ワークフロー・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
+  // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
   const simple = isSimpleBoard(boardId);
   const structural = !readOnly && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
   // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
@@ -542,7 +542,7 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
-  // 簡易モードでは、簡易ボードに統合された 7 つのレイヤー (登場人物・業務・活動・作業・操作・画面・情報) の固定ボードへは移らない
+  // 簡易モードでは、簡易ボードに統合された 11 のレイヤー (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション) の固定ボードへは移らない
   const simple = isSimpleBoard(boardId);
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;

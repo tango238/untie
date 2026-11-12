@@ -1,51 +1,18 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { addOperationElement, buildOperationBoard, systemsForScreens, type OperationBox, type OperationFrame, type OperationRow } from "@untie/core/model/operationBoard";
 import { canAddActivityToBusiness, addWorkflowElement, SIMPLE_BOARD_LABELS } from "@untie/core/model/workflow";
-import type { CommandResult } from "@untie/core/model/commands";
-import { INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Information, type InformationAccess, type UntieModel } from "@untie/core/model/types";
-import { selectReadOnly, useUntieStore } from "../../store";
-import { canvasApi } from "../canvas/canvasApi";
+import { ALTERNATE_WHEN_LABELS, INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Condition, type Information, type InformationAccess, type RelationAlternate, type UntieModel } from "@untie/core/model/types";
+import { useBoardKit } from "./boardKit";
 import { nameOf, Pick } from "./WorkflowBoard";
 
 /**
- * 分析（簡易）のボード「システム」。作業 → 操作 → 画面・情報 を 1 枚で書く。
+ * 分析（簡易）のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で書く。
  * 作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。配置は保存せず、毎回モデルから組み立てる (core の buildOperationBoard)。
  */
 export function OperationBoard() {
-  const model = useUntieStore((s) => s.model);
-  const readOnly = useUntieStore(selectReadOnly);
+  const { model, readOnly, selectedId, choose, run } = useBoardKit();
   const board = useMemo(() => buildOperationBoard(model), [model]);
-  const dispatch = useUntieStore((s) => s.dispatch);
-  const select = useUntieStore((s) => s.select);
-  const setRightPanel = useUntieStore((s) => s.setRightPanel);
-  const requestNameFocus = useUntieStore((s) => s.requestNameFocus);
-  const pushToast = useUntieStore((s) => s.pushToast);
-  const selectedId = useUntieStore((s) => (s.ui.selection?.type === "element" ? s.ui.selection.id : null));
 
-  useEffect(() => {
-    canvasApi.focus = (elementId) => {
-      document.querySelector(`[data-workflow-el="${CSS.escape(elementId)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    };
-    return () => {
-      canvasApi.focus = undefined;
-    };
-  }, []);
-
-  const choose = (id: string) => {
-    select({ type: "element", id });
-    setRightPanel("properties");
-  };
-  /** 足した直後は選び、名前をすぐ打てるようにする */
-  const run = (command: (m: UntieModel) => CommandResult<{ id: string }>) => {
-    const r = dispatch(command);
-    if (!r.ok) {
-      pushToast(r.reason, "error");
-      return;
-    }
-    choose(r.id);
-    requestNameFocus();
-    setTimeout(() => canvasApi.focus?.(r.id), 50);
-  };
   const ctx: Ctx = {
     model,
     readOnly,
@@ -54,17 +21,18 @@ export function OperationBoard() {
     choose,
     addActivity: (parentId) => run((m) => addWorkflowElement(m, "activity", parentId)),
     addOperation: (activityId) => run((m) => addOperationElement(m, "usecase", activityId)),
+    addCondition: (usecaseId) => run((m) => addOperationElement(m, "condition", usecaseId)),
     addInformation: (usecaseId) => run((m) => addOperationElement(m, "information", usecaseId)),
     addScreen: (usecaseId, systemId) => run((m) => addOperationElement(m, "screen", usecaseId, systemId ? { systemId } : {})),
   };
-  const empty = board.frames.length === 0 && board.unlinkedOperations.length === 0 && board.unlinkedScreens.length === 0 && board.unlinkedInformations.length === 0;
+  const empty = board.frames.length === 0 && board.unlinkedOperations.length === 0 && board.unlinkedScreens.length === 0 && board.unlinkedInformations.length === 0 && board.unlinkedConditions.length === 0;
 
   return (
     <div className="fixed-board workflow-board" data-testid="operation-board">
       <div className="fixed-head">
         <h2 className="fixed-title">{SIMPLE_BOARD_LABELS.operation}</h2>
         <span className="fixed-hint">
-          作業ごとに、使う操作と、操作が使う画面・扱う情報を並べます。作業は、活動 (活動の無い業務では業務) の枠で囲みます。選ぶと右のプロパティで関連や削除を直せます。
+          作業ごとに、使う操作と、操作が使う画面・扱う情報・判断する条件を並べます。作業は、活動 (活動の無い業務では業務) の枠で囲みます。選ぶと右のプロパティで関連や削除を直せます。
         </span>
       </div>
       {!readOnly && ctx.systems.length === 0 && <p className="hint">画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。画面を足すには、先に分析（詳細）の「登場人物」でシステムを作ってください。</p>}
@@ -82,6 +50,19 @@ export function OperationBoard() {
             {board.unlinkedOperations.map((b) => (
               <li key={b.usecase.id}>
                 <OperationFrameView box={b} ctx={ctx} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {board.unlinkedConditions.length > 0 && (
+        <section className="wf-section" aria-label="操作に結ばれていない条件">
+          <h3 className="wf-section-title">操作に結ばれていない条件</h3>
+          <p className="fixed-hint">条件を選び、プロパティの「関係を追加」で判断する操作に結ぶと、操作の枠に移ります。</p>
+          <ul className="wf-stack">
+            {board.unlinkedConditions.map((c) => (
+              <li key={c.id} data-workflow-el={c.id}>
+                <ConditionRow condition={c} ctx={ctx} />
               </li>
             ))}
           </ul>
@@ -127,6 +108,7 @@ interface Ctx {
   addOperation: (activityId: string) => void;
   addScreen: (usecaseId: string, systemId?: string) => void;
   addInformation: (usecaseId: string) => void;
+  addCondition: (usecaseId: string) => void;
 }
 
 const FRAME_KIND_LABEL = { buc: "活動", business: "業務", none: "" } as const;
@@ -266,11 +248,27 @@ function OperationFrameView({ box, ctx }: { box: OperationBox; ctx: Ctx }) {
           ))}
         </ul>
       )}
+      {box.conditions.length > 0 && (
+        <ul className="wf-stack" aria-label="条件の一覧">
+          {box.conditions.map((x) => (
+            <li key={x.condition.id} data-workflow-el={x.condition.id}>
+              <ConditionRow condition={x.condition} alternate={x.alternate} linked ctx={ctx} />
+            </li>
+          ))}
+        </ul>
+      )}
       {box.emits.length > 0 && <EventChips label="発生" events={box.emits} ctx={ctx} />}
       {!ctx.readOnly && (
         <div className="wf-actions" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="wf-add" aria-label={`「${nameOf(u)}」に情報を足す`} onClick={() => ctx.addInformation(u.id)}>
             ＋情報
+          </button>
+        </div>
+      )}
+      {!ctx.readOnly && (
+        <div className="wf-actions" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="wf-add" aria-label={`「${nameOf(u)}」に条件を足す`} onClick={() => ctx.addCondition(u.id)}>
+            ＋条件
           </button>
         </div>
       )}
@@ -300,6 +298,18 @@ function ScreenRow({ screen, ctx }: { screen: { id: string; name: string; system
       <span className="wf-kind">画面</span>
       <span className="wf-name">{nameOf(screen)}</span>
       {system && <span className="wf-assignees">システム: {nameOf(system)}</span>}
+    </Pick>
+  );
+}
+
+/** 条件の行。操作が判断する条件には、代替パターンがあるかを添える (長い文は出さない。中身はプロパティで見る) */
+function ConditionRow({ condition, alternate, linked = false, ctx }: { condition: Condition; alternate?: RelationAlternate; linked?: boolean; ctx: Ctx }) {
+  const note = linked && alternate ? `代替パターンあり: ${ALTERNATE_WHEN_LABELS[alternate.when]}` : "";
+  return (
+    <Pick id={condition.id} className="wf-condition" ctx={ctx} label={`条件 ${nameOf(condition)}${note ? ` (${note})` : ""}`}>
+      <span className="wf-kind">条件</span>
+      <span className="wf-name">{nameOf(condition)}</span>
+      {note && <span className="wf-assignees">{note}</span>}
     </Pick>
   );
 }

@@ -51,7 +51,7 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
 };
 
 /** 簡易ボード: Cmd+B のあとに押すキー */
-export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", operation: "p" };
+export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", operation: "p", information: "h" };
 
 export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
 

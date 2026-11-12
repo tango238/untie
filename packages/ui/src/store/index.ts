@@ -26,7 +26,7 @@ export type Selection = { type: "element"; id: string } | { type: "relation"; id
 export type RightPanel = "properties" | "issues" | "trace";
 
 /**
- * モード。analysis は分析（詳細。既定）、analysisSimple は分析（簡易。ワークフローとシステムの 2 枚で書く）、
+ * モード。analysis は分析（詳細。既定）、analysisSimple は分析（簡易。ワークフロー・システム操作・情報と状態の 3 枚で書く）、
  * design は設計 (システムごとに、サイトマップ・ナビゲーション・データ・画面を設計する)。
  * 簡易と詳細は同じモデルを別の見せ方で扱うだけなので、行き来できる
  */
@@ -284,7 +284,7 @@ function firstBoardOf(mode: Mode): string {
   return mode === "analysisSimple" ? SIMPLE_START_BOARD_ID : START_BOARD_ID;
 }
 
-/** ボードがそのモードで開けるか。分析（詳細）は固定・分析・自由ボード、分析（簡易）は簡易ボード (ワークフロー・システム) だけ、設計は設計・自由ボード */
+/** ボードがそのモードで開けるか。分析（詳細）は固定・分析・自由ボード、分析（簡易）は簡易ボード (ワークフロー・システム操作・情報と状態) だけ、設計は設計・自由ボード */
 function boardFitsMode(boardId: string, mode: Mode): boolean {
   if (mode === "analysisSimple") return isSimpleBoard(boardId);
   if (mode === "design") return !isFixedBoard(boardId) && !isAnalysisBoard(boardId) && !isSimpleBoard(boardId);
@@ -399,7 +399,7 @@ export function isDesignBoard(boardId: string): boolean {
   return parseDesignBoardId(boardId) !== null;
 }
 
-/** 簡易モードのボード (ワークフロー・システム) を開いているか */
+/** 簡易モードのボード (ワークフロー・システム操作・情報と状態) を開いているか */
 export function isSimpleBoard(boardId: string): boolean {
   return parseSimpleBoardId(boardId) !== null;
 }

@@ -30,7 +30,7 @@ const renderBoth = () =>
 const frame = (name: RegExp | string) => screen.getByRole("region", { name });
 const dialog = () => screen.queryByRole("dialog", { name: "削除の確認" });
 
-describe("システムボードの描画", () => {
+describe("システム操作ボードの描画", () => {
   it("外側の枠 (活動・業務) の中に、作業の行、操作の枠、画面の縦の一覧が入る", () => {
     render(<OperationBoard />);
     // 業務に直接の作業は業務の枠、活動のある業務は活動の枠 (どの業務の活動かを添える)
@@ -202,7 +202,7 @@ describe("削除の確認と「移動」", () => {
 });
 
 describe("App での表示", () => {
-  it("簡易モードのシステムのボードを開くと、ボードが出てツールバーのボードの選択もそれになる", () => {
+  it("簡易モードのシステム操作のボードを開くと、ボードが出てツールバーのボードの選択もそれになる", () => {
     render(<App />);
     expect(screen.getByTestId("operation-board")).toBeDefined();
     expect((screen.getByLabelText("ボード") as HTMLSelectElement).value).toBe("simple:operation");
@@ -212,7 +212,7 @@ describe("App での表示", () => {
 });
 
 describe("イベントの削除の確認", () => {
-  it("システムボードのイベントのチップを選んで削除すると、結ばれた操作が外れることを確認する", () => {
+  it("システム操作ボードのイベントのチップを選んで削除すると、結ばれた操作が外れることを確認する", () => {
     renderBoth();
     fireEvent.click(within(frame("操作 請求書を発行する")).getByRole("button", { name: /^きっかけのイベント 請求金額が計算された/ }));
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
@@ -331,5 +331,48 @@ describe("結び付きに付いた代替パターン", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^画面 請求書の発行画面/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(within(dialog()!).getByText("課題 1 件: 削除されず残ります (対象から外れます)")).toBeDefined();
+  });
+});
+
+describe("条件", () => {
+  const withAlt = () => st().model.relations.find((r) => r.kind === "usecaseCondition" && r.alternate !== undefined)!;
+
+  it("操作の枠に、判断する条件が縦の一覧で出て、代替パターンのあるものには添え書きが付く。選べる", () => {
+    const alt = withAlt();
+    const usecase = st().model.elements.find((e) => e.id === alt.sourceId)!;
+    const condition = st().model.elements.find((e) => e.id === alt.targetId)!;
+    render(<OperationBoard />);
+    const box = screen.getAllByRole("region", { name: new RegExp(`^操作 ${usecase.name}`) })[0]!;
+    const row = within(within(box).getByRole("list", { name: "条件の一覧" })).getByRole("button", { name: new RegExp(`^条件 ${condition.name}`) });
+    expect(row.textContent).toContain("代替パターンあり");
+    expect(row.getAttribute("aria-label")).toContain("代替パターンあり");
+    fireEvent.click(row);
+    expect(selectedId()).toBe(condition.id);
+    expect(row.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("＋条件で、その操作が判断する条件を足して選び、名前の入力へ移る。閲覧専用では出さない", () => {
+    renderBoth();
+    fireEvent.click(screen.getAllByRole("button", { name: "「予約を確定する」に条件を足す" })[0]!);
+    const c = st().model.elements.find((e) => e.kind === "condition" && e.name === "新しい条件")!;
+    expect(st().model.relations.some((r) => r.kind === "usecaseCondition" && r.sourceId === "uc_confirm_reservation" && r.targetId === c.id)).toBe(true);
+    expect(selectedId()).toBe(c.id);
+    expect(document.activeElement).toBe(screen.getByLabelText("名前"));
+    useUntieStore.setState({ cloud: { role: "viewer" } as never });
+    renderBoth();
+    expect(screen.queryByRole("button", { name: /に条件を足す/ })).toBeNull();
+  });
+
+  it("どの操作にも結ばれていない条件は「操作に結ばれていない条件」に出る。条件を消すと、代替パターンが一緒に消えると確認する。「移動」は出さない", () => {
+    act(() => void st().dispatch((m) => addElement(m, { kind: "condition", name: "宙の条件", id: "cond_float" })));
+    renderBoth();
+    expect(within(frame("操作に結ばれていない条件")).getByRole("button", { name: /^条件 宙の条件/ })).toBeDefined();
+    const alt = withAlt();
+    const condition = st().model.elements.find((e) => e.id === alt.targetId)!;
+    fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^条件 ${condition.name}`) })[0]!);
+    expect(screen.queryByRole("button", { name: "固定ボード「条件」へ移る" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    expect(within(dialog()!).getByText(/^代替パターン \d+ 件: 一緒に削除されます/)).toBeDefined();
+    expect(within(dialog()!).getByText(/^操作 \d+ 件: 削除されず残ります \(判断の結び付きが外れます\)/)).toBeDefined();
   });
 });

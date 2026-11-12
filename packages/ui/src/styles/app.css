@@ -1190,19 +1190,33 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .wf-frame { min-width: 0; }
 }
 
-/* 分析（簡易）のボード「システム」: 作業 → 操作 → 画面。外側の枠は活動 (無ければ業務) */
+/* 分析（簡易）のボード「システム操作」: 作業 → 操作 → 画面・情報・条件。外側の枠は活動 (無ければ業務) */
 .wf-outers { display: flex; flex-direction: column; gap: 16px; }
 .wf-outer { min-width: 0; cursor: pointer; }
 .wf-outer .wf-lane.wf-row { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
-.wf-outer .wf-lane.wf-row:last-of-type { border-bottom: none; }
 .wf-actor-card.wf-activity { border-color: var(--c-activity); }
 .wf-operation { --c: var(--c-usecase); background: color-mix(in srgb, var(--c-usecase) 5%, #fff); cursor: pointer; }
-.wf-screen, .wf-information { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-screen); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
+.wf-screen, .wf-information, .wf-condition, .wf-state, .wf-variation { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-screen); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
 .wf-information { border-color: var(--c-information); }
-.wf-screen.is-selected, .wf-information.is-selected, .wf-chip.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.wf-condition { border-color: var(--c-condition); }
+.wf-state { border-color: var(--c-state); }
+.wf-variation { border-color: var(--c-variation); }
+.wf-screen.is-selected, .wf-information.is-selected, .wf-condition.is-selected, .wf-state.is-selected, .wf-variation.is-selected, .wf-chip.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
 .wf-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .wf-chips li { min-width: 0; max-width: 100%; }
 .wf-chip { max-width: 100%; font-size: 11px; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; background: #fff; border: 1.5px solid var(--border); border-radius: 6px; padding: 2px 8px; }
 .wf-chip.kind-system { border-color: var(--c-system); }
 .wf-chip.kind-ledger { border-color: var(--c-ledger); border-style: dashed; }
 .wf-chip.kind-event { border-color: var(--c-event); border-style: dashed; }
+
+/* 分析（簡易）のボード「情報と状態」: コンテキスト → 情報 (・バリエーション)・状態 */
+.wf-context { --c: var(--c-context); background: color-mix(in srgb, var(--c-context) 5%, #fff); }
+/* 区画の区切りは、直前の行の破線だけにする (二重にしない) */
+.wf-subsection { padding-top: 2px; }
+.wf-subtitle { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+.wf-state-groups { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.wf-state-group { --c: var(--c-state); min-width: 160px; }
+.wf-variation-frame { --c: var(--c-variation); min-width: 160px; cursor: default; }
+.wf-actor-card.wf-information { border-color: var(--c-information); }
+.wf-state-group .wf-frame-head { flex-direction: column; }
+.wf-information:hover, .wf-condition:hover, .wf-state:hover, .wf-variation:hover, .wf-screen:hover { background: #fff; }

@@ -1,4 +1,4 @@
-// 分析（簡易）のボード (ワークフロー: 登場人物 → 業務 → 活動 → 作業。システム: 作業 → 操作 → 画面・情報は operationBoard.ts)。共通の id・種類・削除の影響を置く。
+// 分析（簡易）のボード (ワークフロー: 登場人物 → 業務 → 活動 → 作業。システム操作: 作業 → 操作 → 画面・情報・条件は operationBoard.ts。情報と状態: コンテキスト → 情報・状態・バリエーションは informationBoard.ts)。共通の id・種類・削除の影響を置く。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup, type FixedLayer } from "./fixedBoards";
@@ -8,12 +8,13 @@ import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business
 // ---------------------------------------------------------------- ボードの id
 
 /** 簡易モードのボードの種類 (選択肢に並べる順。最初がワークフロー) */
-export const SIMPLE_BOARD_KINDS = ["workflow", "operation"] as const;
+export const SIMPLE_BOARD_KINDS = ["workflow", "operation", "information"] as const;
 export type SimpleBoardKind = (typeof SIMPLE_BOARD_KINDS)[number];
 
 export const SIMPLE_BOARD_LABELS: Record<SimpleBoardKind, string> = {
   workflow: "ワークフロー",
-  operation: "システム",
+  operation: "システム操作",
+  information: "情報と状態",
 };
 
 const PREFIX = "simple:";
@@ -30,17 +31,17 @@ export function parseSimpleBoardId(boardId: string): SimpleBoardKind | null {
 }
 
 /**
- * 簡易モードのボード (ワークフロー・システム) で構造 (関係・所属・削除) を直せる要素か。
- * ボードで選べる種類 (登場人物・業務・活動・作業・操作・画面・情報・イベント) だけ。システム・帳票・コンテキストなどは、
+ * 簡易モードのボード (ワークフロー・システム操作・情報と状態) で構造 (関係・所属・削除) を直せる要素か。
+ * ボードで選べる種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、
  * 消すと巻き込まれるものが大きい (システムは画面と非機能要件ごと消える) ので、詳細で直す
  */
 export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: boolean }): boolean {
   if (el.kind === "buc") return el.isDefault !== true;
-  return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity" || el.kind === "usecase" || el.kind === "screen" || el.kind === "event" || el.kind === "information";
+  return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity" || el.kind === "usecase" || el.kind === "screen" || el.kind === "event" || el.kind === "information" || el.kind === "condition" || el.kind === "context" || el.kind === "state" || el.kind === "variation";
 }
 
 /** 簡易モードのボードに統合されている固定ボードのレイヤー。簡易モードでは、これらのレイヤーの固定ボードへ移る操作 (トレースの「移動」など) は出さない */
-export const SIMPLE_MODE_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity", "usecase", "screen", "information"];
+export const SIMPLE_MODE_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity", "usecase", "screen", "information", "condition", "context", "state", "variation"];
 
 /** そのレイヤーは簡易モードのボードに統合されているか */
 export function isSimpleModeLayer(layer: FixedLayer): boolean {
@@ -230,7 +231,8 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
         label: "判断する条件",
         count: conditions.length,
         effect: "kept",
-        note: withAlternate > 0 ? `操作との結び付きが外れます。うち ${withAlternate} 件の代替パターン (ふだんと違う流れ) も消えます` : "操作との結び付きが外れます",
+        // 条件は「操作に結ばれていない条件」へ移る。関係が持つ代替パターンは条件ではなく結び付きに付いているので、一緒に消える
+        note: withAlternate > 0 ? `操作との結び付きが外れます。うち ${withAlternate} 件の代替パターン (ふだんと違う流れ) は、結び付きと一緒に消えます` : "操作との結び付きが外れます",
       });
       push({ label: "状態", count: countRelations(model, el.id, ["usecaseState", "stateUsecase"]), effect: "kept", note: "「実行可」「次の状態」の結び付きが外れます" });
       push({ label: "前後の操作", count: countRelations(model, el.id, ["usecaseNext"]), effect: "kept", note: "前後の操作との「次に」の結び付きが外れます" });
@@ -252,6 +254,36 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
     case "screen": {
       push({ label: "操作", count: model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === el.id).length, effect: "kept", note: "対象の画面が外れます" });
       pushIssues(el.id);
+      break;
+    }
+    case "condition": {
+      // 判断していた操作は残り、結び付きが外れる。結び付きに付いた代替パターンは一緒に消える。バリエーション・状態の参照も外れる
+      const alternates = model.relations.filter((r) => r.kind === "usecaseCondition" && r.targetId === el.id && r.alternate !== undefined).length;
+      push({ label: "操作", count: countRelations(model, el.id, ["usecaseCondition"]), effect: "kept", note: "判断の結び付きが外れます" });
+      push({ label: "代替パターン", count: alternates, effect: "removed" });
+      push({ label: "バリエーション", count: countRelations(model, el.id, ["conditionVariation"]), effect: "kept", note: "「区分」の結び付きが外れます" });
+      push({ label: "状態", count: countRelations(model, el.id, ["conditionState"]), effect: "kept", note: "「状態参照」の結び付きが外れます" });
+      break;
+    }
+    case "context": {
+      // 属していた要素は消えず、コンテキストが決まっていない要素になる (removeElement)
+      const members = (kind: string) => model.elements.filter((e) => e.kind === kind && "contextId" in e && e.contextId === el.id).length;
+      for (const [label, kind] of [["情報", "information"], ["状態", "state"], ["バリエーション", "variation"], ["条件", "condition"], ["イベント", "event"]] as const) {
+        push({ label, count: members(kind), effect: "kept", note: "コンテキストが決まっていない要素になります" });
+      }
+      break;
+    }
+    case "state": {
+      // 条件の「状態参照」と操作の「実行可」「次の状態」の結び付き、代替パターンの「そのあとの状態」が外れる
+      const afterRefs = model.relations.filter((r) => r.alternate?.after?.stateIds?.includes(el.id)).length;
+      push({ label: "条件", count: countRelations(model, el.id, ["conditionState"]), effect: "kept", note: "「状態参照」の結び付きが外れます" });
+      push({ label: "操作", count: countRelations(model, el.id, ["stateUsecase", "usecaseState"]), effect: "kept", note: "「実行可」「次の状態」の結び付きが外れます" });
+      push({ label: "代替パターン", count: afterRefs, effect: "kept", note: "「そのあとの状態」から外れます (1 つも残らなければ、まだ決めていない状態に戻ります)" });
+      break;
+    }
+    case "variation": {
+      push({ label: "情報", count: countRelations(model, el.id, ["informationVariation"]), effect: "kept", note: "「種別」の結び付きが外れます" });
+      push({ label: "条件", count: countRelations(model, el.id, ["conditionVariation"]), effect: "kept", note: "「区分」の結び付きが外れます" });
       break;
     }
     case "information": {

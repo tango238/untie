@@ -10,19 +10,20 @@ const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 const frame = (m: UntieModel, key: string) => buildOperationBoard(m).frames.find((f) => f.key === key)!;
 const opIds = (m: UntieModel, frameKey: string, actId: string) => ids(frame(m, frameKey).rows.find((r) => r.activity.id === actId)!.operations.map((o) => o.usecase));
 
-describe("簡易モードのボード (2 枚)", () => {
-  it("ワークフローとシステム。id と相互に変換できる", () => {
-    expect(SIMPLE_BOARD_KINDS).toEqual(["workflow", "operation"]);
-    expect(SIMPLE_BOARD_LABELS.operation).toBe("システム");
+describe("簡易モードのボード (3 枚)", () => {
+  it("ワークフロー・システム操作・情報と状態。id と相互に変換できる", () => {
+    expect(SIMPLE_BOARD_KINDS).toEqual(["workflow", "operation", "information"]);
+    expect(SIMPLE_BOARD_LABELS.operation).toBe("システム操作");
+    expect(SIMPLE_BOARD_LABELS.information).toBe("情報と状態");
     for (const k of SIMPLE_BOARD_KINDS) expect(parseSimpleBoardId(simpleBoardId(k))).toBe(k);
     expect(simpleBoardId("operation")).toBe("simple:operation");
   });
   it("簡易モードに統合されたレイヤーと、直せる種類 (操作・画面・イベントを含む)", () => {
-    for (const l of ["actor", "business", "buc", "activity", "usecase", "screen", "information"] as const) expect(isSimpleModeLayer(l)).toBe(true);
-    expect(isSimpleModeLayer("condition")).toBe(false);
+    for (const l of ["actor", "business", "buc", "activity", "usecase", "screen", "information", "condition", "context", "state", "variation"] as const) expect(isSimpleModeLayer(l)).toBe(true);
+    expect(isSimpleModeLayer("nfr")).toBe(false);
     const kinds = (id: string) => isWorkflowElement(sample().elements.find((e) => e.id === id)!);
-    expect(["uc_register_reservation", "scr_checkin", "ev_checkout_day", "info_reservation"].every(kinds)).toBe(true);
-    expect(["sys_pms", "ldg_guest_register", "ctx_reservation"].some(kinds)).toBe(false);
+    expect(["uc_register_reservation", "scr_checkin", "ev_checkout_day", "info_reservation", "ctx_reservation"].every(kinds)).toBe(true);
+    expect(["sys_pms", "ldg_guest_register"].some(kinds)).toBe(false);
   });
 });
 
@@ -289,7 +290,7 @@ describe("ボードに見えない結び付きの数え上げ (removeElement の
   });
 });
 
-describe("システムボードの情報", () => {
+describe("システム操作ボードの情報", () => {
   it("操作が扱う情報を、access つきで操作の枠に並べる。同じ情報が複数の操作で扱われていれば、それぞれに出る", () => {
     const m = sample();
     const reg = frame(m, "biz_reservation").rows[0]!.operations[0]!;

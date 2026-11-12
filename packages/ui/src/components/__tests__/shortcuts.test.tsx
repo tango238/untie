@@ -102,7 +102,7 @@ describe("ショートカットの一覧", () => {
     mod("b");
     const current = within(dialog()!).getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "true");
     expect(current.map((b) => b.textContent)).toEqual([expect.stringContaining("分析"), expect.stringContaining("全体")]);
-    fireEvent.click(within(dialog()!).getByRole("button", { name: /操作$/ }));
+    fireEvent.click(within(dialog()!).getByRole("button", { name: /5\s*操作$/ }));
     expect(dialog()).toBeNull();
     expect(st().ui.currentBoardId).toBe("fixed:usecase");
   });
