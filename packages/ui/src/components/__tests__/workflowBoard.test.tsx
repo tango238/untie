@@ -352,3 +352,55 @@ describe("片付けと確認ダイアログ", () => {
     expect(screen.queryByRole("button", { name: "削除" })).toBeNull();
   });
 });
+
+describe("トレース表の「移動」", () => {
+  const moveLabel = (layer: string) => `固定ボード「${layer}」へ移る`;
+  const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
+
+  it("簡易モードでは、登場人物・業務・活動・作業の行に「移動」が無く、ほかのレイヤーの行にはある。行のセルは残る", () => {
+    act(() => st().select({ type: "element", id: "act_room_request" }));
+    render(<PropertyPanel />);
+    for (const layer of ["登場人物", "業務", "活動", "作業"]) {
+      expect(screen.queryByRole("button", { name: moveLabel(layer) })).toBeNull();
+      expect(screen.getByRole("rowheader", { name: new RegExp(layer) })).toBeDefined();
+    }
+    for (const layer of ["操作", "画面", "情報"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
+    // ボタンの無い行も、要素と「移動」の 2 つのセル (cell。レイヤー名は rowheader) を持つ (列が崩れない)
+    expect(rows().every((r) => within(r).getAllByRole("cell").length === 2)).toBe(true);
+    // 要素を押して選ぶ動きは残る
+    fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /フロント担当/ }));
+    expect(selectedId()).toBe("actor_front");
+  });
+
+  it("詳細モードでは、4 つのレイヤーにも「移動」がある", () => {
+    act(() => st().setMode("analysis"));
+    act(() => st().select({ type: "element", id: "act_room_request" }));
+    render(<PropertyPanel />);
+    for (const layer of ["登場人物", "業務", "活動", "作業", "操作"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
+  });
+
+  it("課題の対象の「移動」: 簡易モードでは対象が作業なら無く、操作なら有る。詳細モードでは作業にも有る", () => {
+    act(() => st().select({ type: "element", id: "issue_extra_missing" }));
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.queryByRole("button", { name: "「追加料金を記録する」の固定ボードへ移る" })).toBeNull();
+    expect(screen.getByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeDefined();
+    unmount();
+    act(() => st().setMode("analysis"));
+    act(() => st().select({ type: "element", id: "issue_extra_missing" }));
+    render(<PropertyPanel />);
+    expect(screen.getByRole("button", { name: "「追加料金を記録する」の固定ボードへ移る" })).toBeDefined();
+  });
+
+  it("上下に何もつながらないときの案内: 「移動」で…の一文は簡易モードでは出さず、詳細モードでは出す", () => {
+    act(() => void st().dispatch((m) => addElement(m, { kind: "actor", name: "ひとり", id: "actor_alone" })));
+    act(() => st().select({ type: "element", id: "actor_alone" }));
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.getByText(/上下のレイヤーにつながる要素はありません/)).toBeDefined();
+    expect(screen.queryByText(/「移動」でそのレイヤーの固定ボードへ移って結べます/)).toBeNull();
+    unmount();
+    act(() => st().setMode("analysis"));
+    act(() => st().select({ type: "element", id: "actor_alone" }));
+    render(<PropertyPanel />);
+    expect(screen.getByText(/「移動」でそのレイヤーの固定ボードへ移って結べます/)).toBeDefined();
+  });
+});

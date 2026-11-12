@@ -1,7 +1,7 @@
 // 分析（簡易）のワークフローボード。登場人物 → 業務 → 活動 → 作業 を 1 枚で見る。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, type CommandResult } from "./commands";
-import { addToGroup, type FixedGroup } from "./fixedBoards";
+import { addToGroup, type FixedGroup, type FixedLayer } from "./fixedBoards";
 import { defaultBucOf } from "./selectors";
 import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business, type Element, type ElementKind, type ExternalActor, type UntieModel } from "./types";
 
@@ -32,6 +32,14 @@ export function parseSimpleBoardId(boardId: string): SimpleBoardKind | null {
 export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: boolean }): boolean {
   if (el.kind === "buc") return el.isDefault !== true;
   return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity";
+}
+
+/** ワークフローボードに統合されている固定ボードのレイヤー。簡易モードでは、これらのレイヤーの固定ボードへ移る操作 (トレースの「移動」など) は出さない */
+export const WORKFLOW_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity"];
+
+/** そのレイヤーはワークフローボードに統合されているか */
+export function isWorkflowLayer(layer: FixedLayer): boolean {
+  return WORKFLOW_LAYERS.includes(layer);
 }
 
 /** 簡易モードでの種別の呼び名 (アクター → 登場人物。ボードと同じ言い方) */

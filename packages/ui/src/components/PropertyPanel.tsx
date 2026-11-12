@@ -72,7 +72,7 @@ import {
   type Variation,
 } from "@untie/core/model/types";
 import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
-import { impactLines, isWorkflowElement, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
+import { impactLines, isWorkflowElement, isWorkflowLayer, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
 import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
@@ -538,6 +538,8 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
+  // 簡易モードでは、ワークフローに統合された 4 つのレイヤー (登場人物・業務・活動・作業) の固定ボードへは移らない
+  const simple = isSimpleBoard(boardId);
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
   const rows = [
@@ -549,7 +551,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
     <section className="subsection">
       <h3>トレース</h3>
       {[...up, ...down].every((r) => r.elements.length === 0) && (
-        <p className="hint">上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。</p>
+        <p className="hint">{simple ? "上下のレイヤーにつながる要素はありません。" : "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。"}</p>
       )}
       <table className="trace-table">
         <thead>
@@ -570,6 +572,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
               elements={r.elements}
               currentId={element.id}
               current={boardId === fixedBoardId(r.layer)}
+              canMove={!(simple && isWorkflowLayer(r.layer))}
             />
           ))}
         </tbody>
@@ -584,12 +587,15 @@ function TraceRow({
   elements,
   currentId,
   current,
+  canMove,
 }: {
   dir: "up" | "own" | "down";
   layer: FixedLayer;
   elements: Element[];
   currentId: string;
   current: boolean;
+  /** 「移動」ボタンを出すか (出さなくてもセルは残して、列を崩さない) */
+  canMove: boolean;
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? elements : elements.slice(0, TRACE_VISIBLE);
@@ -625,7 +631,7 @@ function TraceRow({
         </span>
       </td>
       <td>
-        <button
+        {canMove && <button
           type="button"
           className="layer-link"
           disabled={current}
@@ -634,7 +640,7 @@ function TraceRow({
           onClick={() => goToLayer(layer, currentId)}
         >
           移動
-        </button>
+        </button>}
       </td>
     </tr>
   );
@@ -1381,6 +1387,7 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
 
 function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
+  const simple = useUntieStore((s) => isSimpleBoard(s.ui.currentBoardId));
   const pushToast = useUntieStore((s) => s.pushToast);
   const scope = issueScope(model, issue);
   // 全体的な課題と具体的な課題は混ぜない。対象があれば同じ区分の候補だけを出す
@@ -1429,13 +1436,14 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           <ul className="target-list">
             {issue.targetIds.map((id) => {
               const t = model.elements.find((e) => e.id === id);
+              const layer = t ? fixedLayerOf(t.kind) : null;
               return (
                 <li key={id}>
                   <span className="relation-kind">{t ? ELEMENT_KIND_LABELS[t.kind] : ""}</span>
                   <button type="button" className="link" onClick={() => t && selectAndReveal(t.id)}>
                     {t?.name || "(名前なし)"}
                   </button>
-                  {t && (
+                  {t && !(simple && layer && isWorkflowLayer(layer)) && (
                     <button
                       type="button"
                       className="link"
