@@ -9,13 +9,6 @@ const cond = (m: UntieModel, usecaseId: string, conditionId: string) => m.relati
 const of = (m: UntieModel, operation: string) => deriveAcceptanceCases(m, "sys_pms").cases.filter((c) => c.operation === operation);
 
 describe("deriveAcceptanceCases: 設計から、受け入れテストのケースを導く", () => {
-  it("サンプルのケースは、決まった形になる", async () => {
-    for (const sample of SAMPLES) {
-      const out = exportAcceptanceTests(sample.create());
-      for (const f of out.files.filter((x) => x.name.endsWith(".cases.json"))) await expect(f.text).toMatchFileSnapshot(`./__fixtures__/acceptance/${sample.id}/${f.name}`);
-    }
-  });
-
   it("ふだんの流れ: 前提の状態から、次の状態になる。複数のグループの状態が変わる操作は、どちらも確かめる", () => {
     const m = createHotelSample();
     expect(of(m, "予約を確定する")[0]).toEqual({

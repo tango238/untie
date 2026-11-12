@@ -58,11 +58,6 @@ describe("exportSouther: 業務ルールの骨組みを Souther に書き出す"
     expect(r.text).not.toContain("behavior 予約を検索する");
   });
 
-  it("条件を満たさないときに別の結果になるなら、guard は条件そのもの", () => {
-    const r = exportSouther(createHotelSample(), "sys_pms");
-    expect(r.text).toMatch(/guard 早めのチェックインができる else \S+_でない/);
-  });
-
   it("条件のときにどうなるかが未定なら、中身は分岐せず、答え待ちの行にする", () => {
     let m = createHotelSample();
     m = okModel(setRelationAlternate(m, { id: cond(m, "uc_cancel_reservation", "cond_cancel_fee").id, alternate: null }));

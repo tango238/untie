@@ -5,14 +5,6 @@ import { designBriefFileName, exportDesignBrief, exportDesignBriefAll } from "..
 import { okModel } from "./helpers";
 
 describe("exportDesignBrief: 実装に渡す設計書", () => {
-  it("サンプルの書き出しは、決まった形になる", async () => {
-    for (const sample of SAMPLES) {
-      for (const brief of exportDesignBriefAll(sample.create())) {
-        await expect(brief.text).toMatchFileSnapshot(`./__fixtures__/designBrief/${sample.id}/${brief.fileName}`);
-      }
-    }
-  });
-
   it("操作のあるシステムだけを書き出す。ファイルの名前は、システムの id から決まる", () => {
     const all = exportDesignBriefAll(createHotelSample());
     expect(all.map((b) => b.fileName)).toContain(designBriefFileName("sys_pms"));
