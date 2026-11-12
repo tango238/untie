@@ -8,6 +8,8 @@ import { resetStore } from "../../test/utils";
 import { PropertyPanel } from "../PropertyPanel";
 import { WorkflowBoard } from "../workflow/WorkflowBoard";
 import { Toolbar } from "../Toolbar";
+import { ConfirmDialog } from "../ConfirmDialog";
+import { canvasApi } from "../canvas/canvasApi";
 
 const st = () => useUntieStore.getState();
 
@@ -317,5 +319,36 @@ describe("ツールバー", () => {
     fireEvent.click(within(screen.getByRole("menu", { name: "モード" })).getByRole("menuitemradio", { name: "分析（簡易）" }));
     expect(st().ui.mode).toBe("analysisSimple");
     expect(st().ui.currentBoardId).toBe("simple:workflow");
+  });
+});
+
+describe("片付けと確認ダイアログ", () => {
+  it("canvasApi.focus はボードを出している間だけ登録され、片付けで外れる。呼ぶと該当の要素へスクロールする", () => {
+    const { unmount } = render(<WorkflowBoard />);
+    expect(canvasApi.focus).toBeDefined();
+    const target = document.querySelector('[data-workflow-el="act_hand_key"]') as HTMLElement;
+    let scrolled = false;
+    target.scrollIntoView = () => {
+      scrolled = true;
+    };
+    canvasApi.focus!("act_hand_key");
+    expect(scrolled).toBe(true);
+    unmount();
+    expect(canvasApi.focus).toBeUndefined();
+  });
+
+  it("確認ダイアログは、見出し付きの区切り (detailGroups) を、箇条書きとは別の見出しで出す", () => {
+    render(<ConfirmDialog title="削除の確認" message="m" details={["活動 3 件: 一緒に削除されます"]} detailGroups={[{ title: "消える設計データ", items: ["設計 A"] }]} onConfirm={() => {}} onCancel={() => {}} />);
+    const dialog = within(screen.getByRole("dialog", { name: "削除の確認" }));
+    expect(dialog.getByRole("heading", { name: "消える設計データ" })).toBeDefined();
+    expect(dialog.getByText("設計 A")).toBeDefined();
+    expect(dialog.getByText("活動 3 件: 一緒に削除されます")).toBeDefined();
+  });
+
+  it("既定の活動 (業務に付く内部の枠) を選んでも、「詳細で直せます」の案内は出さない", () => {
+    render(<PropertyPanel />);
+    act(() => st().select({ type: "element", id: "buc_default_stay" }));
+    expect(screen.queryByText(/分析（詳細）で直せます/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "削除" })).toBeNull();
   });
 });

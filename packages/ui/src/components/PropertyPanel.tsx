@@ -316,7 +316,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
       ) : (
-        !structural && (
+        !structural &&
+        !(simple && element.kind === "buc" && element.isDefault) && (
           <p className="hint">
             {simple
               ? "この種類は、ワークフローでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
@@ -491,7 +492,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
               ? `「${element.name || "(名前なし)"}」を削除します。つながっているものは次のとおりです。${confirmRemove.refs.length > 0 ? "このほか、次の設計データも一緒に消えます。" : ""}`
               : `「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`
           }
-          details={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? [...confirmRemove.impact, "消える設計データ:", ...confirmRemove.refs] : [...confirmRemove.impact, ...confirmRemove.refs]}
+          details={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? confirmRemove.impact : [...confirmRemove.impact, ...confirmRemove.refs]}
+          detailGroups={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? [{ title: "消える設計データ", items: confirmRemove.refs }] : undefined}
           confirmLabel="削除する"
           danger
           onCancel={() => setConfirmRemove(null)}

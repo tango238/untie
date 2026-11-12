@@ -285,6 +285,9 @@ textarea { resize: vertical; width: 100%; }
 .dialog { background: #fff; border-radius: 8px; padding: 18px 20px; width: 380px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
 .dialog h2 { margin: 0 0 8px; font-size: 15px; }
 .dialog p { margin: 0 0 16px; line-height: 1.6; }
+.dialog-detail-group { margin: 0 0 16px; }
+.dialog-detail-title { margin: 0 0 4px; font-size: 13px; }
+.dialog-detail-group .dialog-details { margin: 0; }
 .dialog-details { margin: -8px 0 16px; padding-left: 20px; line-height: 1.6; }
 .system-select-list { list-style: none; margin: 0 0 16px; padding: 0; max-height: 50vh; overflow: auto; }
 .system-select-list label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; }
@@ -1181,7 +1184,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .wf-lane { flex-direction: column; }
   .wf-actor { flex-basis: auto; align-self: stretch; }
   .wf-trunk { display: none; }
-  .wf-businesses { flex-direction: column; overflow-x: visible; width: 100%; padding: 8px 4px 4px 14px; margin-left: 10px; border-left: 2px solid var(--wf-line); gap: 12px; }
+  .wf-businesses { flex-direction: column; overflow-x: visible; align-self: stretch; padding: 8px 6px 4px 14px; margin-left: 10px; border-left: 2px solid var(--wf-line); gap: 12px; }
   .wf-branch-item { width: 100%; }
   .wf-branch-item::before, .wf-branch-item::after { display: none; }
   .wf-frame { min-width: 0; }

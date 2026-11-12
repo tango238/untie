@@ -5,6 +5,8 @@ export interface ConfirmDialogProps {
   message: string;
   /** メッセージの下に箇条書きで添える項目 (例: 一緒に消えるもの) */
   details?: readonly string[];
+  /** details の下に、見出し付きで分けて出す箇条書き (例: 子への影響のあとに「消える設計データ」) */
+  detailGroups?: readonly { title: string; items: readonly string[] }[];
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -20,6 +22,7 @@ export function ConfirmDialog({
   title,
   message,
   details,
+  detailGroups,
   confirmLabel = "OK",
   cancelLabel = "キャンセル",
   danger = false,
@@ -49,6 +52,16 @@ export function ConfirmDialog({
             ))}
           </ul>
         )}
+        {detailGroups?.map((g) => (
+          <section key={g.title} className="dialog-detail-group">
+            <h3 className="dialog-detail-title">{g.title}</h3>
+            <ul className="dialog-details">
+              {g.items.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          </section>
+        ))}
         <div className="dialog-actions">
           <button type="button" ref={cancelRef} onClick={onCancel}>
             {cancelLabel}

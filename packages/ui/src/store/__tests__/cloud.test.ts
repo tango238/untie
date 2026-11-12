@@ -503,6 +503,14 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("design:data");
   });
 
+  it("つなぎ直し (keepUi) でも、簡易モードはワークフローのまま", () => {
+    st().setMode("analysisSimple");
+    detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "simple:workflow", selection: null } });
+    st().setCloudStatus("connected");
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+  });
+
   it("クラウドファイルを開く・閉じると分析に戻る", () => {
     st().enterDesign("sys_pms");
     attach();
