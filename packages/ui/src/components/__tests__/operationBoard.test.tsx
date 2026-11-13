@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addElement, removeElement } from "@untie/core/model/commands";
+import { addElement, addRelation, removeElement } from "@untie/core/model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { PropertyPanel } from "../PropertyPanel";
@@ -60,7 +60,7 @@ describe("システム操作ボードの描画", () => {
     render(<OperationBoard />);
     expect(screen.getAllByRole("region", { name: "操作 予約を検索する" })).toHaveLength(2);
     const unlinked = frame("作業に結ばれていない操作");
-    expect(within(unlinked).getByRole("button", { name: "操作 請求金額を計算する" })).toBeDefined();
+    expect(within(unlinked).getByRole("button", { name: /^操作 請求金額を計算する/ })).toBeDefined();
     act(() => void st().dispatch((m) => addElement(m, { kind: "screen", name: "宙の画面", id: "scr_float", init: { systemId: "sys_pms" } })));
     expect(within(frame("操作に結ばれていない画面")).getByRole("button", { name: /^画面 宙の画面/ })).toBeDefined();
   });
@@ -155,7 +155,7 @@ describe("足す", () => {
     render(<OperationBoard />);
     expect(screen.queryByRole("button", { name: /を足す/ })).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 予約を確定する" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を確定する/ })[0]!);
     expect(selectedId()).toBe("uc_confirm_reservation");
   });
 });
@@ -163,7 +163,7 @@ describe("足す", () => {
 describe("削除の確認と「移動」", () => {
   it("操作に子 (画面・イベント) があれば、残ることを書いて確認する。子の無い操作はそのまま消える", () => {
     renderBoth();
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 請求書を発行する" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 請求書を発行する/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     const d = within(dialog()!);
     expect(d.getByText("画面 1 件: 削除されず残ります (操作との結び付きが外れます)")).toBeDefined();
@@ -173,7 +173,7 @@ describe("削除の確認と「移動」", () => {
     expect(st().model.elements.some((e) => e.id === "scr_invoice")).toBe(true);
     // 子の無い操作
     act(() => void st().dispatch((m) => addElement(m, { kind: "usecase", name: "葉の操作", id: "uc_leaf" })));
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 葉の操作" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 葉の操作/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(dialog()).toBeNull();
     expect(st().model.elements.some((e) => e.id === "uc_leaf")).toBe(false);
@@ -188,7 +188,7 @@ describe("削除の確認と「移動」", () => {
 
   it("作業と操作の結び付きを外すとき、操作に子があれば確認を出す", () => {
     renderBoth();
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 請求書を発行する" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 請求書を発行する/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: /^関係「使う 請求を作成する」を削除$/ }));
     const d = within(screen.getByRole("dialog", { name: "結び付きを外す確認" }));
     expect(d.getByText(/画面 1 件: 削除されず残ります \(操作ごと残り、「作業に結ばれていない操作」に移ります\)/)).toBeDefined();
@@ -196,7 +196,7 @@ describe("削除の確認と「移動」", () => {
 
   it("トレース表では、操作・画面の行の「移動」も出さない", () => {
     renderBoth();
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 予約を確定する" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を確定する/ })[0]!);
     for (const layer of ["操作", "画面", "作業"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
   });
 });
@@ -224,12 +224,12 @@ describe("イベントの削除の確認", () => {
 
   it("操作を消すと見えなくなる詳細の結び付き (扱う情報・判断する条件・状態) も、確認で数える", () => {
     renderBoth();
-    fireEvent.click(screen.getAllByRole("button", { name: "操作 予約を登録する" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を登録する/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     const d = within(dialog()!);
     expect(d.getByText(/^扱う情報 \d+ 件: 削除されず残ります/)).toBeDefined();
     expect(d.getByText(/^判断する条件 \d+ 件: 削除されず残ります/)).toBeDefined();
-    expect(d.getByText(/^状態 \d+ 件: 削除されず残ります/)).toBeDefined();
+    expect(d.getByText(/^前提・次の状態 \d+ 件: 削除されず残ります/)).toBeDefined();
   });
 });
 
@@ -374,5 +374,114 @@ describe("条件", () => {
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(within(dialog()!).getByText(/^代替パターン \d+ 件: 一緒に削除されます/)).toBeDefined();
     expect(within(dialog()!).getByText(/^操作 \d+ 件: 削除されず残ります \(判断の結び付きが外れます\)/)).toBeDefined();
+  });
+});
+
+describe("条件に添える区分と状態", () => {
+  const conditionRow = (name: string) => screen.getAllByRole("button", { name: new RegExp(`^条件 ${name}`) })[0]!;
+
+  it("条件の名前の下に「区分: …」「状態: …」(状態グループがあれば括弧で添える)、そのあとに代替パターンを、区分 → 状態 → 代替パターンの順で出す。読み上げ名にも含める", () => {
+    render(<OperationBoard />);
+    const row = conditionRow("満室である");
+    const notes = [...row.querySelectorAll(".wf-assignees")].map((n) => n.textContent);
+    const state = st().model.elements.find((e) => e.id === "st_room_inuse") as { name: string; group?: string };
+    expect(notes[0]).toBe("区分: 部屋タイプ");
+    expect(notes[1]).toBe(`状態: ${state.name}${state.group ? ` (${state.group})` : ""}`);
+    expect(notes[2]).toMatch(/^代替パターンあり: /);
+    for (const n of notes) expect(row.getAttribute("aria-label")).toContain(n!);
+    // 添え書きどうしは「。」で区切る (区分・状態の中の並びの「、」と紛れない)
+    expect(row.getAttribute("aria-label")).toBe(`条件 満室である (${notes.join("。")})`);
+    // 見えているものは文字だけ (区分・状態そのものを選ぶチップにはしない)
+    expect(within(row).queryAllByRole("button")).toHaveLength(0);
+    // 前方一致のセレクタは壊れない
+    fireEvent.click(row);
+    expect(selectedId()).toBe("cond_full");
+  });
+
+  it("状態グループ名の前後の空白は除いて出す。空白だけならグループ無しとして名前だけを出す", () => {
+    const setGroup = (group: string) =>
+      act(() => {
+        useUntieStore.setState((s) => ({ model: { ...s.model, elements: s.model.elements.map((e) => (e.id === "st_room_inuse" ? { ...e, group } : e)) as typeof s.model.elements } }));
+      });
+    setGroup("  部屋の状態 ");
+    const { unmount } = render(<OperationBoard />);
+    expect([...conditionRow("満室である").querySelectorAll(".wf-assignees")].map((n) => n.textContent)).toContain("状態: 使用中 (部屋の状態)");
+    unmount();
+    setGroup("   ");
+    render(<OperationBoard />);
+    expect([...conditionRow("満室である").querySelectorAll(".wf-assignees")].map((n) => n.textContent)).toContain("状態: 使用中");
+  });
+
+  it("区分も状態も無い条件には、添え書きの行を出さない", () => {
+    act(() => void st().dispatch((m) => addElement(m, { kind: "condition", name: "素の条件", id: "cond_plain" })));
+    render(<OperationBoard />);
+    const row = within(frame("操作に結ばれていない条件")).getByRole("button", { name: /^条件 素の条件/ });
+    expect(row.querySelectorAll(".wf-assignees")).toHaveLength(0);
+    expect(row.getAttribute("aria-label")).toBe("条件 素の条件");
+  });
+
+  it("操作に結ばれていない条件の区画にも、区分・状態を出す (代替パターンは操作との結び付きに付くので出さない)", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "condition", name: "宙の条件", id: "cond_float" }));
+      st().dispatch((m) => addRelation(m, { sourceId: "cond_float", targetId: "var_room_type" }));
+    });
+    render(<OperationBoard />);
+    const row = within(frame("操作に結ばれていない条件")).getByRole("button", { name: /^条件 宙の条件/ });
+    expect([...row.querySelectorAll(".wf-assignees")].map((n) => n.textContent)).toEqual(["区分: 部屋タイプ"]);
+    expect(row.getAttribute("aria-label")).toBe("条件 宙の条件 (区分: 部屋タイプ)");
+  });
+});
+
+describe("操作の枠の前提の状態・次の状態", () => {
+  const notesOf = (box: HTMLElement) => [...box.querySelectorAll(".wf-op-note")].map((n) => n.textContent);
+  const titleButton = (box: HTMLElement) => within(box).getAllByRole("button")[0]!;
+
+  it("見出しのすぐ下に「前提の状態: …」「次の状態: …」を、この順に文字だけで出す。状態グループは括弧で添える。読み上げ名にも含める", () => {
+    render(<OperationBoard />);
+    const box = screen.getAllByRole("region", { name: "操作 予約を確定する" })[0]!;
+    const notes = notesOf(box);
+    const stateName = (id: string) => {
+      const e = st().model.elements.find((x) => x.id === id) as { name: string; group?: string };
+      return e.group?.trim() ? `${e.name} (${e.group.trim()})` : e.name;
+    };
+    const premise = st().model.relations.filter((r) => r.kind === "stateUsecase" && r.targetId === "uc_confirm_reservation").map((r) => stateName(r.sourceId));
+    const next = st().model.relations.filter((r) => r.kind === "usecaseState" && r.sourceId === "uc_confirm_reservation").map((r) => stateName(r.targetId));
+    expect(notes).toEqual([`前提の状態: ${premise.join("、")}`, `次の状態: ${next.join("、")}`]);
+    expect(notes[0]).toContain("仮予約 (予約の状態)");
+    // 見出しのすぐ下 (見出し → 添え書き → 画面など)
+    const header = box.querySelector("header")!;
+    expect(header.nextElementSibling?.classList.contains("wf-op-notes")).toBe(true);
+    expect(titleButton(box).getAttribute("aria-label")).toBe(`操作 予約を確定する (${notes.join("。")})`);
+    // 状態を選ぶチップにはしない
+    expect(box.querySelectorAll(".wf-op-note button")).toHaveLength(0);
+    // 前方一致のセレクタで選べる
+    fireEvent.click(titleButton(box));
+    expect(selectedId()).toBe("uc_confirm_reservation");
+  });
+
+  it("状態の無い操作には添え書きを出さず、読み上げ名は名前だけ。同じ操作が複数の作業の行に出るときは、それぞれに出る", () => {
+    act(() => void st().dispatch((m) => addElement(m, { kind: "usecase", name: "葉の操作", id: "uc_leaf" })));
+    render(<OperationBoard />);
+    const leaf = within(frame("作業に結ばれていない操作")).getByRole("region", { name: "操作 葉の操作" });
+    expect(notesOf(leaf)).toEqual([]);
+    expect(titleButton(leaf).getAttribute("aria-label")).toBe("操作 葉の操作");
+    const searches = screen.getAllByRole("region", { name: "操作 予約を検索する" });
+    expect(searches).toHaveLength(2);
+    expect(notesOf(searches[0]!)).toEqual(notesOf(searches[1]!));
+  });
+
+  it("「作業に結ばれていない操作」の区画にも、前提の状態・次の状態を出す。状態グループ名の空白は除き、空なら括弧なし", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "usecase", name: "宙の操作", id: "uc_float" }));
+      st().dispatch((m) => addRelation(m, { sourceId: "st_res_confirmed", targetId: "uc_float" }));
+      useUntieStore.setState((s) => ({ model: { ...s.model, elements: s.model.elements.map((e) => (e.id === "st_res_confirmed" ? { ...e, group: "  予約の状態 " } : e)) as typeof s.model.elements } }));
+    });
+    render(<OperationBoard />);
+    const box = within(frame("作業に結ばれていない操作")).getByRole("region", { name: "操作 宙の操作" });
+    expect(notesOf(box)).toEqual(["前提の状態: 確定 (予約の状態)"]);
+    act(() => {
+      useUntieStore.setState((s) => ({ model: { ...s.model, elements: s.model.elements.map((e) => (e.id === "st_res_confirmed" ? { ...e, group: "   " } : e)) as typeof s.model.elements } }));
+    });
+    expect(notesOf(within(frame("作業に結ばれていない操作")).getByRole("region", { name: "操作 宙の操作" }))).toEqual(["前提の状態: 確定"]);
   });
 });

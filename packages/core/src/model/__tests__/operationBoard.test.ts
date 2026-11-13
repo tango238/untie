@@ -200,11 +200,11 @@ describe("ボードに見えない結び付きの数え上げ (removeElement の
     const n = (...kinds: string[]) => gone.filter((r) => kinds.includes(r.kind)).length;
     expect(count(impact, "扱う情報")).toBe(n("usecaseInformation"));
     expect(count(impact, "判断する条件")).toBe(n("usecaseCondition"));
-    expect(count(impact, "状態")).toBe(n("usecaseState", "stateUsecase"));
+    expect(count(impact, "前提・次の状態")).toBe(n("usecaseState", "stateUsecase"));
     expect(count(impact, "前後の操作")).toBe(n("usecaseNext"));
     expect(count(impact, "扱う情報")).toBeGreaterThan(0);
     expect(count(impact, "判断する条件")).toBeGreaterThan(0);
-    expect(count(impact, "状態")).toBeGreaterThan(0);
+    expect(count(impact, "前提・次の状態")).toBeGreaterThan(0);
     // 代替パターンのある条件の件数が note に出る
     const withAlt = gone.filter((r) => r.kind === "usecaseCondition" && r.alternate !== undefined).length;
     const note = impact.find((i) => i.label === "判断する条件")!.note!;

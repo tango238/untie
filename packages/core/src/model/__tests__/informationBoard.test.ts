@@ -189,10 +189,10 @@ describe("システム操作ボードの条件", () => {
     }
     expect(boxes.some((b) => b.conditions.some((x) => x.alternate !== undefined))).toBe(true);
     const lone = okModel(addElement(m, { kind: "condition", name: "宙の条件", id: "cond_float" }));
-    expect(ids(buildOperationBoard(lone).unlinkedConditions)).toContain("cond_float");
+    expect(ids(buildOperationBoard(lone).unlinkedConditions.map((x) => x.condition))).toContain("cond_float");
     // 存在しない操作から結ばれた条件も失われない
     const ghost = { ...lone, relations: [...lone.relations, { id: "rel_ghost_c", kind: "usecaseCondition", sourceId: "uc_nothing", targetId: "cond_float" } as never] };
-    expect(ids(buildOperationBoard(ghost).unlinkedConditions)).toContain("cond_float");
+    expect(ids(buildOperationBoard(ghost).unlinkedConditions.map((x) => x.condition))).toContain("cond_float");
   });
 
   it("操作に条件を足す (判断する条件として結ぶ。代替パターンは付けない)。操作以外には足せない", () => {
@@ -277,5 +277,93 @@ describe("情報と状態ボードの足し先・状態グループ名の扱い"
     const rows = buildInformationBoard(m).frames.flatMap((f) => f.rows);
     for (const infoId of [rel.sourceId, other.id]) expect(ids(rows.find((r) => r.information.id === infoId)!.variations)).toContain(rel.targetId);
     expect(buildInformationBoard(m).frames.flatMap((f) => f.unlinkedVariations.map((v) => v.id))).not.toContain(rel.targetId);
+  });
+});
+
+describe("システム操作ボードの条件に添える区分と状態", () => {
+  const entryOf = (m: UntieModel, id: string) => buildOperationBoard(m).frames.flatMap((f) => f.rows.flatMap((r) => r.operations.flatMap((o) => o.conditions))).find((x) => x.condition.id === id)!;
+
+  it("条件が参照する区分 (conditionVariation) と状態 (conditionState) の名前が、条件の行のデータに入る。無ければ空", () => {
+    const m = sample();
+    const e = entryOf(m, "cond_full");
+    expect(e.variations.map((v) => v.name)).toEqual(["部屋タイプ"]);
+    expect(ids(e.states)).toEqual(["st_room_inuse"]);
+    // 状態グループがあれば、行から分かる (group は状態に付いている)
+    expect(e.states[0]!.group).toBe("部屋の状態");
+    // 区分も状態も無い条件 (足したばかり) は空
+    const r = addOperationElement(m, "condition", "uc_register_reservation");
+    const added = entryOf(okModel(r), (r as { id: string }).id);
+    expect(added.variations).toEqual([]);
+    expect(added.states).toEqual([]);
+  });
+
+  it("複数の区分・状態はモデルの順に並ぶ。同じ相手に関係が重なっても 1 つ。存在しない相手を指す関係は無視する", () => {
+    let m = okModel(addRelation(sample(), { sourceId: "cond_full", targetId: "st_res_confirmed" }));
+    m = { ...m, relations: [...m.relations, { id: "rel_dup", kind: "conditionState", sourceId: "cond_full", targetId: "st_res_confirmed" } as never, { id: "rel_ghost_v", kind: "conditionVariation", sourceId: "cond_full", targetId: "var_nothing" } as never, { id: "rel_ghost_s", kind: "conditionState", sourceId: "cond_full", targetId: "info_reservation" } as never] };
+    const e = entryOf(m, "cond_full");
+    const order = m.elements.filter((x) => x.kind === "state" && ["st_room_inuse", "st_res_confirmed"].includes(x.id)).map((x) => x.id);
+    expect(ids(e.states)).toEqual(order);
+    expect(e.states).toHaveLength(2);
+    expect(e.variations.map((v) => v.name)).toEqual(["部屋タイプ"]);
+  });
+
+  it("操作に結ばれていない条件にも、区分・状態が入る", () => {
+    let m = okModel(addElement(sample(), { kind: "condition", name: "宙の条件", id: "cond_float" }));
+    m = okModel(addRelation(m, { sourceId: "cond_float", targetId: "var_room_type" }));
+    m = okModel(addRelation(m, { sourceId: "cond_float", targetId: "st_room_inuse" }));
+    const e = buildOperationBoard(m).unlinkedConditions.find((x) => x.condition.id === "cond_float")!;
+    expect(e.variations.map((v) => v.name)).toEqual(["部屋タイプ"]);
+    expect(ids(e.states)).toEqual(["st_room_inuse"]);
+    expect(e.alternate).toBeUndefined();
+  });
+});
+
+describe("システム操作ボードの操作の前提の状態・次の状態", () => {
+  const boxesOf = (m: UntieModel) => buildOperationBoard(m).frames.flatMap((f) => f.rows.flatMap((r) => r.operations));
+  const boxOf = (m: UntieModel, id: string) => boxesOf(m).find((b) => b.usecase.id === id)!;
+
+  it("前提の状態 (stateUsecase: 状態 → 操作) と次の状態 (usecaseState: 操作 → 状態) が、向きを守って操作のデータに入る。無ければ空", () => {
+    const m = sample();
+    const premise = m.relations.filter((r) => r.kind === "stateUsecase" && r.targetId === "uc_confirm_reservation").map((r) => r.sourceId);
+    const next = m.relations.filter((r) => r.kind === "usecaseState" && r.sourceId === "uc_confirm_reservation").map((r) => r.targetId);
+    expect(premise.length).toBeGreaterThan(0);
+    expect(next.length).toBeGreaterThan(0);
+    const box = boxOf(m, "uc_confirm_reservation");
+    expect(ids(box.premiseStates)).toEqual(m.elements.filter((e) => premise.includes(e.id)).map((e) => e.id));
+    expect(ids(box.nextStates)).toEqual(m.elements.filter((e) => next.includes(e.id)).map((e) => e.id));
+    // 状態の関係が 1 つも無い操作は両方とも空
+    const leaf = boxesOf(m).find((b) => !m.relations.some((r) => (r.kind === "stateUsecase" && r.targetId === b.usecase.id) || (r.kind === "usecaseState" && r.sourceId === b.usecase.id)));
+    expect(leaf).toBeDefined();
+    expect(leaf!.premiseStates).toEqual([]);
+    expect(leaf!.nextStates).toEqual([]);
+  });
+
+  it("複数はモデルの順。同じ相手に関係が重なっても 1 つ。存在しない相手・種類の違う相手は無視する", () => {
+    let m = sample();
+    const base = boxOf(m, "uc_search_reservation");
+    const before = base.premiseStates.length;
+    const nextBefore = base.nextStates.length;
+    const extra = m.elements.find((e) => e.kind === "state" && !base.premiseStates.some((x) => x.id === e.id))!;
+    m = okModel(addRelation(m, { sourceId: extra.id, targetId: "uc_search_reservation" }));
+    m = { ...m, relations: [...m.relations, { id: "rel_dup_p", kind: "stateUsecase", sourceId: extra.id, targetId: "uc_search_reservation" } as never, { id: "rel_ghost_p", kind: "stateUsecase", sourceId: "st_nothing", targetId: "uc_search_reservation" } as never, { id: "rel_wrong_n", kind: "usecaseState", sourceId: "uc_search_reservation", targetId: "info_reservation" } as never] };
+    const box = boxOf(m, "uc_search_reservation");
+    expect(box.premiseStates).toHaveLength(before + 1);
+    const order = m.elements.map((e) => e.id);
+    const idx = box.premiseStates.map((x) => order.indexOf(x.id));
+    expect(idx).toEqual([...idx].sort((a, b) => a - b));
+    // 種類の違う相手 (情報) への「次の状態」は無視するので、次の状態の件数は変わらない
+    expect(box.nextStates).toHaveLength(nextBefore);
+    expect(box.nextStates.every((x) => x.kind === "state")).toBe(true);
+  });
+
+  it("作業に結ばれていない操作にも入る。同じ操作が複数の作業の行に出るときは、どの行にも同じ状態が入る", () => {
+    let m = sample();
+    const st = m.elements.find((e) => e.kind === "state")!;
+    m = okModel(addRelation(m, { sourceId: "uc_calc_charge", targetId: st.id }));
+    const unlinked = buildOperationBoard(m).unlinkedOperations.find((b) => b.usecase.id === "uc_calc_charge")!;
+    expect(ids(unlinked.nextStates)).toContain(st.id);
+    const rows = boxesOf(m).filter((b) => b.usecase.id === "uc_search_reservation");
+    expect(rows.length).toBeGreaterThan(1);
+    for (const b of rows) expect(ids(b.premiseStates)).toEqual(ids(rows[0]!.premiseStates));
   });
 });

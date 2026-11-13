@@ -141,12 +141,12 @@ describe("削除の確認と「移動」", () => {
     expect(screen.getByRole("region", { name: "コンテキストが決まっていない" })).toBeDefined();
   });
 
-  it("状態を消すときは、結んだ操作の実行可・次の状態が外れることを書く。バリエーションは種別の情報が外れることを書く", () => {
+  it("状態を消すときは、結んだ操作の前提の状態・次の状態が外れることを書く。バリエーションは種別の情報が外れることを書く", () => {
     renderBoth();
     const st1 = st().model.elements.find((e) => e.kind === "state" && st().model.relations.some((r) => (r.kind === "usecaseState" || r.kind === "stateUsecase") && (r.sourceId === e.id || r.targetId === e.id)))!;
     fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^状態 ${st1.name}`) })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
-    expect(within(dialog()!).getByText(/^操作 \d+ 件: 削除されず残ります \(「実行可」「次の状態」の結び付きが外れます\)/)).toBeDefined();
+    expect(within(dialog()!).getByText(/^操作 \d+ 件: 削除されず残ります \(「前提の状態」「次の状態」の結び付きが外れます\)/)).toBeDefined();
     fireEvent.click(within(dialog()!).getByRole("button", { name: "キャンセル" }));
     const v = st().model.elements.find((e) => e.kind === "variation" && st().model.relations.some((r) => r.kind === "informationVariation" && r.targetId === e.id))!;
     fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^バリエーション ${v.name}`) })[0]!);

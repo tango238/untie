@@ -3,7 +3,7 @@
 import { addElement, addRelation, USECASE_TARGET_LIMIT_REASON, isUsecaseTargetKind, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup } from "./fixedBoards";
 import { defaultBucOf } from "./selectors";
-import type { Activity, Buc, Business, Condition, Element, EventElement, InformationAccess, Information, Ledger, RelationAlternate, Screen, System, UntieModel, Usecase } from "./types";
+import type { Activity, Buc, Business, Condition, Element, EventElement, InformationAccess, Information, Ledger, RelationAlternate, Screen, State, System, UntieModel, Usecase, Variation } from "./types";
 
 /** 操作が扱う情報 1 つ (usecaseInformation)。access は取得 (read)・保存 (write)。省略は両方 */
 export interface OperationInformation {
@@ -14,15 +14,23 @@ export interface OperationInformation {
 /** 操作が判断する条件 1 つ (usecaseCondition)。alternate は、その判断の結果ふだんと違う流れになるときの代替パターン */
 export interface OperationCondition {
   condition: Condition;
+  /** 条件が参照する区分のバリエーション (conditionVariation) */
+  variations: Variation[];
+  /** 条件が参照する状態 (conditionState) */
+  states: State[];
   alternate?: RelationAlternate;
 }
 
-/** 操作の枠: 使う画面・対象 (システム・帳票)・扱う情報・判断する条件・きっかけと発生のイベント */
+/** 操作の枠: 前提・次の状態・使う画面・対象 (システム・帳票)・扱う情報・判断する条件・きっかけと発生のイベント */
 export interface OperationBox {
   usecase: Usecase;
   screens: Screen[];
   /** 操作の対象のシステム・帳票 (対象は 1 つだけなので、画面があれば空) */
   targets: (System | Ledger)[];
+  /** 前提の状態 (stateUsecase: 状態 → 操作。「実行可」。その状態のときにこの操作ができる) */
+  premiseStates: State[];
+  /** 次の状態 (usecaseState: 操作 → 状態。この操作をするとその状態になる) */
+  nextStates: State[];
   /** 操作が扱う情報 (情報の入れ物のコンテキストは出さない) */
   informations: OperationInformation[];
   /** 操作が判断する条件 */
@@ -61,7 +69,7 @@ export interface OperationBoardData {
   /** どの操作にも扱われていない情報 */
   unlinkedInformations: Information[];
   /** どの操作にも判断されていない条件 */
-  unlinkedConditions: Condition[];
+  unlinkedConditions: OperationCondition[];
 }
 
 /**
@@ -83,7 +91,11 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
   const usecasesOfActivity = new Map<string, string[]>();
   const screensOf = new Map<string, Screen[]>();
   const informationsOf = new Map<string, OperationInformation[]>();
-  const conditionsOf = new Map<string, OperationCondition[]>();
+  const conditionsOf = new Map<string, { condition: Condition; alternate?: RelationAlternate }[]>();
+  const variationsOfCondition = new Map<string, Variation[]>();
+  const statesOfCondition = new Map<string, State[]>();
+  const premiseOf = new Map<string, State[]>();
+  const nextOf = new Map<string, State[]>();
   const targetsOf = new Map<string, (System | Ledger)[]>();
   const triggersOf = new Map<string, EventElement[]>();
   const emitsOf = new Map<string, EventElement[]>();
@@ -103,7 +115,11 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
       const list = informationsOf.get(r.sourceId) ?? [];
       if (information && !list.some((x) => x.information.id === information.id)) list.push({ information, ...(r.access !== undefined ? { access: r.access } : {}) });
       informationsOf.set(r.sourceId, list);
-    } else if (r.kind === "usecaseCondition") {
+    } else if (r.kind === "conditionVariation") push(variationsOfCondition, r.sourceId, kindOf<Variation>(r.targetId, "variation"));
+    else if (r.kind === "conditionState") push(statesOfCondition, r.sourceId, kindOf<State>(r.targetId, "state"));
+    else if (r.kind === "stateUsecase") push(premiseOf, r.targetId, kindOf<State>(r.sourceId, "state"));
+    else if (r.kind === "usecaseState") push(nextOf, r.sourceId, kindOf<State>(r.targetId, "state"));
+    else if (r.kind === "usecaseCondition") {
       const condition = kindOf<Condition>(r.targetId, "condition");
       const list = conditionsOf.get(r.sourceId) ?? [];
       if (condition && !list.some((x) => x.condition.id === condition.id)) list.push({ condition, ...(r.alternate !== undefined ? { alternate: r.alternate } : {}) });
@@ -112,12 +128,22 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
     else if (r.kind === "eventUsecase") push(triggersOf, r.targetId, kindOf<EventElement>(r.sourceId, "event"));
     else if (r.kind === "usecaseEvent") push(emitsOf, r.sourceId, kindOf<EventElement>(r.targetId, "event"));
   }
+  /** 区分・状態・前提の状態・次の状態は、相手が実在するものだけ (存在しない相手を指す関係は無視する)。並びはモデルの順 */
+  const position = new Map(model.elements.map((e, i) => [e.id, i]));
+  const inModelOrder = <T extends Element>(items: T[] | undefined): T[] => [...(items ?? [])].sort((a, b) => position.get(a.id)! - position.get(b.id)!);
+  const conditionEntry = (condition: Condition): OperationCondition => ({
+    condition,
+    variations: inModelOrder(variationsOfCondition.get(condition.id)),
+    states: inModelOrder(statesOfCondition.get(condition.id)),
+  });
   const boxOf = (u: Usecase): OperationBox => ({
     usecase: u,
+    premiseStates: inModelOrder(premiseOf.get(u.id)),
+    nextStates: inModelOrder(nextOf.get(u.id)),
     screens: screensOf.get(u.id) ?? [],
     targets: targetsOf.get(u.id) ?? [],
     informations: informationsOf.get(u.id) ?? [],
-    conditions: conditionsOf.get(u.id) ?? [],
+    conditions: (conditionsOf.get(u.id) ?? []).map((x) => ({ ...conditionEntry(x.condition), ...(x.alternate !== undefined ? { alternate: x.alternate } : {}) })),
     triggers: triggersOf.get(u.id) ?? [],
     emits: emitsOf.get(u.id) ?? [],
   });
@@ -152,7 +178,7 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
     frames,
     unlinkedOperations: usecases.filter((u) => (activitiesOf.get(u.id) ?? []).length === 0).map((u) => boxes.get(u.id)!),
     unlinkedScreens: model.elements.filter((e): e is Screen => e.kind === "screen" && !usedScreens.has(e.id)),
-    unlinkedConditions: model.elements.filter((e): e is Condition => e.kind === "condition" && !usedConditions.has(e.id)),
+    unlinkedConditions: model.elements.filter((e): e is Condition => e.kind === "condition" && !usedConditions.has(e.id)).map(conditionEntry),
     unlinkedInformations: model.elements.filter((e): e is Information => e.kind === "information" && !usedInformations.has(e.id)),
   };
 }

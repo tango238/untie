@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { addOperationElement, buildOperationBoard, systemsForScreens, type OperationBox, type OperationFrame, type OperationRow } from "@untie/core/model/operationBoard";
+import { addOperationElement, buildOperationBoard, systemsForScreens, type OperationBox, type OperationCondition, type OperationFrame, type OperationRow } from "@untie/core/model/operationBoard";
 import { canAddActivityToBusiness, addWorkflowElement, SIMPLE_BOARD_LABELS } from "@untie/core/model/workflow";
-import { ALTERNATE_WHEN_LABELS, INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Condition, type Information, type InformationAccess, type RelationAlternate, type UntieModel } from "@untie/core/model/types";
+import { ALTERNATE_WHEN_LABELS, INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Information, type InformationAccess, type UntieModel } from "@untie/core/model/types";
 import { useBoardKit } from "./boardKit";
 import { nameOf, Pick } from "./WorkflowBoard";
 
@@ -61,8 +61,8 @@ export function OperationBoard() {
           <p className="fixed-hint">条件を選び、プロパティの「関係を追加」で判断する操作に結ぶと、操作の枠に移ります。</p>
           <ul className="wf-stack">
             {board.unlinkedConditions.map((c) => (
-              <li key={c.id} data-workflow-el={c.id}>
-                <ConditionRow condition={c} ctx={ctx} />
+              <li key={c.condition.id} data-workflow-el={c.condition.id}>
+                <ConditionRow entry={c} ctx={ctx} />
               </li>
             ))}
           </ul>
@@ -200,6 +200,11 @@ function ActivityRow({ row, ctx }: { row: OperationRow; ctx: Ctx }) {
 
 function OperationFrameView({ box, ctx }: { box: OperationBox; ctx: Ctx }) {
   const u = box.usecase;
+  // 見出しの下に、前提の状態 → 次の状態を、文字だけで添える (状態を選ぶチップにはしない)
+  const notes = [
+    box.premiseStates.length > 0 ? `前提の状態: ${box.premiseStates.map(stateText).join("、")}` : "",
+    box.nextStates.length > 0 ? `次の状態: ${box.nextStates.map(stateText).join("、")}` : "",
+  ].filter((n) => n !== "");
   // 画面を足せるのは、対象 (システム・帳票・画面) が無く、画面を足すシステムがある操作 (コマンドも同じ決まりで確かめる)
   const canAddScreen = !ctx.readOnly && ctx.systems.length > 0 && box.screens.length === 0 && box.targets.length === 0;
   return (
@@ -213,11 +218,18 @@ function OperationFrameView({ box, ctx }: { box: OperationBox; ctx: Ctx }) {
       }}
     >
       <header className="wf-frame-head">
-        <Pick id={u.id} className="wf-frame-title" ctx={ctx} label={`操作 ${nameOf(u)}`}>
+        <Pick id={u.id} className="wf-frame-title" ctx={ctx} label={`操作 ${nameOf(u)}${notes.length > 0 ? ` (${notes.join("。")})` : ""}`}>
           <span className="wf-kind">操作</span>
           <span className="wf-name">{nameOf(u)}</span>
         </Pick>
       </header>
+      {notes.length > 0 && (
+        <div className="wf-op-notes">
+          {notes.map((n) => (
+            <p key={n} className="wf-op-note">{n}</p>
+          ))}
+        </div>
+      )}
       {box.triggers.length > 0 && <EventChips label="きっかけ" events={box.triggers} ctx={ctx} />}
       {box.screens.length > 0 && (
         <ul className="wf-stack" aria-label="画面の一覧">
@@ -252,7 +264,7 @@ function OperationFrameView({ box, ctx }: { box: OperationBox; ctx: Ctx }) {
         <ul className="wf-stack" aria-label="条件の一覧">
           {box.conditions.map((x) => (
             <li key={x.condition.id} data-workflow-el={x.condition.id}>
-              <ConditionRow condition={x.condition} alternate={x.alternate} linked ctx={ctx} />
+              <ConditionRow entry={x} linked ctx={ctx} />
             </li>
           ))}
         </ul>
@@ -302,14 +314,28 @@ function ScreenRow({ screen, ctx }: { screen: { id: string; name: string; system
   );
 }
 
-/** 条件の行。操作が判断する条件には、代替パターンがあるかを添える (長い文は出さない。中身はプロパティで見る) */
-function ConditionRow({ condition, alternate, linked = false, ctx }: { condition: Condition; alternate?: RelationAlternate; linked?: boolean; ctx: Ctx }) {
-  const note = linked && alternate ? `代替パターンあり: ${ALTERNATE_WHEN_LABELS[alternate.when]}` : "";
+/** 状態の書き方: 名前のあとに、状態グループがあれば括弧で添える (グループ名は前後の空白を除き、空なら括弧なし) */
+const stateText = (st: { name: string; group?: string }) => (st.group?.trim() ? `${nameOf(st)} (${st.group.trim()})` : nameOf(st));
+
+/**
+ * 条件の行。条件の名前の下に、参照する区分・状態 (文字だけ。選ぶのは「情報と状態」のボードかプロパティの関係から) と、
+ * 操作が判断する条件には代替パターンがあるかを添える (長い文は出さない。中身はプロパティで見る)。
+ * 状態は、状態グループがあれば「確定 (予約の状態)」のように名前のあとにグループを添える (固定ボードの「状態グループ「…」ごと」と同じく括弧で)
+ */
+function ConditionRow({ entry, linked = false, ctx }: { entry: OperationCondition; linked?: boolean; ctx: Ctx }) {
+  const { condition, alternate } = entry;
+  const notes = [
+    entry.variations.length > 0 ? `区分: ${entry.variations.map(nameOf).join("、")}` : "",
+    entry.states.length > 0 ? `状態: ${entry.states.map(stateText).join("、")}` : "",
+    linked && alternate ? `代替パターンあり: ${ALTERNATE_WHEN_LABELS[alternate.when]}` : "",
+  ].filter((n) => n !== "");
   return (
-    <Pick id={condition.id} className="wf-condition" ctx={ctx} label={`条件 ${nameOf(condition)}${note ? ` (${note})` : ""}`}>
+    <Pick id={condition.id} className="wf-condition" ctx={ctx} label={`条件 ${nameOf(condition)}${notes.length > 0 ? ` (${notes.join("。")})` : ""}`}>
       <span className="wf-kind">条件</span>
       <span className="wf-name">{nameOf(condition)}</span>
-      {note && <span className="wf-assignees">{note}</span>}
+      {notes.map((n) => (
+        <span key={n} className="wf-assignees">{n}</span>
+      ))}
     </Pick>
   );
 }

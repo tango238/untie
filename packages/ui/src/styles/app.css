@@ -1174,6 +1174,8 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .wf-activity { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-activity); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
 .wf-assignees { font-size: 11px; color: var(--muted); }
+/* 条件の行だけ、長い添え書きを折り返す (ほかのボードの枠が細く縮まないように) */
+.wf-condition .wf-assignees { overflow-wrap: anywhere; }
 .wf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .wf-warning { margin: 0; padding: 4px 8px; border-radius: 4px; background: #fbeee9; color: #8a3a2c; font-size: 11px; line-height: 1.5; }
 .wf-section { margin-top: 8px; }
@@ -1220,3 +1222,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-actor-card.wf-information { border-color: var(--c-information); }
 .wf-state-group .wf-frame-head { flex-direction: column; }
 .wf-information:hover, .wf-condition:hover, .wf-state:hover, .wf-variation:hover, .wf-screen:hover { background: #fff; }
+/* 操作の枠の見出しの下の添え書き (前提の状態・次の状態)。長くても折り返す */
+/* 2 行を 1 つの入れ物に包み、枠の gap ではなく条件の行の添え書きと同じ詰まった行間にする */
+.wf-op-notes { padding: 0 4px; }
+.wf-op-note { margin: 0; padding: 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }

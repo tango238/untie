@@ -234,7 +234,7 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
         // 条件は「操作に結ばれていない条件」へ移る。関係が持つ代替パターンは条件ではなく結び付きに付いているので、一緒に消える
         note: withAlternate > 0 ? `操作との結び付きが外れます。うち ${withAlternate} 件の代替パターン (ふだんと違う流れ) は、結び付きと一緒に消えます` : "操作との結び付きが外れます",
       });
-      push({ label: "状態", count: countRelations(model, el.id, ["usecaseState", "stateUsecase"]), effect: "kept", note: "「実行可」「次の状態」の結び付きが外れます" });
+      push({ label: "前提・次の状態", count: countRelations(model, el.id, ["usecaseState", "stateUsecase"]), effect: "kept", note: "「前提の状態」「次の状態」の結び付きが外れます" });
       push({ label: "前後の操作", count: countRelations(model, el.id, ["usecaseNext"]), effect: "kept", note: "前後の操作との「次に」の結び付きが外れます" });
       pushIssues(el.id);
       break;
@@ -274,10 +274,10 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
       break;
     }
     case "state": {
-      // 条件の「状態参照」と操作の「実行可」「次の状態」の結び付き、代替パターンの「そのあとの状態」が外れる
+      // 条件の「状態参照」と操作の「前提の状態」(実行可)「次の状態」の結び付き、代替パターンの「そのあとの状態」が外れる
       const afterRefs = model.relations.filter((r) => r.alternate?.after?.stateIds?.includes(el.id)).length;
       push({ label: "条件", count: countRelations(model, el.id, ["conditionState"]), effect: "kept", note: "「状態参照」の結び付きが外れます" });
-      push({ label: "操作", count: countRelations(model, el.id, ["stateUsecase", "usecaseState"]), effect: "kept", note: "「実行可」「次の状態」の結び付きが外れます" });
+      push({ label: "操作", count: countRelations(model, el.id, ["stateUsecase", "usecaseState"]), effect: "kept", note: "「前提の状態」「次の状態」の結び付きが外れます" });
       push({ label: "代替パターン", count: afterRefs, effect: "kept", note: "「そのあとの状態」から外れます (1 つも残らなければ、まだ決めていない状態に戻ります)" });
       break;
     }
