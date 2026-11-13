@@ -1234,3 +1234,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 @media (max-width: 768px) {
   .wf-operation { width: auto; max-width: none; }
 }
+
+/* ワークフロー: 外部の登場人物の行の枠は「担当する作業のある業務」(主担当の業務ではない) なので、枠と枝を破線にして控えめに区別する */
+.wf-frame.is-assigned { border-style: dashed; }
+.wf-branch-item.is-assigned::after { border-left-style: dashed; }

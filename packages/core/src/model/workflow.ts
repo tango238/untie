@@ -1,6 +1,6 @@
 // 分析（簡易）のボード (ワークフロー: 登場人物 → 業務 → 活動 → 作業。システム操作: 作業 → 操作 → 画面・情報・条件は operationBoard.ts。情報と状態: コンテキスト → 情報・状態・バリエーションは informationBoard.ts)。共通の id・種類・削除の影響を置く。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
-import { addElement, type CommandResult } from "./commands";
+import { addElement, addRelation, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup, type FixedLayer } from "./fixedBoards";
 import { defaultBucOf, issuesTargeting } from "./selectors";
 import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business, type Element, type ElementKind, type ExternalActor, type UntieModel } from "./types";
@@ -106,12 +106,19 @@ export interface WorkflowBusiness {
   bucs: WorkflowBuc[];
   /** 業務の主担当の登場人物 (複数いるときはすべて。検証が警告を出す) */
   ownerIds: string[];
+  /**
+   * 外部の登場人物の行に出す枠で、その人が担当する作業だけを入れたもの (主担当の業務ではなく、担当する作業のある業務)。
+   * 担当でない作業・担当する作業の無い活動は入れない
+   */
+  assignedOnly?: boolean;
 }
 
 /** 登場人物 1 人の行 */
 export interface WorkflowLane {
   actor: Actor | ExternalActor;
   businesses: WorkflowBusiness[];
+  /** 外部の登場人物が担当する、どの業務の枠にも出ない作業 (業務に属さない作業など)。社内の登場人物の行では空 */
+  orphanActivities: Activity[];
 }
 
 export interface Workflow {
@@ -147,15 +154,29 @@ export function buildWorkflow(model: UntieModel): Workflow {
   };
   const boxes = businesses.map(boxOf);
 
-  const lanes: WorkflowLane[] = model.elements
-    .filter((e): e is Actor | ExternalActor => e.kind === "actor" || e.kind === "externalActor")
-    .map((actor) => ({ actor, businesses: boxes.filter((b) => b.ownerIds.includes(actor.id)) }));
-  const actorIds = new Set(lanes.map((l) => l.actor.id));
-  const unassigned = boxes.filter((b) => !b.ownerIds.some((id) => actorIds.has(id)));
   // 業務の枠に出した作業。検証に通らないモデル (存在しない活動を指す作業・既定の活動が 2 つある業務など) でも
   // 作業が消えないよう、どの枠にも出ない作業はすべて「業務に属さない作業」に入れる
   const shown = new Set(boxes.flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]).map((a) => a.id));
-  return { lanes, unassigned, orphanActivities: activities.filter((a) => !shown.has(a.id)) };
+  const orphanActivities = activities.filter((a) => !shown.has(a.id));
+
+  /** 外部の登場人物の行: 主担当の業務 (検証に通らないモデルで主担当になっているとき) に加えて、担当する作業のある業務を、担当する作業だけ入れて出す */
+  const assignedBox = (box: WorkflowBusiness, mine: ReadonlySet<string>): WorkflowBusiness | null => {
+    const direct = box.direct.filter((a) => mine.has(a.id));
+    const withBucs = box.bucs.map((x) => ({ buc: x.buc, activities: x.activities.filter((a) => mine.has(a.id)) })).filter((x) => x.activities.length > 0);
+    return direct.length > 0 || withBucs.length > 0 ? { ...box, direct, bucs: withBucs, assignedOnly: true } : null;
+  };
+  const lanes: WorkflowLane[] = model.elements
+    .filter((e): e is Actor | ExternalActor => e.kind === "actor" || e.kind === "externalActor")
+    .map((actor) => {
+      const owned = boxes.filter((b) => b.ownerIds.includes(actor.id));
+      if (actor.kind !== "externalActor") return { actor, businesses: owned, orphanActivities: [] };
+      const mine = new Set(model.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === actor.id).map((r) => r.targetId));
+      const assigned = boxes.map((b) => (owned.includes(b) ? b : assignedBox(b, mine))).filter((b): b is WorkflowBusiness => b !== null);
+      return { actor, businesses: assigned, orphanActivities: orphanActivities.filter((a) => mine.has(a.id)) };
+    });
+  const actorIds = new Set(lanes.map((l) => l.actor.id));
+  const unassigned = boxes.filter((b) => !b.ownerIds.some((id) => actorIds.has(id)));
+  return { lanes, unassigned, orphanActivities };
 }
 
 // ---------------------------------------------------------------- 子の数え上げと削除の影響
@@ -401,7 +422,16 @@ export function canAddActivityToBusiness(model: UntieModel, businessId: string):
  * - buc (活動): 親は業務。業務に初めて活動を足すと、業務に直接あった作業はその活動へ移る
  * - activity (作業): 親は業務 (活動の無い業務だけ) か活動
  */
-export function addWorkflowElement(model: UntieModel, kind: WorkflowAddKind, parentId?: string): CommandResult<{ id: string }> {
+export function addWorkflowElement(model: UntieModel, kind: WorkflowAddKind, parentId?: string, options: { assigneeId?: string } = {}): CommandResult<{ id: string }> {
+  // 作業を足すとき assigneeId があれば、その登場人物 (外部の登場人物も) を担当に結ぶ (作成と結び付けで 1 件の履歴)
+  if (kind === "activity" && options.assigneeId !== undefined) {
+    const assignee = find(model, options.assigneeId);
+    if (!assignee || (assignee.kind !== "actor" && assignee.kind !== "externalActor")) return { ok: false, reason: "担当にできるのは登場人物だけです" };
+    const created = addWorkflowElement(model, "activity", parentId);
+    if (!created.ok) return created;
+    const linked = addRelation(created.model, { sourceId: assignee.id, targetId: created.id });
+    return linked.ok ? { ok: true, model: linked.model, id: created.id } : linked;
+  }
   if (kind === "actor") return addElement(model, { kind: "actor", name: "新しい登場人物" });
   const parent = parentId === undefined ? undefined : find(model, parentId);
   if (!parent) return { ok: false, reason: "足し先が見つかりません" };
@@ -420,4 +450,15 @@ export function addWorkflowElement(model: UntieModel, kind: WorkflowAddKind, par
   const def = defaultBucOf(model, parent.id);
   if (!def) return { ok: false, reason: "業務の既定の活動が見つかりません" };
   return addToGroup(model, group({ type: "buc", bucId: def.id }, "activity"), "新しい作業");
+}
+
+/** 作業を足せる足し先 (業務・活動) の候補。外部の登場人物のカードの「＋作業 (業務・活動を選ぶ)」に並べる。活動のある業務は活動を (「業務 / 活動」)、無い業務は業務そのものを足し先にする */
+export function activityParentOptions(model: UntieModel): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  for (const biz of model.elements.filter((e): e is Business => e.kind === "business")) {
+    const name = biz.name || "(名前なし)";
+    if (canAddActivityToBusiness(model, biz.id) && defaultBucOf(model, biz.id)) out.push({ id: biz.id, label: name });
+    for (const buc of model.elements.filter((e): e is Buc => e.kind === "buc" && e.businessId === biz.id && !e.isDefault)) out.push({ id: buc.id, label: `${name} / ${buc.name || "(名前なし)"}` });
+  }
+  return out;
 }
