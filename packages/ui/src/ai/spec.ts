@@ -1,7 +1,8 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, setPersona, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { addElement, addRelation, setPersona, setRelationAccess, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
+import { isUndirected, relationKindFor } from "@untie/core/model/relations";
 import { defaultBucOf } from "@untie/core/model/selectors";
 import { ELEMENT_KIND_LABELS, emptyModel, isIssueTargetKind, isPersonaItSkill, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { mergePersonaInput, PERSONA_TOOL_PROPERTIES, type ToolDef } from "./tools";
@@ -336,12 +337,35 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     if (!r) return null;
     if (!ids.has(group)) ids.set(group, new Map());
     ids.get(group)!.set(name, r.id);
+    kindById.set(r.id, kind);
     return r.id;
   };
+  /** すでに同じ関係があるときの失敗の理由 (commands.ts の addRelation)。AI が同じつながりを 2 か所に書いただけなので、警告にしない */
+  const DUPLICATE_RELATION = "同じ関係がすでにあります";
+  /** 要素の id → 種類、関係の (種類・両端) → 関係の id。関係を作るたびに全部を調べ直さないための索引 (向きを持たない関係は、両端の順を無視する) */
+  const kindById = new Map<string, ElementKind>();
+  const relationByKey = new Map<string, string>();
+  const relationKey = (kind: string, a: string, b: string) => (isUndirected(kind as never) && a > b ? `${kind}:${b}:${a}` : `${kind}:${a}:${b}`);
   const relate = (sourceId: string | null | undefined, targetId: string | null | undefined, access?: "read" | "write") => {
     if (!sourceId || !targetId) return;
-    if (model.relations.some((r) => r.sourceId === sourceId && r.targetId === targetId)) return;
-    apply(addRelation(model, { sourceId, targetId, ...(access ? { access } : {}) }), "関係を作れません");
+    const sourceKind = kindById.get(sourceId);
+    const targetKind = kindById.get(targetId);
+    const kind = sourceKind && targetKind ? relationKindFor(sourceKind, targetKind) : null;
+    const sameId = kind ? relationByKey.get(relationKey(kind, sourceId, targetId)) : undefined;
+    if (kind && sameId) {
+      // 操作が情報を取得と保存の両方に書かれたら、区別を外して取得も保存もする関係にする
+      const same = kind === "usecaseInformation" ? model.relations.find((r) => r.id === sameId) : undefined;
+      if (same && same.access !== undefined && same.access !== access) {
+        const r = setRelationAccess(model, { id: same.id, access: null });
+        if (r.ok) model = r.model;
+      }
+      return;
+    }
+    const r = addRelation(model, { sourceId, targetId, ...(access ? { access } : {}) });
+    if (r.ok) {
+      model = r.model;
+      if (kind) relationByKey.set(relationKey(kind, sourceId, targetId), r.id);
+    } else if (r.reason !== DUPLICATE_RELATION) warnings.push(`関係を作れません: ${r.reason}`);
   };
   const ref = (groups: string[], name: string, what: string): string | null => {
     for (const g of groups) {

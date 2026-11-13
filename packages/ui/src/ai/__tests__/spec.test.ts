@@ -187,3 +187,56 @@ describe("buildModelFromSpec: 巨大な下書き", () => {
     expect(r.warnings).toContain(`作業「作業」の担当は先頭 ${L.refsPerItem} 件だけ使いました (${L.refsPerItem + 5} 件ありました)`);
   });
 });
+
+describe("buildModelFromSpec: 同じつながりを 2 か所に書かれても、黙って 1 つにする", () => {
+  // 実際の API の通し確認で、最初の提出が「関係を作れません: 同じ関係がすでにあります」で出し直しになった。
+  // 向きを持たない関係 (情報どうしの関連) を、両方の情報に書くと起きていた (向きを無視して重なる)
+  const dup = (over: Partial<ModelSpec>): ModelSpec => ({
+    system_name: "x",
+    actors: [{ name: "担当" }],
+    systems: [{ name: "基幹" }],
+    ledgers: [{ name: "伝票" }],
+    informations: [{ name: "注文", related: ["商品"] }, { name: "商品", related: ["注文"] }],
+    businesses: [
+      {
+        name: "業務",
+        main_actors: ["担当"],
+        activities: [
+          { name: "作業A", performers: ["担当"], usecases: [{ name: "操作", reads: ["注文"], writes: ["注文"], informations: ["商品"], conditions: [], targets: ["基幹"] }] },
+          { name: "作業B", performers: ["担当", "担当"], usecases: [{ name: "操作", reads: ["注文"], informations: ["商品"], targets: ["基幹"] }] },
+        ],
+      },
+    ],
+    events: [{ name: "出来事", raised_by: ["操作", "操作"] }],
+    ...over,
+  });
+
+  it("情報の関連を両方の情報に書いても、警告にせず関係は 1 つ", () => {
+    const r = buildModelFromSpec(dup({}));
+    expect(r.warnings).toEqual([]);
+    expect(r.model.relations.filter((x) => x.kind === "informationRelated")).toHaveLength(1);
+    expect(r.model.relations.filter((x) => x.kind === "activityUsecase")).toHaveLength(2);
+    expect(r.model.relations.filter((x) => x.kind === "usecaseSystem")).toHaveLength(1);
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
+  it("同じ情報を取得と保存の両方に書いたら、取得も保存もする 1 つの関係にする", () => {
+    const r = buildModelFromSpec(dup({}));
+    const rels = r.model.relations.filter((x) => x.kind === "usecaseInformation");
+    const order = r.model.elements.find((e) => e.name === "注文")!;
+    expect(rels.filter((x) => x.targetId === order.id)).toHaveLength(1);
+    expect(rels.find((x) => x.targetId === order.id)!.access).toBeUndefined();
+  });
+
+  it("同じバリエーション・状態を条件に 2 度書いても警告にならない", () => {
+    const r = buildModelFromSpec({
+      system_name: "x",
+      variations: [{ name: "経路", values: ["電話"] }],
+      state_groups: [{ name: "状態", states: [{ name: "確定" }] }],
+      informations: [{ name: "予約", variations: ["経路", "経路"] }],
+      conditions: [{ name: "確定である", variations: ["経路"], states: ["確定", "確定"] }],
+      businesses: [],
+    });
+    expect(r.warnings).toEqual([]);
+  });
+});

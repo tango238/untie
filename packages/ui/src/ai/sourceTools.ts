@@ -28,6 +28,8 @@ export const SOURCE_LIMITS = {
   regexUnbounded: 2,
   regexQuantifiers: 8,
   regexAlternations: 6,
+  /** 量指定子が 1 つも無く、`|` がひとつの選択 (グループの中か全体) だけに並ぶ正規表現 (語の言い換えを並べた検索 `a|b|c|…`) の `|` の数 */
+  regexFlatAlternations: 30,
   searchScanChars: 20_000_000,
   searchMillis: 4000,
   /** search_code: 検索語の長さ */
@@ -285,7 +287,7 @@ export function globMatcher(glob: string): (path: string) => boolean {
 
 /**
  * 正規表現を実行してよいか調べる。実行するのは「安全な部分集合」だけ。断るときは書き直し方を返し、通すときは null。
- * 断るもの: 量指定子 (`*` `+` `?` `{…}`) の付いたグループ・後方参照 (`\1`・`\k<名>`)・際限のない量指定子 (`*` `+` `{n,}`) が多すぎるもの・量指定子や `|` の使いすぎ。
+ * 断るもの: 量指定子 (`*` `+` `?` `{…}`) の付いたグループ・後方参照 (`\1`・`\k<名>`)・際限のない量指定子 (`*` `+` `{n,}`) が多すぎるもの・量指定子や `|` の使いすぎ (量指定子が無く、選択がひとつだけの `a|b|c|…` は 30 個まで)。
  * 通すもの: 名前付きグループ・非捕捉グループ・先読み/後読み (量指定子が付かないもの)、文字クラス、数の少ない量指定子。
  * 文法エラーは new RegExp で先に見つけている前提
  */
@@ -296,6 +298,10 @@ export function regexRefusal(pattern: string): string | null {
   let alternations = 0;
   let afterGroup = false; // 直前が「閉じたグループ」
   let afterQuantifier = false; // 直前が量指定子 (次の `?` は遅延の印)
+  // `|` を持つ選択がいくつあるか (全体は 0、グループは開いた順の番号)。`(a|a)(a|a)…` のように選択が並ぶと、組み合わせが掛け算で増える
+  const groupStack: number[] = [0];
+  let groupCount = 0;
+  const alternationGroups = new Set<number>();
   const n = pattern.length;
   const quantifierAt = (i: number): { len: number; unbounded: boolean } | null => {
     const c = pattern[i];
@@ -339,15 +345,26 @@ export function regexRefusal(pattern: string): string | null {
       // (?: (?= (?! (?<= (?<! (?<名前> の「?」は量指定子ではない
       const prefix = /^\?(?::|=|!|<=|<!|<[^>]*>)/.exec(pattern.slice(i + 1));
       i += 1 + (prefix ? prefix[0].length : 0);
+      groupStack.push(++groupCount);
       continue;
     }
-    if (c === ")") afterGroup = true;
-    else if (c === "|") alternations++;
+    if (c === ")") {
+      afterGroup = true;
+      if (groupStack.length > 1) groupStack.pop();
+    } else if (c === "|") {
+      alternations++;
+      alternationGroups.add(groupStack[groupStack.length - 1]!);
+    }
     i++;
   }
   if (unbounded > SOURCE_LIMITS.regexUnbounded) return `際限のない繰り返し (* + {n,}) が ${unbounded} 個あります (${SOURCE_LIMITS.regexUnbounded} 個まで)。繰り返しを減らすか、文字列検索を使ってください`;
   if (quantifiers > SOURCE_LIMITS.regexQuantifiers) return `量指定子が ${quantifiers} 個あります (${SOURCE_LIMITS.regexQuantifiers} 個まで)。パターンを短くするか、文字列検索を使ってください`;
-  if (alternations > SOURCE_LIMITS.regexAlternations) return `「|」が ${alternations} 個あります (${SOURCE_LIMITS.regexAlternations} 個まで)。検索を分けて呼ぶか、文字列検索を使ってください`;
+  // 量指定子が無く、選択がひとつだけなら、行の長さに比例して終わる (各位置で語を 1 つずつ試すだけ) ので、`|` を多めに許す
+  const flat = quantifiers === 0 && alternationGroups.size <= 1;
+  const alternationMax = flat ? SOURCE_LIMITS.regexFlatAlternations : SOURCE_LIMITS.regexAlternations;
+  if (alternations > alternationMax) {
+    return `「|」が ${alternations} 個あります (${alternationMax} 個まで${flat ? "" : `。量指定子が無く、選択がひとつだけなら ${SOURCE_LIMITS.regexFlatAlternations} 個まで`})。検索を分けて呼ぶか、文字列検索を使ってください`;
+  }
   return null;
 }
 
