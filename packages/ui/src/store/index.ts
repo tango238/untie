@@ -305,7 +305,7 @@ function firstBoardOf(mode: Mode): string {
 
 /** ボードがそのモードで開けるか。分析（詳細）は固定・分析・自由ボード、分析（簡易）は簡易ボード (ワークフロー・システム操作・情報と状態) だけ、設計は設計・自由ボード */
 function boardFitsMode(boardId: string, mode: Mode): boolean {
-  if (mode === "analysisSimple") return isSimpleBoard(boardId);
+  if (mode === "analysisSimple") return isSimpleBoard(boardId) || isAnalysisBoard(boardId);
   if (mode === "design") return !isFixedBoard(boardId) && !isAnalysisBoard(boardId) && !isSimpleBoard(boardId);
   return !isDesignBoard(boardId) && !isSimpleBoard(boardId);
 }
@@ -729,6 +729,11 @@ export function createUntieStore(
       }
       // 固定ボード・分析ボードへ飛ぶと分析（詳細）モードへ移る (設計モードから要素の場所へ飛べるように)。
       // 簡易モードでは自由ボードも開けないので、同じく詳細へ移ってから開く。詳細・設計モードの自由ボードはモードを変えない
+      // 分析ボードは簡易モードでも開けるので、簡易モードのままにする
+      if (isAnalysisBoard(boardId) && mode === "analysisSimple") {
+        set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null, ...clearDesignUi } }));
+        return;
+      }
       const next: Mode = isFixedBoard(boardId) || isAnalysisBoard(boardId) || mode === "analysisSimple" ? "analysis" : mode;
       set((s) => ({ ui: { ...s.ui, mode: next, currentBoardId: boardId, selection: null, ...(next !== "design" ? clearDesignUi : {}) } }));
     },

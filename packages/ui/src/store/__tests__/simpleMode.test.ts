@@ -20,6 +20,14 @@ describe("分析（簡易）モード", () => {
     expect(isBuiltinBoard(WORKFLOW)).toBe(true);
   });
 
+  it("簡易モードでも分析ボードを開けて、モードは簡易のまま", () => {
+    const s = make();
+    s.getState().setMode("analysisSimple");
+    s.getState().setCurrentBoard("analysis:people");
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe("analysis:people");
+  });
+
   it("簡易モードでワークフロー以外のボードが渡されたら、設計ボードは (対象が未定なら) 断り、自由ボード・固定ボードは分析（詳細）へ移って開く", () => {
     const s = make();
     s.getState().setMode("analysisSimple");
