@@ -28,36 +28,58 @@ interface DirectoryPickerWindow {
 
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
-/** ディレクトリのハンドルから木を作る。除外フォルダには降りず、件数と深さの上限で打ち切る */
-export async function treeFromDirectoryHandle(root: DirHandle): Promise<SourceTree> {
+/** 木をたどる上限 (テストで小さな値に差し替えるため、引数で渡せる) */
+export interface TreeLimits {
+  maxFiles?: number;
+  maxDepth?: number;
+}
+
+/**
+ * ディレクトリのハンドルから木を作る。除外フォルダには降りず、件数と深さの上限で打ち切る。
+ * 深さの上限を超えたフォルダはその枝だけ飛ばして (depthTruncated)、兄弟や親の残りは読み続ける。件数の上限に達したら全体を打ち切る (truncated)。
+ * 読めない項目 (一覧や getFile が投げるもの) はその項目だけ飛ばす
+ */
+export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimits = {}): Promise<SourceTree> {
+  const maxFiles = limits.maxFiles ?? MAX_TREE_FILES;
+  const maxDepth = limits.maxDepth ?? MAX_TREE_DEPTH;
   const files: SourceFileInfo[] = [];
   const handles = new Map<string, FileEntryHandle>();
   let truncated = false;
+  let depthTruncated = false;
 
   async function walk(dir: DirHandle, prefix: string, depth: number): Promise<void> {
-    if (depth > MAX_TREE_DEPTH) {
-      truncated = true;
+    if (depth > maxDepth) {
+      depthTruncated = true;
       return;
     }
     const entries: (DirHandle | FileEntryHandle)[] = [];
-    for await (const entry of dir.values()) entries.push(entry);
+    try {
+      for await (const entry of dir.values()) entries.push(entry);
+    } catch {
+      // 途中で読めなくなったフォルダは、そこまでに読めた分だけ使う
+    }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const entry of entries) {
       if (truncated) return;
       const path = `${prefix}${entry.name}`;
       if (entry.kind === "directory") {
-        if (isExcludedDirName(entry.name)) continue;
+        if (isExcludedDirName(entry.name, depth === 0)) continue;
         await walk(entry, `${path}/`, depth + 1);
       } else {
         // 名前で決まる除外は、中身を開く前に決める
         if (excludeReason(path) !== null) continue;
-        const file = await entry.getFile();
-        if (excludeReason(path, file.size) !== null) continue;
-        if (files.length >= MAX_TREE_FILES) {
+        let size: number;
+        try {
+          size = (await entry.getFile()).size;
+        } catch {
+          continue;
+        }
+        if (excludeReason(path, size) !== null) continue;
+        if (files.length >= maxFiles) {
           truncated = true;
           return;
         }
-        files.push({ path, size: file.size });
+        files.push({ path, size });
         handles.set(path, entry);
       }
     }
@@ -68,10 +90,14 @@ export async function treeFromDirectoryHandle(root: DirHandle): Promise<SourceTr
     name: root.name,
     files,
     ...(truncated ? { truncated: true } : {}),
+    ...(depthTruncated ? { depthTruncated: true } : {}),
     async readFile(path) {
       const handle = handles.get(path);
       if (!handle) throw new Error(`ファイルがありません: ${path}`);
-      return (await handle.getFile()).text();
+      const file = await handle.getFile();
+      // 選んだあとに大きくなったかもしれないので、読む前に確かめ直す
+      if (file.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます: ${path}`);
+      return file.text();
     },
   };
 }
@@ -80,18 +106,25 @@ export async function treeFromDirectoryHandle(root: DirHandle): Promise<SourceTr
  * <input webkitdirectory> で選んだ File の一覧から木を作る。webkitRelativePath の先頭はフォルダ名なので取り除く。
  * ブラウザは全ファイルを渡してくるので、除外フォルダの下のファイルはここで捨てる (読まない)
  */
-export function treeFromFileList(list: ArrayLike<File>): SourceTree {
+export function treeFromFileList(list: ArrayLike<File>, limits: TreeLimits = {}): SourceTree {
+  const maxFiles = limits.maxFiles ?? MAX_TREE_FILES;
+  const maxDepth = limits.maxDepth ?? MAX_TREE_DEPTH;
   const files: SourceFileInfo[] = [];
   const byPath = new Map<string, File>();
   let name = "";
   let truncated = false;
+  let depthTruncated = false;
   for (let i = 0; i < list.length; i++) {
     const file = list[i]!;
     const segments = (file.webkitRelativePath || file.name).split("/");
     if (segments.length > 1) name = name || segments[0]!;
     const path = (segments.length > 1 ? segments.slice(1) : segments).join("/");
-    if (segments.length > MAX_TREE_DEPTH + 1 || excludeReason(path, file.size) !== null) continue;
-    if (files.length >= MAX_TREE_FILES) {
+    if (excludeReason(path, file.size) !== null) continue;
+    if (path.split("/").length > maxDepth + 1) {
+      depthTruncated = true;
+      continue;
+    }
+    if (files.length >= maxFiles) {
       truncated = true;
       break;
     }
@@ -103,6 +136,7 @@ export function treeFromFileList(list: ArrayLike<File>): SourceTree {
     name: name || "(フォルダ)",
     files,
     ...(truncated ? { truncated: true } : {}),
+    ...(depthTruncated ? { depthTruncated: true } : {}),
     async readFile(path) {
       const file = byPath.get(path);
       if (!file) throw new Error(`ファイルがありません: ${path}`);

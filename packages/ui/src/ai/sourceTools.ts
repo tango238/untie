@@ -1,7 +1,7 @@
 // 「ソースコードから作成」で AI がソースコードを読む道具 (list_files・read_file・search_code)。
 // 3 社のプロバイダーに同じ定義を渡す (ToolDef は tools.ts)。実行は SourceTree を通すだけで、モデルは触らない。
 // 結果は AI に返す JSON 文字列。上限を超えたら切り詰めて、切り詰めたことと続きの読み方を結果に入れる。
-import { excludeReason, looksBinary, normalizeTreePath, visibleFiles, type SourceFileInfo, type SourceTree } from "./sourceTree";
+import { MAX_FILE_BYTES, excludeReason, looksBinary, looksPrivateKey, normalizeTreePath, visibleFiles, type SourceFileInfo, type SourceTree } from "./sourceTree";
 import type { ToolDef, ToolOutcome } from "./tools";
 
 // ---- 上限 ----
@@ -22,6 +22,12 @@ export const SOURCE_LIMITS = {
   searchLineChars: 240,
   /** search_code: 照合する行の長さ (これより長い行は先頭だけ照合する)、照合する文字数の総量、かける時間 (ミリ秒) */
   searchScanLine: 1000,
+  /** search_code: 正規表現で照合する行の長さ (遅くなりやすいので、文字列検索より短くする) */
+  searchRegexLine: 300,
+  /** search_code: 正規表現に書ける、際限のない量指定子 (`*` `+` `{n,}`) の数、量指定子の総数、`|` の数 */
+  regexUnbounded: 2,
+  regexQuantifiers: 8,
+  regexAlternations: 6,
   searchScanChars: 20_000_000,
   searchMillis: 4000,
   /** search_code: 検索語の長さ */
@@ -58,7 +64,7 @@ export const SOURCE_TOOLS: ToolDef[] = [
   },
   {
     name: "search_code",
-    description: `ソースコードの全体から文字列を探す。regex を true にすると pattern を正規表現として扱う (不正な正規表現や重い正規表現は、文字列検索に切り替えて知らせる)。glob (例: src/**/*.ts、*.prisma) でファイルを絞れる。1 行ごとに照合する。既定では大文字小文字を区別しない。${SOURCE_LIMITS.searchMax} 件まで (既定 ${SOURCE_LIMITS.searchDefault})。超えたら truncated になる (語や glob を絞る)。`,
+    description: `ソースコードの全体から文字列を探す。regex を true にすると pattern を正規表現として扱う (不正な正規表現や、重くなりうる正規表現 (量指定子の付いたグループ・後方参照・繰り返しの多用) は失敗として返すので、書き直すか文字列検索にする)。glob (例: src/**/*.ts、*.prisma) でファイルを絞れる。1 行ごとに照合する。既定では大文字小文字を区別しない。${SOURCE_LIMITS.searchMax} 件まで (既定 ${SOURCE_LIMITS.searchDefault})。超えたら truncated になる (語や glob を絞る)。`,
     parameters: {
       type: "object",
       properties: {
@@ -85,6 +91,21 @@ const fail = (reason: string): ToolOutcome => ({ ok: false, content: JSON.string
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const int = (v: unknown, fallback: number, min: number, max: number) =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.floor(v))) : fallback;
+
+/** 木が全部ではないときの知らせ (理由ごと)。件数の打ち切りと深さの打ち切りは別 */
+function treeNoteFields(tree: SourceTree): Record<string, unknown> {
+  const reasons: string[] = [];
+  if (tree.truncated) reasons.push("ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない");
+  if (tree.depthTruncated) reasons.push("深さの上限を超えるフォルダは読んでいないので、その下のファイルは一覧に無い");
+  return reasons.length > 0 ? { treeTruncated: true, treeNote: reasons.join("。") } : {};
+}
+
+/** 文字列を n 文字までに切る。サロゲートペアの途中では切らない */
+const clip = (text: string, n: number): string => {
+  if (text.length <= n) return text;
+  const code = text.charCodeAt(n - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? n - 1 : n);
+};
 
 const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
@@ -132,11 +153,24 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
       dirs.set(d, (dirs.get(d) ?? 0) + 1);
     }
   }
-  const entries = [
-    ...[...dirs.keys()].sort().map((d) => ({ path: `${d}/`, files: dirs.get(d)! })),
-    ...files.sort(byPath).map((f) => ({ path: f.path, bytes: f.size })),
-  ];
-  const shown = entries.slice(0, limit);
+  // 浅い階層から順に並べ、limit で切るときも、その階層のファイルがフォルダに押し出されて全部落ちないようにする
+  const levelOf = (p: string) => p.slice(prefix.length).replace(/\/$/, "").split("/").length;
+  const dirEntries = [...dirs.keys()].sort().map((d) => ({ path: `${d}/`, files: dirs.get(d)! }));
+  const fileEntries = files.sort(byPath).map((f) => ({ path: f.path, bytes: f.size }));
+  const entries: ({ path: string; files: number } | { path: string; bytes: number })[] = [];
+  const shown: typeof entries = [];
+  for (let level = 1; level <= depth; level++) {
+    const ds = dirEntries.filter((e) => levelOf(e.path) === level);
+    const fs = fileEntries.filter((e) => levelOf(e.path) === level);
+    const room = limit - shown.length;
+    entries.push(...ds, ...fs);
+    if (room <= 0) continue;
+    if (ds.length + fs.length <= room) shown.push(...ds, ...fs);
+    else {
+      const fileQuota = Math.min(fs.length, Math.max(Math.ceil(room / 2), room - ds.length));
+      shown.push(...ds.slice(0, room - fileQuota), ...fs.slice(0, fileQuota));
+    }
+  }
   const truncated = entries.length > shown.length;
   return okJson({
     path: dir === "" ? "." : dir,
@@ -144,7 +178,7 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
     total: entries.length,
     entries: shown,
     ...(truncated ? { truncated: true, note: `${entries.length} 件のうち ${shown.length} 件だけ返した。path を絞るか limit を増やして、見たいフォルダを呼び直す` } : {}),
-    ...(tree.truncated ? { treeTruncated: true, treeNote: "ファイルが多すぎて、一覧は全部ではない" } : {}),
+    ...treeNoteFields(tree),
   });
 }
 
@@ -155,7 +189,11 @@ async function readVisible(tree: SourceTree, path: string): Promise<{ ok: true; 
   // 除外対象・木に無いものは、存在を知らせない (秘密のファイル名を確かめさせない)
   if (!info || excludeReason(info.path, info.size) !== null) return { ok: false, reason: `ファイルがありません (または読めない種類です): ${path}` };
   const text = await tree.readFile(path);
+  // 木の実装が大きさを確かめ損ねても、ここで断る (文字数は UTF-8 のバイト数以下なので、超えていれば確実に巨大)
+  if (text.length > MAX_FILE_BYTES) return { ok: false, reason: `ファイルが大きすぎます: ${path}` };
   if (looksBinary(text)) return { ok: false, reason: `バイナリのファイルは読めません: ${path}` };
+  // 名前で分からない秘密鍵は、存在を知らせずに断る
+  if (looksPrivateKey(text)) return { ok: false, reason: `ファイルがありません (または読めない種類です): ${path}` };
   return { ok: true, text };
 }
 
@@ -178,12 +216,15 @@ async function readFile(tree: SourceTree, input: Input): Promise<ToolOutcome> {
   const picked: string[] = [];
   let chars = 0;
   let cutInLine = false;
+  let omittedChars = 0;
   for (let i = start - 1; i < end; i++) {
     const line = lines[i]!;
     if (chars + line.length + 1 > SOURCE_LIMITS.readChars) {
       if (picked.length === 0) {
-        picked.push(line.slice(0, SOURCE_LIMITS.readChars));
+        const head = clip(line, SOURCE_LIMITS.readChars);
+        picked.push(head);
         cutInLine = true;
+        omittedChars = line.length - head.length;
       }
       break;
     }
@@ -202,7 +243,8 @@ async function readFile(tree: SourceTree, input: Input): Promise<ToolOutcome> {
       ? {
           truncated: true,
           ...(lastLine < total ? { nextStartLine: lastLine + 1 } : {}),
-          note: `${total} 行のうち ${start}〜${lastLine} 行を返した。${lastLine < total ? `続きは start_line=${lastLine + 1} で読む` : "これで最後の行"}${cutInLine ? " (1 行が長すぎて、その行は途中で切った)" : ""}`,
+          note: `${total} 行のうち ${start}〜${lastLine} 行を返した。${lastLine < total ? `続きは start_line=${lastLine + 1} で読む` : "これで最後の行"}${cutInLine ? ` (行 ${start} は 1 行が長すぎて、先頭の ${picked[0]!.length} 文字だけ返した。その行の残り ${omittedChars} 文字は read_file では読めない。必要なら search_code で近くを探す)` : ""}`,
+          ...(cutInLine ? { omittedChars } : {}),
         }
       : {}),
   });
@@ -241,8 +283,73 @@ export function globMatcher(glob: string): (path: string) => boolean {
   return (path) => matcher.test(wholePath ? path : (path.split("/").pop() ?? path));
 }
 
-/** 入れ子の量指定子など、壊滅的に遅くなりやすい正規表現か (粗い判定) */
-const looksCatastrophic = (pattern: string) => /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,\d*\})/.test(pattern) || /\\[1-9]/.test(pattern) || /\(\?[=!<]/.test(pattern);
+/**
+ * 正規表現を実行してよいか調べる。実行するのは「安全な部分集合」だけ。断るときは書き直し方を返し、通すときは null。
+ * 断るもの: 量指定子 (`*` `+` `?` `{…}`) の付いたグループ・後方参照 (`\1`・`\k<名>`)・際限のない量指定子 (`*` `+` `{n,}`) が多すぎるもの・量指定子や `|` の使いすぎ。
+ * 通すもの: 名前付きグループ・非捕捉グループ・先読み/後読み (量指定子が付かないもの)、文字クラス、数の少ない量指定子。
+ * 文法エラーは new RegExp で先に見つけている前提
+ */
+export function regexRefusal(pattern: string): string | null {
+  const hint = "量指定子の付いたグループ (…)* や (…)+ は使わず、文字クラスや単純な繰り返しに書き直すか、regex を付けずに文字列検索を使ってください";
+  let unbounded = 0;
+  let quantifiers = 0;
+  let alternations = 0;
+  let afterGroup = false; // 直前が「閉じたグループ」
+  let afterQuantifier = false; // 直前が量指定子 (次の `?` は遅延の印)
+  const n = pattern.length;
+  const quantifierAt = (i: number): { len: number; unbounded: boolean } | null => {
+    const c = pattern[i];
+    if (c === "*" || c === "+") return { len: 1, unbounded: true };
+    if (c === "?") return { len: 1, unbounded: false };
+    if (c === "{") {
+      const m = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i, i + 24));
+      if (!m) return null;
+      const variable = m[2] !== undefined && m[3] !== m[1];
+      return { len: m[0].length, unbounded: variable };
+    }
+    return null;
+  };
+  for (let i = 0; i < n; ) {
+    const c = pattern[i]!;
+    const q = afterQuantifier && c === "?" ? null : quantifierAt(i);
+    if (q) {
+      if (afterGroup) return `量指定子の付いたグループは使えません (${pattern.slice(Math.max(0, i - 8), i + q.len)} の付近)。${hint}`;
+      quantifiers++;
+      if (q.unbounded) unbounded++;
+      i += q.len;
+      afterQuantifier = true;
+      afterGroup = false;
+      continue;
+    }
+    afterQuantifier = false;
+    afterGroup = false;
+    if (c === "\\") {
+      const next = pattern[i + 1] ?? "";
+      if (/[1-9]/.test(next) || (next === "k" && pattern[i + 2] === "<")) return "後方参照 (\\1 や \\k<名前>) は使えません。後方参照を使わない書き方にするか、文字列検索を使ってください";
+      i += 2;
+      continue;
+    }
+    if (c === "[") {
+      i++;
+      while (i < n && pattern[i] !== "]") i += pattern[i] === "\\" ? 2 : 1;
+      i++;
+      continue;
+    }
+    if (c === "(") {
+      // (?: (?= (?! (?<= (?<! (?<名前> の「?」は量指定子ではない
+      const prefix = /^\?(?::|=|!|<=|<!|<[^>]*>)/.exec(pattern.slice(i + 1));
+      i += 1 + (prefix ? prefix[0].length : 0);
+      continue;
+    }
+    if (c === ")") afterGroup = true;
+    else if (c === "|") alternations++;
+    i++;
+  }
+  if (unbounded > SOURCE_LIMITS.regexUnbounded) return `際限のない繰り返し (* + {n,}) が ${unbounded} 個あります (${SOURCE_LIMITS.regexUnbounded} 個まで)。繰り返しを減らすか、文字列検索を使ってください`;
+  if (quantifiers > SOURCE_LIMITS.regexQuantifiers) return `量指定子が ${quantifiers} 個あります (${SOURCE_LIMITS.regexQuantifiers} 個まで)。パターンを短くするか、文字列検索を使ってください`;
+  if (alternations > SOURCE_LIMITS.regexAlternations) return `「|」が ${alternations} 個あります (${SOURCE_LIMITS.regexAlternations} 個まで)。検索を分けて呼ぶか、文字列検索を使ってください`;
+  return null;
+}
 
 async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> {
   const pattern = str(input.pattern);
@@ -253,23 +360,24 @@ async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> 
   const notes: string[] = [];
 
   let test: (line: string) => boolean;
-  const literal = () => {
-    const needle = caseSensitive ? pattern : pattern.toLowerCase();
-    return (line: string) => (caseSensitive ? line : line.toLowerCase()).includes(needle);
-  };
-  if (input.regex === true) {
-    let re: RegExp | null = null;
+  const isRegex = input.regex === true;
+  if (isRegex) {
+    let re: RegExp;
     try {
       re = new RegExp(pattern, caseSensitive ? "" : "i");
-    } catch {
-      notes.push("pattern は正規表現として読めなかったので、文字列として探した");
+    } catch (e) {
+      return fail(`pattern を正規表現として読めませんでした (${e instanceof Error ? e.message : String(e)})。書き直すか、regex を付けずに文字列検索にしてください`);
     }
-    if (re && looksCatastrophic(pattern)) {
-      re = null;
-      notes.push("pattern は入れ子の繰り返しなど重い正規表現なので、文字列として探した (単純な正規表現に直して regex を付けて呼び直せる)");
-    }
-    test = re ? (line) => re.test(line) : literal();
-  } else test = literal();
+    // 重い正規表現は黙って別の検索にせず、書き直し方を返す
+    const refusal = regexRefusal(pattern);
+    if (refusal) return fail(`この正規表現は実行できません: ${refusal}`);
+    test = (line) => re.test(line);
+  } else {
+    const needle = caseSensitive ? pattern : pattern.toLowerCase();
+    test = (line) => (caseSensitive ? line : line.toLowerCase()).includes(needle);
+  }
+  const scanLine = isRegex ? SOURCE_LIMITS.searchRegexLine : SOURCE_LIMITS.searchScanLine;
+  let clippedLines = false;
 
   let inGlob: (path: string) => boolean = () => true;
   const globText = str(input.glob);
@@ -286,6 +394,7 @@ async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> 
   const started = Date.now();
   let scannedChars = 0;
   let scannedFiles = 0;
+  let examined = 0;
   let stopped: string | null = null;
   let more = false;
   outer: for (const f of candidates) {
@@ -297,20 +406,26 @@ async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> 
       stopped = "照合した量の上限に達したので、途中で打ち切った";
       break;
     }
+    examined++;
     let text: string;
     try {
       text = await tree.readFile(f.path);
     } catch {
       continue;
     }
-    if (looksBinary(text)) continue;
+    if (text.length > MAX_FILE_BYTES || looksBinary(text) || looksPrivateKey(text)) continue;
     scannedFiles++;
     scannedChars += text.length;
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
-      const target = line.length > SOURCE_LIMITS.searchScanLine ? line.slice(0, SOURCE_LIMITS.searchScanLine) : line;
-      if (!test(target)) continue;
+      if (line.length > scanLine) clippedLines = true;
+      // 1 つの行で時間を使い切ることもあるので、時間は行ごとに見る
+      if (i % 16 === 15 && Date.now() - started > SOURCE_LIMITS.searchMillis) {
+        stopped = "時間の上限に達したので、途中で打ち切った";
+        break outer;
+      }
+      if (!test(line.length > scanLine ? clip(line, scanLine) : line)) continue;
       if (matches.length >= limit) {
         more = true;
         break outer;
@@ -319,20 +434,24 @@ async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> 
       matches.push({
         path: f.path,
         line: i + 1,
-        text: trimmed.length > SOURCE_LIMITS.searchLineChars ? `${trimmed.slice(0, SOURCE_LIMITS.searchLineChars)}…` : trimmed,
+        text: trimmed.length > SOURCE_LIMITS.searchLineChars ? `${clip(trimmed, SOURCE_LIMITS.searchLineChars)}…` : trimmed,
       });
     }
   }
   const truncated = more || stopped !== null;
   if (more) notes.push(`一致が ${limit} 件を超えたので、先頭の ${limit} 件だけ返した。語を具体的にするか glob で絞って呼び直す`);
   if (stopped) notes.push(stopped);
+  if (truncated) notes.push(`対象 ${candidates.length} ファイルのうち、先頭から ${examined} 個目まで探した`);
+  if (isRegex && clippedLines) notes.push(`正規表現は各行の先頭 ${scanLine} 文字だけ照合した`);
   return okJson({
     pattern,
-    mode: input.regex === true && !notes.some((n) => n.includes("文字列として探した")) ? "regex" : "literal",
+    mode: isRegex ? "regex" : "literal",
     searchedFiles: scannedFiles,
+    candidateFiles: candidates.length,
+    ...(truncated ? { examinedFiles: examined } : {}),
     matches,
     ...(truncated ? { truncated: true } : {}),
-    ...(tree.truncated ? { treeTruncated: true } : {}),
+    ...treeNoteFields(tree),
     ...(notes.length > 0 ? { note: notes.join("。") } : {}),
   });
 }

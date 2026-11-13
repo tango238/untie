@@ -16,6 +16,8 @@ export interface SourceTree {
   files: readonly SourceFileInfo[];
   /** 件数の上限で打ち切って、一覧が全部ではないとき true */
   truncated?: boolean;
+  /** 深さの上限を超えるフォルダ (の下のファイル) を読まずに飛ばしたとき true (件数の打ち切りとは別。ほかの枝は読んである) */
+  depthTruncated?: boolean;
   /** ファイルの中身を UTF-8 の文字列で読む。一覧に無いパスは Error */
   readFile(path: string): Promise<string>;
 }
@@ -33,18 +35,25 @@ export const MAX_TREE_DEPTH = 24;
 
 export type ExcludeReason = "folder" | "secret" | "binary" | "generated" | "large";
 
-/** 中に降りないフォルダ (依存・build の成果物・キャッシュ・バージョン管理)。名前は小文字で比べる */
+/** 中に降りないフォルダ (依存・キャッシュ・バージョン管理)。どの深さでも除外する。名前は小文字で比べる */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
-  "node_modules", ".git", ".svn", ".hg", "dist", "build", "out", "target", ".next", ".nuxt", ".svelte-kit", ".output",
+  "node_modules", ".git", ".svn", ".hg", "dist", ".next", ".nuxt", ".svelte-kit", ".output",
   ".turbo", ".cache", ".parcel-cache", ".angular", ".gradle", ".idea", ".vscode", ".vercel", ".wrangler", ".terraform",
   "__pycache__", ".venv", "venv", "site-packages", ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".yarn",
-  ".pnpm-store", "coverage", "vendor", "pods", "deriveddata", ".dart_tool", "bower_components",
+  ".pnpm-store", "coverage", ".dart_tool", "bower_components",
 ]);
+/** build の成果物らしい名前。木の根の直下にあるときだけ除外する (`src/target/Target.java` や `k8s/pods/a.yaml` は読める) */
+export const ROOT_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["build", "out", "target", "vendor", "pods", "deriveddata"]);
+/** 秘密を置くフォルダ。どの深さでも、下のファイルは全部「秘密」として除外する */
+export const SECRET_DIRS: ReadonlySet<string> = new Set([".ssh", ".aws", ".gnupg", ".docker", ".kube", "secrets"]);
 
 /** 秘密になりうるファイルの拡張子 (鍵・証明書・キーストア) */
-const SECRET_EXTENSIONS = new Set(["pem", "key", "p12", "pfx", "jks", "keystore", "crt", "cer", "der", "p8", "ppk", "gpg", "asc", "kdbx", "tfvars", "tfstate"]);
+const SECRET_EXTENSIONS = new Set(["pem", "key", "p12", "pfx", "jks", "keystore", "crt", "cer", "der", "p8", "ppk", "gpg", "kdbx", "tfvars", "tfstate"]);
 /** 秘密になりうるファイル名 (小文字) */
 const SECRET_NAMES = new Set([".npmrc", ".yarnrc", ".netrc", ".pgpass", ".htpasswd", ".pypirc", ".git-credentials", ".dockercfg", "authorized_keys", "known_hosts"]);
+
+/** `secrets` / `credentials` で始まる名前を秘密として扱う拡張子 (データ形式)。ソースコード (`Credentials.ts` など) は読めるようにする */
+const SECRET_DATA_EXTENSIONS = new Set(["json", "yaml", "yml", "toml", "ini", "txt", "xml", "properties", "conf", "cfg"]);
 
 /** バイナリ (読んでも文字にならない) ファイルの拡張子 */
 const BINARY_EXTENSIONS = new Set([
@@ -63,15 +72,27 @@ const extensionOf = (name: string) => {
   return i <= 0 ? "" : name.slice(i + 1).toLowerCase();
 };
 
-/** フォルダの名前が、降りない対象か */
-export const isExcludedDirName = (name: string): boolean => EXCLUDED_DIRS.has(name.toLowerCase());
+/** フォルダの名前が、降りない対象か。atRoot は「木の根の直下のフォルダか」 (build・out・target などは根の直下だけ除外する) */
+export const isExcludedDirName = (name: string, atRoot = false): boolean => {
+  const n = name.toLowerCase();
+  return EXCLUDED_DIRS.has(n) || SECRET_DIRS.has(n) || (atRoot && ROOT_EXCLUDED_DIRS.has(n));
+};
 
 /** ファイル名 (パスの最後) だけで決まる除外。当たらなければ null */
 export function excludedFileNameReason(fileName: string): ExcludeReason | null {
   const name = fileName.toLowerCase();
-  if (name === ".env" || name.startsWith(".env.") || name.endsWith(".env")) return "secret";
-  if (SECRET_NAMES.has(name) || /^id_(rsa|dsa|ecdsa|ed25519)(\..*)?$/.test(name)) return "secret";
-  if (/^(secrets?|credentials?)(\.[^/]*)?$/.test(name) || name.endsWith(".secret") || name.endsWith(".secrets")) return "secret";
+  // .env / .envrc / .env-prod / .env_dev / .env~ / .env.local / app.env.local / prod.env
+  if (/^\.env(rc)?($|[._~-])/.test(name) || /\.env($|[._~-])/.test(name)) return "secret";
+  if (SECRET_NAMES.has(name) || /^id_(rsa|dsa|ecdsa|ed25519)(_sk)?(\..*)?$/.test(name)) return "secret";
+  // terraform.tfstate.backup のように名前の途中に拡張子が来るもの
+  if (name.includes(".tfstate") || name.includes(".tfvars")) return "secret";
+  if (/^(service[-_]?account|client[-_]?secrets?)[^/]*\.json$/.test(name)) return "secret";
+  const credentialLike = /^(secrets?|credentials?)(\.(.*))?$/.exec(name);
+  if (credentialLike) {
+    // 拡張子なし、または名前のどこかにデータ形式の拡張子がある (credentials.json.bak も)
+    if (credentialLike[3] === undefined || credentialLike[3].split(".").some((e) => SECRET_DATA_EXTENSIONS.has(e))) return "secret";
+  }
+  if (name.endsWith(".secret") || name.endsWith(".secrets")) return "secret";
   if (SECRET_EXTENSIONS.has(extensionOf(name))) return "secret";
   if (BINARY_EXTENSIONS.has(extensionOf(name))) return "binary";
   if (GENERATED_NAMES.has(name) || name.endsWith(".min.js") || name.endsWith(".min.css") || name.endsWith(".map")) return "generated";
@@ -82,7 +103,11 @@ export function excludedFileNameReason(fileName: string): ExcludeReason | null {
 export function excludeReason(path: string, size?: number): ExcludeReason | null {
   const segments = path.split("/");
   const fileName = segments[segments.length - 1] ?? "";
-  for (const dir of segments.slice(0, -1)) if (isExcludedDirName(dir)) return "folder";
+  const dirs = segments.slice(0, -1);
+  for (let i = 0; i < dirs.length; i++) {
+    if (SECRET_DIRS.has(dirs[i]!.toLowerCase())) return "secret";
+    if (isExcludedDirName(dirs[i]!, i === 0)) return "folder";
+  }
   const byName = excludedFileNameReason(fileName);
   if (byName) return byName;
   if (size !== undefined && size > MAX_FILE_BYTES) return "large";
@@ -91,6 +116,9 @@ export function excludeReason(path: string, size?: number): ExcludeReason | null
 
 /** 文字列がバイナリらしいか (NUL を含む)。拡張子では分からないものの最後の砦 */
 export const looksBinary = (text: string): boolean => text.slice(0, 8000).includes("\0");
+
+/** 秘密鍵の中身 (`-----BEGIN … PRIVATE KEY-----`) を含むか。名前で分からない鍵を AI に出さない最後の砦 */
+export const looksPrivateKey = (text: string): boolean => /-----BEGIN [A-Z0-9 ]*PRIVATE KEY[A-Z ]*-----/.test(text);
 
 // ---- パスの正規化 ----
 

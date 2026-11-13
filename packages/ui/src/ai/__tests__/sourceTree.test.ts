@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FILE_BYTES, excludeReason, memorySourceTree, normalizeTreePath, visibleFiles } from "../sourceTree";
+import { MAX_FILE_BYTES, excludeReason, isExcludedDirName, looksPrivateKey, memorySourceTree, normalizeTreePath, visibleFiles } from "../sourceTree";
 
 describe("normalizeTreePath", () => {
   it("相対パスをそろえる", () => {
@@ -21,6 +21,46 @@ describe("excludeReason", () => {
       expect(excludeReason(p), p).toBe("secret");
     }
     expect(excludeReason("src/secretary.ts")).toBeNull();
+  });
+  it("名前の揺れ・鍵・秘密のフォルダ・サービスアカウント", () => {
+    for (const p of [".envrc", ".env-prod", ".env_dev", ".env~", "app.env.local", ".env.example", ".env.sample", ".env.template", "terraform.tfstate.backup", "a/x.tfvars.json", "id_ed25519_sk", "id_ecdsa_sk", "id_ed25519_sk.pub", ".ssh/config", "home/.aws/config", ".gnupg/x", ".docker/config.json", ".kube/config", "secrets/db.ts", "app/secrets/a.txt", "service-account.json", "service-account-prod.json", "client_secret.json", "client_secret_123.apps.json", "credentials.json.bak"]) {
+      expect(excludeReason(p), p).toBe("secret");
+    }
+  });
+  it("大文字小文字の違う名前も除外する", () => {
+    expect(excludeReason(".ENV")).toBe("secret");
+    expect(excludeReason("config/.Env.Local")).toBe("secret");
+    expect(excludeReason("ID_RSA")).toBe("secret");
+    expect(excludeReason("Secrets.YML")).toBe("secret");
+    expect(excludeReason("Node_Modules/x/a.js")).toBe("folder");
+    expect(excludeReason(".SSH/config")).toBe("secret");
+    expect(excludeReason("Build/a.js")).toBe("folder");
+    expect(isExcludedDirName("Node_Modules")).toBe(true);
+    expect(isExcludedDirName("DerivedData", true)).toBe(true);
+  });
+  it("データ形式でない secret / credential の名前と asc は読める", () => {
+    for (const p of ["src/Credential.java", "credentials.py", "src/Secret.kt", "src/Credentials.ts", "docs/manual.asc", "src/secretary.ts", "environment.ts", "src/.environment"]) {
+      expect(excludeReason(p), p).toBeNull();
+    }
+    for (const p of ["secret.json", "Secrets.yaml", "credentials.toml", "credential.ini", "secrets.txt", "credentials.xml", "secret.properties", "credentials.conf", "secrets.cfg", "secrets", "credentials"]) {
+      expect(excludeReason(p), p).toBe("secret");
+    }
+  });
+  it("build・out・target・vendor・pods・deriveddata は根の直下だけ除外する", () => {
+    for (const d of ["build", "out", "target", "vendor", "pods", "deriveddata"]) {
+      expect(excludeReason(`${d}/a.js`), d).toBe("folder");
+      expect(excludeReason(`src/${d}/A.java`), d).toBeNull();
+    }
+    expect(excludeReason("k8s/pods/a.yaml")).toBeNull();
+    expect(excludeReason("src/target/Target.java")).toBeNull();
+    expect(excludeReason("src/dist/a.js")).toBe("folder");
+  });
+  it("中身が秘密鍵のファイルを見分ける", () => {
+    expect(looksPrivateKey("x\n-----BEGIN RSA PRIVATE KEY-----\nabc")).toBe(true);
+    expect(looksPrivateKey("-----BEGIN PRIVATE KEY-----")).toBe(true);
+    expect(looksPrivateKey("-----BEGIN OPENSSH PRIVATE KEY-----")).toBe(true);
+    expect(looksPrivateKey("-----BEGIN CERTIFICATE-----")).toBe(false);
+    expect(looksPrivateKey("-----BEGIN PUBLIC KEY-----")).toBe(false);
   });
   it("バイナリ・生成物・除外フォルダ・巨大ファイル", () => {
     expect(excludeReason("img/logo.png")).toBe("binary");
