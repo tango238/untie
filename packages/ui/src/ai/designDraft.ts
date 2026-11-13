@@ -4,18 +4,21 @@
 import {
   addDatabase,
   addTransition,
+  clearDesignScreenView,
   renameDatabase,
   setDatabaseDesign,
   setDesignDatabases,
   setDesignScreenView,
   type CommandResult,
 } from "@untie/core/model/commands";
-import { DEFAULT_DATABASE_ID } from "@untie/core/model/design";
+import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, effectiveDatabaseIds } from "@untie/core/model/design";
+import { unmappedInformationIds } from "@untie/core/model/designData";
 import { viewShapeProblem } from "@untie/core/model/designView";
 import { NAME_MAX_LENGTH, truncateText } from "@untie/core/model/limits";
 import { parsePrismaDsl, type PrismaError } from "@untie/core/model/prisma";
+import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { addSitemapScreens, designScreenName, TRANSITION_VIAS } from "@untie/core/model/sitemap";
-import type { DesignScreen, SystemDesign, Transition, UntieModel } from "@untie/core/model/types";
+import type { DesignScreen, Element, SystemDesign, Transition, UntieModel } from "@untie/core/model/types";
 import { validateView } from "../components/design/viewValidate";
 import { sanitizeBindings } from "./designScreen";
 import type { ToolDef } from "./tools";
@@ -25,6 +28,27 @@ import type { ToolDef } from "./tools";
 const nameOf = (text: string): string => truncateText(text.trim(), NAME_MAX_LENGTH);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * 下書きの一覧ごとの上限。AI の出力が巨大でも、足す処理 (1 件ごとにコマンドを通すので、件数に応じて重くなる) で画面が固まらないようにする。
+ * 超えた分は先頭から使い、「先頭 N 件だけ使いました」と warnings に残す
+ */
+export const DESIGN_DRAFT_LIMITS = {
+  /** データ: テーブルの対応の数と、1 つのテーブルが表す情報の数 */
+  tables: 300,
+  informationsPerTable: 50,
+  /** サイトマップ: 遷移の数 */
+  transitions: 500,
+  /** 画面 UI: 項目と列の対応の数 */
+  bindings: 500,
+} as const;
+
+/** 一覧の先頭 max 件だけを返し、超えたら警告に残す (配列でなければ空) */
+function clipList<T>(list: readonly T[], max: number, what: string, warnings: string[]): T[] {
+  if (!Array.isArray(list)) return [];
+  if (list.length > max) warnings.push(`${what}は先頭 ${max} 件だけ使いました (${list.length} 件ありました)`);
+  return list.slice(0, max);
+}
 
 /** 足した結果の共通部分 */
 export interface DraftResult {
@@ -86,7 +110,10 @@ export const SUBMIT_DATABASE_DRAFT_TOOL: ToolDef = {
         description: "model の名前と、それが表す情報の名前 (モデルにある情報)。1 つの情報を複数のテーブルが表してもよい",
         items: {
           type: "object",
-          properties: { table: { type: "string" }, informations: { type: "array", items: { type: "string" } } },
+          properties: {
+            table: { type: "string", description: "DSL の model の名前 (enum の名前ではない)。DSL に無いテーブルの対応は捨てられる" },
+            informations: { type: "array", items: { type: "string" }, description: "このテーブルが表す情報の名前 (モデルにある情報)。モデルに無い名前は捨てられる" },
+          },
           required: ["table", "informations"],
           additionalProperties: false,
         },
@@ -135,24 +162,34 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
   }
   // テーブル → 情報。DSL に無いテーブルと、見つからない情報は落とす
   const modelNames = new Set(schema.models.map((m) => m.name));
+  const enumNames = new Set(schema.enums.map((e) => e.name));
+  const informationByName = new Map<string, Element>();
+  for (const e of model.elements) if (e.kind === "information" && !informationByName.has(e.name)) informationByName.set(e.name, e);
   const tables: { table: string; informationIds: string[] }[] = [];
-  for (const t of draft.tables) {
+  for (const t of clipList(draft.tables, DESIGN_DRAFT_LIMITS.tables, "データ: テーブルの対応", warnings)) {
     if (!modelNames.has(t.table)) {
-      warnings.push(`データ: テーブル ${t.table} が DSL に無いので、情報との対応を外しました`);
+      warnings.push(
+        enumNames.has(t.table)
+          ? `データ: ${t.table} は model ではなく enum なので、情報との対応を外しました (情報に対応させるのは model だけです)`
+          : `データ: テーブル ${t.table} が DSL に無いので、情報との対応を外しました`,
+      );
       continue;
     }
     const ids: string[] = [];
-    for (const n of t.informations) {
-      const info = findNamed(model, "information", n);
+    for (const n of clipList(t.informations, DESIGN_DRAFT_LIMITS.informationsPerTable, `データ: テーブル ${t.table} が表す情報`, warnings)) {
+      const info = informationByName.get(nameOf(n));
       if (!info) warnings.push(`データ: テーブル ${t.table} が表す情報「${n}」が見つかりません`);
       else if (!ids.includes(info.id)) ids.push(info.id);
     }
     if (ids.length > 0) tables.push({ table: t.table, informationIds: ids });
   }
 
-  // 自動で足された空の既定のデータベースがあれば、それを使う。設計に同じ名前のデータベースがあれば置き換える
+  // 設計に同じ名前のデータベースがあれば置き換える。無ければ新しく足す。
+  // 既定のデータベース (db_default) は、databaseIds が空のほかのシステムの設計が使うので、名前を替えて流用しない
+  // (システムが 1 つだけで、空の既定のデータベースしか無いときは、それを使う。ほかに影響する設計が無い)
   const dbName = nameOf(draft.database_name ?? "") || nameOf(`${system.name}のデータベース`);
   const design = model.designs.find((d) => d.systemId === system.id);
+  const systemCount = model.elements.filter((e) => e.kind === "system").length;
   let next = model;
   const step = <T>(r: CommandResult<T>, what: string): (T & { model: UntieModel }) | null => {
     if (!r.ok) {
@@ -163,13 +200,19 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
     return r as T & { model: UntieModel };
   };
   const owned = (design?.databaseIds ?? []).map((id) => next.databases.find((d) => d.id === id)).find((d) => d?.name === dbName);
-  const emptyDefault = next.databases.length === 1 && next.databases[0]!.id === DEFAULT_DATABASE_ID && next.databases[0]!.dsl === "" && next.databases[0]!.tables.length === 0;
+  const emptyDefault =
+    systemCount === 1 && next.databases.length === 1 && next.databases[0]!.id === DEFAULT_DATABASE_ID && next.databases[0]!.dsl === "" && next.databases[0]!.tables.length === 0;
   let databaseId: string;
   if (owned) databaseId = owned.id;
   else if (emptyDefault) {
     databaseId = DEFAULT_DATABASE_ID;
     if (!step(renameDatabase(next, { id: databaseId, name: dbName }), "データベースの名前を付けられません")) return none(warnings.join(" / "));
   } else {
+    // データベースがまだ無く、ほかにもシステムがあるときは、先に空の既定のデータベースを足す。databaseIds が空のほかの設計は、
+    // 先頭のデータベースを使う規則なので、足さないとこのシステムのデータベースを使ってしまう
+    if (next.databases.length === 0 && systemCount > 1) {
+      if (!step(addDatabase(next, { id: DEFAULT_DATABASE_ID, name: DEFAULT_DATABASE_NAME }), "既定のデータベースを足せません")) return none(warnings.join(" / "));
+    }
     const added = step(addDatabase(next, { name: dbName }), "データベースを足せません");
     if (!added) return none(warnings.join(" / "));
     databaseId = added.id;
@@ -179,8 +222,56 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
   if (!step(setDesignDatabases(next, { systemId: system.id, databaseIds: [...new Set([...explicit, databaseId])] }), "設計が使うデータベースにできません")) {
     return none(warnings.join(" / "));
   }
+  // 置き直した DSL に、列やテーブルが無くなった画面の対応は外す (残すと検証が bindingInvalid を出す)
+  next = dropInvalidBindings(next, databaseId, warnings);
+  // このシステムが使う情報のうち、どのテーブルにも対応していないもの (空の DSL や、名前の誤りの手がかり。AI の出し直しの材料になる)
+  const unmapped = unmappedInformationIds(next, system.id);
+  const nameById = new Map(next.elements.map((e) => [e.id, e.name]));
+  for (const id of unmapped.slice(0, UNMAPPED_WARNING_MAX)) warnings.push(`データ: 情報「${nameById.get(id) ?? id}」がどのテーブルにも対応していません`);
+  if (unmapped.length > UNMAPPED_WARNING_MAX) warnings.push(`データ: ほか ${unmapped.length - UNMAPPED_WARNING_MAX} 件の情報もどのテーブルにも対応していません`);
   const mapped = new Set(tables.flatMap((t) => t.informationIds));
   return { model: next, warnings, applied: true, dslErrors: schema.errors, databaseId, added: { tables: tables.length, informations: mapped.size } };
+}
+
+/** 対応していない情報を 1 件ずつ警告にする数 (これを超えたら、残りは 1 行にまとめる) */
+const UNMAPPED_WARNING_MAX = 20;
+/** 警告に、どの項目がなぜ落ちたかを並べる数 */
+const DETAIL_MAX = 3;
+
+/**
+ * データベースの DSL を置き直したあと、そのデータベースを指す画面の対応 (bindings) のうち、テーブルや列が無くなったものを外す。
+ * 外した画面ごとに、何を外したかを warnings に残す
+ */
+function dropInvalidBindings(model: UntieModel, databaseId: string, warnings: string[]): UntieModel {
+  const db = model.databases.find((d) => d.id === databaseId);
+  if (!db) return model;
+  const schema = parsePrismaDslCached(db.dsl);
+  let next = model;
+  for (const design of model.designs) {
+    for (const screen of design.screens) {
+      const bindings = screen.bindings;
+      if (!bindings?.some((b) => b.databaseId === databaseId)) continue;
+      const kept: typeof bindings = [];
+      const lost: typeof bindings = [];
+      for (const b of bindings) {
+        const table = b.databaseId === databaseId ? schema.models.find((m) => m.name === b.table) : undefined;
+        if (b.databaseId !== databaseId || (table && table.fields.some((f) => f.name === b.column))) kept.push(b);
+        else lost.push(b);
+      }
+      if (lost.length === 0) continue;
+      const r = screen.view !== undefined ? setDesignScreenView(next, { systemId: design.systemId, id: screen.id, view: screen.view, bindings: kept }) : clearDesignScreenView(next, { systemId: design.systemId, id: screen.id });
+      if (!r.ok) {
+        warnings.push(`データ: 画面「${designScreenName(next, screen)}」の対応を外せません: ${r.reason}`);
+        continue;
+      }
+      next = r.model;
+      const detail = lost.slice(0, DETAIL_MAX).map((b) => `${b.item} → ${b.table}.${b.column}`).join("、");
+      warnings.push(
+        `データ: 「${db.name}」を置き直したので、画面「${designScreenName(next, screen)}」の項目と列の対応のうち ${lost.length} 件を、テーブル・列が無くなったため外しました (${detail}${lost.length > DETAIL_MAX ? " ほか" : ""})`,
+      );
+    }
+  }
+  return next;
 }
 
 // ---------------------------------------------------------------- サイトマップ (画面と遷移)
@@ -269,7 +360,8 @@ export function applySitemapDraft(model: UntieModel, draft: SitemapDraft): Sitem
     const n = designScreenName(next, s);
     if (!byName.has(n)) byName.set(n, s);
   }
-  for (const t of draft.transitions) {
+  const existing = new Set((afterScreens?.transitions ?? []).map((x) => `${x.from}\n${x.to}`));
+  for (const t of clipList(draft.transitions, DESIGN_DRAFT_LIMITS.transitions, "サイトマップ: 遷移", warnings)) {
     const from = byName.get(nameOf(t.from));
     const to = byName.get(nameOf(t.to));
     if (!from || !to) {
@@ -280,7 +372,7 @@ export function applySitemapDraft(model: UntieModel, draft: SitemapDraft): Sitem
       warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」は同じ画面への遷移なので、落としました`);
       continue;
     }
-    if (design(next)?.transitions.some((x) => x.from === from.id && x.to === to.id)) {
+    if (existing.has(`${from.id}\n${to.id}`)) {
       result.skipped++;
       continue;
     }
@@ -296,6 +388,7 @@ export function applySitemapDraft(model: UntieModel, draft: SitemapDraft): Sitem
       continue;
     }
     next = r.model;
+    existing.add(`${from.id}\n${to.id}`);
     result.transitions++;
   }
   return { model: next, warnings, added: result };
@@ -338,7 +431,12 @@ export const SUBMIT_SCREEN_DRAFT_TOOL: ToolDef = {
         description: "項目と列の対応。item は fields[].item、一覧の列は `<セクションの id>.<列の id>`",
         items: {
           type: "object",
-          properties: { item: { type: "string" }, table: { type: "string" }, column: { type: "string" } },
+          properties: {
+            item: { type: "string" },
+            table: { type: "string" },
+            column: { type: "string" },
+            database: { type: "string", description: "データベースの名前 (任意)。使うデータベースが複数あるときは必須。1 つだけなら省いてよい" },
+          },
           required: ["item", "table", "column"],
           additionalProperties: false,
         },
@@ -361,25 +459,34 @@ export function readScreenDraft(raw: unknown): ScreenDraft | null {
 
 const REMOVE = Symbol("remove");
 
+/** view の遷移先 (to) を直した結果。分からない・この画面からの遷移ではない遷移先の名前を集める */
+interface TargetProblems {
+  /** 設計にそんな画面が無い */
+  unknown: Set<string>;
+  /** 設計にある画面だが、この画面からの遷移 (サイトマップ) の行き先ではない */
+  notAllowed: Set<string>;
+}
+
 /**
- * view の中の遷移先 (to) を、画面の名前から設計の画面の id へ直す。分からない to は、navigate の操作ならその操作ごと、
- * ほか (送信のあと・一覧の列) なら to だけを外し、その名前を unknown に集める (元の view は書き換えない)
+ * view の中の遷移先 (to) を、画面の名前から設計の画面の id へ直す。遷移先にできるのは、サイトマップでこの画面から出る遷移の行き先だけ。
+ * それ以外 (分からない名前・遷移の無い画面・自分自身) の to は、navigate の操作ならその操作ごと、ほか (送信のあと・一覧の列) なら to だけを外し、
+ * その名前を problems に集める (元の view は書き換えない)
  */
-function resolveViewTargets(view: unknown, byName: ReadonlyMap<string, string>, ids: ReadonlySet<string>, unknown: Set<string>): unknown {
-  if (Array.isArray(view)) return view.map((v) => resolveViewTargets(v, byName, ids, unknown)).filter((v) => v !== REMOVE);
+function resolveViewTargets(view: unknown, resolve: (to: string) => { id: string } | "unknown" | "notAllowed", problems: TargetProblems): unknown {
+  if (Array.isArray(view)) return view.map((v) => resolveViewTargets(v, resolve, problems)).filter((v) => v !== REMOVE);
   if (!isObject(view)) return view;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(view)) {
     if (key === "to" && typeof value === "string") {
-      const id = ids.has(value) ? value : byName.get(nameOf(value));
-      if (id) out[key] = id;
+      const r = resolve(value);
+      if (typeof r === "object") out[key] = r.id;
       else {
-        unknown.add(value);
+        problems[r].add(value);
         if (view.kind === "navigate") return REMOVE;
       }
       continue;
     }
-    const resolved = resolveViewTargets(value, byName, ids, unknown);
+    const resolved = resolveViewTargets(value, resolve, problems);
     if (resolved !== REMOVE) out[key] = resolved;
   }
   return out;
@@ -411,14 +518,29 @@ export function applyScreenDraft(model: UntieModel, draft: ScreenDraft): ScreenD
   const shape = viewShapeProblem(draft.view);
   if (shape) return { model, warnings: [...warnings, `画面 UI: 画面「${wanted}」の view を置きませんでした (${shape})`], applied: false, viewError: shape, added: { bindings: 0, droppedBindings: 0 } };
 
+  // 遷移先にできるのは、サイトマップでこの画面から出る遷移の行き先だけ (名前が重なれば、行き先のほうを先に引く)
+  const allowed = new Set(design.transitions.filter((t) => t.from === screen.id && t.to !== screen.id).map((t) => t.to));
   const byName = new Map<string, string>();
-  for (const s of design.screens) {
+  const nameLookup = [...design.screens.filter((s) => allowed.has(s.id)), ...design.screens.filter((s) => !allowed.has(s.id))];
+  for (const s of nameLookup) {
     const n = designScreenName(model, s);
     if (!byName.has(n)) byName.set(n, s.id);
   }
-  const unknownTargets = new Set<string>();
-  const resolved = resolveViewTargets(draft.view, byName, new Set(design.screens.map((s) => s.id)), unknownTargets) as Record<string, unknown>;
-  for (const t of unknownTargets) warnings.push(`画面 UI: 画面「${wanted}」の遷移先「${t}」が見つからないので、その遷移を外しました`);
+  const screenIds = new Set(design.screens.map((s) => s.id));
+  const problems: TargetProblems = { unknown: new Set(), notAllowed: new Set() };
+  const resolved = resolveViewTargets(
+    draft.view,
+    (to) => {
+      const id = screenIds.has(to) ? to : byName.get(nameOf(to));
+      if (!id) return "unknown";
+      return allowed.has(id) ? { id } : "notAllowed";
+    },
+    problems,
+  ) as Record<string, unknown>;
+  for (const t of problems.unknown) warnings.push(`画面 UI: 画面「${wanted}」の遷移先「${t}」が見つからないので、その遷移を外しました`);
+  for (const t of problems.notAllowed) {
+    warnings.push(`画面 UI: 画面「${wanted}」の遷移先「${t}」は、サイトマップでこの画面から出る遷移の行き先ではないので、その遷移を外しました (遷移を足すか、to を直してください)`);
+  }
 
   const analysis = screen.source.kind === "screen" ? model.elements.find((e) => e.id === (screen.source as { screenId: string }).screenId) : undefined;
   const goal = typeof resolved.goal === "string" && resolved.goal.trim() !== "" ? resolved.goal : (analysis?.kind === "screen" && analysis.description?.trim()) || wanted;
@@ -427,13 +549,24 @@ export function applyScreenDraft(model: UntieModel, draft: ScreenDraft): ScreenD
   if (!check.ok) {
     return { model, warnings: [...warnings, `画面 UI: 画面「${wanted}」の view が mokkun の検証に通らないので、置きませんでした (${check.message})`], applied: false, viewError: check.message, added: { bindings: 0, droppedBindings: 0 } };
   }
-  // 対応: databaseId は名前で書かれていても使うデータベースの id にそろえる (sanitizeBindings が id で判定する)
-  const proposed = draft.bindings.map((b) => {
-    const db = b.database ? model.databases.find((d) => d.id === b.database || d.name === b.database) : undefined;
+  // 対応: databaseId は名前で書かれていても使うデータベースの id にそろえる (sanitizeBindings が id で判定する。同じ名前のデータベースがあれば、この設計が使うほうを先に引く)。見つからない名前は、使うデータベースが 1 つだけならそれに付け替える (警告に残す)
+  const used = effectiveDatabaseIds(model, design);
+  const usedName = (id: string | undefined) => model.databases.find((d) => d.id === id)?.name ?? "";
+  const replaced = new Set<string>();
+  const proposed = clipList(draft.bindings, DESIGN_DRAFT_LIMITS.bindings, `画面 UI: 画面「${wanted}」の項目と列の対応`, warnings).map((b) => {
+    const candidates = b.database ? model.databases.filter((d) => d.id === b.database || d.name === b.database) : [];
+    const db = candidates.find((d) => used.includes(d.id)) ?? candidates[0];
+    if (b.database && !db && used.length === 1 && !replaced.has(b.database)) {
+      replaced.add(b.database);
+      warnings.push(`画面 UI: 画面「${wanted}」の対応のデータベース「${b.database}」が見つからないので、使うデータベース「${usedName(used[0])}」に付け替えました`);
+    }
     return { item: b.item, table: b.table, column: b.column, ...(db ? { databaseId: db.id } : {}) };
   });
-  const { bindings, dropped } = sanitizeBindings(model, design, view, proposed);
-  if (dropped > 0) warnings.push(`画面 UI: 画面「${wanted}」の項目と列の対応のうち ${dropped} 件は、存在しないテーブル・列や view に無い項目なので、落としました`);
+  const { bindings, dropped, reasons } = sanitizeBindings(model, design, view, proposed);
+  if (dropped > 0) {
+    const detail = reasons.slice(0, DETAIL_MAX).map((r) => `${r.item}: ${r.reason}`).join("、");
+    warnings.push(`画面 UI: 画面「${wanted}」の項目と列の対応のうち ${dropped} 件は、落としました (${detail}${dropped > DETAIL_MAX ? " ほか" : ""})`);
+  }
   const r = setDesignScreenView(model, { systemId: design.systemId, id: screen.id, view, bindings });
   if (!r.ok) return { model, warnings: [...warnings, `画面 UI: 画面「${wanted}」の view を置けません: ${r.reason}`], applied: false, failure: r.reason, added: { bindings: 0, droppedBindings: dropped } };
   return { model: r.model, warnings, applied: true, added: { bindings: bindings.length, droppedBindings: dropped } };

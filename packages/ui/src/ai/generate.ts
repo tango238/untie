@@ -35,7 +35,7 @@ export interface GenerationResult {
 const STRICT_ATTEMPTS = 2;
 
 export function summarizeCounts(counts: BuildResult["counts"]): string {
-  const order: ElementKind[] = ["business", "buc", "activity", "usecase", "actor", "externalActor", "system", "ledger", "context", "information", "state", "condition", "variation", "issue"];
+  const order: ElementKind[] = ["business", "buc", "activity", "usecase", "screen", "event", "actor", "externalActor", "system", "ledger", "context", "information", "state", "condition", "variation", "issue"];
   return order
     .filter((k) => counts[k])
     .map((k) => `${ELEMENT_KIND_LABELS[k]} ${counts[k]}`)

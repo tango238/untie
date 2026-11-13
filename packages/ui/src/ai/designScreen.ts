@@ -177,24 +177,35 @@ export function readScreenProposal(raw: unknown): ScreenProposal | null {
  * 提案の対応から、存在しないデータベース・テーブル・列と、view に無い項目、重複を捨てる (使うデータベースだけが対象)。
  * databaseId が無いときは、使うデータベースが 1 つならそれにする。捨てた数も返す
  */
-export function sanitizeBindings(model: UntieModel, design: SystemDesign, view: unknown, proposed: ScreenProposal["bindings"]): { bindings: ScreenBindings; dropped: number } {
+export function sanitizeBindings(
+  model: UntieModel,
+  design: SystemDesign,
+  view: unknown,
+  proposed: ScreenProposal["bindings"],
+): { bindings: ScreenBindings; dropped: number; /** 捨てた対応の項目と理由 (捨てた順) */ reasons: { item: string; reason: string }[] } {
   const used = effectiveDatabaseIds(model, design);
   const slots = new Set(viewBindingSlots(view).map((s) => s.key));
   const seen = new Set<string>();
   const bindings: ScreenBindings = [];
-  let dropped = 0;
+  const reasons: { item: string; reason: string }[] = [];
   for (const b of proposed) {
     const databaseId = b.databaseId ?? (used.length === 1 ? used[0] : undefined);
     const db = databaseId !== undefined && used.includes(databaseId) ? model.databases.find((d) => d.id === databaseId) : undefined;
     const table = db ? parsePrismaDslCached(db.dsl).models.find((m) => m.name === b.table) : undefined;
-    if (!db || !table || !table.fields.some((f) => f.name === b.column) || !slots.has(b.item) || seen.has(b.item)) {
-      dropped++;
+    let reason: string | null = null;
+    if (!db) reason = databaseId === undefined ? "使うデータベースが複数あるのに、データベースが決まりません" : "使うデータベースにありません";
+    else if (!table) reason = `テーブル ${b.table} がありません`;
+    else if (!table.fields.some((f) => f.name === b.column)) reason = `テーブル ${b.table} に列 ${b.column} がありません`;
+    else if (!slots.has(b.item)) reason = "view に無い項目です";
+    else if (seen.has(b.item)) reason = "同じ項目の対応がすでにあります";
+    if (reason || !db) {
+      reasons.push({ item: b.item, reason: reason ?? "" });
       continue;
     }
     seen.add(b.item);
     bindings.push({ item: b.item, databaseId: db.id, table: b.table, column: b.column });
   }
-  return { bindings, dropped };
+  return { bindings, dropped: reasons.length, reasons };
 }
 
 export interface ScreenOptions {

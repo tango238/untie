@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { traceToActors } from "@untie/core/model/trace";
 import { validateModel } from "@untie/core/model/validate";
-import { buildModelFromSpec, type ModelSpec } from "../spec";
+import { buildModelFromSpec, SPEC_LIMITS, type ModelSpec } from "../spec";
 
 const spec: ModelSpec = {
   system_name: "小さな旅館",
@@ -135,5 +135,55 @@ describe("buildModelFromSpec: 作業の起点", () => {
     const dup = buildModelFromSpec(base([act("先", { trigger_activities: ["同名"] }), act("同名")], [act("同名")]));
     expect(dup.warnings).toEqual(["起点の作業「同名」と同じ名前の作業が 2 つあるので、最初の 1 つを結びました"]);
     expect(triggers(dup)).toEqual([["同名", "先"]]);
+  });
+});
+
+describe("buildModelFromSpec: 巨大な下書き", () => {
+  const L = SPEC_LIMITS;
+  it("上限いっぱいの入力が数秒以内に終わり、超えた分は「先頭 N 件だけ使いました」と警告する", () => {
+    const n = 1500;
+    const big: ModelSpec = {
+      system_name: "大きな下書き",
+      actors: [{ name: "担当" }],
+      systems: [{ name: "基幹" }],
+      informations: Array.from({ length: n }, (_, i) => ({ name: `情報${i}` })),
+      businesses: [
+        {
+          name: "業務",
+          main_actors: ["担当"],
+          activities: Array.from({ length: n }, (_, i) => ({
+            name: `作業${i}`,
+            performers: ["担当"],
+            usecases: [{ name: `操作${i}`, reads: [`情報${i}`], targets: ["基幹"] }],
+          })),
+        },
+      ],
+      screens: Array.from({ length: n }, (_, i) => ({ name: `画面${i}`, system: "基幹", usecase: `操作${i}` })),
+    };
+    const start = performance.now();
+    const r = buildModelFromSpec(big);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(6000);
+    expect(r.counts.activity).toBe(L.activities);
+    expect(r.counts.usecase).toBe(L.usecases);
+    expect(r.counts.screen).toBe(L.screens);
+    expect(r.counts.information).toBe(L.informations);
+    expect(r.warnings).toEqual(
+      expect.arrayContaining([
+        `情報は先頭 ${L.informations} 件だけ使いました (${n} 件ありました)`,
+        `画面は先頭 ${L.screens} 件だけ使いました (${n} 件ありました)`,
+        `作業は先頭 ${L.activities} 件だけ使いました (${n - L.activities} 件を飛ばしました)`,
+      ]),
+    );
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
+  it("1 つの要素が参照する名前の数にも上限がある", () => {
+    const r = buildModelFromSpec({
+      system_name: "x",
+      actors: [{ name: "担当" }],
+      businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: Array.from({ length: L.refsPerItem + 5 }, () => "担当") }] }],
+    });
+    expect(r.warnings).toContain(`作業「作業」の担当は先頭 ${L.refsPerItem} 件だけ使いました (${L.refsPerItem + 5} 件ありました)`);
   });
 });
