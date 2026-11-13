@@ -344,8 +344,10 @@ describe("条件", () => {
     render(<OperationBoard />);
     const box = screen.getAllByRole("region", { name: new RegExp(`^操作 ${usecase.name}`) })[0]!;
     const row = within(within(box).getByRole("list", { name: "条件の一覧" })).getByRole("button", { name: new RegExp(`^条件 ${condition.name}`) });
-    expect(row.textContent).toContain("代替パターンあり");
-    expect(row.getAttribute("aria-label")).toContain("代替パターンあり");
+    // 代替パターンは「いつ」だけでなく、どうなるかの全文とそのあとの状態まで出す (「代替パターンあり」という前置きは出さない)
+    expect(row.textContent).toContain("満たすとき: 予約を受けず、別の日か別の部屋タイプを案内する。(状態は変わらない)");
+    expect(row.textContent).not.toContain("代替パターンあり");
+    expect(row.getAttribute("aria-label")).toContain("満たすとき: 予約を受けず、別の日か別の部屋タイプを案内する。(状態は変わらない)");
     fireEvent.click(row);
     expect(selectedId()).toBe(condition.id);
     expect(row.getAttribute("aria-current")).toBe("true");
@@ -387,7 +389,7 @@ describe("条件に添える区分と状態", () => {
     const state = st().model.elements.find((e) => e.id === "st_room_inuse") as { name: string; group?: string };
     expect(notes[0]).toBe("区分: 部屋タイプ");
     expect(notes[1]).toBe(`状態: ${state.name}${state.group ? ` (${state.group})` : ""}`);
-    expect(notes[2]).toMatch(/^代替パターンあり: /);
+    expect(notes[2]).toBe("満たすとき: 予約を受けず、別の日か別の部屋タイプを案内する。(状態は変わらない)");
     for (const n of notes) expect(row.getAttribute("aria-label")).toContain(n!);
     // 添え書きどうしは「。」で区切る (区分・状態の中の並びの「、」と紛れない)
     expect(row.getAttribute("aria-label")).toBe(`条件 満室である (${notes.join("。")})`);

@@ -1226,3 +1226,11 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 /* 2 行を 1 つの入れ物に包み、枠の gap ではなく条件の行の添え書きと同じ詰まった行間にする */
 .wf-op-notes { padding: 0 4px; }
 .wf-op-note { margin: 0; padding: 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* システム操作ボード: 操作の枠はすべて同じ幅にする (長い文字は枠の中で折り返す)。狭い画面では行いっぱいに広げる */
+.wf-operation { width: 240px; max-width: 100%; min-width: 0; }
+.wf-operation .wf-name, .wf-operation .wf-kind, .wf-operation .wf-assignees, .wf-operation .wf-chip { overflow-wrap: anywhere; }
+.wf-operation .wf-chips li, .wf-operation .wf-stack li { min-width: 0; }
+@media (max-width: 768px) {
+  .wf-operation { width: auto; max-width: none; }
+}

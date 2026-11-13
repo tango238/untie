@@ -274,7 +274,7 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
       break;
     }
     case "state": {
-      // 条件の「状態参照」と操作の「前提の状態」(実行可)「次の状態」の結び付き、代替パターンの「そのあとの状態」が外れる
+      // 条件の「状態参照」と操作の「前提の状態」「次の状態」の結び付き、代替パターンの「そのあとの状態」が外れる
       const afterRefs = model.relations.filter((r) => r.alternate?.after?.stateIds?.includes(el.id)).length;
       push({ label: "条件", count: countRelations(model, el.id, ["conditionState"]), effect: "kept", note: "「状態参照」の結び付きが外れます" });
       push({ label: "操作", count: countRelations(model, el.id, ["stateUsecase", "usecaseState"]), effect: "kept", note: "「前提の状態」「次の状態」の結び付きが外れます" });

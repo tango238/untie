@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addElement, addRelation, removeElement, removeRelation } from "../commands";
 import { addInformationBoardElement, buildInformationBoard } from "../informationBoard";
-import { addOperationElement, buildOperationBoard } from "../operationBoard";
+import { addOperationElement, alternateText, buildOperationBoard, stateLabel } from "../operationBoard";
 import { relationRemovalImpact, removalImpact } from "../workflow";
 import { validateModel } from "../validate";
 import type { UntieModel } from "../types";
@@ -121,7 +121,7 @@ describe("削除の影響 (コンテキスト・状態・バリエーション�
     expect(removalImpact(okModel(addElement(m, { kind: "context", name: "空", id: "ctx_empty" })), "ctx_empty")).toEqual([]);
   });
 
-  it("状態: 条件の状態参照・操作の実行可/次の状態・代替パターンのそのあとの状態を数える", () => {
+  it("状態: 条件の状態参照・操作の前提の状態/次の状態・代替パターンのそのあとの状態を数える", () => {
     const m = sample();
     const st = m.elements.find((e) => e.kind === "state" && m.relations.some((r) => (r.kind === "usecaseState" || r.kind === "stateUsecase") && (r.sourceId === e.id || r.targetId === e.id)))!;
     const impact = removalImpact(m, st.id);
@@ -365,5 +365,70 @@ describe("システム操作ボードの操作の前提の状態・次の状態"
     const rows = boxesOf(m).filter((b) => b.usecase.id === "uc_search_reservation");
     expect(rows.length).toBeGreaterThan(1);
     for (const b of rows) expect(ids(b.premiseStates)).toEqual(ids(rows[0]!.premiseStates));
+  });
+});
+
+describe("条件の行に添える代替パターンの文 (alternateText)", () => {
+  const m = sample();
+  const byId = new Map(m.elements.map((e) => [e.id, e]));
+  const text = (a: Parameters<typeof alternateText>[0], changesState = true) => alternateText(a, byId, changesState);
+
+  it("いつ (満たすとき・満たさないとき) → どうなるか (全文) → そのあとの状態の順。「代替パターンあり」の前置きは出さない", () => {
+    const met = text({ when: "met", then: "予約を受けず、別の日か別の部屋タイプを案内する。", after: { type: "unchanged" } });
+    expect(met).toBe("満たすとき: 予約を受けず、別の日か別の部屋タイプを案内する。(状態は変わらない)");
+    expect(text({ when: "unmet", then: "ロビーで待ってもらう。", after: { type: "unchanged" } })).toBe("満たさないとき: ロビーで待ってもらう。(状態は変わらない)");
+    expect(met).not.toContain("代替パターン");
+    // 長い文も省略しない
+    const long = "あ".repeat(300);
+    expect(text({ when: "met", then: long, after: { type: "unchanged" } })).toContain(long);
+  });
+
+  it("そのあとの状態の各種類: ふだんと同じ・特定の状態 (状態グループつき。複数は「・」)・未定・存在しない状態だけなら未定", () => {
+    expect(text({ when: "met", then: "取り消す。", after: { type: "normal" } })).toBe("満たすとき: 取り消す。(そのあとの状態: ふだんと同じ)");
+    expect(text({ when: "met", then: "確定する。", after: { type: "states", stateIds: ["st_res_confirmed"] } })).toBe(`満たすとき: 確定する。(そのあとの状態: ${stateLabel(byId.get("st_res_confirmed") as never)})`);
+    expect(text({ when: "met", then: "確定する。", after: { type: "states", stateIds: ["st_res_confirmed"] } })).toContain("(予約の状態)");
+    expect(text({ when: "met", then: "x", after: { type: "states", stateIds: ["st_res_confirmed", "st_room_inuse"] } })).toContain("・");
+    expect(text({ when: "met", then: "x" })).toBe("満たすとき: x (そのあとの状態は未定)");
+    expect(text({ when: "met", then: "x", after: { type: "states", stateIds: ["st_nothing"] } })).toBe("満たすとき: x (そのあとの状態は未定)");
+  });
+
+  it("どうなるかが空なら「(どうなるかは未入力)」。エラーのときは結果の種類と、状態は変わらない旨を添える。起きる出来事があれば添える", () => {
+    expect(text({ when: "met", then: "  " })).toBe("満たすとき: (どうなるかは未入力) (そのあとの状態は未定)");
+    expect(text({ when: "unmet", then: "エラーにする。", error: { type: "input" } })).toBe("満たさないとき: エラーにする。(結果: 入力エラー、状態は変わらない)");
+    expect(text({ when: "met", then: "x", error: { type: "server", status: 404 } })).toContain("サーバーエラー 404");
+    expect(text({ when: "met", then: "通知する。", eventId: "ev_charge_calculated", after: { type: "unchanged" } })).toBe("満たすとき: 通知する。(出来事: 請求金額が計算された)(状態は変わらない)");
+    // 括弧は文が句読点で終わっていればつなげ、終わっていなければ空白を 1 つ入れる
+    expect(text({ when: "met", then: "案内する", after: { type: "unchanged" } })).toBe("満たすとき: 案内する (状態は変わらない)");
+    // 存在しない出来事の参照は無視する
+    expect(text({ when: "met", then: "x", eventId: "ev_nothing", after: { type: "unchanged" } })).toBe("満たすとき: x (状態は変わらない)");
+  });
+
+  it("操作が状態を変えない (次の状態が無い) ときは、そのあとの状態が未定でも何も添えない。変えるときは「未定」を添える。名前を引けない状態だけなら未定扱い", () => {
+    expect(text({ when: "met", then: "案内する。" }, false)).toBe("満たすとき: 案内する。");
+    expect(text({ when: "met", then: "案内する。" }, true)).toBe("満たすとき: 案内する。(そのあとの状態は未定)");
+    expect(text({ when: "met", then: "x", after: { type: "states", stateIds: ["st_nothing"] } }, false)).toBe("満たすとき: x");
+    // 決めているものは、操作が状態を変えなくても出す
+    expect(text({ when: "met", then: "案内する。", after: { type: "unchanged" } }, false)).toBe("満たすとき: 案内する。(状態は変わらない)");
+    // 条件のデータでは、次の状態が無い操作の代替パターンに「未定」が付かない
+    const boxes = buildOperationBoard(m).frames.flatMap((f) => f.rows.flatMap((r) => r.operations));
+    for (const b of boxes) for (const c of b.conditions) if (c.alternate && !c.alternate.after && !c.alternate.error && b.nextStates.length === 0) expect(c.alternateText).not.toContain("未定");
+    const noNext = boxes.find((b) => b.nextStates.length === 0 && b.conditions.length === 0)!;
+    const mm = { ...m, relations: m.relations.map((r) => r) };
+    const cond = m.elements.find((e) => e.kind === "condition")!;
+    const added = okModel(addRelation(mm, { sourceId: noNext.usecase.id, targetId: cond.id }));
+    const withAlt = { ...added, relations: added.relations.map((r) => (r.kind === "usecaseCondition" && r.sourceId === noNext.usecase.id && r.targetId === cond.id ? { ...r, alternate: { when: "met" as const, then: "案内する。" } } : r)) };
+    const e = buildOperationBoard(withAlt).frames.flatMap((f) => f.rows.flatMap((r) => r.operations)).find((b) => b.usecase.id === noNext.usecase.id)!.conditions.find((x) => x.condition.id === cond.id)!;
+    expect(e.alternateText).toBe("満たすとき: 案内する。");
+  });
+
+  it("操作の枠の条件のデータに、文 (alternateText) が入る。代替パターンの無い条件・操作に結ばれていない条件には入らない", () => {
+    const boxes = buildOperationBoard(m).frames.flatMap((f) => f.rows.flatMap((r) => r.operations));
+    const entry = boxes.find((b) => b.usecase.id === "uc_register_reservation")!.conditions.find((x) => x.condition.id === "cond_full")!;
+    expect(entry.alternateText).toBe("満たすとき: 予約を受けず、別の日か別の部屋タイプを案内する。(状態は変わらない)");
+    const lone = okModel(addElement(m, { kind: "condition", name: "宙の条件", id: "cond_float" }));
+    expect(buildOperationBoard(lone).unlinkedConditions.every((x) => x.alternateText === undefined)).toBe(true);
+    const added = okModel(addOperationElement(m, "condition", "uc_register_reservation"));
+    const e2 = buildOperationBoard(added).frames.flatMap((f) => f.rows.flatMap((r) => r.operations)).find((b) => b.usecase.id === "uc_register_reservation")!.conditions.find((x) => x.condition.name === "新しい条件")!;
+    expect(e2.alternateText).toBeUndefined();
   });
 });

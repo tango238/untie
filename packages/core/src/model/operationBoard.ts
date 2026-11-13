@@ -3,7 +3,27 @@
 import { addElement, addRelation, USECASE_TARGET_LIMIT_REASON, isUsecaseTargetKind, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup } from "./fixedBoards";
 import { defaultBucOf } from "./selectors";
-import type { Activity, Buc, Business, Condition, Element, EventElement, InformationAccess, Information, Ledger, RelationAlternate, Screen, State, System, UntieModel, Usecase, Variation } from "./types";
+import { alternateAfterLabel } from "./sequence";
+import {
+  ALTERNATE_AFTER_LABELS,
+  alternateErrorLabel,
+  type Activity,
+  type Buc,
+  type Business,
+  type Condition,
+  type Element,
+  type EventElement,
+  type Information,
+  type InformationAccess,
+  type Ledger,
+  type RelationAlternate,
+  type Screen,
+  type State,
+  type System,
+  type UntieModel,
+  type Usecase,
+  type Variation,
+} from "./types";
 
 /** 操作が扱う情報 1 つ (usecaseInformation)。access は取得 (read)・保存 (write)。省略は両方 */
 export interface OperationInformation {
@@ -19,7 +39,43 @@ export interface OperationCondition {
   /** 条件が参照する状態 (conditionState) */
   states: State[];
   alternate?: RelationAlternate;
+  /** 代替パターンの、行に添える文 (alternateText)。代替パターンが無ければ無い */
+  alternateText?: string;
 }
+
+/** 状態の書き方: 名前のあとに、状態グループがあれば括弧で添える (グループ名は前後の空白を除き、空なら括弧なし) */
+export function stateLabel(state: { name: string; group?: string }): string {
+  const name = state.name || "(名前なし)";
+  return state.group?.trim() ? `${name} (${state.group.trim()})` : name;
+}
+
+/**
+ * 代替パターンの、条件の行に添える文: 「満たすとき: どうなるか。(出来事: …)(状態は変わらない)」。括弧どうしも空白を入れずにつなげる。
+ * いつ (満たすとき / 満たさないとき) → どうなるか (全文。未入力なら「(どうなるかは未入力)」) → そのとき起きる出来事 → そのあとの状態。
+ * 文と括弧は、文が句読点で終わっていればつなげ、終わっていなければ空白を 1 つ入れる。
+ * そのあとの状態の言い方は、設計モードのシーケンス図・書き出しと同じ (`alternateAfterLabel`: 変えない / ふだんと同じ / 状態の名前 / 未定)。
+ * エラーのときは状態を変えない。操作が状態を変えない (次の状態が無い) とき、そのあとの状態を決めていなくても何も添えない (シーケンス図と同じ)
+ */
+export function alternateText(alternate: RelationAlternate, byId: ReadonlyMap<string, Element>, changesState: boolean): string {
+  const when = alternate.when === "met" ? "満たすとき" : "満たさないとき";
+  const then = alternate.then.trim() === "" ? "(どうなるかは未入力)" : alternate.then.trim();
+  const event = alternate.eventId !== undefined ? byId.get(alternate.eventId) : undefined;
+  const parts: string[] = [];
+  if (event && event.kind === "event") parts.push(`(出来事: ${event.name || "(名前なし)"})`);
+  if (alternate.error) parts.push(`(結果: ${alternateErrorLabel(alternate.error)}、状態は変わらない)`);
+  else {
+    const after = alternateAfterLabel(alternate, (id) => {
+      const e = byId.get(id);
+      return e?.kind === "state" ? stateLabel(e) : null;
+    });
+    if (after === null) {
+      if (changesState) parts.push("(そのあとの状態は未定)");
+    } else parts.push(after === ALTERNATE_AFTER_LABELS.unchanged ? "(状態は変わらない)" : `(そのあとの状態: ${after})`);
+  }
+  const glue = /[。.!?！？]$/.test(then) || parts.length === 0 ? "" : " ";
+  return `${when}: ${then}${glue}${parts.join("")}`;
+}
+
 
 /** 操作の枠: 前提・次の状態・使う画面・対象 (システム・帳票)・扱う情報・判断する条件・きっかけと発生のイベント */
 export interface OperationBox {
@@ -27,7 +83,7 @@ export interface OperationBox {
   screens: Screen[];
   /** 操作の対象のシステム・帳票 (対象は 1 つだけなので、画面があれば空) */
   targets: (System | Ledger)[];
-  /** 前提の状態 (stateUsecase: 状態 → 操作。「実行可」。その状態のときにこの操作ができる) */
+  /** 前提の状態 (stateUsecase: 状態 → 操作。その状態のときにこの操作ができる) */
   premiseStates: State[];
   /** 次の状態 (usecaseState: 操作 → 状態。この操作をするとその状態になる) */
   nextStates: State[];
@@ -143,7 +199,7 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
     screens: screensOf.get(u.id) ?? [],
     targets: targetsOf.get(u.id) ?? [],
     informations: informationsOf.get(u.id) ?? [],
-    conditions: (conditionsOf.get(u.id) ?? []).map((x) => ({ ...conditionEntry(x.condition), ...(x.alternate !== undefined ? { alternate: x.alternate } : {}) })),
+    conditions: (conditionsOf.get(u.id) ?? []).map((x) => ({ ...conditionEntry(x.condition), ...(x.alternate !== undefined ? { alternate: x.alternate, alternateText: alternateText(x.alternate, byId, (nextOf.get(u.id) ?? []).length > 0) } : {}) })),
     triggers: triggersOf.get(u.id) ?? [],
     emits: emitsOf.get(u.id) ?? [],
   });

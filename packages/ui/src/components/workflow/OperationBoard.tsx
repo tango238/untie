@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { addOperationElement, buildOperationBoard, systemsForScreens, type OperationBox, type OperationCondition, type OperationFrame, type OperationRow } from "@untie/core/model/operationBoard";
+import { addOperationElement, buildOperationBoard, stateLabel, systemsForScreens, type OperationBox, type OperationCondition, type OperationFrame, type OperationRow } from "@untie/core/model/operationBoard";
 import { canAddActivityToBusiness, addWorkflowElement, SIMPLE_BOARD_LABELS } from "@untie/core/model/workflow";
-import { ALTERNATE_WHEN_LABELS, INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Information, type InformationAccess, type UntieModel } from "@untie/core/model/types";
+import { INFORMATION_ACCESS_BOTH_LABEL, INFORMATION_ACCESS_LABELS, type Activity, type Information, type InformationAccess, type UntieModel } from "@untie/core/model/types";
 import { useBoardKit } from "./boardKit";
 import { nameOf, Pick } from "./WorkflowBoard";
 
@@ -202,8 +202,8 @@ function OperationFrameView({ box, ctx }: { box: OperationBox; ctx: Ctx }) {
   const u = box.usecase;
   // 見出しの下に、前提の状態 → 次の状態を、文字だけで添える (状態を選ぶチップにはしない)
   const notes = [
-    box.premiseStates.length > 0 ? `前提の状態: ${box.premiseStates.map(stateText).join("、")}` : "",
-    box.nextStates.length > 0 ? `次の状態: ${box.nextStates.map(stateText).join("、")}` : "",
+    box.premiseStates.length > 0 ? `前提の状態: ${box.premiseStates.map(stateLabel).join("、")}` : "",
+    box.nextStates.length > 0 ? `次の状態: ${box.nextStates.map(stateLabel).join("、")}` : "",
   ].filter((n) => n !== "");
   // 画面を足せるのは、対象 (システム・帳票・画面) が無く、画面を足すシステムがある操作 (コマンドも同じ決まりで確かめる)
   const canAddScreen = !ctx.readOnly && ctx.systems.length > 0 && box.screens.length === 0 && box.targets.length === 0;
@@ -314,20 +314,18 @@ function ScreenRow({ screen, ctx }: { screen: { id: string; name: string; system
   );
 }
 
-/** 状態の書き方: 名前のあとに、状態グループがあれば括弧で添える (グループ名は前後の空白を除き、空なら括弧なし) */
-const stateText = (st: { name: string; group?: string }) => (st.group?.trim() ? `${nameOf(st)} (${st.group.trim()})` : nameOf(st));
 
 /**
  * 条件の行。条件の名前の下に、参照する区分・状態 (文字だけ。選ぶのは「情報と状態」のボードかプロパティの関係から) と、
- * 操作が判断する条件には代替パターンがあるかを添える (長い文は出さない。中身はプロパティで見る)。
+ * 操作が判断する条件には、代替パターンの中身を「満たすとき: どうなるか (状態は変わらない)」の形で全文添える (長ければ枠の中で折り返す)。
  * 状態は、状態グループがあれば「確定 (予約の状態)」のように名前のあとにグループを添える (固定ボードの「状態グループ「…」ごと」と同じく括弧で)
  */
 function ConditionRow({ entry, linked = false, ctx }: { entry: OperationCondition; linked?: boolean; ctx: Ctx }) {
-  const { condition, alternate } = entry;
+  const { condition } = entry;
   const notes = [
     entry.variations.length > 0 ? `区分: ${entry.variations.map(nameOf).join("、")}` : "",
-    entry.states.length > 0 ? `状態: ${entry.states.map(stateText).join("、")}` : "",
-    linked && alternate ? `代替パターンあり: ${ALTERNATE_WHEN_LABELS[alternate.when]}` : "",
+    entry.states.length > 0 ? `状態: ${entry.states.map(stateLabel).join("、")}` : "",
+    linked && entry.alternateText ? entry.alternateText : "",
   ].filter((n) => n !== "");
   return (
     <Pick id={condition.id} className="wf-condition" ctx={ctx} label={`条件 ${nameOf(condition)}${notes.length > 0 ? ` (${notes.join("。")})` : ""}`}>
