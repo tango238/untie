@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
 import { describeChatError, isAbortError } from "../../ai/chat";
 import { getApiKey } from "../../ai/keys";
@@ -50,7 +50,15 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const provider = PROVIDERS[settings.provider];
   const model = settings.models[settings.provider] || provider.defaultModel;
   const running = step !== null && step !== "done";
-  const fileCount = tree ? visibleFiles(tree).length : 0;
+  // 読めるファイルの数 (2 万件で約 22ms)。調査中は文章が届くたびに描画し直すので、木が替わったときだけ数える
+  const fileCount = useMemo(() => (tree ? visibleFiles(tree).length : 0), [tree]);
+  // 調査結果の文章の枠は、文章が届くたびに末尾までスクロールして最新の文を見せる。利用者が上へスクロールしているときは戻さない
+  const surveyBox = useRef<HTMLPreElement | null>(null);
+  const followSurvey = useRef(true);
+  useEffect(() => {
+    const el = surveyBox.current;
+    if (el && followSurvey.current) el.scrollTop = el.scrollHeight;
+  }, [survey]);
 
   const pick = async () => {
     setPicking(true);
@@ -78,6 +86,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const run = async (tree: SourceTree) => {
     setError(null);
     setSurvey("");
+    followSurvey.current = true;
     setReads([]);
     setReadCount(0);
     setLog([]);
@@ -228,7 +237,18 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             )}
-            {survey && <pre className="prompt-analysis">{survey}</pre>}
+            {survey && (
+              <pre
+                ref={surveyBox}
+                className="prompt-analysis source-survey"
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  followSurvey.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+                }}
+              >
+                {survey}
+              </pre>
+            )}
             {screen && (
               <div className="prompt-step">
                 画面 {screen.done}/{screen.total}
@@ -242,8 +262,8 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {warnings && (
-          <div className="source-warnings" role="status">
-            <div className="prompt-step">
+          <div className="source-warnings">
+            <div className="prompt-step" role="status">
               モデルを作りました。気づいたことが {warnings.length} 件あります。
             </div>
             <ul>

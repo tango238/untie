@@ -344,6 +344,34 @@ describe("サイトマップ", () => {
     expect(validateModel(roundTrip(r.model)).ok).toBe(true);
   });
 
+  it("導出済みの遷移と同じ両端を AI が出したら、きっかけ・文言が未定のときだけ AI の値で埋める (決まっているものは変えない)", () => {
+    // 登録 → 一覧の連鎖 (イベントをはさむ) があるモデル。導出される遷移はきっかけが未定
+    const spec = structuredClone(FIXTURE_SPEC);
+    spec.events = [...spec.events!, { name: "登録が済んだ", raised_by: ["注文を登録する"], usecases: [{ name: "注文を検索する" }] }];
+    const withChain = applyDatabaseDraft(buildModelFromSpec(spec).model, FIXTURE_DATABASE).model;
+    const base = applySitemapDraft(withChain, { system: "注文管理システム", transitions: [] }).model;
+    const design = base.designs[0]!;
+    const name = (id: string) => designScreenName(base, design.screens.find((s) => s.id === id)!);
+    // 作業のつながりから導かれた遷移 (きっかけは未定)
+    const undecided = design.transitions.filter((t) => t.via === undefined);
+    expect(undecided.length).toBeGreaterThan(0);
+    const target = undecided[0]!;
+    const r = applySitemapDraft(base, { system: "注文管理システム", transitions: [{ from: name(target.from), to: name(target.to), via: "afterSubmit", label: "登録する" }] });
+    expect(r.warnings).toEqual([]);
+    expect(r.added).toMatchObject({ transitions: 0, skipped: 1 });
+    const filled = r.model.designs[0]!.transitions.find((t) => t.id === target.id)!;
+    expect(filled.via).toBe("afterSubmit");
+    expect(filled.label).toBe("登録する");
+    expect(r.model.designs[0]!.transitions).toHaveLength(design.transitions.length);
+    expect(checkDesign(r.model, r.model.designs[0]!.systemId).warnings.filter((w) => w.type === "transitionViaUndecided")).toHaveLength(undecided.length - 1);
+    // 決まっているものは、2 回目の提出で変えない
+    const again = applySitemapDraft(r.model, { system: "注文管理システム", transitions: [{ from: name(target.from), to: name(target.to), via: "button", label: "別の文言" }] });
+    const kept = again.model.designs[0]!.transitions.find((t) => t.id === target.id)!;
+    expect(kept.via).toBe("afterSubmit");
+    expect(kept.label).toBe("登録する");
+    expect(validateModel(roundTrip(r.model)).ok).toBe(true);
+  });
+
   it("見つからないシステムは何も足さない", () => {
     const m = analysis().model;
     const r = applySitemapDraft(m, { system: "存在しない", transitions: [] });

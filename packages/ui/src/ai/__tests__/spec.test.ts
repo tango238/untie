@@ -228,6 +228,26 @@ describe("buildModelFromSpec: 同じつながりを 2 か所に書かれても�
     expect(rels.find((x) => x.targetId === order.id)!.access).toBeUndefined();
   });
 
+  it("取得を 2 回書いても取得のまま、情報 (区別なし) のあとに取得を書いても区別なしのまま", () => {
+    const base = (usecase: Record<string, unknown>): ModelSpec => ({
+      system_name: "x",
+      actors: [{ name: "担当" }],
+      systems: [{ name: "基幹" }],
+      informations: [{ name: "注文" }],
+      businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: ["担当"], usecases: [{ name: "操作", targets: ["基幹"], ...usecase }] }] }],
+    });
+    const accessOf = (spec: ModelSpec) => {
+      const r = buildModelFromSpec(spec);
+      expect(r.warnings).toEqual([]);
+      const rels = r.model.relations.filter((x) => x.kind === "usecaseInformation");
+      expect(rels).toHaveLength(1);
+      return rels[0]!.access;
+    };
+    expect(accessOf(base({ reads: ["注文", "注文"] }))).toBe("read");
+    expect(accessOf(base({ informations: ["注文"], reads: ["注文"] }))).toBeUndefined();
+    expect(accessOf(base({ writes: ["注文"], informations: ["注文"] }))).toBeUndefined();
+  });
+
   it("同じバリエーション・状態を条件に 2 度書いても警告にならない", () => {
     const r = buildModelFromSpec({
       system_name: "x",

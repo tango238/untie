@@ -7,7 +7,7 @@ import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitem
 import { traceToActors } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type UntieModel } from "@untie/core/model/types";
 import { validateModel } from "@untie/core/model/validate";
-import { ChatError, createChatSession, type ChatEvents, type ChatSession, type SeedTurn } from "./chat";
+import { ChatError, createChatSession, describeChatError, isTransientApiError, type ChatEvents, type ChatSession, type SeedTurn } from "./chat";
 import {
   applyDatabaseDraft,
   applyScreenDraft,
@@ -70,17 +70,13 @@ export interface ReverseResult {
 
 // ---------------------------------------------------------------- 上限
 
-/** 会話の 1 回の send で、道具を使う往復の上限 (chat.ts の MAX_STEPS = 60。export されていないので、値をここに写す) */
-export const CHAT_MAX_STEPS = 60;
-
 export const REVERSE_LIMITS = {
   /** 画面 UI を作る画面の数。超えた分は作らず、警告に残す */
   screens: 30,
-  /** 1 回の生成でソースの道具を呼べる回数の合計 */
-  sourceCallsTotal: 300,
   /**
    * 会話 (段階・システム・画面) ごとに呼べる回数。1 つの会話が全部を使い切って、あとの段階が読めなくならないようにする。
-   * 1 回の send の往復の上限 (CHAT_MAX_STEPS = 60) より十分小さくする。読み切ったあとに、調査結果を書く往復・提出の往復・
+   * 1 回の生成での合計の上限は、これらの合計から決める (sourceBudget。システムの数と画面の数で増える)。
+   * 1 回の send の往復の上限 (chat.ts の MAX_STEPS) より十分小さくする (conversationSteps で検査する)。読み切ったあとに、調査結果を書く往復・提出の往復・
    * 検査で返されたときの出し直しの往復・終わりの返答の往復が残るように (調査: 上限 + 返答 1、分析モデル: 上限 + 提出 3 + 返答、
    * データ: 上限 + 提出 3 + 2 + 返答、画面: 上限 + 提出 2 + 返答)
    */
@@ -104,14 +100,41 @@ export const REVERSE_LIMITS = {
   surveySeedChars: 8000,
   /** 提出を受け付けたあと、気づいたことを AI に返す数 */
   revisionWarnings: 10,
-  /** 画面 UI の会話の ChatError が続けて起きたら、残りの画面は作らずに終える回数 */
+  /** データ・画面 UI の会話の失敗 (ChatError と、一時的な API のエラー) が続けて起きたら、残りは作らずに終える回数 */
   screenErrorStreak: 3,
 } as const;
+
+/**
+ * 1 回の生成でソースの道具を呼べる回数と、道具が返す文字数の合計の上限。段階ごとの上限の合計から決める:
+ * 調査 1 + 分析モデル 1 + データ (システムごと) + 画面 UI (画面ごと)。固定の数にすると、システムや画面が多いとき、
+ * 後ろの画面の分が残らない (調査 40 + 分析モデル 12 + データ 20×システム + 画面 8×30 画面は 312 回以上)
+ */
+export function sourceBudget(systems: number, screens: number): { calls: number; chars: number } {
+  const L = REVERSE_LIMITS;
+  return {
+    calls: L.sourceCallsSurvey + L.sourceCallsModel + L.sourceCallsData * systems + L.sourceCallsScreen * screens,
+    chars: L.sourceCharsSurvey + L.sourceCharsModel + L.sourceCharsData * systems + L.sourceCharsScreen * screens,
+  };
+}
+
+/**
+ * 会話ごとに、ソースを読む上限まで読んだあとに必要な往復の数 (まとめ・提出・出し直し・終わりの返答)。
+ * どれも chat.ts の MAX_STEPS (1 回の send の往復の上限) より小さくなければならない
+ */
+export function conversationSteps(): Record<"survey" | "model" | "data" | "screen", number> {
+  const L = REVERSE_LIMITS;
+  return {
+    survey: L.sourceCallsSurvey + 1,
+    model: L.sourceCallsModel + L.strictModelAttempts + 2,
+    data: L.sourceCallsData + L.dataRetries + 1 + 2,
+    screen: L.sourceCallsScreen + L.screenRetries + 1 + 1,
+  };
+}
 
 // 会話の持ち方:
 // 調査と分析モデルは別の会話にし、データはシステムごと、画面 UI は画面ごとに、それぞれ新しい会話にする。
 // 理由: ソースのファイルを読むたびに会話は膨らみ (1 回の読み取りで最大 3 万文字)、1 つの会話で続けると、画面 UI の段階には文脈の
-// 窓も 1 回の send の往復の上限 (CHAT_MAX_STEPS) も残らない。そこで、読んだ中身は捨て、調査結果の文章 (と、
+// 窓も 1 回の send の往復の上限 (MAX_STEPS) も残らない。そこで、読んだ中身は捨て、調査結果の文章 (と、
 // 画面・データの依頼に入れる、分析モデルから取り出した材料) だけを次の会話の履歴 (seed) に渡す。同じ段階の出し直しは、
 // 検査の理由が会話に残るほうがよいので、1 つの会話の中で続ける。
 
@@ -137,8 +160,8 @@ function sourceToolDetail(name: string, input: unknown): string {
 interface Ctx {
   tree: SourceTree;
   o: ReverseOptions;
-  /** ソースの道具を呼んだ回数の合計 (会話をまたいで数える) */
-  sourceCalls: { n: number };
+  /** ソースの道具の全体の予算。上限は段階に入るたびに、その段階の分だけ足す (sourceBudget と同じ合計になる) */
+  budget: { calls: number; chars: number; usedCalls: number; usedChars: number };
 }
 
 /** 会話ごとのソースの道具の上限と、上限に達したときに AI へ伝えること (調査は「まとめる」、提出のある段階は「提出する」) */
@@ -155,16 +178,20 @@ function sourceRunner(ctx: Ctx, cap: SourceCap): (name: string, input: unknown) 
   const next = cap.finish === "survey" ? "調査結果をまとめてください" : "分かった範囲で提出してください";
   return async (name, input) => {
     throwIfAborted(ctx.o.signal);
-    if (ctx.sourceCalls.n >= REVERSE_LIMITS.sourceCallsTotal) {
-      return errorOutcome(`ソースコードを読む回数の上限 (全体で ${REVERSE_LIMITS.sourceCallsTotal} 回) に達したので、これ以上は読めません。${next}`);
-    }
     if (used >= cap.calls) return errorOutcome(`この段階でソースコードを読む回数の上限 (${cap.calls} 回) に達したので、これ以上は読めません。${next}`);
     if (chars >= cap.chars) return errorOutcome(`この段階でソースコードを読んだ量の上限 (${cap.chars} 文字) に達したので、これ以上は読めません。${next}`);
+    if (ctx.budget.usedCalls >= ctx.budget.calls) {
+      return errorOutcome(`ソースコードを読む回数の上限 (全体で ${ctx.budget.calls} 回) に達したので、これ以上は読めません。${next}`);
+    }
+    if (ctx.budget.usedChars >= ctx.budget.chars) {
+      return errorOutcome(`ソースコードを読んだ量の上限 (全体で ${ctx.budget.chars} 文字) に達したので、これ以上は読めません。${next}`);
+    }
     used++;
-    ctx.sourceCalls.n++;
+    ctx.budget.usedCalls++;
     ctx.o.onSourceTool?.(SOURCE_TOOL_LABELS[name] ?? name, sourceToolDetail(name, input));
     const outcome = await executeSourceTool(ctx.tree, name, input);
     chars += outcome.content.length;
+    ctx.budget.usedChars += outcome.content.length;
     return outcome;
   };
 }
@@ -209,34 +236,56 @@ function revisionNote(warnings: string[], retriesLeft: number, tool: string, ign
 
 // ---------------------------------------------------------------- 設計の検証の警告を、利用者向けの文にする
 
-/** 検査の警告の message から、画面などの名前を取り出す */
-function sampleNames(problems: DesignProblem[], pick: (message: string) => string | undefined): string {
-  const names = problems.map((p) => pick(p.message)).filter((n): n is string => !!n);
+/** 名前を 3 つまで並べる (「(A、B、C ほか)」の形。無ければ空) */
+function sampleNames(names: string[]): string {
   return names.length === 0 ? "" : ` (${names.slice(0, 3).join("、")}${names.length > 3 ? " ほか" : ""})`;
 }
-const screenNameIn = (message: string) => /画面「(.+?)」/.exec(message)?.[1];
 
-const DESIGN_WARNING_TEXT: Partial<Record<DesignProblemType, (list: DesignProblem[]) => string>> = {
-  screenWithoutView: (list) => {
-    const n = /(\d+) 件/.exec(list[0]!.message)?.[1] ?? String(list.length);
-    const names = /\((.+)\)/.exec(list[0]!.message)?.[1];
-    return `画面 UI がまだ無い画面が ${n} 件あります${names ? ` (${names})` : ""}。設計モードの画面ボードで作ってください`;
+/** 検査の結果の対象 (画面・遷移の id) から、利用者に見せる名前を作る。メッセージの文字列は読み直さない */
+function designNamer(model: UntieModel, systemId: string) {
+  const design = model.designs.find((d) => d.systemId === systemId);
+  const screenName = (id: string): string | undefined => {
+    const s = design?.screens.find((x) => x.id === id);
+    return s ? designScreenName(model, s) : undefined;
+  };
+  return {
+    /** 画面の対象の名前 */
+    screen: (p: DesignProblem): string | undefined => (p.target?.kind === "screen" ? screenName(p.target.id) : undefined),
+    /** 遷移の対象を「A → B」の形に */
+    transition: (p: DesignProblem): string | undefined => {
+      const t = p.target?.kind === "transition" ? design?.transitions.find((x) => x.id === p.target!.id) : undefined;
+      const from = t && screenName(t.from);
+      const to = t && screenName(t.to);
+      return from && to ? `${from} → ${to}` : undefined;
+    },
+    /** 画面 UI がまだ無い画面の名前 */
+    withoutView: (): string[] => (design?.screens ?? []).filter((s) => s.view === undefined).map((s) => designScreenName(model, s)),
+  };
+}
+
+const defined = (names: (string | undefined)[]): string[] => names.filter((n): n is string => !!n);
+
+const DESIGN_WARNING_TEXT: Partial<Record<DesignProblemType, (list: DesignProblem[], names: ReturnType<typeof designNamer>) => string>> = {
+  screenWithoutView: (list, names) => {
+    const without = names.withoutView();
+    return `画面 UI がまだ無い画面が ${without.length || list.length} 件あります${sampleNames(without)}。設計モードの画面ボードで作ってください`;
   },
-  transitionViaUndecided: (list) =>
-    `きっかけが未定の遷移が ${list.length} 件あります${sampleNames(list, (m) => /遷移「(.+?)」のきっかけ/.exec(m)?.[1])}。サイトマップで、ボタン・一覧の行・送信のあとなどを選んでください`,
-  screenUnreachable: (list) =>
-    `メニューにも遷移にも出てこない画面が ${list.length} 件あります${sampleNames(list, screenNameIn)}。サイトマップで遷移を足すか、ナビゲーションに加えてください`,
-  bindingUnmapped: (list) =>
-    `列の対応が無い項目のある画面が ${list.length} 件あります${sampleNames(list, screenNameIn)}。画面ボードで、項目をテーブルの列に結んでください (対応するテーブルがソースに無い項目は、そのままでかまいません)`,
+  transitionViaUndecided: (list, names) =>
+    `きっかけが未定の遷移が ${list.length} 件あります${sampleNames(defined(list.map(names.transition)))}。サイトマップで、ボタン・一覧の行・送信のあとなどを選んでください`,
+  screenUnreachable: (list, names) =>
+    `メニューにも遷移にも出てこない画面が ${list.length} 件あります${sampleNames(defined(list.map(names.screen)))}。サイトマップで遷移を足すか、ナビゲーションに加えてください`,
+  bindingUnmapped: (list, names) =>
+    `列の対応が無い項目のある画面が ${list.length} 件あります${sampleNames(defined(list.map(names.screen)))}。画面ボードで、項目をテーブルの列に結んでください (対応するテーブルがソースに無い項目は、そのままでかまいません)`,
 };
 
 /** 検査の「気づいたこと」を、種類ごとに件数をまとめて、利用者が次に何を直せばよいか分かる文にする */
-function designWarningLines(warnings: DesignProblem[]): string[] {
+function designWarningLines(model: UntieModel, systemId: string, warnings: DesignProblem[]): string[] {
+  const names = designNamer(model, systemId);
   const lines: string[] = [];
   for (const type of DESIGN_PROBLEM_ORDER) {
     const list = warnings.filter((w) => w.type === type);
     if (list.length === 0) continue;
-    lines.push(DESIGN_WARNING_TEXT[type]?.(list) ?? `${DESIGN_PROBLEM_TITLES[type]}が ${list.length} 件あります`);
+    lines.push(DESIGN_WARNING_TEXT[type]?.(list, names) ?? `${DESIGN_PROBLEM_TITLES[type]}が ${list.length} 件あります`);
   }
   return lines;
 }
@@ -300,8 +349,36 @@ function surveyCollector(onText: ((delta: string) => void) | undefined): { event
   };
 }
 
+/** 段階の会話が失敗した理由 (kind: chat = 往復の上限・長すぎ・拒否など、api = 一時的な API のエラー) */
+interface StageFailure {
+  kind: "chat" | "api";
+  message: string;
+}
+
+/**
+ * データ・画面 UI の会話の例外を、その項目だけ飛ばしてよい失敗にする。ChatError と、一時的な API のエラー (過負荷 529・500・接続断・レート制限) は飛ばす。
+ * 中断、繰り返しても直らない API のエラー (キーの誤り 401/403・モデルが無い 404・リクエストの誤り 400)、判定できないものは null (呼ぶ側が投げ直して止める)
+ */
+function stageFailure(e: unknown, signal: AbortSignal | undefined): StageFailure | null {
+  if (signal?.aborted) return null;
+  if (e instanceof ChatError) return { kind: "chat", message: e.message };
+  if (isTransientApiError(e)) return { kind: "api", message: describeChatError(e) };
+  return null;
+}
+
+/** 失敗が続いて残りを打ち切ったときの警告。API のエラーなら「API のエラーで途中で止まりました (残りの N 件は作れませんでした)」 */
+function stoppedWarning(stage: "データ" | "画面 UI", failure: StageFailure, rest: number): string {
+  const streak = REVERSE_LIMITS.screenErrorStreak;
+  if (failure.kind === "api") {
+    return `${stage}: API のエラーで途中で止まりました (残りの ${stage === "データ" ? `${rest} システムのデータは` : `${rest} 画面の画面 UI は`}作れませんでした。${failure.message})`;
+  }
+  return stage === "データ"
+    ? `データ: 会話が続けて ${streak} 回失敗したので、残りの ${rest} システムのデータは作りませんでした`
+    : `画面 UI: 画面の会話が続けて ${streak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`;
+}
+
 export async function reverseEngineer(tree: SourceTree, request: string, o: ReverseOptions): Promise<ReverseResult> {
-  const ctx: Ctx = { tree, o, sourceCalls: { n: 0 } };
+  const ctx: Ctx = { tree, o, budget: { ...sourceBudget(0, 0), usedCalls: 0, usedChars: 0 } };
   const system = reverseSystemPrompt();
 
   // ---- 1. 調査 ----
@@ -318,7 +395,16 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   );
   // 調査結果は、最後のメッセージだけでなく、会話で届いた文章のすべて (途中で本文を書いてから道具を使い、最後に「以上です。」と返す場合がある)
   const collector = surveyCollector(o.onText);
-  const lastReply = (await surveySession.send(surveyRequest, collector.events, o.signal)).trim();
+  let lastReply = "";
+  let surveyNote: string | undefined;
+  try {
+    lastReply = (await surveySession.send(surveyRequest, collector.events, o.signal)).trim();
+  } catch (e) {
+    throwIfAborted(o.signal);
+    // 文章を集めたあとに会話が上限・拒否などで終わったときは、集めた調査結果で進める (中断と、API のエラー、集めた文章が無いときは止める)
+    if (!(e instanceof ChatError) || o.signal?.aborted || collector.text() === "") throw e;
+    surveyNote = `調査: 会話が途中で終わりました (${e.message})。集まった調査結果で進めました`;
+  }
   throwIfAborted(o.signal);
   const survey = collector.text() || lastReply;
   if (survey === "") throw new ChatError("AI がソースコードの調査結果を返しませんでした。もう一度試してください。");
@@ -389,53 +475,83 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     { submit_model: submitModel },
     modelSeed,
   );
-  await modelSession.send(reverseModelRequest(request), {}, o.signal);
-  throwIfAborted(o.signal);
-  if (!accepted) {
-    // 提出せずに終わったら、もう一度だけ頼む
-    await modelSession.send("submit_model でモデル全体を提出してください。", {}, o.signal);
+  try {
+    await modelSession.send(reverseModelRequest(request), {}, o.signal);
     throwIfAborted(o.signal);
+    if (!accepted) {
+      // 提出せずに終わったら、もう一度だけ頼む
+      await modelSession.send("submit_model でモデル全体を提出してください。", {}, o.signal);
+      throwIfAborted(o.signal);
+    }
+  } catch (e) {
+    throwIfAborted(o.signal);
+    // 受け付けたあとに会話が上限・拒否などで終わっても、受け付けたモデルで先へ進む (中断と API のエラー、受け付ける前の失敗は止める)
+    if (!(e instanceof ChatError) || o.signal?.aborted || !accepted) throw e;
   }
   const build = accepted as BuildResult | null;
   if (!build) throw new ChatError("AI がモデルを提出しませんでした。起こしたい業務を具体的にして、もう一度試してください。");
 
   let model = build.model;
-  const warnings: string[] = build.warnings.map((w) => `分析モデル: ${w}`);
+  const warnings: string[] = [...(surveyNote ? [surveyNote] : []), ...build.warnings.map((w) => `分析モデル: ${w}`)];
 
   // ---- 3. データ (システムごと) ----
+  // データベースを作るのは、画面を持つシステムと、画面は持たないが操作の対象になっているシステム (バッチ・API だけのシステム)。
+  // 画面を持たないシステムには submit_database だけの会話をする (サイトマップ・画面 UI は無し)
   o.onStep?.("data");
-  const dataSystems = model.elements.filter((e) => e.kind === "system" && model.elements.some((s) => s.kind === "screen" && s.systemId === e.id));
+  const hasScreens = (systemId: string) => model.elements.some((s) => s.kind === "screen" && s.systemId === systemId);
+  const isUsecaseTarget = (systemId: string) => model.relations.some((r) => r.kind === "usecaseSystem" && r.targetId === systemId);
+  const dataSystems = model.elements.filter((e) => e.kind === "system" && (hasScreens(e.id) || isUsecaseTarget(e.id)));
+  const screenSystems = dataSystems.filter((e) => hasScreens(e.id));
+  ctx.budget.calls = sourceBudget(dataSystems.length, 0).calls;
+  ctx.budget.chars = sourceBudget(dataSystems.length, 0).chars;
   let databases = 0;
+  let dataStreak = 0;
+  let dataStopped: StageFailure | null = null;
+  let dataSkipped = 0;
   for (const sys of dataSystems) {
     throwIfAborted(o.signal);
+    const withScreens = hasScreens(sys.id);
+    /** 画面を持たないシステムの「データベースは無い」という答えは、警告にしない */
     let dbApplied = false;
     let dbGaveUp = false;
     let dbAttempts = 0;
+    /** 最初に受け付けた提出のデータベースの名前 (出し直しで名前が変わって、データベースが 2 つにならないように固定する) */
+    let pinnedDbName: string | undefined;
     let sitemapDone = false;
     let dbWarnings: string[] = [];
     let sitemapWarnings: string[] = [];
+    let failure: StageFailure | null = null;
     const dbMaxAttempts = 1 + REVERSE_LIMITS.dataRetries;
+    const afterDb = () => (withScreens ? (sitemapDone ? FINISH_NOTE : "続けて submit_sitemap を提出してください") : FINISH_NOTE);
     const submitDatabase = (input: unknown): ToolOutcome => {
       const draft = readDatabaseDraft(input);
       if (!draft) return errorOutcome("system・dsl・tables が必要です");
+      // 見送ったあとの提出は受けない (何度も組み立て直さない)
+      if (dbGaveUp) return okOutcome("データベースは見送りました。これ以上は受け付けません。次へ進んでください", false);
       // 受け付けたあとの出し直しにも回数の上限がある (往復を使い切らないように)
-      if (dbApplied && dbAttempts >= dbMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${sitemapDone ? FINISH_NOTE : "続けて submit_sitemap を提出してください"}`, false);
+      if (dbApplied && dbAttempts >= dbMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${afterDb()}`, false);
       dbAttempts++;
-      // 出し直しのあとも解析エラーが残るなら、エラーを警告に残して DSL をそのまま置く
-      const r = applyDatabaseDraft(model, { ...draft, system: sys.name }, { acceptDslErrors: dbAttempts > REVERSE_LIMITS.dataRetries });
+      const databaseName = dbApplied ? pinnedDbName : draft.database_name;
+      const toApply = { system: sys.name, dsl: draft.dsl, tables: draft.tables, ...(databaseName !== undefined ? { database_name: databaseName } : {}) };
+      // 出し直しのあとも解析エラーが残るなら、エラーを警告に残して DSL をそのまま置く。ただし、いったん受け付けたあとの出し直しでは置かない
+      // (壊れた DSL で、最初の正しいテーブルと情報の対応を消さない)
+      const r = applyDatabaseDraft(model, toApply, { acceptDslErrors: !dbApplied && dbAttempts > REVERSE_LIMITS.dataRetries });
       if (!r.applied) {
+        const retriesLeft = dbMaxAttempts - dbAttempts;
+        if (dbApplied && retriesLeft <= 0) return okOutcome(`出し直しは通らなかったので、前の提出のままにします。${afterDb()}`, false);
         if (r.dslErrors.length > 0 || dbAttempts <= REVERSE_LIMITS.dataRetries) {
           const detail = r.dslErrors.slice(0, 10).map((e) => `${e.line} 行 ${e.column} 列: ${e.message}`);
           const message = r.dslErrors.length > 0 ? `DSL に解析エラーがあります。直して出し直してください:\n- ${detail.join("\n- ")}` : `${r.failure ?? "データベースを足せませんでした"}。直して出し直してください`;
           o.onSubmit?.(false, "データベースの定義を直してもらっています");
           return errorOutcome(message);
         }
-        if (dbApplied) return okOutcome("出し直しは通らなかったので、前の提出のままにします。", false);
+        if (dbApplied) return okOutcome(`出し直しは通らなかったので、前の提出のままにします。${afterDb()}`, false);
         dbGaveUp = true;
         dbWarnings = r.warnings;
         o.onSubmit?.(false, `データ: システム「${sys.name}」のデータベースは足せませんでした`);
         return okOutcome("データベースは足せなかったので、見送ります。次へ進んでください", false);
       }
+      if (!dbApplied) pinnedDbName = draft.database_name;
       model = r.model;
       dbApplied = true;
       dbWarnings = r.warnings;
@@ -443,7 +559,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
       o.onSubmit?.(true, message);
       const retriesLeft = dbMaxAttempts - dbAttempts;
       const note = revisionNote(r.warnings, retriesLeft, "submit_database", "対応するテーブルがソースに無い情報は、直さなくてかまいません。");
-      return okOutcome(`${message}${note}${note === "" || retriesLeft <= 0 ? `\n${sitemapDone ? FINISH_NOTE : "続けて submit_sitemap を提出してください"}` : ""}`, true);
+      return okOutcome(`${message}${note}${note === "" || retriesLeft <= 0 ? `\n${afterDb()}` : ""}`, true);
     };
     const submitSitemap = (input: unknown): ToolOutcome => {
       const draft = readSitemapDraft(input);
@@ -457,41 +573,55 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
       o.onSubmit?.(true, message);
       return okOutcome(`${message}。${dbApplied || dbGaveUp ? FINISH_NOTE : "続けて submit_database を提出してください"}`, true);
     };
-    try {
-      const dataSession = openSession(
-        ctx,
-        system,
-        [SUBMIT_DATABASE_DRAFT_TOOL, SUBMIT_SITEMAP_TOOL],
-        { calls: REVERSE_LIMITS.sourceCallsData, chars: REVERSE_LIMITS.sourceCharsData, finish: "submit" },
-        { submit_database: submitDatabase, submit_sitemap: submitSitemap },
-        stageSeed,
-      );
-      await dataSession.send(reverseDataRequest(model, sys.id), {}, o.signal);
-      throwIfAborted(o.signal);
-      if (!dbApplied && !dbGaveUp) {
-        await dataSession.send("submit_database でデータベースを提出してください。", {}, o.signal);
+    if (dataStopped) {
+      // 前のシステムで会話の失敗が続いたので、会話はしない。画面は設計に足す (下の空の遷移)
+      dataSkipped++;
+    } else {
+      try {
+        const dataSession = openSession(
+          ctx,
+          system,
+          withScreens ? [SUBMIT_DATABASE_DRAFT_TOOL, SUBMIT_SITEMAP_TOOL] : [SUBMIT_DATABASE_DRAFT_TOOL],
+          { calls: REVERSE_LIMITS.sourceCallsData, chars: REVERSE_LIMITS.sourceCharsData, finish: "submit" },
+          withScreens ? { submit_database: submitDatabase, submit_sitemap: submitSitemap } : { submit_database: submitDatabase },
+          stageSeed,
+        );
+        await dataSession.send(reverseDataRequest(model, sys.id), {}, o.signal);
         throwIfAborted(o.signal);
+        // 画面を持たないシステムは、ソースにスキーマ定義が無ければ (社外のシステムなど) 提出しない答えが正しいので、頼み直さない
+        if (withScreens && !dbApplied && !dbGaveUp) {
+          await dataSession.send("submit_database でデータベースを提出してください。", {}, o.signal);
+          throwIfAborted(o.signal);
+        }
+      } catch (e) {
+        // 中断と、繰り返しても直らない API のエラー (キーの誤りなど) は、このまま止める。
+        // 会話の上限などで終わったときと、一時的な API のエラー (過負荷・接続断など) は、このシステムだけ飛ばす
+        failure = stageFailure(e, o.signal);
+        if (!failure) throw e;
+        warnings.push(`データ: システム「${sys.name}」: ${failure.message}`);
       }
-    } catch (e) {
-      // 中断と API のエラー (キーの誤りなど) は、このまま止める。会話の上限などで終わったときは、この段階だけ飛ばす
-      if (!(e instanceof ChatError) || o.signal?.aborted) throw e;
-      warnings.push(`データ: システム「${sys.name}」: ${e.message}`);
+      if (failure) {
+        dataStreak++;
+        if (dataStreak >= REVERSE_LIMITS.screenErrorStreak) dataStopped = failure;
+      } else dataStreak = 0;
     }
     if (dbApplied) databases++;
-    else if (!dbGaveUp) warnings.push(`データ: システム「${sys.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした`);
+    // 会話が失敗したときは、その警告だけ (同じことを 2 件に分けない)
+    else if (!dbGaveUp && !failure && !dataStopped && withScreens) warnings.push(`データ: システム「${sys.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした`);
     warnings.push(...dbWarnings);
     // 画面を設計に足すため、AI が遷移を出さなくても、空の遷移で必ず足す
-    if (!sitemapDone) {
+    if (withScreens && !sitemapDone) {
       const r = applySitemapDraft(model, { system: sys.name, transitions: [] });
       model = r.model;
       sitemapWarnings = r.warnings;
     }
     warnings.push(...sitemapWarnings);
   }
+  if (dataStopped) warnings.push(stoppedWarning("データ", dataStopped, dataSkipped));
 
   // ---- ナビゲーション (メニュー) ----
   // サイトマップの業務の分け方から作る。作らないと、設計の検証に「メニューからも遷移からも辿れない画面」が残る
-  for (const sys of dataSystems) {
+  for (const sys of screenSystems) {
     const navigation = navigationFromSitemap(model, sys.id);
     if (navigation.length === 0) continue;
     const r = setDesignNavigation(model, { systemId: sys.id, navigation });
@@ -511,6 +641,8 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   const primary = screensOfBusinesses(model, targetBusinesses);
   const targets = primary.size === 0 ? allTargets : [...allTargets.filter((t) => primary.has(t.analysisId)), ...allTargets.filter((t) => !primary.has(t.analysisId))];
   const todo = targets.slice(0, REVERSE_LIMITS.screens);
+  ctx.budget.calls = sourceBudget(dataSystems.length, todo.length).calls;
+  ctx.budget.chars = sourceBudget(dataSystems.length, todo.length).chars;
   if (targets.length > todo.length) {
     const rest = targets.slice(todo.length);
     warnings.push(`画面 UI: 画面が ${targets.length} 件あり、上限 ${REVERSE_LIMITS.screens} 件を超えたので、後ろの ${rest.length} 件は作りませんでした (${rest.slice(0, 5).map((t) => `「${t.name}」`).join("")}${rest.length > 5 ? " ほか" : ""})`);
@@ -518,16 +650,17 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   let done = 0;
   let placed = 0;
   let errorStreak = 0;
+  let lastFailure: StageFailure | null = null;
   for (const t of todo) {
     throwIfAborted(o.signal);
-    // 画面の会話の失敗 (拒否・返答なし・長すぎ) が続くなら、同じ失敗を繰り返さずに終える
-    if (errorStreak >= REVERSE_LIMITS.screenErrorStreak) {
-      const rest = todo.length - done;
-      warnings.push(`画面 UI: 画面の会話が続けて ${errorStreak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`);
+    // 画面の会話の失敗 (拒否・返答なし・長すぎ・一時的な API のエラー) が続くなら、同じ失敗を繰り返さずに終える
+    if (errorStreak >= REVERSE_LIMITS.screenErrorStreak && lastFailure) {
+      warnings.push(stoppedWarning("画面 UI", lastFailure, todo.length - done));
       break;
     }
     let applied = false;
     let gaveUp = false;
+    let failure: StageFailure | null = null;
     let attempt = 0;
     let screenWarnings: string[] = [];
     const sysName = elementName(model, t.systemId);
@@ -536,6 +669,8 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
       const draft = readScreenDraft(input);
       if (!draft) return errorOutcome("screen・view・bindings が必要です");
       if (draft.screen.trim() !== t.name) return errorOutcome(`この会話で作る画面は「${t.name}」だけです (「${draft.screen}」ではありません)`);
+      // 見送ったあとの提出は受けない (何度も組み立て直さない)
+      if (gaveUp) return okOutcome(`この画面の画面 UI は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
       if (applied && attempt >= screenMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${FINISH_NOTE}`, false);
       attempt++;
       const r = applyScreenDraft(model, { ...draft, system: sysName });
@@ -575,11 +710,14 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {
-      if (!(e instanceof ChatError) || o.signal?.aborted) throw e;
+      failure = stageFailure(e, o.signal);
+      if (!failure) throw e;
       errorStreak++;
-      warnings.push(`画面 UI: 画面「${t.name}」: ${e.message}`);
+      lastFailure = failure;
+      warnings.push(`画面 UI: 画面「${t.name}」: ${failure.message}`);
     }
-    if (!applied && !gaveUp && screenWarnings.length === 0) warnings.push(`画面 UI: 画面「${t.name}」: AI が画面 UI を提出しなかったので、作りませんでした`);
+    // 会話が失敗したときは、その警告だけ (同じことを 2 件に分けない)
+    if (!applied && !gaveUp && !failure && screenWarnings.length === 0) warnings.push(`画面 UI: 画面「${t.name}」: AI が画面 UI を提出しなかったので、作りませんでした`);
     warnings.push(...screenWarnings);
     done++;
     if (applied) placed++;
@@ -594,7 +732,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   if (designProblems.length > 0) warnings.push(`設計の検証: エラー ${designProblems.length} 件 (${designProblems[0]!.message}${designProblems.length > 1 ? " ほか" : ""})`);
   for (const c of checks) {
     const prefix = checks.length > 1 ? `システム「${elementName(model, c.systemId)}」: ` : "";
-    for (const line of designWarningLines(c.warnings)) warnings.push(`設計の検証: ${prefix}${line}`);
+    for (const line of designWarningLines(model, c.systemId, c.warnings)) warnings.push(`設計の検証: ${prefix}${line}`);
   }
   const summary = `ソースコード「${tree.name}」からモデル「${model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。データベース ${databases}/${dataSystems.length} システム、画面 UI ${placed}/${allTargets.length} 画面。${
     warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""

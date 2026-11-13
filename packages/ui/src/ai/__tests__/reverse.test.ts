@@ -9,6 +9,7 @@ import { memorySourceTree } from "../sourceTree";
 import type { ToolOutcome } from "../tools";
 import type { ModelSpec } from "../spec";
 import type { ScreenDraft } from "../designDraft";
+import Anthropic from "@anthropic-ai/sdk";
 import { FIXTURE_DATABASE, FIXTURE_SCREENS, FIXTURE_SITEMAP, FIXTURE_SPEC } from "./fixtures/reverseDraft";
 import { FIXTURE_SECRET, FIXTURE_SOURCE_FILES, fixtureSourceTree } from "./fixtures/reverseSource";
 
@@ -26,8 +27,8 @@ interface Call {
 type Script = (c: Call) => Promise<string> | string;
 
 const fake = vi.hoisted(() => ({
-  /** chat.ts の MAX_STEPS (1 回の send で道具を使う往復の上限)。export されていないので値を写す */
-  maxSteps: 60,
+  /** chat.ts の MAX_STEPS (1 回の send で道具を使う往復の上限)。偽の会話の中で本物の値を入れる */
+  maxSteps: 0,
   scripts: {} as Partial<Record<string, (c: unknown) => Promise<string> | string>>,
   sessions: [] as { kind: string; tools: string[]; defs: { name: string; parameters: unknown }[] }[],
 }));
@@ -37,6 +38,7 @@ vi.mock("../chat", async (importOriginal) => {
   return {
     ...actual,
     createChatSession: (_provider: string, o: ChatOptions) => {
+      fake.maxSteps = (actual as { MAX_STEPS: number }).MAX_STEPS;
       const names = o.tools.map((t) => t.name);
       const kind = names.includes("submit_model") ? "model" : names.includes("submit_database") ? "data" : names.includes("submit_screen") ? "screen" : "survey";
       fake.sessions.push({ kind, tools: names, defs: o.tools });
@@ -65,10 +67,10 @@ vi.mock("../chat", async (importOriginal) => {
   };
 });
 
-const { reverseEngineer, REVERSE_LIMITS } = await import("../reverse");
+const { reverseEngineer, REVERSE_LIMITS, conversationSteps, sourceBudget } = await import("../reverse");
 const { SUBMIT_SCREEN_DRAFT_TOOL } = await import("../designDraft");
 const { executeSourceTool, regexRefusal } = await import("../sourceTools");
-const { ChatError } = await import("../chat");
+const { ChatError, MAX_STEPS } = await import("../chat");
 
 // ---- 台本 ----
 
@@ -531,7 +533,15 @@ describe("reverseEngineer: ソースの道具", () => {
     expect(results.model![cut(results.model!)]!.content).toMatch(/読んだ量の上限.*分かった範囲で提出してください/);
   });
 
-  it("1 回の生成での合計の上限を超えると、会話ごとの残りがあっても読めない", async () => {
+  it("1 回の生成での合計の上限は、段階ごとの上限の合計から決まる (システムの数と画面の数で増える)", () => {
+    const L = REVERSE_LIMITS;
+    expect(sourceBudget(0, 0)).toEqual({ calls: L.sourceCallsSurvey + L.sourceCallsModel, chars: L.sourceCharsSurvey + L.sourceCharsModel });
+    expect(sourceBudget(1, L.screens).calls).toBe(L.sourceCallsSurvey + L.sourceCallsModel + L.sourceCallsData + L.sourceCallsScreen * L.screens);
+    expect(sourceBudget(1, L.screens).calls).toBeGreaterThan(300); // 以前の固定の 300 回では、後ろの画面の分が残らなかった
+    expect(sourceBudget(3, 10).chars).toBe(L.sourceCharsSurvey + L.sourceCharsModel + L.sourceCharsData * 3 + L.sourceCharsScreen * 10);
+  });
+
+  it("どの段階も上限いっぱいまで読めて、後ろの画面にも枠が残る (画面 30 件・システム 1 つで、全体の上限に当たらない)", async () => {
     const blocked: string[] = [];
     let executed = 0;
     const readMany = (n: number): Script => async (c) => {
@@ -552,8 +562,11 @@ describe("reverseEngineer: ソースの道具", () => {
       screen: readMany(REVERSE_LIMITS.sourceCallsScreen),
     });
     await run({ onSourceTool: () => executed++ });
-    expect(executed).toBe(REVERSE_LIMITS.sourceCallsTotal);
-    expect(blocked.some((m) => m.includes(`全体で ${REVERSE_LIMITS.sourceCallsTotal} 回`))).toBe(true);
+    // 会話ごとの上限 (データの 2 回目の依頼の分) で断られることはあっても、全体の上限では断られない
+    expect(blocked.filter((m) => m.includes("全体で"))).toEqual([]);
+    expect(executed).toBe(sourceBudget(1, REVERSE_LIMITS.screens).calls);
+    // 最後の画面 (30 番目) も 8 回読めた
+    expect(sessionCount("screen")).toBe(REVERSE_LIMITS.screens);
   });
 });
 
@@ -593,13 +606,11 @@ describe("会話の往復の上限 (MAX_STEPS) との関係", () => {
     await expect(run()).rejects.toBeInstanceOf(ChatError);
   });
 
-  it("会話ごとの上限は MAX_STEPS より十分小さい (提出・出し直し・返答の往復が残る)", () => {
+  it("会話ごとの上限は chat.ts の MAX_STEPS より十分小さい (提出・出し直し・返答の往復が残る)", () => {
     const L = REVERSE_LIMITS;
-    expect(Math.max(L.sourceCallsSurvey, L.sourceCallsModel, L.sourceCallsData, L.sourceCallsScreen) + 6).toBeLessThan(fake.maxSteps);
-    expect(L.sourceCallsSurvey + 1).toBeLessThan(fake.maxSteps);
-    expect(L.sourceCallsModel + L.strictModelAttempts + 2).toBeLessThan(fake.maxSteps);
-    expect(L.sourceCallsData + L.dataRetries + 1 + 2).toBeLessThan(fake.maxSteps);
-    expect(L.sourceCallsScreen + L.screenRetries + 1 + 1).toBeLessThan(fake.maxSteps);
+    expect(fake.maxSteps === 0 || fake.maxSteps === MAX_STEPS).toBe(true);
+    expect(Math.max(L.sourceCallsSurvey, L.sourceCallsModel, L.sourceCallsData, L.sourceCallsScreen) + 6).toBeLessThan(MAX_STEPS);
+    for (const [name, steps] of Object.entries(conversationSteps())) expect(steps, name).toBeLessThan(MAX_STEPS);
   });
 
   it("どの会話も、読む上限いっぱいまで読んで、そのあとの提出・返答の往復が残る (調査結果も最後まで返る)", async () => {
@@ -740,6 +751,9 @@ describe("ナビゲーションと設計の検証", () => {
     const lines = r.warnings.filter((w) => w.startsWith("設計の検証:"));
     expect(lines.some((w) => /画面 UI がまだ無い画面が 3 件あります.*画面ボードで作ってください/.test(w))).toBe(true);
     expect(lines.some((w) => /きっかけが未定の遷移が 1 件あります.*注文一覧.*サイトマップで/.test(w))).toBe(true);
+    // 「A → B」の形に整える (「A」→「B」の括弧が崩れて、(注文一覧」→「注文詳細) のようにならない)
+    expect(lines.find((w) => /きっかけが未定/.test(w))).toContain("(注文一覧 → 注文詳細)");
+    expect(lines.join("\n")).not.toMatch(/」→「/);
     // 種類ごとに 1 行 (画面ごとに並べない)
     expect(lines.filter((w) => /画面 UI がまだ無い/.test(w))).toHaveLength(1);
     expect(lines.some((w) => /メニューにも遷移にも出てこない/.test(w))).toBe(false);
@@ -1149,5 +1163,337 @@ describe("search_code の正規表現: 語の言い換えを並べた検索", ()
     const r = await search(tree, words);
     expect(r.error).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+// ---------------------------------------------------------------- 最終レビューと実際の API での再確認への対応
+
+const systemOf = (text: string) => /システム「(.+?)」のデータを作ります/.exec(text)?.[1] ?? "";
+const apiError = (status: number) => Anthropic.APIError.generate(status, { type: "error", error: { type: "x", message: "m" } }, "m", new Headers());
+
+/** システム n 個 (S1..Sn)。システムごとに 1 つの操作と 1 つの画面 */
+function multiSystemSpec(n: number): ModelSpec {
+  const ids = Array.from({ length: n }, (_, i) => i + 1);
+  return {
+    system_name: "複数システム",
+    actors: [{ name: "受付担当" }],
+    systems: ids.map((i) => ({ name: `システム${i}` })),
+    informations: [{ name: "注文" }],
+    businesses: [{ name: "注文受付", main_actors: ["受付担当"], activities: [{ name: "注文を扱う", performers: ["受付担当"], usecases: ids.map((i) => ({ name: `操作${i}`, reads: ["注文"] })) }] }],
+    screens: ids.map((i) => ({ name: `画面${i}`, system: `システム${i}`, usecase: `操作${i}` })),
+    events: [{ name: "夜間になった", raised_by: ["システム1"], usecases: [{ name: "集計する", reads: ["注文"], targets: ["システム1"] }] }],
+  };
+}
+
+describe("データベースの出し直し: 受け付けたあと", () => {
+  const broken = (over: Record<string, unknown> = {}) => ({ ...FIXTURE_DATABASE, dsl: "model Broken {", ...over });
+
+  it("正しい提出のあとの、解析エラーのある DSL の出し直しは、2 回出されても置き換えない (最初のテーブルと情報の対応を残す)", async () => {
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      data: async (c) => {
+        // (1) 正しい DSL + 存在しないテーブルの対応 → 受け付ける
+        outcomes.push(await c.runTool("submit_database", { ...FIXTURE_DATABASE, tables: [...FIXTURE_DATABASE.tables, { table: "Ghost", informations: ["商品"] }] }));
+        // (2) 壊れた DSL → 出し直し、(3) 同じ壊れた DSL → 前の提出のまま
+        outcomes.push(await c.runTool("submit_database", broken()));
+        outcomes.push(await c.runTool("submit_database", broken()));
+        // これ以上は出し直せない
+        outcomes.push(await c.runTool("submit_database", broken()));
+        await c.runTool("submit_sitemap", FIXTURE_SITEMAP);
+        return "";
+      },
+    });
+    const r = await run();
+    expect(outcomes[0]!.ok).toBe(true);
+    expect(outcomes[1]!.ok).toBe(false);
+    expect(outcomes[1]!.content).toMatch(/解析エラー/);
+    expect(outcomes[2]!.ok).toBe(true);
+    expect(String(parse(outcomes[2]!).result)).toMatch(/前の提出のままにします/);
+    expect(String(parse(outcomes[3]!).result)).toMatch(/これ以上は出し直せません/);
+    const dbs = r.build.model.databases;
+    expect(dbs).toHaveLength(1);
+    expect(dbs[0]!.dsl).toContain("model Order");
+    expect(dbs[0]!.dsl).not.toContain("Broken");
+    expect(dbs[0]!.tables.some((t) => t.table === "Order" && t.informationIds.length > 0)).toBe(true);
+    expect(r.warnings.some((w) => /DSL に解析エラー/.test(w))).toBe(false);
+  });
+
+  it("出し直しで database_name を変えても、1 回目の名前に固定して、データベースを 2 つにしない", async () => {
+    useScripts({
+      data: async (c) => {
+        await c.runTool("submit_database", FIXTURE_DATABASE);
+        await c.runTool("submit_database", { ...FIXTURE_DATABASE, database_name: "注文データベース (改)" });
+        await c.runTool("submit_sitemap", FIXTURE_SITEMAP);
+        return "";
+      },
+    });
+    const r = await run();
+    expect(r.build.model.databases).toHaveLength(1);
+    expect(r.build.model.databases[0]!.name).toBe(FIXTURE_DATABASE.database_name);
+  });
+
+  it("受け付ける前の出し直しで、解析エラーが続いたときは、これまでどおり警告に残して DSL を置く", async () => {
+    // (既存の「DSL が直らないまま出し直しの回数を超えたら」と同じ。受け付け済みでないときだけ acceptDslErrors になる)
+    useScripts({
+      data: async (c) => {
+        for (let i = 0; i < REVERSE_LIMITS.dataRetries + 1; i++) await c.runTool("submit_database", broken({ dsl: "model Order {\n  id String @id\n" }));
+        return "";
+      },
+    });
+    const r = await run();
+    expect(r.build.model.databases[0]!.dsl).toContain("model Order");
+  });
+});
+
+describe("受け付けたあと・調査のあとの ChatError", () => {
+  it("分析モデルを受け付けたあとに ChatError が起きても、受け付けたモデルで先へ進む", async () => {
+    useScripts({
+      model: async (c) => {
+        await c.runTool("submit_model", FIXTURE_SPEC);
+        throw new ChatError("返答が長すぎて途中で切れました。");
+      },
+    });
+    const r = await run();
+    expect(r.build.model.meta.name).toBe("ひだまり文具店の注文アプリ");
+    expect(r.summary).toMatch(/画面 UI 3\/3/);
+  });
+
+  it("分析モデルを受け付ける前の ChatError は、これまでどおりエラー。中断は受け付けたあとでも投げる", async () => {
+    useScripts({ model: () => { throw new ChatError("道具を使う回数が上限に達しました。"); } });
+    await expect(run()).rejects.toBeInstanceOf(ChatError);
+    const ac = new AbortController();
+    useScripts({
+      model: async (c) => {
+        await c.runTool("submit_model", FIXTURE_SPEC);
+        ac.abort();
+        throw new ChatError("x");
+      },
+    });
+    await expect(run({ signal: ac.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("調査で文章を集めたあとに ChatError が起きたら、集めた調査結果で先へ進み、警告に残す。文章が空ならエラーのまま", async () => {
+    useScripts({
+      survey: async (c) => {
+        c.events?.onText?.("## 調査結果\n- 注文受付 (src/routes/orders.ts)");
+        throw new ChatError("道具を使う回数が上限に達しました。");
+      },
+    });
+    const r = await run();
+    expect(r.survey).toMatch(/注文受付/);
+    expect(r.warnings[0]).toMatch(/^調査: .*上限に達しました.*集まった調査結果で進めました/);
+    useScripts({ survey: () => { throw new ChatError("道具を使う回数が上限に達しました。"); } });
+    await expect(run()).rejects.toBeInstanceOf(ChatError);
+  });
+});
+
+describe("一時的な API のエラー (過負荷・500・接続断・レート制限)", () => {
+  it("画面 UI: その画面だけ飛ばして警告にし、続けて 3 回なら残りを打ち切る。それまでのモデルは返る", async () => {
+    useScripts({
+      model: async (c) => (await c.runTool("submit_model", bigSpec(6)), ""),
+      data: () => "",
+      screen: () => Promise.reject(apiError(529)),
+    });
+    const r = await run();
+    expect(sessionCount("screen")).toBe(REVERSE_LIMITS.screenErrorStreak);
+    expect(r.build.counts.screen).toBe(6);
+    expect(r.warnings.filter((w) => /画面 UI: 画面「.+」: API のエラー/.test(w))).toHaveLength(3);
+    expect(r.warnings.some((w) => /画面 UI: API のエラーで途中で止まりました \(残りの 3 画面の画面 UI は作れませんでした/.test(w))).toBe(true);
+    expect(r.summary).toMatch(/画面 UI 0\/6/);
+  });
+
+  it("画面 UI: 1 画面だけ失敗して次が成功すれば続ける (レート制限・500・接続断)", async () => {
+    for (const err of [apiError(429), apiError(500), new Anthropic.APIConnectionError({ message: "down" })]) {
+      let n = 0;
+      useScripts({ screen: (c) => (n++ === 0 ? Promise.reject(err) : screenScript(c)) });
+      const r = await run();
+      expect(r.summary).toMatch(/画面 UI 2\/3/);
+      expect(r.warnings.filter((w) => /止まりました/.test(w))).toEqual([]);
+      expect(r.warnings.filter((w) => w.startsWith("画面 UI: 画面「"))).toHaveLength(1);
+    }
+  });
+
+  it("繰り返しても直らない API のエラー (401・403・404・400) と、判定できない例外は、これまでどおり止める", async () => {
+    for (const status of [401, 403, 404, 400]) {
+      useScripts({ screen: () => Promise.reject(apiError(status)) });
+      await expect(run()).rejects.toMatchObject({ status });
+      useScripts({ data: () => Promise.reject(apiError(status)) });
+      await expect(run()).rejects.toMatchObject({ status });
+    }
+    useScripts({ data: () => Promise.reject(new Error("boom")) });
+    await expect(run()).rejects.toThrow("boom");
+  });
+
+  it("データ: そのシステムだけ飛ばし、続けて 3 回なら残りの会話を打ち切る。画面は設計に足され、画面 UI の段階へ進む", async () => {
+    useScripts({
+      model: async (c) => (await c.runTool("submit_model", multiSystemSpec(5)), ""),
+      data: () => Promise.reject(apiError(503)),
+      screen: () => "",
+    });
+    const r = await run();
+    expect(sessionCount("data")).toBe(REVERSE_LIMITS.screenErrorStreak);
+    expect(r.warnings.filter((w) => /^データ: システム「.+」: API のエラー/.test(w))).toHaveLength(3);
+    expect(r.warnings.some((w) => /データ: API のエラーで途中で止まりました \(残りの 2 システムのデータは作れませんでした/.test(w))).toBe(true);
+    // 提出が無いという警告は重ねない
+    expect(r.warnings.some((w) => /AI がデータベースを提出しなかった/.test(w))).toBe(false);
+    // 打ち切ったシステムの画面も設計に足され、画面 UI の段階まで進んだ
+    expect(r.build.model.designs.flatMap((d) => d.screens)).toHaveLength(5);
+    expect(sessionCount("screen")).toBe(5);
+  });
+
+  it("データ: 失敗の間に成功したシステムがあれば、数え直して続ける", async () => {
+    useScripts({
+      model: async (c) => (await c.runTool("submit_model", multiSystemSpec(4)), ""),
+      data: (c) => (["システム1", "システム3"].includes(systemOf(c.text)) ? Promise.reject(apiError(529)) : ""),
+      screen: () => "",
+    });
+    const r = await run();
+    expect(sessionCount("data")).toBe(4);
+    expect(r.warnings.some((w) => /止まりました/.test(w))).toBe(false);
+  });
+});
+
+describe("画面を持たないシステムのデータ", () => {
+  const batchSpec = (): ModelSpec => {
+    const spec = structuredClone(FIXTURE_SPEC);
+    spec.systems = [...spec.systems!, { name: "夜間バッチ" }, { name: "外部会計サービス" }];
+    spec.events = [
+      ...spec.events!,
+      { name: "月末になった", raised_by: ["夜間バッチ"], usecases: [{ name: "請求データを書き出す", reads: ["注文"], targets: ["夜間バッチ"] }, { name: "会計へ連携する", reads: ["注文"], targets: ["外部会計サービス"] }] },
+    ];
+    return spec;
+  };
+  const invoiceDb = { system: "夜間バッチ", dsl: "// 請求\nmodel Invoice {\n  id String @id\n  orderId String\n}\n", tables: [{ table: "Invoice", informations: ["注文"] }] };
+
+  it("操作の対象になっている画面なしのシステムには submit_database だけの会話をする。社外のシステムは提出しなくても警告にしない", async () => {
+    const requests: Record<string, string> = {};
+    const toolsOf: Record<string, string[]> = {};
+    const sends: Record<string, number> = {};
+    useScripts({
+      model: async (c) => (await c.runTool("submit_model", batchSpec()), ""),
+      data: async (c) => {
+        const name = systemOf(c.text);
+        requests[name] = c.text;
+        sends[name] = (sends[name] ?? 0) + 1;
+        toolsOf[name] = fake.sessions.filter((x) => x.kind === "data").map((x) => x.tools).find((t) => t.includes("submit_database") && (name === "注文管理システム" ? t.includes("submit_sitemap") : !t.includes("submit_sitemap"))) ?? [];
+        if (name === "注文管理システム") return dataScript(c);
+        if (name === "夜間バッチ") await c.runTool("submit_database", invoiceDb);
+        return "このシステムのスキーマ定義はソースにありません。";
+      },
+    });
+    const messages: string[] = [];
+    const r = await run({ onSubmit: (_ok, m) => messages.push(m) });
+    expect(sessionCount("data")).toBe(3);
+    // 画面を持たないシステムには、サイトマップの道具も依頼も無く、1 回しか頼まない
+    const batchSessions = fake.sessions.filter((x) => x.kind === "data" && !x.tools.includes("submit_sitemap"));
+    expect(batchSessions).toHaveLength(2);
+    expect(batchSessions.every((x) => x.tools.includes("submit_database"))).toBe(true);
+    expect(requests["夜間バッチ"]).not.toMatch(/submit_sitemap で|2\. submit_sitemap/);
+    expect(requests["夜間バッチ"]).toMatch(/スキーマ定義がソースに無ければ.*提出せず、「ありません」と答える/);
+    expect(requests["外部会計サービス"]).toMatch(/画面を持たず/);
+    expect(sends["夜間バッチ"]).toBe(1);
+    expect(sends["外部会計サービス"]).toBe(1);
+    // 夜間バッチのデータベースだけが足され、外部のシステムは警告なしで見送る
+    const m = r.build.model;
+    const batch = m.elements.find((e) => e.name === "夜間バッチ")!;
+    const external = m.elements.find((e) => e.name === "外部会計サービス")!;
+    const batchDesign = m.designs.find((d) => d.systemId === batch.id)!;
+    expect(batchDesign.screens).toHaveLength(0);
+    expect(batchDesign.databaseIds.length).toBe(1);
+    expect(m.databases.some((d) => d.dsl.includes("model Invoice"))).toBe(true);
+    expect(m.designs.find((d) => d.systemId === external.id)).toBeUndefined();
+    expect(r.warnings.filter((w) => /外部会計サービス/.test(w))).toEqual([]);
+    expect(r.warnings).toEqual([]);
+    expect(r.summary).toMatch(/データベース 2\/3 システム/);
+    // 設計の検証で、画面を持たないシステムに不自然な警告・エラーは出ない
+    const checked = checkDesign(m, batch.id);
+    expect(checked.problems).toEqual([]);
+    expect(checked.warnings).toEqual([]);
+    expect(validateModel(JSON.parse(JSON.stringify(m))).ok).toBe(true);
+    // 画面 UI は画面を持つシステムの画面だけ
+    expect(sessionCount("screen")).toBe(3);
+  });
+
+  it("画面を持つシステムは、これまでどおり 2 回頼み、提出が無ければ警告にする", async () => {
+    useScripts({ model: async (c) => (await c.runTool("submit_model", batchSpec()), ""), data: () => "" });
+    const r = await run();
+    expect(r.warnings.filter((w) => /提出しなかったので、データベースは作りませんでした/.test(w))).toHaveLength(1);
+    expect(r.warnings.find((w) => /提出しなかったので、データベースは作りませんでした/.test(w))).toMatch(/注文管理システム/);
+  });
+
+  it("画面を持たないシステムの会話が ChatError で終わったら、そのエラーの警告だけを残す", async () => {
+    useScripts({
+      model: async (c) => (await c.runTool("submit_model", batchSpec()), ""),
+      data: (c) => {
+        if (systemOf(c.text) === "夜間バッチ") throw new ChatError("返答が長すぎて途中で切れました。");
+        return systemOf(c.text) === "注文管理システム" ? dataScript(c) : "";
+      },
+    });
+    const r = await run();
+    expect(r.warnings.filter((w) => /夜間バッチ/.test(w))).toEqual(["データ: システム「夜間バッチ」: 返答が長すぎて途中で切れました。"]);
+  });
+
+  it("指示: 画面のないシステムの依頼は、スキーマ定義が無ければ提出しないと伝え、推測で作らせない", async () => {
+    const { reverseDataRequest } = await import("../reversePrompts");
+    const model = buildModelFromSpec(batchSpec()).model;
+    const text = reverseDataRequest(model, model.elements.find((e) => e.name === "夜間バッチ")!.id);
+    expect(text).toMatch(/ソースコードの外にある社外のシステム/);
+    expect(text).toMatch(/推測して、スキーマを作らない/);
+    expect(text).not.toMatch(/読み取れる範囲で書き、\/\/ コメントに「推測」/);
+    expect(text).toMatch(/DSL の書式/);
+  });
+});
+
+describe("警告の重複と、見送ったあとの提出", () => {
+  it("データ・画面 UI の会話が ChatError で終わって提出も無いときは、警告を 1 件にまとめる", async () => {
+    useScripts({
+      data: () => { throw new ChatError("返答が長すぎて途中で切れました。"); },
+      screen: (c) => {
+        if (screenNameOf(c.text) === "注文詳細") throw new ChatError("安全のための判定で、この依頼には答えられませんでした。");
+        return screenScript(c);
+      },
+    });
+    const r = await run();
+    expect(r.warnings.filter((w) => /^データ: システム「注文管理システム」/.test(w))).toEqual(["データ: システム「注文管理システム」: 返答が長すぎて途中で切れました。"]);
+    expect(r.warnings.filter((w) => /^画面 UI: 画面「注文詳細」/.test(w))).toEqual(["画面 UI: 画面「注文詳細」: 安全のための判定で、この依頼には答えられませんでした。"]);
+    expect(r.warnings.some((w) => /提出しなかったので/.test(w) && /注文詳細|注文管理システム/.test(w))).toBe(false);
+  });
+
+  it("画面 UI を見送ったあとの提出は受け付けない (何度も組み立て直さない)", async () => {
+    const outcomes: ToolOutcome[] = [];
+    const bad = (draft: ScreenDraft) => ({ ...draft, view: { title: "x", sections: [{ id: "a", title: "a", kind: "form", fields: [{ item: "x", label: "x", component: "nope" }] }] } });
+    useScripts({
+      screen: async (c) => {
+        const draft = SCREEN_DRAFTS.find((d) => d.screen === screenNameOf(c.text))!;
+        if (draft.screen === "注文一覧") {
+          for (let i = 0; i < 4; i++) outcomes.push(await c.runTool("submit_screen", bad(draft)));
+          outcomes.push(await c.runTool("submit_screen", draft)); // 正しい提出も、見送ったあとは受けない
+        } else await c.runTool("submit_screen", draft);
+        return "";
+      },
+    });
+    const screens: [string, boolean][] = [];
+    const r = await run({ onScreen: (_d, _t, name, ok) => screens.push([name, ok]) });
+    expect(outcomes[0]!.ok).toBe(false);
+    expect(String(parse(outcomes[1]!).result)).toMatch(/見送ります/);
+    for (const o of outcomes.slice(2)) expect(String(parse(o).result)).toMatch(/見送りました.*受け付けません/);
+    expect(screens.find(([n]) => n === "注文一覧")![1]).toBe(false);
+    expect(r.build.model.designs[0]!.screens.find((sc) => designScreenNameOf(r.build.model, sc) === "注文一覧")!.view).toBeUndefined();
+  });
+});
+
+function designScreenNameOf(model: Parameters<typeof checkDesign>[0], screen: { source: { kind: string; screenId?: string } }): string {
+  return screen.source.kind === "screen" ? (model.elements.find((e) => e.id === screen.source.screenId)?.name ?? "") : "";
+}
+
+describe("業務の作り方の指示", () => {
+  it("人が誰も関わらない処理だけで業務を作らず、主担当を推測で付けない、と指示する", async () => {
+    const { reverseSystemPrompt, reverseModelRequest } = await import("../reversePrompts");
+    const p = reverseSystemPrompt();
+    expect(p).toMatch(/人が誰も関わらない処理だけで 1 つの業務を作らない/);
+    expect(p).toMatch(/イベントをきっかけにした操作として書き、業務には入れない/);
+    expect(p).toMatch(/その処理の結果を人が使う作業.*ソースにあるときだけ/);
+    expect(p).toMatch(/関係のないアクターを推測で付けない/);
+    expect(reverseModelRequest("x")).toMatch(/業務を作らず、主担当を推測で付けない/);
   });
 });

@@ -36,16 +36,16 @@ export const MAX_TREE_DEPTH = 24;
 export type ExcludeReason = "folder" | "secret" | "binary" | "generated" | "large";
 
 /** 中に降りないフォルダ (依存・キャッシュ・バージョン管理)。どの深さでも除外する。名前は小文字で比べる */
-export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
+const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
   "node_modules", ".git", ".svn", ".hg", "dist", ".next", ".nuxt", ".svelte-kit", ".output",
   ".turbo", ".cache", ".parcel-cache", ".angular", ".gradle", ".idea", ".vscode", ".vercel", ".wrangler", ".terraform",
   "__pycache__", ".venv", "venv", "site-packages", ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".yarn",
   ".pnpm-store", "coverage", ".dart_tool", "bower_components",
 ]);
 /** build の成果物らしい名前。木の根の直下にあるときだけ除外する (`src/target/Target.java` や `k8s/pods/a.yaml` は読める) */
-export const ROOT_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["build", "out", "target", "vendor", "pods", "deriveddata"]);
+const ROOT_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["build", "out", "target", "vendor", "pods", "deriveddata"]);
 /** 秘密を置くフォルダ。どの深さでも、下のファイルは全部「秘密」として除外する */
-export const SECRET_DIRS: ReadonlySet<string> = new Set([".ssh", ".aws", ".gnupg", ".docker", ".kube", "secrets"]);
+const SECRET_DIRS: ReadonlySet<string> = new Set([".ssh", ".aws", ".gnupg", ".docker", ".kube", "secrets"]);
 
 /** 秘密になりうるファイルの拡張子 (鍵・証明書・キーストア) */
 const SECRET_EXTENSIONS = new Set(["pem", "key", "p12", "pfx", "jks", "keystore", "crt", "cer", "der", "p8", "ppk", "gpg", "kdbx", "tfvars", "tfstate"]);
@@ -79,7 +79,7 @@ export const isExcludedDirName = (name: string, atRoot = false): boolean => {
 };
 
 /** ファイル名 (パスの最後) だけで決まる除外。当たらなければ null */
-export function excludedFileNameReason(fileName: string): ExcludeReason | null {
+function excludedFileNameReason(fileName: string): ExcludeReason | null {
   const name = fileName.toLowerCase();
   // .env / .envrc / .env-prod / .env_dev / .env~ / .env.local / app.env.local / prod.env
   if (/^\.env(rc)?($|[._~-])/.test(name) || /\.env($|[._~-])/.test(name)) return "secret";

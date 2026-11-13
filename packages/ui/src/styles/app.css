@@ -602,6 +602,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .prompt-progress { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 240px; overflow-y: auto; }
 .prompt-step { font-weight: 600; margin-bottom: 4px; }
 .prompt-analysis { white-space: pre-wrap; font: inherit; margin: 0 0 6px; }
+.source-survey { max-height: 160px; overflow-y: auto; }
 .prompt-log { color: var(--muted); white-space: pre-wrap; }
 .prompt-error { color: var(--danger); margin: 0; }
 .source-dialog { width: 600px; max-height: 90vh; overflow-y: auto; }

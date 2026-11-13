@@ -268,6 +268,69 @@ describe("CreateFromSourceDialog", () => {
     expect(live.map((n) => n.textContent)).toEqual(["3/4 データを作る"]);
   });
 
+  it("読めるファイルの数は、木が替わったときだけ数える (入力や調査中の再描画では数え直さない)", async () => {
+    let reads = 0;
+    const counted = { ...tree, get files() { reads++; return tree.files; } } as typeof tree;
+    memory().sourceTree = counted;
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "フォルダを選ぶ…" }));
+    });
+    expect(screen.getByText(/読めるファイル 2 件/)).toBeDefined();
+    const after = reads;
+    expect(after).toBeGreaterThan(0);
+    for (const v of ["a", "ab", "abc"]) fireEvent.change(screen.getByLabelText("モデルに起こしたい業務"), { target: { value: v } });
+    expect(reads).toBe(after);
+  });
+
+  it("調査結果の文章は届くたびに末尾までスクロールし、利用者が上へスクロールしているときは戻さない", async () => {
+    let opts: ReverseOptions | undefined;
+    mocked.mockImplementation((_t, _r, o) => {
+      opts = o;
+      o.onStep?.("survey");
+      o.onText?.("最初の文\n");
+      return new Promise(() => {});
+    });
+    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    const box = container.querySelector<HTMLElement>(".prompt-analysis")!;
+    // jsdom は寸法を持たないので、枠の寸法とスクロール位置を差し込む
+    let top = 0;
+    Object.defineProperty(box, "scrollHeight", { configurable: true, get: () => 500 });
+    Object.defineProperty(box, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    act(() => opts!.onText?.("次の文\n"));
+    expect(top).toBe(500);
+    // 上へスクロールした (末尾から離れた) ら、文章が届いても戻さない
+    top = 50;
+    fireEvent.scroll(box);
+    act(() => opts!.onText?.("さらに次の文\n"));
+    expect(top).toBe(50);
+    // 末尾まで戻したら、また追う
+    top = 400;
+    fireEvent.scroll(box);
+    act(() => opts!.onText?.("最後の文\n"));
+    expect(top).toBe(500);
+  });
+
+  it("完了時の気づいたことの一覧は、全体ではなく件数の行だけが status (live region)", async () => {
+    mocked.mockResolvedValue(result(["一つ目", "二つ目"]));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/気づいたことが 2 件/)).toBeDefined());
+    const live = screen.getAllByRole("status");
+    expect(live.map((n) => n.textContent)).toContain("モデルを作りました。気づいたことが 2 件あります。");
+    expect(live.every((n) => !n.textContent!.includes("一つ目"))).toBe(true);
+  });
+
   it("保存していない変更があって破棄しないなら、始めない", async () => {
     useUntieStore.setState((s) => ({ savedModel: { ...s.model } }));
     memory().discard = false;

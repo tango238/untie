@@ -1,6 +1,6 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, setPersona, setRelationAccess, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { addElement, addRelation, DUPLICATE_RELATION_REASON, setPersona, setRelationAccess, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { isUndirected, relationKindFor } from "@untie/core/model/relations";
 import { defaultBucOf } from "@untie/core/model/selectors";
@@ -340,8 +340,6 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     kindById.set(r.id, kind);
     return r.id;
   };
-  /** すでに同じ関係があるときの失敗の理由 (commands.ts の addRelation)。AI が同じつながりを 2 か所に書いただけなので、警告にしない */
-  const DUPLICATE_RELATION = "同じ関係がすでにあります";
   /** 要素の id → 種類、関係の (種類・両端) → 関係の id。関係を作るたびに全部を調べ直さないための索引 (向きを持たない関係は、両端の順を無視する) */
   const kindById = new Map<string, ElementKind>();
   const relationByKey = new Map<string, string>();
@@ -365,7 +363,7 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     if (r.ok) {
       model = r.model;
       if (kind) relationByKey.set(relationKey(kind, sourceId, targetId), r.id);
-    } else if (r.reason !== DUPLICATE_RELATION) warnings.push(`関係を作れません: ${r.reason}`);
+    } else if (r.reason !== DUPLICATE_RELATION_REASON) /* AI が同じつながりを 2 か所に書いただけなので、警告にしない */ warnings.push(`関係を作れません: ${r.reason}`);
   };
   const ref = (groups: string[], name: string, what: string): string | null => {
     for (const g of groups) {

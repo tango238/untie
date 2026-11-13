@@ -1,7 +1,7 @@
 // AI との会話 (道具を使うループ)。Claude (Anthropic)・Codex (OpenAI)・Gemini (Google) の API を同じ形で扱う。
 // どの会社でも、会話の履歴はその会社の API の形のまま持ち、道具の定義と実行は共通にする。
 import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenAI, type Content, type Part } from "@google/genai";
+import { ApiError as GeminiApiError, GoogleGenAI, type Content, type Part } from "@google/genai";
 import OpenAI from "openai";
 import type { ProviderId } from "./providers";
 import type { ToolDef, ToolOutcome } from "./tools";
@@ -34,8 +34,8 @@ export interface ChatSession {
   seed: (turns: SeedTurn[]) => void;
 }
 
-/** 道具を使う往復の上限 (道具を呼び続けて終わらないのを防ぐ) */
-const MAX_STEPS = 60;
+/** 道具を使う往復の上限 (道具を呼び続けて終わらないのを防ぐ。「ソースコードから作成」の会話ごとの上限の検査も、これを使う) */
+export const MAX_STEPS = 60;
 
 export class ChatError extends Error {}
 
@@ -227,4 +227,19 @@ export function describeChatError(e: unknown): string {
   if (e instanceof Anthropic.APIConnectionError || e instanceof OpenAI.APIConnectionError) return "API に接続できませんでした。ネットワークを確かめてください。";
   if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError) return `API のエラー (${e.status ?? "?"}): ${e.message}`;
   return e instanceof Error ? e.message : String(e);
+}
+
+/** 繰り返しても直らない HTTP の状態 (リクエストの誤り・キーの誤り・権限・モデルが無い・形式の誤り) */
+const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 405, 413, 422]);
+
+/**
+ * 一時的な API のエラーか (過負荷 529・サーバーの 5xx・接続断・タイムアウト・レート制限 429・408)。
+ * キーの誤り (401/403)・モデルが無い (404)・リクエストの誤り (400 ほか) のように、繰り返しても直らないものと、中断、判定できないものは false。
+ * Anthropic・OpenAI は APIError の status (接続断は APIConnectionError で status が無い)、Gemini は ApiError の status で調べる
+ */
+export function isTransientApiError(e: unknown): boolean {
+  if (isAbortError(e)) return false;
+  if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError) return e.status === undefined || !PERMANENT_STATUSES.has(e.status);
+  if (e instanceof GeminiApiError) return typeof e.status === "number" && !PERMANENT_STATUSES.has(e.status);
+  return false;
 }

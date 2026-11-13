@@ -225,4 +225,18 @@ describe("pickSourceFolderInBrowser", () => {
     }) as typeof document.createElement);
     expect(await pickSourceFolderInBrowser()).toBeNull();
   });
+  it("input でファイルが 1 つも選ばれなかった (空のフォルダ) ときも null", async () => {
+    const original = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((tag: string) => {
+      const el = original(tag);
+      if (tag === "input") {
+        el.click = () => {
+          Object.defineProperty(el, "files", { value: [] });
+          el.dispatchEvent(new Event("change"));
+        };
+      }
+      return el;
+    }) as typeof document.createElement);
+    expect(await pickSourceFolderInBrowser()).toBeNull();
+  });
 });

@@ -9,6 +9,7 @@ import {
   setDatabaseDesign,
   setDesignDatabases,
   setDesignScreenView,
+  updateTransition,
   type CommandResult,
 } from "@untie/core/model/commands";
 import { DEFAULT_DATABASE_ID, DEFAULT_DATABASE_NAME, effectiveDatabaseIds } from "@untie/core/model/design";
@@ -372,16 +373,27 @@ export function applySitemapDraft(model: UntieModel, draft: SitemapDraft): Sitem
       warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」は同じ画面への遷移なので、落としました`);
       continue;
     }
-    if (existing.has(`${from.id}\n${to.id}`)) {
-      result.skipped++;
-      continue;
-    }
     let via: Transition["via"];
     if (t.via !== undefined && t.via !== "") {
       if ((TRANSITION_VIAS as readonly string[]).includes(t.via)) via = t.via as Transition["via"];
-      else warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」のきっかけ「${t.via}」は使えないので、きっかけなしで足しました`);
+      else warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」のきっかけ「${t.via}」は使えないので、${existing.has(`${from.id}\n${to.id}`) ? "きっかけは付けませんでした" : "きっかけなしで足しました"}`);
     }
     const label = t.label ? truncateText(t.label.trim(), NAME_MAX_LENGTH) : undefined;
+    if (existing.has(`${from.id}\n${to.id}`)) {
+      // 作業のつながりから導いた遷移と同じ両端: きっかけ・文言が未定なら AI の値で埋める (決まっているものは変えない)
+      const found = design(next)?.transitions.find((x) => x.from === from.id && x.to === to.id);
+      const patch: { via?: Transition["via"]; label?: string } = {
+        ...(found && found.via === undefined && via ? { via } : {}),
+        ...(found && !found.label && label ? { label } : {}),
+      };
+      if (found && Object.keys(patch).length > 0) {
+        const u = updateTransition(next, { systemId: system.id, id: found.id, patch });
+        if (u.ok) next = u.model;
+        else warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」のきっかけを付けられません: ${u.reason}`);
+      }
+      result.skipped++;
+      continue;
+    }
     const r = addTransition(next, { systemId: system.id, from: from.id, to: to.id, ...(via ? { via } : {}), ...(label ? { label } : {}) });
     if (!r.ok) {
       warnings.push(`サイトマップ: 遷移「${t.from}」→「${t.to}」を足せません: ${r.reason}`);
