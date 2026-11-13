@@ -55,9 +55,21 @@ export function createChatSession(provider: ProviderId, options: ChatOptions): C
 /** サーバー側のフォールバック (安全のための判定で断られたとき、別のモデルで続ける) を使えるモデル */
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
+/**
+ * Anthropic のクライアント。画面 (WebView・ブラウザ) から直接呼ぶ。キーは利用者のもので、利用者の端末から出ない。
+ * SDK は apiKey を `Authorization: Bearer` で送るが、ブラウザから直接呼ぶ経路 (anthropic-dangerous-direct-browser-access)
+ * では API が Bearer を受け付けず `x-api-key` を求めるので、x-api-key で送り、Authorization は外す。
+ */
+export function createAnthropicClient(apiKey: string): Anthropic {
+  return new Anthropic({
+    apiKey,
+    dangerouslyAllowBrowser: true,
+    defaultHeaders: { "x-api-key": apiKey, Authorization: null },
+  });
+}
+
 function claudeSession(o: ChatOptions): ChatSession {
-  // デスクトップアプリの中から直接呼ぶ。キーは利用者のもので、利用者の端末から出ない
-  const client = new Anthropic({ apiKey: o.apiKey, dangerouslyAllowBrowser: true });
+  const client = createAnthropicClient(o.apiKey);
   const messages: Anthropic.Beta.BetaMessageParam[] = [];
   const tools: Anthropic.Beta.BetaTool[] = o.tools.map((t) => ({
     name: t.name,
@@ -199,14 +211,20 @@ function geminiSession(o: ChatOptions): ChatSession {
   };
 }
 
+/** 利用者の中断か (Anthropic・OpenAI は APIUserAbortError、Gemini や fetch は AbortError) */
+export function isAbortError(e: unknown): boolean {
+  return e instanceof Anthropic.APIUserAbortError || e instanceof OpenAI.APIUserAbortError || (e instanceof Error && e.name === "AbortError");
+}
+
 /** API のエラーを、利用者に見せる短い文にする */
 export function describeChatError(e: unknown): string {
   if (e instanceof ChatError) return e.message;
+  // 中断は、API のエラー (APIError を継承する) より先に見る
+  if (isAbortError(e)) return "中断しました。";
   if (e instanceof Anthropic.AuthenticationError || e instanceof OpenAI.AuthenticationError) return "API キーが正しくありません。設定を確かめてください。";
   if (e instanceof Anthropic.RateLimitError || e instanceof OpenAI.RateLimitError) return "利用の上限に達しました。少し待ってから試してください。";
   if (e instanceof Anthropic.NotFoundError || e instanceof OpenAI.NotFoundError) return "モデルが見つかりません。設定のモデル名を確かめてください。";
   if (e instanceof Anthropic.APIConnectionError || e instanceof OpenAI.APIConnectionError) return "API に接続できませんでした。ネットワークを確かめてください。";
   if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError) return `API のエラー (${e.status ?? "?"}): ${e.message}`;
-  if (e instanceof Error && e.name === "AbortError") return "中断しました。";
   return e instanceof Error ? e.message : String(e);
 }

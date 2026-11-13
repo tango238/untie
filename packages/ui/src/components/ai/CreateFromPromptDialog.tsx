@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
-import { describeChatError } from "../../ai/chat";
+import { describeChatError, isAbortError } from "../../ai/chat";
 import { generateFromPrompt, type GenerationStep } from "../../ai/generate";
 import { getApiKey } from "../../ai/keys";
 import { PROVIDERS } from "../../ai/providers";
@@ -24,16 +24,38 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
+  /** 生成を始めている最中か (「作成」の二度押しで 2 本走らせない) */
+  const starting = useRef(false);
+  const mounted = useRef(true);
+  // ダイアログが外れたら生成を止める (結果が届いても、今開いているモデルを置き換えない)
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      controller.current?.abort();
+    };
+  }, []);
   const provider = PROVIDERS[settings.provider];
   const model = settings.models[settings.provider] || provider.defaultModel;
   const running = step !== null && step !== "done";
 
   const start = async () => {
+    if (starting.current) return;
+    starting.current = true;
+    try {
+      await run();
+    } finally {
+      starting.current = false;
+    }
+  };
+
+  const run = async () => {
     setError(null);
     setAnalysis("");
     setLog([]);
     const st = useUntieStore.getState();
     if (hasUnsavedChanges(st) && !(await getPlatform().confirmDiscard("保存していない変更があります。破棄して新しいモデルを作りますか？"))) return;
+    if (!mounted.current) return;
     let apiKey: string | null;
     try {
       apiKey = await getApiKey(settings.provider);
@@ -45,17 +67,26 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
       setError(`${provider.label} の API キーが設定されていません。「AI の設定」で入れてください。`);
       return;
     }
-    controller.current = new AbortController();
+    if (!mounted.current) return;
+    const ctl = new AbortController();
+    controller.current = ctl;
     try {
       const result = await generateFromPrompt(request, {
         provider: settings.provider,
         model,
         apiKey,
-        signal: controller.current.signal,
+        signal: ctl.signal,
         onStep: setStep,
         onText: (d) => setAnalysis((a) => a + d),
         onSubmit: (accepted, message) => setLog((l) => [...l, `${accepted ? "✓" : "↻"} ${message}`]),
       });
+      // 中断された・ダイアログが外れたあとに届いた結果では、今のモデルを置き換えない
+      if (!mounted.current) return;
+      if (ctl.signal.aborted) {
+        setError("中断しました。");
+        setStep(null);
+        return;
+      }
       useUntieStore.getState().newDocument(result.build.model);
       // 作成の会話を引き継いで、AI エージェントで続けられるようにする
       continueFrom(result.seed, [
@@ -65,10 +96,11 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
       ]);
       onClose();
     } catch (e) {
-      setError(describeChatError(e));
+      if (!mounted.current) return;
+      setError(ctl.signal.aborted || isAbortError(e) ? "中断しました。" : describeChatError(e));
       setStep(null);
     } finally {
-      controller.current = null;
+      if (controller.current === ctl) controller.current = null;
     }
   };
 
@@ -95,8 +127,10 @@ export function CreateFromPromptDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         {step && (
-          <div className="prompt-progress" role="status">
-            <div className="prompt-step">{STEP_LABELS[step]}</div>
+          <div className="prompt-progress">
+            <div className="prompt-step" role="status">
+              {STEP_LABELS[step]}
+            </div>
             {analysis && <pre className="prompt-analysis">{analysis}</pre>}
             {log.map((l, i) => (
               <div key={i} className="prompt-log">

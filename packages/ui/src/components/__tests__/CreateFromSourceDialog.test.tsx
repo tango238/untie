@@ -90,7 +90,7 @@ describe("CreateFromSourceDialog", () => {
   it("送信前の説明に、API の送り先 (プロバイダー名) と読まないものが出る", () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
     const label = PROVIDERS[useAgentStore.getState().settings.provider].label;
-    expect(screen.getByText(/API に送られます/).textContent).toContain(label);
+    expect(screen.getByText(/の API に送られるのは/).textContent).toContain(label);
     expect(screen.getByText(/node_modules/)).toBeDefined();
   });
 
@@ -109,19 +109,19 @@ describe("CreateFromSourceDialog", () => {
     await waitFor(() => expect(mocked).toHaveBeenCalled());
     act(() => {
       opts.onStep?.("survey");
-      opts.onSourceTool?.("read_file", "src/orders.ts");
+      opts.onSourceTool?.("読む", "src/orders.ts");
       opts.onText?.("受注は orders.ts にある");
     });
-    expect(screen.getByText(/1\/4 ソースコードを調べる/)).toBeDefined();
+    expect(screen.getAllByText(/1\/4 ソースコードを調べる/).length).toBeGreaterThan(0);
     expect(screen.getByText("読んだ場所 (1 件)")).toBeDefined();
-    expect(screen.getByText("read_file src/orders.ts")).toBeDefined();
+    expect(screen.getByText("読む src/orders.ts")).toBeDefined();
     expect(screen.getByText("受注は orders.ts にある")).toBeDefined();
     act(() => {
       opts.onStep?.("screens");
       opts.onSubmit?.(true, "業務を提出しました");
       opts.onScreen?.(2, 5, "受注一覧", true);
     });
-    expect(screen.getByText(/4\/4 画面を作る/)).toBeDefined();
+    expect(screen.getAllByText(/4\/4 画面を作る/).length).toBeGreaterThan(0);
     expect(screen.getByText("✓ 業務を提出しました")).toBeDefined();
     expect(screen.getByText("画面 2/5")).toBeDefined();
     expect(startButton().textContent).toBe("生成中…");
@@ -177,6 +177,95 @@ describe("CreateFromSourceDialog", () => {
       fireEvent.click(startButton());
     });
     await waitFor(() => expect(mocked).toHaveBeenCalledTimes(2));
+  });
+
+  it("説明に、AI に送るものと、時間・利用料がかかることが出る", () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screen.getByText(/ファイルの一覧 \(名前と大きさ\)、AI が開いたファイルの中身、検索で見つかった行/)).toBeDefined();
+    expect(screen.getByText(/直接書かれたキーや個人情報は送られる/)).toBeDefined();
+    expect(screen.getByText(/数分かかり、API の利用料がかかります/)).toBeDefined();
+  });
+
+  it("「作成」を続けて押しても、生成は 1 本だけ", async () => {
+    mocked.mockImplementation(() => new Promise(() => {}));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("中断すると「中断しました。」を出し、結果が届いてもモデルを置き換えない", async () => {
+    let opts!: ReverseOptions;
+    let finish!: (r: ReverseResult) => void;
+    mocked.mockImplementation((_t, _r, o) => {
+      opts = o;
+      return new Promise((resolve) => (finish = resolve));
+    });
+    const onClose = vi.fn();
+    render(<CreateFromSourceDialog onClose={onClose} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "中断" }));
+    await act(async () => {
+      finish(result());
+    });
+    expect(opts.signal?.aborted).toBe(true);
+    expect(screen.getByText("中断しました。")).toBeDefined();
+    expect(useUntieStore.getState().model.meta.name).not.toBe("受注");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("実行中にダイアログが外れたら中断し、あとで結果が届いてもモデルも会話も変えない", async () => {
+    let opts!: ReverseOptions;
+    let finish!: (r: ReverseResult) => void;
+    mocked.mockImplementation((_t, _r, o) => {
+      opts = o;
+      return new Promise((resolve) => (finish = resolve));
+    });
+    const before = useUntieStore.getState().model.meta.name;
+    const items = useAgentStore.getState().items;
+    const onClose = vi.fn();
+    const { unmount } = render(<CreateFromSourceDialog onClose={onClose} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    unmount();
+    expect(opts.signal?.aborted).toBe(true);
+    await act(async () => {
+      finish(result());
+    });
+    expect(useUntieStore.getState().model.meta.name).toBe(before);
+    expect(useAgentStore.getState().items).toBe(items);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("進み具合の live region は段階の行だけ (調査結果の文章は含まない)", async () => {
+    mocked.mockImplementation((_t, _r, o) => {
+      o.onStep?.("data");
+      o.onText?.("調査結果の文章");
+      return new Promise(() => {});
+    });
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getAllByRole("status").length).toBeGreaterThan(0));
+    const live = screen.getAllByRole("status");
+    expect(live.map((n) => n.textContent)).toEqual(["3/4 データを作る"]);
   });
 
   it("保存していない変更があって破棄しないなら、始めない", async () => {

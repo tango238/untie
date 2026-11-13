@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
-import { describeChatError } from "../../ai/chat";
+import { describeChatError, isAbortError } from "../../ai/chat";
 import { getApiKey } from "../../ai/keys";
 import { PROVIDERS } from "../../ai/providers";
 import { reverseEngineer, type ReverseStep } from "../../ai/reverse";
@@ -36,6 +36,17 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  /** 生成を始めている最中か (「作成」の二度押しで 2 本走らせない) */
+  const starting = useRef(false);
+  const mounted = useRef(true);
+  // ダイアログが外れたら生成を止める (結果が届いても、今開いているモデルを置き換えない)
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      controller.current?.abort();
+    };
+  }, []);
   const provider = PROVIDERS[settings.provider];
   const model = settings.models[settings.provider] || provider.defaultModel;
   const running = step !== null && step !== "done";
@@ -55,7 +66,16 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   };
 
   const start = async () => {
-    if (!tree) return;
+    if (!tree || starting.current) return;
+    starting.current = true;
+    try {
+      await run(tree);
+    } finally {
+      starting.current = false;
+    }
+  };
+
+  const run = async (tree: SourceTree) => {
     setError(null);
     setSurvey("");
     setReads([]);
@@ -65,6 +85,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     setWarnings(null);
     const st = useUntieStore.getState();
     if (hasUnsavedChanges(st) && !(await getPlatform().confirmDiscard("保存していない変更があります。破棄して新しいモデルを作りますか？"))) return;
+    if (!mounted.current) return;
     let apiKey: string | null;
     try {
       apiKey = await getApiKey(settings.provider);
@@ -76,14 +97,16 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
       setError(`${provider.label} の API キーが設定されていません。「AI の設定」で入れてください。`);
       return;
     }
-    controller.current = new AbortController();
+    if (!mounted.current) return;
+    const ctl = new AbortController();
+    controller.current = ctl;
     setStep("survey");
     try {
       const res = await reverseEngineer(tree, request, {
         provider: settings.provider,
         model,
         apiKey,
-        signal: controller.current.signal,
+        signal: ctl.signal,
         onStep: setStep,
         onText: (d) => setSurvey((a) => a + d),
         onSourceTool: (name, detail) => {
@@ -96,6 +119,13 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           setLog((l) => [...l, `${ok ? "✓" : "×"} 画面 ${done}/${total}: ${name}`]);
         },
       });
+      // 中断された・ダイアログが外れたあとに届いた結果では、今のモデルを置き換えない
+      if (!mounted.current) return;
+      if (ctl.signal.aborted) {
+        setError("中断しました。");
+        setStep(null);
+        return;
+      }
       useUntieStore.getState().newDocument(res.build.model);
       // 作成の会話を引き継いで、AI エージェントで続けられるようにする
       continueFrom(res.seed, [
@@ -111,10 +141,11 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
         onClose();
       }
     } catch (e) {
-      setError(describeChatError(e));
+      if (!mounted.current) return;
+      setError(ctl.signal.aborted || isAbortError(e) ? "中断しました。" : describeChatError(e));
       setStep(null);
     } finally {
-      controller.current = null;
+      if (controller.current === ctl) controller.current = null;
     }
   };
 
@@ -159,12 +190,12 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
         />
         <ul className="source-notes">
           <li>
-            AI が読んだ部分のソースコードは、選んでいる AI ({provider.label}) の API に送られます。フォルダ全体を送るわけではありません。
+            選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行です。フォルダ全体は送りません。
           </li>
           <li>
-            <code>.env</code> や鍵などの秘密になりうるファイル、<code>node_modules</code> などの依存・生成物は読みません。
+            <code>.env</code> や鍵のファイル、<code>node_modules</code> などの依存・生成物は読みません。ただし、ふつうのソースファイルに直接書かれたキーや個人情報は送られることがあります。
           </li>
-          <li>対象の業務のほか、関係する業務・データ・画面も調べます。</li>
+          <li>対象の業務のほか、関係する業務・データ・画面も調べます。画面の数だけ AI を呼ぶので、数分かかり、API の利用料がかかります。</li>
         </ul>
         <div className="prompt-ai">
           使う AI: {provider.label} ({model})
@@ -173,7 +204,10 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         {step && (
-          <div className="prompt-progress" role="status">
+          <div className="prompt-progress">
+            <div className="visually-hidden" role="status">
+              {stageIndex >= 0 ? `${stageIndex + 1}/${STAGES.length} ${STAGES[stageIndex]!.label}` : "完了"}
+            </div>
             <ol className="source-stages">
               {STAGES.map((s, i) => {
                 const state = step === "done" || i < stageIndex ? "done" : i === stageIndex ? "now" : "next";
