@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useUntieStore } from "../store";
+import { modeOf, useUntieStore } from "../store";
 import { analysisBoardId } from "@untie/core/model/analysis";
 import { simpleBoardId } from "@untie/core/model/workflow";
 import { designBoardId } from "@untie/core/model/design";
@@ -124,7 +124,7 @@ function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
 function ShortcutsPanel() {
   const cloud = useUntieStore((s) => s.cloud !== null);
   const close = useShortcutsUi((s) => s.close);
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const boards = useUntieStore((s) => s.model.boards);
   const panelRef = useRef<HTMLDivElement>(null);

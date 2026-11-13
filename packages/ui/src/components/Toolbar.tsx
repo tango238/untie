@@ -16,7 +16,7 @@ import { ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
 import { DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
 import { SIMPLE_BOARD_KINDS, SIMPLE_BOARD_LABELS, simpleBoardId } from "@untie/core/model/workflow";
 import { isDevMode, visibleAnalysisKinds, visibleDesignKinds } from "../devMode";
-import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
+import { hasUnsavedChanges, isBuiltinBoard, modeOf, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
@@ -42,7 +42,7 @@ export function Toolbar() {
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const model = useUntieStore((s) => s.model);
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const designSystemId = useUntieStore((s) => s.ui.designSystemId);
   // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);

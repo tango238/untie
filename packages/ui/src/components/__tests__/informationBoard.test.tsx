@@ -157,7 +157,11 @@ describe("削除の確認と「移動」", () => {
   it("トレース表では、コンテキスト・情報・状態・バリエーション・条件の行の「移動」も出さない", () => {
     renderBoth();
     fireEvent.click(screen.getAllByRole("button", { name: /^情報 / })[0]!);
+    // 情報と状態ボードでは、コンテキスト・情報・状態・バリエーションの行に「移動」が無い。固定ボードへは移らない
+    for (const layer of ["コンテキスト", "情報", "状態", "バリエーション"]) expect(screen.queryByRole("button", { name: new RegExp(`^${layer}を.*ボードで見る`) })).toBeNull();
     for (const layer of ["コンテキスト", "情報", "状態", "バリエーション", "条件"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
+    // 操作の行からは、システム操作ボードへ移れる
+    expect(screen.getByRole("button", { name: "操作をシステム操作ボードで見る" })).toBeDefined();
   });
 });
 

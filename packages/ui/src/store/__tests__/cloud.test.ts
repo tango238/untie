@@ -511,15 +511,24 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("simple:workflow");
   });
 
-  it("クラウドファイルを開く・閉じると分析に戻る", () => {
+  it("クラウドファイルを開く・閉じると、設計から既定の分析（簡易）に戻る", () => {
     st().enterDesign("sys_pms");
     attach();
-    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.mode).toBe("analysisSimple");
     expect(st().ui.designSystemId).toBeUndefined();
     st().enterDesign("sys_pms");
     st().closeCloud();
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+  });
+
+  it("分析（詳細）にいるときにクラウドファイルを開く・閉じても、詳細のまま", () => {
+    st().setMode("analysis");
+    attach();
     expect(st().ui.mode).toBe("analysis");
     expect(st().ui.currentBoardId).toBe("analysis:issues");
+    st().closeCloud();
+    expect(st().ui.mode).toBe("analysis");
   });
 });
 

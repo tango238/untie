@@ -1,6 +1,7 @@
 // 複数のコンポーネントから使う、ストアとキャンバスをまたぐ操作。
 import { DEFAULT_FRAME_SIZE, addElement, placeOnBoard, type CommandResult } from "@untie/core/model/commands";
 import { fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
+import { simpleBoardId, simpleBoardOfKind, SIMPLE_BOARD_ELEMENT_KINDS, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { isFrameKind, type UntieModel } from "@untie/core/model/types";
 import { isBuiltinBoard, useUntieStore } from "../store";
 import { viewCenter, canvasApi } from "./canvas/canvasApi";
@@ -123,4 +124,31 @@ export function createIssue(targetIds: string[] = []): void {
   useUntieStore.setState((s) => ({ ui: { ...s.ui, issueDraft: { id: r.id, targetIds: [...targetIds] } } }));
   st.setRightPanel("properties");
   st.requestNameFocus();
+}
+
+/**
+ * 簡易モードのボードへ移る (トレース表・課題の対象の「移動」)。簡易モードのまま、行き先のボードへ切り替える。
+ * elementId があれば、それを選んでプロパティに出し、行き先のボードでその要素までスクロールする (切り替え直後はボードがまだ
+ * canvasApi.focus を登録していないので、固定ボードへの移動と同じく描画後に呼ぶ)。無ければボードを切り替えるだけ
+ * (ボードを切り替えると選択は外れる。今の選択が行き先に見えるときは、呼ぶ側が elementId に渡す)
+ */
+export function goToSimpleBoard(board: SimpleBoardKind, elementId: string | null): void {
+  const st = useUntieStore.getState();
+  st.setCurrentBoard(simpleBoardId(board));
+  if (elementId === null) return;
+  st.select({ type: "element", id: elementId });
+  st.setRightPanel("properties");
+  setTimeout(() => canvasApi.focus?.(elementId), 50);
+}
+
+/** 要素を主役にする簡易ボードへ移って、その要素を選ぶ (課題の対象の「移動」)。主役にするボードが無ければ何もしない */
+export function revealOnSimpleBoard(elementId: string): void {
+  const el = useUntieStore.getState().model.elements.find((e) => e.id === elementId);
+  const board = el ? simpleBoardOfKind(el.kind) : null;
+  if (board) goToSimpleBoard(board, elementId);
+}
+
+/** 簡易ボードで、その種類の要素を選べるか (そのボードの主役の種類か) */
+export function isOnSimpleBoard(kind: Parameters<typeof simpleBoardOfKind>[0], board: SimpleBoardKind): boolean {
+  return SIMPLE_BOARD_ELEMENT_KINDS[board].includes(kind);
 }

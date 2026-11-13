@@ -33,7 +33,7 @@ import { DesignBoard } from "./components/design/DesignBoard";
 import { SitemapProperties } from "./components/design/SitemapProperties";
 import { SitemapTree } from "./components/design/SitemapTree";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
-import { selectReadOnly, useUntieStore } from "./store";
+import { modeOf, selectReadOnly, useUntieStore } from "./store";
 import { ROLE_LABELS } from "@untie/api";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
@@ -78,7 +78,7 @@ export default function App() {
   const sequence = design === "sequence";
   // 業務ルール (Souther。開発モード) は、左のペインを出さず、右に書き出しの読み方を出す
   const rules = design === "rules";
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
   // (広い画面では CSS で隠れる)

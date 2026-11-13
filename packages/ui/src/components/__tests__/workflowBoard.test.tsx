@@ -363,12 +363,16 @@ describe("トレース表の「移動」", () => {
   const moveLabel = (layer: string) => `固定ボード「${layer}」へ移る`;
   const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 
-  it("簡易モードでは、統合された 11 のレイヤー (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション) の行に「移動」が無い。残るのは非機能要件などだけ。行のセルは残る", () => {
+  it("簡易モード (ワークフロー): 登場人物〜作業の行には「移動」が無く、操作・画面・条件・情報・状態・バリエーションの行には、そのレイヤーを見る簡易ボードへ移る「移動」がある。固定ボードへは移らない。行のセルは残る", () => {
     act(() => st().select({ type: "element", id: "act_room_request" }));
     const { unmount } = render(<PropertyPanel />);
-    for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "情報", "条件", "状態", "バリエーション"]) {
-      expect(screen.queryByRole("button", { name: moveLabel(layer) })).toBeNull();
+    for (const layer of ["登場人物", "業務", "活動", "作業"]) {
+      expect(screen.queryByRole("button", { name: new RegExp(`^${layer}を.*ボードで見る`) })).toBeNull();
       expect(screen.getByRole("rowheader", { name: new RegExp(layer) })).toBeDefined();
+    }
+    for (const [layer, board] of [["操作", "システム操作"], ["画面", "システム操作"], ["条件", "システム操作"], ["情報", "情報と状態"], ["状態", "情報と状態"], ["バリエーション", "情報と状態"]] as const) {
+      expect(screen.getByRole("button", { name: `${layer}を${board}ボードで見る` })).toBeDefined();
+      expect(screen.queryByRole("button", { name: moveLabel(layer) })).toBeNull();
     }
     // ボタンの無い行も、要素と「移動」の 2 つのセル (cell。レイヤー名は rowheader) を持つ (列が崩れない)
     expect(rows().every((r) => within(r).getAllByRole("cell").length === 2)).toBe(true);
@@ -376,7 +380,7 @@ describe("トレース表の「移動」", () => {
     fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /フロント担当/ }));
     expect(selectedId()).toBe("actor_front");
     unmount();
-    // コンテキストも統合されたレイヤー。統合されていない非機能要件の「移動」は残る
+    // 簡易ボードに対応しない非機能要件の「移動」は、今までどおり固定ボードへ移る
     act(() => void st().dispatch((m) => addElement(m, { kind: "nfr", name: "速く応答する", id: "nfr_fast", init: { systemId: "sys_pms" } })));
     act(() => st().select({ type: "element", id: "nfr_fast" }));
     render(<PropertyPanel />);
@@ -390,11 +394,12 @@ describe("トレース表の「移動」", () => {
     for (const layer of ["登場人物", "業務", "活動", "作業", "操作", "画面", "条件", "状態"]) expect(screen.getByRole("button", { name: moveLabel(layer) })).toBeDefined();
   });
 
-  it("課題の対象の「移動」: 簡易モードでは作業・操作のどちらにも無い。詳細モードでは有る", () => {
+  it("課題の対象の「移動」: 簡易モード (ワークフロー) では、作業にはいまのボードなので無く、操作にはシステム操作ボードへ移る「移動」がある。詳細モードでは固定ボードへ移る", () => {
     act(() => st().select({ type: "element", id: "issue_extra_missing" }));
     const { unmount } = render(<PropertyPanel />);
-    expect(screen.queryByRole("button", { name: "「追加料金を記録する」の固定ボードへ移る" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^「追加料金を記録する」を.*ボードで見る/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "「追加料金を登録する」をシステム操作ボードで見る" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /固定ボードへ移る/ })).toBeNull();
     unmount();
     act(() => st().setMode("analysis"));
     act(() => st().select({ type: "element", id: "issue_extra_missing" }));
@@ -403,11 +408,12 @@ describe("トレース表の「移動」", () => {
     expect(screen.getByRole("button", { name: "「追加料金を登録する」の固定ボードへ移る" })).toBeDefined();
   });
 
-  it("上下に何もつながらないときの案内: 「移動」で…の一文は簡易モードでは出さず、詳細モードでは出す", () => {
+  it("上下に何もつながらないときの案内: 簡易モードでは「そのレイヤーを見るボード」、詳細モードでは「固定ボード」へ移る旨を出す", () => {
     act(() => void st().dispatch((m) => addElement(m, { kind: "actor", name: "ひとり", id: "actor_alone" })));
     act(() => st().select({ type: "element", id: "actor_alone" }));
     const { unmount } = render(<PropertyPanel />);
     expect(screen.getByText(/上下のレイヤーにつながる要素はありません/)).toBeDefined();
+    expect(screen.getByText(/「移動」でそのレイヤーを見るボードへ移って結べます/)).toBeDefined();
     expect(screen.queryByText(/「移動」でそのレイヤーの固定ボードへ移って結べます/)).toBeNull();
     unmount();
     act(() => st().setMode("analysis"));

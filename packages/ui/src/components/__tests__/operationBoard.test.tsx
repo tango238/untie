@@ -194,9 +194,11 @@ describe("削除の確認と「移動」", () => {
     expect(d.getByText(/画面 1 件: 削除されず残ります \(操作ごと残り、「作業に結ばれていない操作」に移ります\)/)).toBeDefined();
   });
 
-  it("トレース表では、操作・画面の行の「移動」も出さない", () => {
+  it("トレース表: システム操作ボードでは、操作・画面の行に「移動」が無く、登場人物・業務・作業の行にはワークフローへ移る「移動」がある。固定ボードへは移らない", () => {
     renderBoth();
     fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を確定する/ })[0]!);
+    for (const layer of ["操作", "画面"]) expect(screen.queryByRole("button", { name: new RegExp(`^${layer}を.*ボードで見る`) })).toBeNull();
+    for (const layer of ["登場人物", "業務", "作業"]) expect(screen.getByRole("button", { name: `${layer}をワークフローボードで見る` })).toBeDefined();
     for (const layer of ["操作", "画面", "作業"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
   });
 });
@@ -295,6 +297,9 @@ describe("情報", () => {
     renderBoth();
     const reg = screen.getAllByRole("region", { name: "操作 予約を登録する" })[0]!;
     fireEvent.click(within(within(reg).getByRole("list", { name: "情報の一覧" })).getAllByRole("button")[0]!);
+    // 情報は「情報と状態」ボードの主役なので、システム操作ボードからは、そこへ移る「移動」を出す (固定ボードへは移らない)
+    expect(screen.getByRole("button", { name: "情報を情報と状態ボードで見る" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^操作を.*ボードで見る/ })).toBeNull();
     for (const layer of ["情報", "操作"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(within(dialog()!).getByText(/^操作 \d+ 件: 削除されず残ります \(扱う情報としての結び付きが外れます\)/)).toBeDefined();
@@ -372,6 +377,7 @@ describe("条件", () => {
     const alt = withAlt();
     const condition = st().model.elements.find((e) => e.id === alt.targetId)!;
     fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^条件 ${condition.name}`) })[0]!);
+    expect(screen.queryByRole("button", { name: /^条件を.*ボードで見る/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "固定ボード「条件」へ移る" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     expect(within(dialog()!).getByText(/^代替パターン \d+ 件: 一緒に削除されます/)).toBeDefined();

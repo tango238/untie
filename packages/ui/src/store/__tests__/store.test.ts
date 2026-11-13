@@ -198,15 +198,15 @@ describe("ストア", () => {
 });
 
 describe("最初に出す画面", () => {
-  it("起動時・新規作成では分析ボード「課題の分布」と、右ペインの課題一覧を開く", async () => {
+  it("起動時は分析（簡易）のワークフローと右ペインのプロパティ。分析（詳細）で始めたときの最初は、分析ボード「課題の分布」と課題一覧", async () => {
     const { useUntieStore, START_BOARD_ID } = await import("..");
     expect(START_BOARD_ID).toBe("analysis:issues");
-    expect(useUntieStore.getState().ui).toMatchObject({ currentBoardId: "analysis:issues", rightPanel: "issues" });
-    const s = createUntieStore(sampleWithActorCards());
+    expect(useUntieStore.getState().ui).toMatchObject({ mode: "analysisSimple", currentBoardId: "simple:workflow", rightPanel: "properties" });
+    const s = createUntieStore(sampleWithActorCards(), START_BOARD_ID, "issues", "analysis");
     s.getState().setCurrentBoard("fixed:activity");
     s.getState().setRightPanel("trace");
     s.getState().setRightPanelOpen(false);
     s.getState().newDocument(emptyModel(), { pristine: true });
-    expect(s.getState().ui).toMatchObject({ currentBoardId: "analysis:issues", rightPanel: "issues", rightPanelOpen: true, selection: null });
+    expect(s.getState().ui).toMatchObject({ mode: "analysis", currentBoardId: "analysis:issues", rightPanel: "issues", rightPanelOpen: true, selection: null });
   });
 });

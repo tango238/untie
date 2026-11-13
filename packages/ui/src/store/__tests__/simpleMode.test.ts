@@ -2,15 +2,16 @@ import * as Y from "yjs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { addElement, removeElement } from "@untie/core/model/commands";
 import { createHotelSample } from "@untie/core/sample";
-import { createUntieStore, isBuiltinBoard, START_BOARD_ID } from "..";
+import { createUntieStore, DEFAULT_MODE, isBuiltinBoard, modeOf, START_BOARD_ID } from "..";
 
 beforeEach(() => localStorage.clear());
 
-const make = () => createUntieStore(createHotelSample(), START_BOARD_ID);
+// 分析（詳細）で始めたストア。既定が分析（簡易）であることは「既定のモード」のテストで確かめる
+const make = () => createUntieStore(createHotelSample(), START_BOARD_ID, "properties", "analysis");
 const WORKFLOW = "simple:workflow";
 
 describe("分析（簡易）モード", () => {
-  it("既定は分析（詳細）のまま。簡易へ移るとワークフローの 1 枚が開く", () => {
+  it("分析（詳細）から簡易へ移ると、ワークフローが開く", () => {
     const s = make();
     expect(s.getState().ui.mode).toBe("analysis");
     s.getState().setMode("analysisSimple");
@@ -86,7 +87,7 @@ describe("分析（簡易）モード", () => {
     expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
   });
 
-  it("簡易モードは、ファイルを開く・新規作成・クラウドを開いて閉じるを通しても保つ。設計モードは分析（詳細）へ戻る", () => {
+  it("簡易・詳細のどちらも、ファイルを開く・新規作成・クラウドを開いて閉じるを通しても保つ。設計モードは既定の分析（簡易）へ戻る", () => {
     const cloud = { fileId: "f1", role: "owner" as const, doc: new Y.Doc() };
     const s = make();
     s.getState().setMode("analysisSimple");
@@ -107,10 +108,11 @@ describe("分析（簡易）モード", () => {
     s.getState().loadDocument(createHotelSample(), { path: null, name: "b.json" });
     expect(s.getState().ui.mode).toBe("analysis");
     expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
-    // 設計は分析（詳細）へ
+    // 設計にいたときは、既定の分析（簡易）へ
     s.getState().enterDesign("sys_pms");
     s.getState().loadDocument(createHotelSample(), { path: null, name: "c.json" });
-    expect(s.getState().ui.mode).toBe("analysis");
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
   });
 
   it("簡易モードの途中で対象のシステムが消えても、簡易モードのまま", () => {
@@ -188,5 +190,45 @@ describe("簡易モードの 3 枚のボード", () => {
     s.getState().setMode("analysis");
     s.getState().setMode("analysisSimple");
     expect(s.getState().ui.currentBoardId).toBe("simple:workflow");
+  });
+});
+
+describe("既定のモードは分析（簡易）", () => {
+  it("何も指定しないストアは、分析（簡易）のワークフローから始まる。ui.mode が未設定でも簡易と読む", () => {
+    expect(DEFAULT_MODE).toBe("analysisSimple");
+    const s = createUntieStore(createHotelSample(), "simple:workflow");
+    expect(s.getState().ui.mode).toBe("analysisSimple");
+    expect(modeOf({})).toBe("analysisSimple");
+    expect(modeOf({ mode: "analysis" })).toBe("analysis");
+  });
+
+  it("新規作成・ファイルを開く・サンプルを開くと、既定のモード (簡易) のワークフローと、プロパティの右ペインで始まる", () => {
+    const s = createUntieStore(createHotelSample(), "simple:workflow");
+    s.getState().setRightPanel("trace");
+    s.getState().newDocument(createHotelSample(), { pristine: true });
+    expect(s.getState().ui).toMatchObject({ mode: "analysisSimple", currentBoardId: "simple:workflow", rightPanel: "properties", selection: null });
+    s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
+    expect(s.getState().ui).toMatchObject({ mode: "analysisSimple", currentBoardId: "simple:workflow", rightPanel: "properties" });
+  });
+
+  it("設計の対象のシステムが消えたら、設計に入る前にいた分析のモード (簡易・詳細) に戻る", () => {
+    for (const before of ["analysisSimple", "analysis"] as const) {
+      const s = createUntieStore(createHotelSample(), before === "analysis" ? START_BOARD_ID : "simple:workflow", "properties", before);
+      s.getState().enterDesign("sys_pms");
+      expect(s.getState().ui.mode).toBe("design");
+      s.getState().dispatch((m) => removeElement(m, { id: "sys_pms" }));
+      expect(s.getState().ui.mode).toBe(before);
+      expect(s.getState().ui.currentBoardId).toBe(before === "analysis" ? "analysis:issues" : "simple:workflow");
+    }
+  });
+
+  it("設計ボードへ飛んでもモードを覚える (ショートカットなど)。設計に入る前の簡易・詳細を行き来して覚え直す", () => {
+    const s = createUntieStore(createHotelSample(), "simple:workflow");
+    s.getState().enterDesign("sys_pms");
+    s.getState().setMode("analysis");
+    s.getState().setMode("design");
+    expect(s.getState().ui.modeBeforeDesign).toBe("analysis");
+    s.getState().dispatch((m) => removeElement(m, { id: "sys_pms" }));
+    expect(s.getState().ui.mode).toBe("analysis");
   });
 });

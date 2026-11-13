@@ -72,8 +72,8 @@ import {
   type Variation,
 } from "@untie/core/model/types";
 import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
-import { impactLines, isWorkflowElement, isSimpleModeLayer, relationRemovalImpact, removalImpact, workflowKindLabel } from "@untie/core/model/workflow";
-import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
+import { impactLines, isWorkflowElement, parseSimpleBoardId, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
+import { createIssue, goToLayer, goToSimpleBoard, isOnSimpleBoard, revealOnFixedBoard, revealOnSimpleBoard, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
 import { getApiKey } from "../ai/keys";
@@ -542,8 +542,18 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
-  // 簡易モードでは、簡易ボードに統合された 11 のレイヤー (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション) の固定ボードへは移らない
+  // 簡易モードでは、レイヤーを見る簡易ボード (SIMPLE_LAYER_BOARDS) へ移る (簡易モードのまま。いま開いているボードの行は出さない)。
+  // 対応する簡易ボードの無いレイヤー (非機能要件) は、今までどおり固定ボードへ移る (分析（詳細）に切り替わる)
   const simple = isSimpleBoard(boardId);
+  const here = parseSimpleBoardId(boardId);
+  const moveOf = (r: { layer: FixedLayer; elements: Element[] }): RowMove => {
+    const target = simple ? simpleBoardOfLayer(r.layer) : null;
+    if (!target) return { type: "fixed", current: boardId === fixedBoardId(r.layer) };
+    if (target === here) return { type: "none" };
+    // 行に行き先で選べる要素があれば先頭の要素を選ぶ。無ければ、いま選んでいる要素が行き先で見えるときだけ、それを選んだままにする
+    const first = r.elements.find((e) => isOnSimpleBoard(e.kind, target));
+    return { type: "simple", board: target, elementId: first?.id ?? (isOnSimpleBoard(element.kind, target) ? element.id : null) };
+  };
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
   const rows = [
@@ -555,7 +565,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
     <section className="subsection">
       <h3>トレース</h3>
       {[...up, ...down].every((r) => r.elements.length === 0) && (
-        <p className="hint">{simple ? "上下のレイヤーにつながる要素はありません。" : "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。"}</p>
+        <p className="hint">{simple ? "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーを見るボードへ移って結べます。" : "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。"}</p>
       )}
       <table className="trace-table">
         <thead>
@@ -575,8 +585,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
               layer={r.layer}
               elements={r.elements}
               currentId={element.id}
-              current={boardId === fixedBoardId(r.layer)}
-              canMove={!(simple && isSimpleModeLayer(r.layer))}
+              move={moveOf(r)}
             />
           ))}
         </tbody>
@@ -585,21 +594,22 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
   );
 }
 
+/** トレース表の 1 行の「移動」: 固定ボードへ移る / 簡易ボードへ移る (簡易モードのまま。選ぶ要素つき) / 出さない */
+type RowMove = { type: "none" } | { type: "fixed"; current: boolean } | { type: "simple"; board: SimpleBoardKind; elementId: string | null };
+
 function TraceRow({
   dir,
   layer,
   elements,
   currentId,
-  current,
-  canMove,
+  move,
 }: {
   dir: "up" | "own" | "down";
   layer: FixedLayer;
   elements: Element[];
   currentId: string;
-  current: boolean;
-  /** 「移動」ボタンを出すか (出さなくてもセルは残して、列を崩さない) */
-  canMove: boolean;
+  /** 「移動」ボタン。none は出さない (出さなくてもセルは残して、列を崩さない) */
+  move: RowMove;
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? elements : elements.slice(0, TRACE_VISIBLE);
@@ -635,16 +645,29 @@ function TraceRow({
         </span>
       </td>
       <td>
-        {canMove && <button
-          type="button"
-          className="layer-link"
-          disabled={current}
-          aria-label={`固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
-          title={current ? "今開いているボードです" : `固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る (この要素を選んだまま)`}
-          onClick={() => goToLayer(layer, currentId)}
-        >
-          移動
-        </button>}
+        {move.type === "fixed" && (
+          <button
+            type="button"
+            className="layer-link"
+            disabled={move.current}
+            aria-label={`固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
+            title={move.current ? "今開いているボードです" : `固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る (この要素を選んだまま)`}
+            onClick={() => goToLayer(layer, currentId)}
+          >
+            移動
+          </button>
+        )}
+        {move.type === "simple" && (
+          <button
+            type="button"
+            className="layer-link"
+            aria-label={`${FIXED_LAYER_LABELS[layer]}を${SIMPLE_BOARD_LABELS[move.board]}ボードで見る`}
+            title={`${FIXED_LAYER_LABELS[layer]}を${SIMPLE_BOARD_LABELS[move.board]}ボードで見る`}
+            onClick={() => goToSimpleBoard(move.board, move.elementId)}
+          >
+            移動
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -1392,6 +1415,7 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
 function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const simple = useUntieStore((s) => isSimpleBoard(s.ui.currentBoardId));
+  const currentSimple = useUntieStore((s) => parseSimpleBoardId(s.ui.currentBoardId));
   const pushToast = useUntieStore((s) => s.pushToast);
   const scope = issueScope(model, issue);
   // 全体的な課題と具体的な課題は混ぜない。対象があれば同じ区分の候補だけを出す
@@ -1440,14 +1464,26 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           <ul className="target-list">
             {issue.targetIds.map((id) => {
               const t = model.elements.find((e) => e.id === id);
-              const layer = t ? fixedLayerOf(t.kind) : null;
+              // 簡易モードでは、対象を主役にする簡易ボードへ移る (システム・帳票はどのボードの主役でもないので出さない)
+              const targetBoard = t ? simpleBoardOfKind(t.kind) : null;
               return (
                 <li key={id}>
                   <span className="relation-kind">{t ? ELEMENT_KIND_LABELS[t.kind] : ""}</span>
                   <button type="button" className="link" onClick={() => t && selectAndReveal(t.id)}>
                     {t?.name || "(名前なし)"}
                   </button>
-                  {t && !(simple && layer && isSimpleModeLayer(layer)) && (
+                  {t && simple && targetBoard && targetBoard !== currentSimple && (
+                    <button
+                      type="button"
+                      className="link"
+                      title={`${ELEMENT_KIND_LABELS[t.kind]}を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
+                      aria-label={`「${t.name}」を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
+                      onClick={() => revealOnSimpleBoard(t.id)}
+                    >
+                      移動
+                    </button>
+                  )}
+                  {t && !simple && (
                     <button
                       type="button"
                       className="link"

@@ -40,12 +40,47 @@ export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: bool
   return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity" || el.kind === "usecase" || el.kind === "screen" || el.kind === "event" || el.kind === "information" || el.kind === "condition" || el.kind === "context" || el.kind === "state" || el.kind === "variation";
 }
 
-/** 簡易モードのボードに統合されている固定ボードのレイヤー。簡易モードでは、これらのレイヤーの固定ボードへ移る操作 (トレースの「移動」など) は出さない */
-export const SIMPLE_MODE_LAYERS: readonly FixedLayer[] = ["actor", "business", "buc", "activity", "usecase", "screen", "information", "condition", "context", "state", "variation"];
+/** 簡易ボードごとの、主役の要素の種類 (そのボードで選んで直せる。システム・帳票・イベントのチップは主役ではない) */
+export const SIMPLE_BOARD_ELEMENT_KINDS: Record<SimpleBoardKind, readonly ElementKind[]> = {
+  workflow: ["actor", "externalActor", "business", "buc", "activity"],
+  operation: ["usecase", "screen", "condition", "event"],
+  information: ["context", "information", "state", "variation"],
+};
+
+/**
+ * 固定ボードのレイヤーごとに、そのレイヤーを見る簡易ボード。簡易モードのトレース表の「移動」の行き先になる。
+ * 対応の無いレイヤー (非機能要件) は、今までどおり固定ボードへ移る (分析（詳細）に切り替わる)
+ */
+export const SIMPLE_LAYER_BOARDS: Partial<Record<FixedLayer, SimpleBoardKind>> = {
+  actor: "workflow",
+  business: "workflow",
+  buc: "workflow",
+  activity: "workflow",
+  usecase: "operation",
+  screen: "operation",
+  condition: "operation",
+  context: "information",
+  information: "information",
+  state: "information",
+  variation: "information",
+};
+
+/** そのレイヤーを見る簡易ボード。無ければ null */
+export function simpleBoardOfLayer(layer: FixedLayer): SimpleBoardKind | null {
+  return SIMPLE_LAYER_BOARDS[layer] ?? null;
+}
+
+/** その種類の要素を主役にする簡易ボード。システム・帳票など、どのボードの主役でもなければ null */
+export function simpleBoardOfKind(kind: ElementKind): SimpleBoardKind | null {
+  return SIMPLE_BOARD_KINDS.find((b) => SIMPLE_BOARD_ELEMENT_KINDS[b].includes(kind)) ?? null;
+}
+
+/** 簡易モードのボードに統合されている固定ボードのレイヤー (簡易ボードで見られるレイヤー) */
+export const SIMPLE_MODE_LAYERS: readonly FixedLayer[] = (Object.keys(SIMPLE_LAYER_BOARDS) as FixedLayer[]);
 
 /** そのレイヤーは簡易モードのボードに統合されているか */
 export function isSimpleModeLayer(layer: FixedLayer): boolean {
-  return SIMPLE_MODE_LAYERS.includes(layer);
+  return simpleBoardOfLayer(layer) !== null;
 }
 
 /** 簡易モードでの種別の呼び名 (アクター → 登場人物。ボードと同じ言い方) */
