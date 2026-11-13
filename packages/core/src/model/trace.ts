@@ -61,7 +61,7 @@ export const FIX_HINTS: Partial<Record<ElementKind, string>> = {
  * システムは担い手なので辿り着く先になる。何とも結ばれていないシステムは別に知らせる。
  * - 条件 ← 判断に使う操作
  * - バリエーション ← 種別にしている情報・条件
- * - 状態 ← 実行可・次の状態で結んだ操作、状態を参照する条件
+ * - 状態 ← 前提の状態・次の状態で結んだ操作、状態を参照する条件
  */
 export function traceParents(model: UntieModel): Map<string, string[]> {
   const parents = new Map<string, string[]>();

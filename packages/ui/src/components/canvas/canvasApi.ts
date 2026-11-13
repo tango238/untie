@@ -5,8 +5,8 @@ import type { Point } from "./toFlow";
 export interface CanvasApi {
   /** 見えている範囲の中央 (フロー座標) */
   getCenter?: () => Point | null;
-  /** 要素のノードへスクロールする */
-  focus?: (elementId: string) => void;
+  /** 要素のノードへスクロールする。laneId があれば (ワークフローボード)、その行の中の要素を先に探す (同じ業務・作業が複数の行に出るため) */
+  focus?: (elementId: string, laneId?: string) => void;
 }
 
 export const canvasApi: CanvasApi = {};

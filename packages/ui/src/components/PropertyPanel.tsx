@@ -71,8 +71,9 @@ import {
   type UntieModel,
   type Variation,
 } from "@untie/core/model/types";
-import { isAnalysisBoard, isFixedBoard, selectReadOnly, useUntieStore } from "../store";
-import { createIssue, goToLayer, revealOnFixedBoard, selectAndReveal } from "./actions";
+import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
+import { impactLines, isWorkflowElement, parseSimpleBoardId, pickSimpleTarget, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
+import { createIssue, goToLayer, goToSimpleBoard, revealElement, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
 import { getApiKey } from "../ai/keys";
@@ -223,11 +224,19 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
   // 設計データが一緒に消える要素を消すときの確認 (消える設計データの要約)
-  const [confirmRemove, setConfirmRemove] = useState<string[] | null>(null);
+  // 簡易モードでは、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
+  const [confirmRemove, setConfirmRemove] = useState<{ impact: string[]; refs: string[] } | null>(null);
+  // 関係を外すとき、巻き込まれるもの (業務の子・操作の画面とイベント・条件の代替パターン) があれば確かめる (簡易モード)。外す関係の id
+  const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  const structural = !readOnly && (isFixedBoard(boardId) || element.kind === "issue");
+  // 分析（簡易）のボード (ワークフロー・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
+  // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
+  const simple = isSimpleBoard(boardId);
+  const structural = !readOnly && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
+  // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
+  const kindLabel = (k: Element["kind"]) => (simple ? workflowKindLabel(k) : ELEMENT_KIND_LABELS[k]);
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
   // 処理済みの番号をモジュールに持ち、増えているときだけ発火する
@@ -268,7 +277,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
     <div className={`editor kind-${element.kind}`} data-testid="element-editor">
       <div className="kind-line">
         <span className="kind-dot" />
-        {ELEMENT_KIND_LABELS[element.kind]}
+        {kindLabel(element.kind)}
         {peers.length > 0 && (
           // 同時編集: 他の人が同じ要素を選んでいる (ロックはしない)
           <span className="peer-note" data-testid="peer-note">
@@ -307,10 +316,12 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
       ) : (
-        !structural && (
+        !structural &&
+        !(simple && element.kind === "buc" && element.isDefault) && (
           <p className="hint">
-            {isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}
-            では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。
+            {simple
+              ? "この種類は、簡易モードでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
+              : `${isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。`}
           </p>
         )
       )}
@@ -360,7 +371,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       <section className="subsection">
         <h3>関係</h3>
-        {structural && <RelationAdder element={element} model={model} />}
+        {structural && <RelationAdder element={element} model={model} simple={simple} />}
         {relations.length === 0 ? (
           <p className="hint">この要素につながる線はありません。</p>
         ) : (
@@ -378,7 +389,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                   {other && (
                     <span className={`relation-layer kind-${other.kind}`}>
                       <span className="kind-dot" />
-                      {ELEMENT_KIND_LABELS[other.kind]}
+                      {kindLabel(other.kind)}
                     </span>
                   )}
                   <button type="button" className="link" onClick={() => other && selectAndReveal(other.id)}>
@@ -390,7 +401,11 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                       type="button"
                       className="icon-button"
                       aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
-                      onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}
+                      onClick={() => {
+                        // 簡易モードで関係を外すと、子が宙に浮く (業務の活動・作業、操作の画面・イベント) か、関係が持つ代替パターンが消えるので確かめる
+                        if (simple && relationRemovalImpact(model, r.id).length > 0) setConfirmUnlink(r.id);
+                        else dispatch((m) => removeRelation(m, { id: r.id }));
+                      }}
                     >
                       ×
                     </button>
@@ -449,7 +464,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
               // 内部のドメインモデルから消える・外れるものは、開発モードでなければ 1 行にまとめる (集約などの言葉を出さない)
               const internal = domainReferences(model, element.id);
               const refs = [...designReferences(model, element.id), ...(isDevMode() ? internal : internal.length > 0 ? ["実装のための内部の設計 (この要素を使っているところ)"] : [])];
-              if (refs.length > 0) setConfirmRemove(refs);
+              const impact = simple ? impactLines(removalImpact(model, element.id)) : [];
+              if (refs.length > 0 || impact.length > 0) setConfirmRemove({ impact, refs });
               else removeSelected();
             }}
           >
@@ -471,14 +487,42 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       {confirmRemove && (
         <ConfirmDialog
           title="削除の確認"
-          message={`「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`}
-          details={confirmRemove}
+          message={
+            confirmRemove.impact.length > 0
+              ? `「${element.name || "(名前なし)"}」を削除します。つながっているものは次のとおりです。${confirmRemove.refs.length > 0 ? "このほか、次の設計データも一緒に消えます。" : ""}`
+              : `「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`
+          }
+          details={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? confirmRemove.impact : [...confirmRemove.impact, ...confirmRemove.refs]}
+          detailGroups={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? [{ title: "消える設計データ", items: confirmRemove.refs }] : undefined}
           confirmLabel="削除する"
           danger
           onCancel={() => setConfirmRemove(null)}
           onConfirm={() => {
             setConfirmRemove(null);
             removeSelected();
+          }}
+        />
+      )}
+      {confirmUnlink && (
+        <ConfirmDialog
+          title={model.relations.find((r) => r.id === confirmUnlink)?.kind === "actorBusiness" ? "主担当を外す確認" : "結び付きを外す確認"}
+          message={(() => {
+            const rel = model.relations.find((r) => r.id === confirmUnlink);
+            const name = (id?: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+            return rel?.kind === "actorBusiness"
+              ? `主担当の結び付き (${name(rel.sourceId)} → ${name(rel.targetId)}) を外します。この業務につながっているものは次のとおりです。`
+              : rel?.kind === "usecaseCondition"
+                ? `結び付き (${name(rel.sourceId)} → ${name(rel.targetId)}) を外します。この結び付きに付いているものは次のとおりです。`
+                : `結び付き (${name(rel?.sourceId)} → ${name(rel?.targetId)}) を外します。この操作につながっているものは次のとおりです。`;
+          })()}
+          details={impactLines(relationRemovalImpact(model, confirmUnlink))}
+          confirmLabel="外す"
+          danger
+          onCancel={() => setConfirmUnlink(null)}
+          onConfirm={() => {
+            const id = confirmUnlink;
+            setConfirmUnlink(null);
+            dispatch((m) => removeRelation(m, { id }));
           }}
         />
       )}
@@ -498,6 +542,17 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
+  // 簡易モードでは、レイヤーを見る簡易ボード (SIMPLE_LAYER_BOARDS) へ移る (簡易モードのまま。いま開いているボードの行は出さない)。
+  // 対応する簡易ボードの無いレイヤー (非機能要件) は、今までどおり固定ボードへ移る (分析（詳細）に切り替わる)
+  const simple = isSimpleBoard(boardId);
+  const here = parseSimpleBoardId(boardId);
+  const moveOf = (r: { layer: FixedLayer; elements: Element[] }): RowMove => {
+    const target = simple ? simpleBoardOfLayer(r.layer) : null;
+    if (!target) return { type: "fixed", current: boardId === fixedBoardId(r.layer) };
+    if (target === here) return { type: "none" };
+    // 行き先のボードに実際に出ている要素を、主の種類 (操作の行なら操作) を先にして選ぶ。無ければ、いま選んでいる要素が行き先で見えるときだけ、それを選んだままにする
+    return { type: "simple", board: target, elementId: pickSimpleTarget(model, r.elements, target) ?? pickSimpleTarget(model, [element], target) };
+  };
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
   const rows = [
@@ -509,7 +564,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
     <section className="subsection">
       <h3>トレース</h3>
       {[...up, ...down].every((r) => r.elements.length === 0) && (
-        <p className="hint">上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。</p>
+        <p className="hint">{simple ? "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーを見るボードへ移って結べます。" : "上下のレイヤーにつながる要素はありません。「移動」でそのレイヤーの固定ボードへ移って結べます。"}</p>
       )}
       <table className="trace-table">
         <thead>
@@ -529,7 +584,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
               layer={r.layer}
               elements={r.elements}
               currentId={element.id}
-              current={boardId === fixedBoardId(r.layer)}
+              move={moveOf(r)}
             />
           ))}
         </tbody>
@@ -538,18 +593,22 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
   );
 }
 
+/** トレース表の 1 行の「移動」: 固定ボードへ移る / 簡易ボードへ移る (簡易モードのまま。選ぶ要素つき) / 出さない */
+type RowMove = { type: "none" } | { type: "fixed"; current: boolean } | { type: "simple"; board: SimpleBoardKind; elementId: string | null };
+
 function TraceRow({
   dir,
   layer,
   elements,
   currentId,
-  current,
+  move,
 }: {
   dir: "up" | "own" | "down";
   layer: FixedLayer;
   elements: Element[];
   currentId: string;
-  current: boolean;
+  /** 「移動」ボタン。none は出さない (出さなくてもセルは残して、列を崩さない) */
+  move: RowMove;
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? elements : elements.slice(0, TRACE_VISIBLE);
@@ -585,16 +644,29 @@ function TraceRow({
         </span>
       </td>
       <td>
-        <button
-          type="button"
-          className="layer-link"
-          disabled={current}
-          aria-label={`固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
-          title={current ? "今開いているボードです" : `固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る (この要素を選んだまま)`}
-          onClick={() => goToLayer(layer, currentId)}
-        >
-          移動
-        </button>
+        {move.type === "fixed" && (
+          <button
+            type="button"
+            className="layer-link"
+            disabled={move.current}
+            aria-label={`固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る`}
+            title={move.current ? "今開いているボードです" : `固定ボード「${FIXED_LAYER_LABELS[layer]}」へ移る (この要素を選んだまま)`}
+            onClick={() => goToLayer(layer, currentId)}
+          >
+            移動
+          </button>
+        )}
+        {move.type === "simple" && (
+          <button
+            type="button"
+            className="layer-link"
+            aria-label={`${FIXED_LAYER_LABELS[layer]}を${SIMPLE_BOARD_LABELS[move.board]}ボードで見る`}
+            title={`${FIXED_LAYER_LABELS[layer]}を${SIMPLE_BOARD_LABELS[move.board]}ボードで見る`}
+            onClick={() => goToSimpleBoard(move.board, move.elementId)}
+          >
+            移動
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -696,7 +768,7 @@ function DerivedSection({ element, model }: { element: Element; model: UntieMode
 /** この要素と結べる要素を選んで関係を足す (両端の種類から関係が決まる)。固定ボードだけで出す */
 const isTriggerKind = (kind: string) => kind === "activityTrigger" || kind === "eventActivity";
 
-function RelationAdder({ element, model }: { element: Element; model: UntieModel }) {
+function RelationAdder({ element, model, simple = false }: { element: Element; model: UntieModel; simple?: boolean }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);
   const options: { value: string; group: string; label: string }[] = [];
@@ -716,7 +788,7 @@ function RelationAdder({ element, model }: { element: Element; model: UntieModel
       const dir = relationRule(kind).undirected ? "↔" : sourceId === element.id ? "→" : "←";
       options.push({
         value: `${sourceId}>${targetId}`,
-        group: `${relationLabel(kind)} ${dir} ${ELEMENT_KIND_LABELS[other.kind]}`,
+        group: `${relationLabel(kind)} ${dir} ${simple ? workflowKindLabel(other.kind) : ELEMENT_KIND_LABELS[other.kind]}`,
         label: other.name || "(名前なし)",
       });
       break;
@@ -1341,6 +1413,8 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
 
 function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
+  const simple = useUntieStore((s) => isSimpleBoard(s.ui.currentBoardId));
+  const currentSimple = useUntieStore((s) => parseSimpleBoardId(s.ui.currentBoardId));
   const pushToast = useUntieStore((s) => s.pushToast);
   const scope = issueScope(model, issue);
   // 全体的な課題と具体的な課題は混ぜない。対象があれば同じ区分の候補だけを出す
@@ -1389,19 +1463,45 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           <ul className="target-list">
             {issue.targetIds.map((id) => {
               const t = model.elements.find((e) => e.id === id);
+              // 簡易モードでは、対象を主役にする簡易ボードへ移る (システム・帳票はどのボードの主役でもないので出さない)
+              const targetBoard = t ? simpleBoardOfKind(t.kind) : null;
+              const fixedLayer = t ? fixedLayerOf(t.kind) : null;
               return (
                 <li key={id}>
                   <span className="relation-kind">{t ? ELEMENT_KIND_LABELS[t.kind] : ""}</span>
                   <button type="button" className="link" onClick={() => t && selectAndReveal(t.id)}>
                     {t?.name || "(名前なし)"}
                   </button>
-                  {t && (
+                  {t && simple && targetBoard && targetBoard !== currentSimple && (
+                    <button
+                      type="button"
+                      className="link"
+                      title={`${ELEMENT_KIND_LABELS[t.kind]}を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
+                      aria-label={`「${t.name}」を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
+                      onClick={() => revealElement(t.id)}
+                    >
+                      移動
+                    </button>
+                  )}
+                  {/* 簡易ボードの主役でない種類のうち、固定ボードのあるもの (非機能要件など。システム・帳票は出さない) は、簡易でも固定ボードへ移る */}
+                  {t && simple && !targetBoard && fixedLayer && fixedLayer !== "actor" && (
                     <button
                       type="button"
                       className="link"
                       title={`${ELEMENT_KIND_LABELS[t.kind]}の固定ボードへ移る`}
                       aria-label={`「${t.name}」の固定ボードへ移る`}
-                      onClick={() => revealOnFixedBoard(t.id)}
+                      onClick={() => revealElement(t.id)}
+                    >
+                      移動
+                    </button>
+                  )}
+                  {t && !simple && (
+                    <button
+                      type="button"
+                      className="link"
+                      title={`${ELEMENT_KIND_LABELS[t.kind]}の固定ボードへ移る`}
+                      aria-label={`「${t.name}」の固定ボードへ移る`}
+                      onClick={() => revealElement(t.id)}
                     >
                       移動
                     </button>

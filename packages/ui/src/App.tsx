@@ -25,11 +25,15 @@ import { ShortcutsHost } from "./components/ShortcutsDialog";
 import { parseAnalysisBoardId } from "@untie/core/model/analysis";
 import { parseDesignBoardId } from "@untie/core/model/design";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
+import { parseSimpleBoardId } from "@untie/core/model/workflow";
+import { WorkflowBoard } from "./components/workflow/WorkflowBoard";
+import { OperationBoard } from "./components/workflow/OperationBoard";
+import { InformationBoard } from "./components/workflow/InformationBoard";
 import { DesignBoard } from "./components/design/DesignBoard";
 import { SitemapProperties } from "./components/design/SitemapProperties";
 import { SitemapTree } from "./components/design/SitemapTree";
 import { AnalysisBoard } from "./components/analysis/AnalysisBoard";
-import { selectReadOnly, useUntieStore } from "./store";
+import { modeOf, selectReadOnly, useUntieStore } from "./store";
 import { ROLE_LABELS } from "@untie/api";
 import { useAgentStore } from "./ai/agentStore";
 import { AgentPane } from "./components/ai/AgentPane";
@@ -54,7 +58,8 @@ export default function App() {
   const fixedLayer = useUntieStore((s) => parseFixedBoardId(s.ui.currentBoardId));
   const analysis = useUntieStore((s) => parseAnalysisBoardId(s.ui.currentBoardId));
   const design = useUntieStore((s) => parseDesignBoardId(s.ui.currentBoardId));
-  const builtin = fixedLayer !== null || analysis !== null || design !== null;
+  const simple = useUntieStore((s) => parseSimpleBoardId(s.ui.currentBoardId));
+  const builtin = fixedLayer !== null || analysis !== null || design !== null || simple !== null;
   // 設計モードのサイトマップは、左に画面の追加の木、右にその画面のプロパティを出す
   const sitemap = design === "sitemap";
   // データボードは、左にデータベースとテーブルの一覧、右に選んだテーブルのプロパティを出す
@@ -73,7 +78,7 @@ export default function App() {
   const sequence = design === "sequence";
   // 業務ルール (Souther。開発モード) は、左のペインを出さず、右に書き出しの読み方を出す
   const rules = design === "rules";
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const setElementListOpen = useUntieStore((s) => s.setElementListOpen);
   // 狭い画面ではペインがドロワーとして画面の上に重なる。開いているあいだは、外側を押すと閉じる幕を出す
   // (広い画面では CSS で隠れる)
@@ -118,6 +123,8 @@ export default function App() {
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
           ) : analysis ? (
             <AnalysisBoard key={analysis} kind={analysis} />
+          ) : simple ? (
+            simple === "operation" ? <OperationBoard key={simple} /> : simple === "information" ? <InformationBoard key={simple} /> : <WorkflowBoard key={simple} />
           ) : design ? (
             <DesignBoard key={design} kind={design} />
           ) : (

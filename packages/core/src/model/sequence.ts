@@ -48,13 +48,18 @@ export type SequenceStep =
 
 export type SequenceGapType = "alternateUndecided" | "alternateAfterUndecided" | "noPlace" | "noActor";
 
-/** 代替パターンの、そのあとの状態の表示。決めていなければ null。エラーのときは、状態を変えない */
-export function alternateAfterLabel(alternate: RelationAlternate | null, stateName: (id: string) => string): string | null {
+/**
+ * 代替パターンの、そのあとの状態の表示。決めていなければ null。エラーのときは、状態を変えない。
+ * stateName が null を返した状態 (名前を引けない id) は除き、1 つも残らなければ決めていない (null) 扱い
+ */
+export function alternateAfterLabel(alternate: RelationAlternate | null, stateName: (id: string) => string | null): string | null {
   if (!alternate) return null;
   if (alternate.error) return ALTERNATE_AFTER_LABELS.unchanged;
   const after = alternate.after;
   if (!after) return null;
-  return after.type === "states" ? (after.stateIds ?? []).map(stateName).join("・") : ALTERNATE_AFTER_LABELS[after.type];
+  if (after.type !== "states") return ALTERNATE_AFTER_LABELS[after.type];
+  const names = (after.stateIds ?? []).map(stateName).filter((n): n is string => n !== null);
+  return names.length > 0 ? names.join("・") : null;
 }
 
 /** 開発を始める前に決めておくこと */

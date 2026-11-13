@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useUntieStore } from "../store";
+import { modeOf, useUntieStore } from "../store";
 import { analysisBoardId } from "@untie/core/model/analysis";
+import { simpleBoardId } from "@untie/core/model/workflow";
 import { designBoardId } from "@untie/core/model/design";
 import { fixedBoardId } from "@untie/core/model/fixedBoards";
 import {
@@ -8,6 +9,7 @@ import {
   designEntries,
   FIXED_ENTRIES,
   MODE_ENTRIES,
+  SIMPLE_ENTRIES,
   otherShortcuts,
   hasModKey,
   modLabel,
@@ -71,6 +73,7 @@ function targetBoardId(t: ShortcutTarget): string | null {
   switch (t.type) {
     case "fixed": return fixedBoardId(t.layer);
     case "analysis": return analysisBoardId(t.kind);
+    case "simple": return simpleBoardId(t.kind);
     case "design": return designBoardId(t.kind);
     case "free": return t.boardId;
     case "mode": return null;
@@ -121,7 +124,7 @@ function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
 function ShortcutsPanel() {
   const cloud = useUntieStore((s) => s.cloud !== null);
   const close = useShortcutsUi((s) => s.close);
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const boards = useUntieStore((s) => s.model.boards);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -153,6 +156,7 @@ function ShortcutsPanel() {
         <p className="shortcuts-waiting" role="status">キーを押すとそのボードへ移ります (Esc で閉じる)</p>
         <div className="shortcuts-groups">
           <Group title="モード" entries={MODE_ENTRIES} current={current} chord={chord} />
+          <Group title="簡易ボード (分析（簡易）)" entries={SIMPLE_ENTRIES} current={current} chord={chord} />
           <Group title="固定ボード (分析)" entries={FIXED_ENTRIES} current={current} chord={chord} />
           <Group title="分析ボード" entries={analysisEntries()} current={current} chord={chord} />
           <Group title="設計ボード" entries={designEntries()} current={current} chord={chord} />

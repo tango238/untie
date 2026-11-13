@@ -102,6 +102,8 @@ describe("AI エージェント", () => {
     expect(st().model.elements.some((e) => e.name === "AI の作業")).toBe(true);
     expect(st().history.past).toHaveLength(1);
     expect(fake.sent[0]).toMatch(/選択中: 作業「鍵を渡す」/);
+    // モードとボードは、生の id ではなく名前で伝える
+    expect(fake.sent[0]).toMatch(/モード: 分析（詳細）/);
     const items = useAgentStore.getState().items;
     expect(items.map((i) => i.role)).toEqual(["user", "tool", "tool", "assistant"]);
     expect(items[3]!.text).toBe("2 つ足しました");
@@ -289,3 +291,20 @@ describe("AI エージェント", () => {
 function act(fn: () => void) {
   fn();
 }
+
+describe("AI に添える画面の状態", () => {
+  const last = () => fake.sent[fake.sent.length - 1]!;
+  it("簡易ボード・分析ボード・設計ボードは、生の id ではなく名前で伝える。既定の簡易のモードも名前で伝える", async () => {
+    act(() => st().setMode("analysisSimple"));
+    await useAgentStore.getState().send("今の画面は?");
+    expect(last()).toMatch(/\[画面の状態\] モード: 分析（簡易） \/ 開いているボード: 簡易ボード「ワークフロー」/);
+    expect(last()).not.toMatch(/simple:/);
+    act(() => st().setCurrentBoard("simple:operation"));
+    await useAgentStore.getState().send("次");
+    expect(last()).toMatch(/簡易ボード「システム操作」/);
+    act(() => st().setMode("analysis"));
+    await useAgentStore.getState().send("さらに");
+    expect(last()).toMatch(/モード: 分析（詳細） \/ 開いているボード: 分析ボード「課題の分布」/);
+    expect(last()).not.toMatch(/analysis:/);
+  });
+});

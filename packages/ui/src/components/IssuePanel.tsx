@@ -9,8 +9,9 @@ import {
   type Issue,
   type IssueScope,
 } from "@untie/core/model/types";
-import { selectReadOnly, useUntieStore } from "../store";
-import { createIssue, revealOnFixedBoard, selectAndReveal } from "./actions";
+import { modeOf, selectReadOnly, useUntieStore } from "../store";
+import { SIMPLE_BOARD_LABELS, simpleBoardOfKind } from "@untie/core/model/workflow";
+import { createIssue, revealElement, selectAndReveal } from "./actions";
 
 type View = "issues" | "targets";
 
@@ -120,6 +121,9 @@ function IssueRow({ issue, selected, byId }: { issue: Issue; selected: boolean; 
 /** 対象ごとのまとまり: 対象の種類・名前、そのレイヤーの固定ボードへの「移動」、その対象の課題を足す「＋課題」 */
 function TargetGroup({ group, selectedId, readOnly }: { group: IssueTargetGroup; selectedId: string | null; readOnly: boolean }) {
   const target = group.target!;
+  // 簡易モードでは、対象を主役にする簡易ボードへ移る (無い種類は今までどおり固定ボードへ)
+  const board = useUntieStore((s) => (modeOf(s.ui) === "analysisSimple" ? simpleBoardOfKind(target.kind) : null));
+  const where = board ? `${SIMPLE_BOARD_LABELS[board]}ボードで見る` : "固定ボードへ移る";
   return (
     <div className={`issue-target-group kind-${target.kind}`} data-testid={`issue-target-${target.id}`}>
       <div className="issue-target-head">
@@ -130,9 +134,9 @@ function TargetGroup({ group, selectedId, readOnly }: { group: IssueTargetGroup;
         <button
           type="button"
           className="link issue-target-action"
-          title={`${ELEMENT_KIND_LABELS[target.kind]}の固定ボードへ移る`}
-          aria-label={`「${target.name}」の固定ボードへ移る`}
-          onClick={() => revealOnFixedBoard(target.id)}
+          title={`${ELEMENT_KIND_LABELS[target.kind]}を${where}`.replace("を固定ボードへ移る", "の固定ボードへ移る")}
+          aria-label={board ? `「${target.name}」を${where}` : `「${target.name}」の固定ボードへ移る`}
+          onClick={() => revealElement(target.id)}
         >
           移動
         </button>

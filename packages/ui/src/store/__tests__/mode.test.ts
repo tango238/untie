@@ -7,7 +7,8 @@ import { loadLastDesignSystemId } from "../designPrefs";
 
 beforeEach(() => localStorage.clear());
 
-const make = () => createUntieStore(createHotelSample(), START_BOARD_ID);
+// 分析（詳細）で始めたストア (既定は分析（簡易）。詳細の振る舞いはここで確かめる)
+const make = () => createUntieStore(createHotelSample(), START_BOARD_ID, "properties", "analysis");
 
 describe("モード", () => {
   it("既定は分析で、設計の対象は未定", () => {
@@ -129,7 +130,7 @@ describe("ボードの切り替えとモード", () => {
 
 describe("課題一覧のペイン", () => {
   it("設計モードに入るとプロパティに替えて右のペインを開く。分析に戻してもそのまま", () => {
-    const s = createUntieStore(createHotelSample(), START_BOARD_ID, "issues");
+    const s = createUntieStore(createHotelSample(), START_BOARD_ID, "issues", "analysis");
     s.getState().setRightPanelOpen(false);
     s.getState().enterDesign("sys_pms");
     expect(s.getState().ui.rightPanel).toBe("properties");
@@ -184,7 +185,7 @@ describe("対象のシステムが消えたとき", () => {
   });
 });
 
-describe("ファイルを開く・閉じると分析に戻る", () => {
+describe("ファイルを開く・閉じると、設計から既定 (分析（簡易）) に戻る", () => {
   it("新規作成・開く", () => {
     for (const reset of ["newDocument", "loadDocument"] as const) {
       const s = make();
@@ -192,9 +193,23 @@ describe("ファイルを開く・閉じると分析に戻る", () => {
       s.getState().setCurrentBoard("design:navigation");
       if (reset === "newDocument") s.getState().newDocument(createHotelSample());
       else s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
-      expect(s.getState().ui.mode).toBe("analysis");
+      // 設計にいたときは、既定の分析（簡易）のワークフローに戻る
+      expect(s.getState().ui.mode).toBe("analysisSimple");
       expect(s.getState().ui.designSystemId).toBeUndefined();
+      expect(s.getState().ui.currentBoardId).toBe("simple:workflow");
+    }
+  });
+
+  it("分析（詳細）にいるときにファイルを開く・新規作成しても、詳細のまま (最初のボードと課題一覧から)", () => {
+    for (const reset of ["newDocument", "loadDocument"] as const) {
+      const s = make();
+      s.getState().setCurrentBoard("fixed:activity");
+      s.getState().setRightPanel("trace");
+      if (reset === "newDocument") s.getState().newDocument(createHotelSample());
+      else s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
+      expect(s.getState().ui.mode).toBe("analysis");
       expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
+      expect(s.getState().ui.rightPanel).toBe("issues");
     }
   });
 });

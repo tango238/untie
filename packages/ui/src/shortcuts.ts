@@ -1,6 +1,7 @@
 // キーボードショートカットの表 (純粋なデータと関数だけ。画面・ストアには触れない)。
 // ボードの並びと名前は @untie/core の定義から取り、ここには「どのキーでどこへ移るか」だけを置く。
 import { ANALYSIS_LABELS, type AnalysisKind } from "@untie/core/model/analysis";
+import { SIMPLE_BOARD_KINDS, SIMPLE_BOARD_LABELS, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { DESIGN_BOARD_LABELS, type DesignBoardKind } from "@untie/core/model/design";
 import { visibleAnalysisKinds, visibleDesignKinds } from "./devMode";
 import { FIXED_BOARD_MENU_ORDER, FIXED_LAYER_LABELS, type FixedLayer } from "@untie/core/model/fixedBoards";
@@ -23,14 +24,15 @@ export function hasModKey(e: Pick<KeyboardEvent, "metaKey" | "ctrlKey">): boolea
 
 /** 移り先 */
 export type ShortcutTarget =
-  | { type: "mode"; mode: "analysis" | "design" }
+  | { type: "mode"; mode: "analysis" | "analysisSimple" | "design" }
   | { type: "fixed"; layer: FixedLayer }
   | { type: "analysis"; kind: AnalysisKind }
+  | { type: "simple"; kind: SimpleBoardKind }
   | { type: "design"; kind: DesignBoardKind }
   | { type: "free"; boardId: string };
 
 /** モード: Cmd+B のあとに押すキー */
-export const MODE_KEYS = { analysis: "a", design: "d" } as const;
+export const MODE_KEYS = { analysisSimple: "f", analysis: "a", design: "d" } as const;
 
 /** 固定ボード (分析): Cmd+B のあとに押すキー。並びは FIXED_BOARD_MENU_ORDER のとおり (1〜9、0、C、N) */
 export const FIXED_KEYS: Record<FixedLayer, string> = {
@@ -48,6 +50,9 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
   nfr: "n",
 };
 
+/** 簡易ボード: Cmd+B のあとに押すキー */
+export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", operation: "p", information: "h" };
+
 export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
 
 export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", data: "t", screen: "g", relation: "r", sequence: "q", domain: "m", contextmap: "k", rules: "u" };
@@ -60,7 +65,8 @@ export interface ShortcutEntry {
 }
 
 export const MODE_ENTRIES: readonly ShortcutEntry[] = [
-  { key: MODE_KEYS.analysis, label: "分析", target: { type: "mode", mode: "analysis" } },
+  { key: MODE_KEYS.analysisSimple, label: "分析（簡易）", target: { type: "mode", mode: "analysisSimple" } },
+  { key: MODE_KEYS.analysis, label: "分析（詳細）", target: { type: "mode", mode: "analysis" } },
   { key: MODE_KEYS.design, label: "設計", target: { type: "mode", mode: "design" } },
 ];
 export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.map((layer) => ({
@@ -68,6 +74,8 @@ export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.ma
   label: FIXED_LAYER_LABELS[layer],
   target: { type: "fixed", layer },
 }));
+/** 分析（簡易）のボードのショートカット */
+export const SIMPLE_ENTRIES: readonly ShortcutEntry[] = SIMPLE_BOARD_KINDS.map((kind) => ({ key: SIMPLE_KEYS[kind], label: SIMPLE_BOARD_LABELS[kind], target: { type: "simple", kind } }));
 /** 分析ボードのショートカット (開発用のボードは、開発モードのときだけ) */
 export function analysisEntries(): ShortcutEntry[] {
   return visibleAnalysisKinds().map((kind) => ({ key: ANALYSIS_KEYS[kind], label: ANALYSIS_LABELS[kind], target: { type: "analysis", kind } }));
@@ -80,7 +88,7 @@ export function designEntries(): ShortcutEntry[] {
 /** Cmd+B のあとに押したキーの移り先。表に無ければ null */
 export function resolveChordKey(key: string): ShortcutTarget | null {
   const k = key.toLowerCase();
-  const all = [...MODE_ENTRIES, ...FIXED_ENTRIES, ...analysisEntries(), ...designEntries()];
+  const all = [...MODE_ENTRIES, ...SIMPLE_ENTRIES, ...FIXED_ENTRIES, ...analysisEntries(), ...designEntries()];
   return all.find((e) => e.key === k)?.target ?? null;
 }
 

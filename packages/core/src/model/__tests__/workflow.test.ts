@@ -1,0 +1,387 @@
+import { describe, expect, it } from "vitest";
+import { addElement, addRelation, removeElement, removeRelation } from "../commands";
+import {
+  activityParentOptions,
+  isShownOnSimpleBoard,
+  pickSimpleTarget,
+  addWorkflowElement,
+  buildWorkflow,
+  canAddActivityToBusiness,
+  isWorkflowElement,
+  workflowKindLabel,
+  impactLines,
+  parseSimpleBoardId,
+  relationRemovalImpact,
+  removalImpact,
+  SIMPLE_BOARD_KINDS,
+  simpleBoardId,
+} from "../workflow";
+import type { Activity, Business, UntieModel } from "../types";
+import { validateModel } from "../validate";
+import { expectFail, okModel, sample } from "./helpers";
+
+const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
+const countOf = (items: ReturnType<typeof removalImpact>, label: string) => items.find((i) => i.label === label)?.count ?? 0;
+
+describe("簡易モードのボードの id", () => {
+  it("種類と相互に変換でき、ほかのボードの id は読まない", () => {
+    for (const k of SIMPLE_BOARD_KINDS) expect(parseSimpleBoardId(simpleBoardId(k))).toBe(k);
+    expect(simpleBoardId("workflow")).toBe("simple:workflow");
+    expect(parseSimpleBoardId("fixed:activity")).toBeNull();
+    expect(parseSimpleBoardId("analysis:people")).toBeNull();
+    expect(parseSimpleBoardId("simple:nope")).toBeNull();
+  });
+});
+
+describe("buildWorkflow", () => {
+  it("登場人物ごとの行に、主担当の業務を並べ、業務の中に作業 (直接) と活動 (その作業) を入れる", () => {
+    const w = buildWorkflow(sample());
+    // 行は登場人物 (アクター・外部アクター) のモデルの順
+    expect(ids(w.lanes.map((l) => l.actor))).toEqual(sample().elements.filter((e) => e.kind === "actor" || e.kind === "externalActor").map((e) => e.id));
+    const front = w.lanes.find((l) => l.actor.id === "actor_front")!;
+    expect(ids(front.businesses.map((b) => b.business))).toEqual(["biz_checkin", "biz_stay", "biz_checkout"]);
+    const checkin = front.businesses[0]!;
+    expect(ids(checkin.direct).slice(0, 2)).toEqual(["act_confirm_arrival", "act_verify_identity"]);
+    expect(ids(checkin.direct)).toContain("act_hand_key");
+    expect(checkin.bucs).toEqual([]);
+    const stay = front.businesses[1]!;
+    expect(stay.direct).toEqual([]);
+    expect(ids(stay.bucs.map((b) => b.buc))).toEqual(["buc_room_care", "buc_dining", "buc_extra_charge"]);
+    expect(stay.bucs.every((b) => b.activities.length > 0)).toBe(true);
+  });
+
+  it("業務を持たない登場人物も行に出る。主担当のいない業務と、業務に属さない作業は別の区画に出て、失われない", () => {
+    let m = sample();
+    m = okModel(addElement(m, { kind: "actor", name: "新入り", id: "actor_new" }));
+    m = okModel(addElement(m, { kind: "business", name: "担当なしの業務", id: "biz_free" }));
+    m = okModel(addElement(m, { kind: "activity", name: "宙に浮いた作業", id: "act_float" }));
+    const w = buildWorkflow(m);
+    expect(w.lanes.find((l) => l.actor.id === "actor_new")?.businesses).toEqual([]);
+    expect(ids(w.unassigned.map((b) => b.business))).toContain("biz_free");
+    expect(ids(w.orphanActivities)).toEqual(["act_float"]);
+    // すべての業務・作業が、行・担当なしの区画・孤立の区画のどこかに出る
+    const shownBusinesses = new Set([...w.lanes.flatMap((l) => l.businesses), ...w.unassigned].map((b) => b.business.id));
+    for (const b of m.elements.filter((e): e is Business => e.kind === "business")) expect(shownBusinesses.has(b.id)).toBe(true);
+    const shownActivities = new Set([
+      ...[...w.lanes.flatMap((l) => l.businesses), ...w.unassigned].flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]),
+      ...w.orphanActivities,
+    ].map((a) => a.id));
+    for (const a of m.elements.filter((e): e is Activity => e.kind === "activity")) expect(shownActivities.has(a.id)).toBe(true);
+  });
+
+  it("主担当が複数の業務は、それぞれの行に出す (消えない)", () => {
+    const m = okModel(addRelation(sample(), { sourceId: "actor_manager", targetId: "biz_checkin" }));
+    const w = buildWorkflow(m);
+    for (const actorId of ["actor_front", "actor_manager"]) {
+      expect(ids(w.lanes.find((l) => l.actor.id === actorId)!.businesses.map((b) => b.business))).toContain("biz_checkin");
+    }
+    expect(w.lanes.find((l) => l.actor.id === "actor_front")!.businesses.find((b) => b.business.id === "biz_checkin")!.ownerIds).toEqual(["actor_front", "actor_manager"]);
+    expect(w.unassigned.map((b) => b.business.id)).not.toContain("biz_checkin");
+  });
+
+  it("作業の並びはモデルの順 (固定ボードと同じ)", () => {
+    const m = sample();
+    const order = m.elements.filter((e) => e.kind === "activity" && e.bucId === "buc_default_reservation").map((e) => e.id);
+    const box = buildWorkflow(m).lanes.flatMap((l) => l.businesses).find((b) => b.business.id === "biz_reservation")!;
+    expect(ids(box.direct)).toEqual(order);
+  });
+});
+
+describe("buildWorkflow は検証に通らないモデルでも要素を落とさない", () => {
+  it("存在しない活動を指す作業・既定の活動が 2 つある業務の 2 つ目の作業は「業務に属さない作業」に入る", () => {
+    const base = sample();
+    const twin = { id: "buc_default_twin", kind: "buc", name: "二つ目の既定", businessId: "biz_checkin", isDefault: true } as const;
+    const m: UntieModel = {
+      ...base,
+      elements: [
+        ...base.elements,
+        twin,
+        { id: "act_ghost", kind: "activity", name: "幽霊の作業", bucId: "buc_nothing" },
+        { id: "act_twin", kind: "activity", name: "二つ目の既定の作業", bucId: "buc_default_twin" },
+      ],
+    };
+    const w = buildWorkflow(m);
+    expect(ids(w.orphanActivities)).toEqual(["act_ghost", "act_twin"]);
+    const shown = new Set([...w.lanes.flatMap((l) => l.businesses), ...w.unassigned].flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]).map((a) => a.id));
+    for (const a of m.elements.filter((e) => e.kind === "activity")) expect(shown.has(a.id) || ids(w.orphanActivities).includes(a.id)).toBe(true);
+  });
+});
+
+describe("isWorkflowElement / workflowKindLabel", () => {
+  it("簡易ボードで直せる種類に、既定の活動・システム・帳票は含まれない", () => {
+    const kinds = (id: string) => isWorkflowElement(sample().elements.find((e) => e.id === id)!);
+    expect(["actor_front", "ext_guest", "biz_stay", "buc_dining", "act_hand_key"].every(kinds)).toBe(true);
+    expect(["buc_default_stay", "sys_pms", "ldg_guest_register"].some(kinds)).toBe(false);
+    expect(workflowKindLabel("actor")).toBe("登場人物");
+    expect(workflowKindLabel("externalActor")).toBe("外部の登場人物");
+    expect(workflowKindLabel("business")).toBe("業務");
+  });
+});
+
+describe("addWorkflowElement", () => {
+  it("登場人物を足す。業務は登場人物の主担当として、活動は業務の中に、作業は業務か活動の中に足す", () => {
+    let m = okModel(addWorkflowElement(sample(), "actor"));
+    const actor = m.elements.at(-1)!;
+    expect(actor.kind).toBe("actor");
+    const biz = addWorkflowElement(m, "business", actor.id);
+    expect(biz.ok).toBe(true);
+    m = okModel(biz);
+    const bizId = (biz as { id: string }).id;
+    expect(m.relations.some((r) => r.kind === "actorBusiness" && r.sourceId === actor.id && r.targetId === bizId)).toBe(true);
+    // 活動の無い業務には作業を直接足せる
+    const act = addWorkflowElement(m, "activity", bizId);
+    m = okModel(act);
+    expect((m.elements.find((e) => e.id === (act as { id: string }).id) as Activity).bucId).toBe(m.elements.find((e) => e.kind === "buc" && e.isDefault && e.businessId === bizId)!.id);
+    // 初めて活動を足すと、業務に直接あった作業はその活動に移り、以後は業務に直接足せない
+    const buc = addWorkflowElement(m, "buc", bizId);
+    m = okModel(buc);
+    const bucId = (buc as { id: string }).id;
+    expect((m.elements.find((e) => e.id === (act as { id: string }).id) as Activity).bucId).toBe(bucId);
+    expect(canAddActivityToBusiness(m, bizId)).toBe(false);
+    expectFail(addWorkflowElement(m, "activity", bizId), /活動の中に/);
+    const inBuc = addWorkflowElement(m, "activity", bucId);
+    expect(inBuc.ok).toBe(true);
+    expect(validateModel(okModel(inBuc)).ok).toBe(true);
+  });
+
+  it("外部アクターには業務を足せない。足し先が違う・無いときは断る", () => {
+    expectFail(addWorkflowElement(sample(), "business", "ext_guest"), /登場人物/);
+    expectFail(addWorkflowElement(sample(), "buc", "actor_front"), /業務/);
+    expectFail(addWorkflowElement(sample(), "activity", "actor_front"), /業務か活動/);
+    expectFail(addWorkflowElement(sample(), "business", "nothing"), /足し先/);
+  });
+});
+
+describe("削除の影響 (removalImpact) は、removeElement の実際の振る舞いと合っている", () => {
+  const m0 = sample();
+
+  it("業務: 活動は一緒に消え、属していた作業は残って業務に属さなくなる", () => {
+    const impact = removalImpact(m0, "biz_stay");
+    const bucs = m0.elements.filter((e) => e.kind === "buc" && e.businessId === "biz_stay" && !e.isDefault);
+    const acts = m0.elements.filter((e) => e.kind === "activity" && bucs.some((b) => b.id === e.bucId));
+    expect(countOf(impact, "活動")).toBe(bucs.length);
+    expect(impact.find((i) => i.label === "活動")!.effect).toBe("removed");
+    expect(countOf(impact, "作業")).toBe(acts.length);
+    expect(impact.find((i) => i.label === "作業")!.effect).toBe("kept");
+    const after = okModel(removeElement(m0, { id: "biz_stay" }));
+    expect(after.elements.some((e) => bucs.some((b) => b.id === e.id))).toBe(false);
+    for (const a of acts) expect((after.elements.find((e) => e.id === a.id) as Activity).bucId).toBeNull();
+  });
+
+  it("活動: 作業は残って業務に直接属する作業に戻る", () => {
+    const impact = removalImpact(m0, "buc_dining");
+    const acts = m0.elements.filter((e) => e.kind === "activity" && e.bucId === "buc_dining");
+    expect(countOf(impact, "作業")).toBe(acts.length);
+    const after = okModel(removeElement(m0, { id: "buc_dining" }));
+    for (const a of acts) expect((after.elements.find((e) => e.id === a.id) as Activity).bucId).toBe("buc_default_stay");
+  });
+
+  it("登場人物: 業務と作業は残り、結び付きだけが外れる。ほかに主担当がいない業務の数も数える", () => {
+    const withShared = okModel(addRelation(m0, { sourceId: "actor_manager", targetId: "biz_checkin" }));
+    const impact = removalImpact(withShared, "actor_front");
+    expect(countOf(impact, "業務")).toBe(3);
+    // チェックインは支配人も主担当なので、ほかに主担当がいないのは 2 件
+    expect(impact.find((i) => i.label === "業務")!.note).toContain("2 件");
+    expect(countOf(impact, "作業")).toBe(withShared.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === "actor_front").length);
+    const after = okModel(removeElement(withShared, { id: "actor_front" }));
+    expect(after.elements.filter((e) => e.kind === "business")).toHaveLength(withShared.elements.filter((e) => e.kind === "business").length);
+    expect(after.elements.filter((e) => e.kind === "activity")).toHaveLength(withShared.elements.filter((e) => e.kind === "activity").length);
+  });
+
+  it("作業: 結んだ操作は残り、結び付きだけが外れる", () => {
+    const ucs = m0.relations.filter((r) => r.kind === "activityUsecase" && r.sourceId === "act_hand_key");
+    const impact = removalImpact(m0, "act_hand_key");
+    expect(countOf(impact, "操作")).toBe(ucs.length);
+    const after = okModel(removeElement(m0, { id: "act_hand_key" }));
+    for (const r of ucs) expect(after.elements.some((e) => e.id === r.targetId)).toBe(true);
+  });
+
+  it("活動: ほかの活動が残る業務では、混在になるので移すよう注記する。残らなければ注記なし", () => {
+    expect(removalImpact(m0, "buc_dining")[0]!.note).toContain("ほかの活動があるので");
+    let m = okModel(removeElement(m0, { id: "buc_room_care" }));
+    m = okModel(removeElement(m, { id: "buc_extra_charge" }));
+    expect(removalImpact(m, "buc_dining")[0]!.note).toBe("業務に直接属する作業に戻ります");
+  });
+
+  it("子が無ければ空。既定の活動・ほかの種類・存在しない id も空", () => {
+    let m = okModel(addElement(m0, { kind: "actor", name: "子なし", id: "actor_leaf" }));
+    expect(removalImpact(m, "actor_leaf")).toEqual([]);
+    m = okModel(addElement(m, { kind: "business", name: "からの業務", id: "biz_leaf" }));
+    expect(removalImpact(m, "biz_leaf")).toEqual([]);
+    m = okModel(addElement(m, { kind: "activity", name: "子なしの作業", id: "act_leaf" }));
+    expect(removalImpact(m, "act_leaf")).toEqual([]);
+    expect(removalImpact(m0, "buc_default_stay")).toEqual([]);
+    expect(removalImpact(m0, "sys_pms")).toEqual([]);
+    expect(removalImpact(m0, "nothing")).toEqual([]);
+  });
+});
+
+describe("relationRemovalImpact", () => {
+  const rel = (m: UntieModel, s: string, t: string) => m.relations.find((r) => r.sourceId === s && r.targetId === t)!;
+
+  it("主担当を外すと、業務の活動・作業は残り、ほかに主担当がいなければ担当なしの区画へ移る", () => {
+    const m = sample();
+    const impact = relationRemovalImpact(m, rel(m, "actor_front", "biz_stay").id);
+    expect(countOf(impact, "活動")).toBe(3);
+    expect(impact[0]!.note).toContain("担当が決まっていない業務");
+    const after = okModel(removeRelation(m, { id: rel(m, "actor_front", "biz_stay").id }));
+    expect(buildWorkflow(after).unassigned.map((b) => b.business.id)).toContain("biz_stay");
+    // 活動も作業も失われない
+    expect(after.elements).toEqual(m.elements);
+  });
+
+  it("ほかの主担当がいれば、その行に残ると書く。子の無い業務・主担当以外の関係は空", () => {
+    let m = okModel(addRelation(sample(), { sourceId: "actor_manager", targetId: "biz_stay" }));
+    expect(relationRemovalImpact(m, rel(m, "actor_front", "biz_stay").id)[0]!.note).toContain("ほかの主担当");
+    m = okModel(addElement(m, { kind: "business", name: "からの業務", id: "biz_leaf" }));
+    m = okModel(addRelation(m, { sourceId: "actor_front", targetId: "biz_leaf" }));
+    expect(relationRemovalImpact(m, rel(m, "actor_front", "biz_leaf").id)).toEqual([]);
+    expect(relationRemovalImpact(m, rel(m, "actor_front", "act_confirm_arrival").id)).toEqual([]);
+    expect(relationRemovalImpact(m, "nothing")).toEqual([]);
+  });
+});
+
+describe("impactLines", () => {
+  it("一緒に消えるものと、残るもの (行き先つき) を 1 行ずつの文にする", () => {
+    expect(
+      impactLines([
+        { label: "活動", count: 2, effect: "removed" },
+        { label: "作業", count: 5, effect: "kept", note: "業務に属さない作業になります" },
+        { label: "操作", count: 1, effect: "kept" },
+      ]),
+    ).toEqual(["活動 2 件: 一緒に削除されます", "作業 5 件: 削除されず残ります (業務に属さない作業になります)", "操作 1 件: 削除されず残ります"]);
+  });
+});
+
+describe("簡易モードで足したものも、検証を通る", () => {
+  it("登場人物 → 業務 → 作業と足したモデルは、スキーマの検証を通る", () => {
+    let m = okModel(addElement(sample(), { kind: "actor", name: "A", id: "a1" }));
+    const biz = addWorkflowElement(m, "business", "a1");
+    m = okModel(biz);
+    m = okModel(addWorkflowElement(m, "activity", (biz as { id: string }).id));
+    expect(validateModel(m).ok).toBe(true);
+  });
+});
+
+describe("外部の登場人物の行 (担当する作業のある業務)", () => {
+  const lane = (m: UntieModel, id: string) => buildWorkflow(m).lanes.find((l) => l.actor.id === id)!;
+  const mineOf = (m: UntieModel, id: string) => m.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === id).map((r) => r.targetId);
+
+  it("担当する作業のある業務が、担当する作業だけを入れて並ぶ (assignedOnly)。業務の順。担当でない作業・担当する作業の無い活動は入らない", () => {
+    const m = sample();
+    const l = lane(m, "ext_guest");
+    const mine = new Set(mineOf(m, "ext_guest"));
+    expect(l.businesses.length).toBeGreaterThan(1);
+    expect(l.businesses.every((b) => b.assignedOnly === true)).toBe(true);
+    const shown = l.businesses.flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]).map((a) => a.id);
+    expect(new Set(shown)).toEqual(mine);
+    expect(shown).toHaveLength(mine.size);
+    const order = m.elements.filter((e) => e.kind === "business").map((e) => e.id);
+    const idx = l.businesses.map((b) => order.indexOf(b.business.id));
+    expect(idx).toEqual([...idx].sort((a, b) => a - b));
+    // 主担当 (ownerIds) は業務のものがそのまま入る
+    expect(l.businesses.find((b) => b.business.id === "biz_reservation")!.ownerIds).toEqual(["actor_reservation"]);
+  });
+
+  it("活動のある業務は、担当する作業のある活動の枠だけを入れる。業務に属さない作業・存在しない活動を指す作業を担当していても、行の orphanActivities に入って失われない", () => {
+    let m = okModel(addRelation(sample(), { sourceId: "ext_guest", targetId: "act_room_service" }));
+    m = okModel(addElement(m, { kind: "activity", name: "宙の作業", id: "act_float" }));
+    m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "act_float" }));
+    m = { ...m, elements: [...m.elements, { id: "act_ghost", kind: "activity", name: "幽霊", bucId: "buc_nothing" }] };
+    m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "act_ghost" }));
+    const l = lane(m, "ext_guest");
+    const stay = l.businesses.find((b) => b.business.id === "biz_stay")!;
+    expect(stay.bucs.map((x) => x.buc.id)).toEqual(["buc_dining"]);
+    expect(stay.direct).toEqual([]);
+    expect(ids(l.orphanActivities)).toEqual(["act_float", "act_ghost"]);
+    // 担当する作業はすべて、行のどこかに出る
+    const shown = new Set([...l.businesses.flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]), ...l.orphanActivities].map((a) => a.id));
+    for (const id of mineOf(m, "ext_guest")) expect(shown.has(id)).toBe(true);
+    // 社内の登場人物の行の orphanActivities は空
+    expect(lane(m, "actor_front").orphanActivities).toEqual([]);
+  });
+
+  it("担当する作業が無い外部の登場人物の行は空。社内の登場人物の行は主担当の業務だけ (担当の作業だけの社内の人の行は空のまま)。主担当のいない業務は、担当が決まっていない業務にも出る", () => {
+    let m = okModel(addElement(sample(), { kind: "externalActor", name: "新しい取引先", id: "ext_new" }));
+    m = okModel(addElement(m, { kind: "actor", name: "手伝いの人", id: "actor_helper" }));
+    m = okModel(addRelation(m, { sourceId: "actor_helper", targetId: "act_hand_key" }));
+    expect(lane(m, "ext_new").businesses).toEqual([]);
+    expect(lane(m, "ext_new").orphanActivities).toEqual([]);
+    expect(lane(m, "actor_helper").businesses).toEqual([]);
+    const noOwner = okModel(removeRelation(m, { id: m.relations.find((r) => r.kind === "actorBusiness" && r.targetId === "biz_checkin")!.id }));
+    expect(buildWorkflow(noOwner).unassigned.map((b) => b.business.id)).toContain("biz_checkin");
+    const box = lane(noOwner, "ext_guest").businesses.find((b) => b.business.id === "biz_checkin")!;
+    expect(box.ownerIds).toEqual([]);
+    expect(box.assignedOnly).toBe(true);
+  });
+
+  it("主担当と担当の両方 (検証に通らない外部の登場人物の主担当) の業務は、担当でない作業も含めた全体の枠で出る", () => {
+    const m = { ...sample(), relations: [...sample().relations, { id: "rel_ext_owner", kind: "actorBusiness", sourceId: "ext_guest", targetId: "biz_checkin" } as never] };
+    const box = lane(m, "ext_guest").businesses.find((b) => b.business.id === "biz_checkin")!;
+    expect(box.assignedOnly).toBeUndefined();
+    expect(box.direct.length).toBeGreaterThan(mineOf(m, "ext_guest").filter((id) => box.direct.some((a) => a.id === id)).length);
+  });
+});
+
+describe("addWorkflowElement: 担当つきの作業", () => {
+  it("作業を足すとき assigneeId があれば、その登場人物 (外部の登場人物も) を担当に結ぶ。1 件のコマンドで、スキーマの検証に通る", () => {
+    const r = addWorkflowElement(sample(), "activity", "biz_checkin", { assigneeId: "ext_guest" });
+    const m = okModel(r);
+    const id = (r as { id: string }).id;
+    expect(m.relations.some((x) => x.kind === "actorActivity" && x.sourceId === "ext_guest" && x.targetId === id)).toBe(true);
+    expect((m.elements.find((e) => e.id === id) as Activity).bucId).toBe("buc_default_checkin");
+    expect(validateModel(m).ok).toBe(true);
+    const inBuc = okModel(addWorkflowElement(sample(), "activity", "buc_dining", { assigneeId: "ext_guest" }));
+    expect(inBuc.elements.at(-1)!.kind).toBe("activity");
+    expectFail(addWorkflowElement(sample(), "activity", "biz_checkin", { assigneeId: "sys_pms" }), /登場人物/);
+    // 活動のある業務の既定の活動 (業務直下) にも足せない (混在させない)。担当つきでも同じ
+    expectFail(addWorkflowElement(sample(), "activity", "buc_default_stay"), /活動の中/);
+    expectFail(addWorkflowElement(sample(), "activity", "buc_default_stay", { assigneeId: "ext_guest" }), /活動の中/);
+    expect(addWorkflowElement(sample(), "activity", "buc_default_checkin").ok).toBe(true);
+    // 足し先が決まりに合わなければ、結び付けも作らず失敗する (活動のある業務の直下)
+    expectFail(addWorkflowElement(sample(), "activity", "biz_stay", { assigneeId: "ext_guest" }), /活動の中/);
+  });
+
+  it("足し先の候補: 活動の無い業務はその業務、活動のある業務は「業務 / 活動」。業務が無ければ空", () => {
+    const options = activityParentOptions(sample());
+    expect(options.find((o) => o.id === "biz_checkin")!.label).toBe("チェックイン");
+    expect(options.some((o) => o.id === "biz_stay")).toBe(false);
+    expect(options.find((o) => o.id === "buc_dining")!.label).toBe("滞在中の対応 / 飲食提供");
+    expect(activityParentOptions({ ...sample(), elements: sample().elements.filter((e) => e.kind !== "business" && e.kind !== "buc") })).toEqual([]);
+  });
+});
+
+describe("簡易ボードに実際に出る要素 (isShownOnSimpleBoard / pickSimpleTarget)", () => {
+  const el = (m: UntieModel, id: string) => m.elements.find((e) => e.id === id)!;
+
+  it("既定の活動と、どの操作にも結ばれていないイベントは出ない。操作に結ばれたイベントと、区画に出る要素 (結ばれていない条件・画面・情報) は出る", () => {
+    let m = sample();
+    expect(isShownOnSimpleBoard(m, el(m, "buc_default_stay"), "workflow")).toBe(false);
+    expect(isShownOnSimpleBoard(m, el(m, "buc_dining"), "workflow")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "act_hand_key"), "operation")).toBe(false);
+    // ev_checkout_day はシステムからだけ発生して、きっかけにする操作 (uc_calc_charge) に結ばれている。結びを外した状態の孤立イベント
+    m = okModel(addElement(m, { kind: "event", name: "孤立", id: "ev_lone" }));
+    expect(isShownOnSimpleBoard(m, el(m, "ev_lone"), "operation")).toBe(false);
+    expect(isShownOnSimpleBoard(m, el(m, "ev_charge_calculated"), "operation")).toBe(true);
+    m = okModel(addElement(m, { kind: "condition", name: "孤立条件", id: "cond_lone" }));
+    m = okModel(addElement(m, { kind: "state", name: "孤立状態", id: "st_lone" }));
+    expect(isShownOnSimpleBoard(m, el(m, "cond_lone"), "operation")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "st_lone"), "information")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "st_lone"), "workflow")).toBe(false);
+  });
+
+  it("選ぶ要素: 行き先に出ているものから、主の種類を先に (操作はイベントより先、社内の登場人物は外部の登場人物より先)。出ているものが無ければ null", () => {
+    let m = okModel(addElement(sample(), { kind: "event", name: "孤立", id: "ev_lone" }));
+    const ev = el(m, "ev_lone");
+    const linked = el(m, "ev_charge_calculated");
+    const uc = el(m, "uc_issue_invoice");
+    expect(pickSimpleTarget(m, [ev], "operation")).toBeNull();
+    expect(pickSimpleTarget(m, [ev, linked], "operation")).toBe("ev_charge_calculated");
+    expect(pickSimpleTarget(m, [linked, uc], "operation")).toBe("uc_issue_invoice");
+    expect(pickSimpleTarget(m, [el(m, "ext_guest"), el(m, "actor_front")], "workflow")).toBe("actor_front");
+    expect(pickSimpleTarget(m, [el(m, "buc_default_stay")], "workflow")).toBeNull();
+    expect(pickSimpleTarget(m, [], "workflow")).toBeNull();
+    m = okModel(addElement(m, { kind: "information", name: "x", id: "info_x" }));
+    expect(pickSimpleTarget(m, [el(m, "info_x")], "workflow")).toBeNull();
+  });
+});

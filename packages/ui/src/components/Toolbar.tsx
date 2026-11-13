@@ -14,8 +14,9 @@ import { navigate } from "../router";
 import { baseName, getPlatform, type RecentFile } from "../platform";
 import { ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
 import { DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
+import { SIMPLE_BOARD_KINDS, SIMPLE_BOARD_LABELS, simpleBoardId } from "@untie/core/model/workflow";
 import { isDevMode, visibleAnalysisKinds, visibleDesignKinds } from "../devMode";
-import { hasUnsavedChanges, isBuiltinBoard, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
+import { hasUnsavedChanges, isBuiltinBoard, modeOf, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
@@ -41,7 +42,7 @@ export function Toolbar() {
   const currentBoardId = useUntieStore((s) => s.ui.currentBoardId);
   const rightPanel = useUntieStore((s) => s.ui.rightPanel);
   const model = useUntieStore((s) => s.model);
-  const mode = useUntieStore((s) => s.ui.mode ?? "analysis");
+  const mode = useUntieStore((s) => modeOf(s.ui));
   const designSystemId = useUntieStore((s) => s.ui.designSystemId);
   // 設計モードの検証は設計の検証 (checkDesign)、分析モードは担い手まで辿れるか
   const designResult = useMemo(() => (mode === "design" && designSystemId ? cachedCheckDesign(model, designSystemId) : null), [model, mode, designSystemId]);
@@ -187,6 +188,15 @@ export function Toolbar() {
                         </option>
                       ))}
                     </optgroup>
+                  ) : mode === "analysisSimple" ? (
+                    // 簡易モードで開けるのは簡易ボード (ワークフロー・システム操作・情報と状態) だけ (自由ボード・固定ボードは出さない)
+                    <optgroup label="ボード">
+                      {SIMPLE_BOARD_KINDS.map((kind) => (
+                        <option key={kind} value={simpleBoardId(kind)}>
+                          {SIMPLE_BOARD_LABELS[kind]}
+                        </option>
+                      ))}
+                    </optgroup>
                   ) : (
                     <>
                       <optgroup label="固定ボード">
@@ -205,13 +215,15 @@ export function Toolbar() {
                       </optgroup>
                     </>
                   )}
-                  <optgroup label="自由ボード">
-                    {boards.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </optgroup>
+                  {mode !== "analysisSimple" && (
+                    <optgroup label="自由ボード">
+                      {boards.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </label>
               {mode === "design" && (
@@ -219,7 +231,7 @@ export function Toolbar() {
                   設計: {designSystemName || "(名前なし)"}
                 </button>
               )}
-              {!readOnly && (
+              {!readOnly && mode !== "analysisSimple" && (
                 <>
                   <button type="button" title="自由ボードを追加" onClick={handleAddBoard}>
                     ＋ボード
@@ -576,7 +588,8 @@ function FileMenu({
         >
           {(
             [
-              ["analysis", "分析"],
+              ["analysisSimple", "分析（簡易）"],
+              ["analysis", "分析（詳細）"],
               ["design", "設計"],
             ] as const
           ).map(([value, label]) => (

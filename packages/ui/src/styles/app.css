@@ -285,6 +285,9 @@ textarea { resize: vertical; width: 100%; }
 .dialog { background: #fff; border-radius: 8px; padding: 18px 20px; width: 380px; max-width: 90vw; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
 .dialog h2 { margin: 0 0 8px; font-size: 15px; }
 .dialog p { margin: 0 0 16px; line-height: 1.6; }
+.dialog-detail-group { margin: 0 0 16px; }
+.dialog-detail-title { margin: 0 0 4px; font-size: 13px; }
+.dialog-detail-group .dialog-details { margin: 0; }
 .dialog-details { margin: -8px 0 16px; padding-left: 20px; line-height: 1.6; }
 .system-select-list { list-style: none; margin: 0 0 16px; padding: 0; max-height: 50vh; overflow: auto; }
 .system-select-list label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; }
@@ -1138,3 +1141,100 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .seq-alternates select.is-undecided { border-color: #c0392b; background: #fbeee9; }
 .souther-pending { font-size: 12px; font-weight: 400; color: #8a6414; }
 .seq-after-group select { flex: 1; min-width: 0; }
+
+/* 分析（簡易）のワークフローボード: 登場人物 → 業務 → 活動 → 作業 */
+.workflow-board { --wf-bus-y: 24px; --wf-stub: 14px; --wf-line: #9a9488; }
+.wf-lane { display: flex; align-items: flex-start; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px dashed var(--border); }
+.wf-actor { flex: 0 0 168px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.wf-actor-card { min-height: calc(var(--wf-bus-y) * 2); display: flex; flex-direction: column; justify-content: center; text-align: left; background: #fff; border: 1.5px solid var(--c-actor); border-left-width: 5px; border-radius: 6px; padding: 4px 8px; }
+.wf-actor.kind-externalActor .wf-actor-card { border-color: var(--c-externalActor); }
+.wf-actor-card.is-selected, .wf-activity.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.wf-kind { font-size: 10px; font-weight: 600; color: var(--muted); }
+.wf-name { font-weight: 600; word-break: break-all; }
+.wf-note { font-size: 11px; color: var(--muted); margin: 2px 0; }
+.wf-add { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+.wf-trunk { flex: 0 0 28px; margin-top: var(--wf-bus-y); border-top: 2px solid var(--wf-line); }
+.wf-businesses { list-style: none; margin: 0; padding: calc(var(--wf-bus-y) + var(--wf-stub)) 4px 4px 0; display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; flex: 1; min-width: 0; }
+.wf-businesses.is-flat { padding: 4px; flex-wrap: wrap; overflow-x: visible; }
+.wf-branch-item { position: relative; flex: 0 0 auto; }
+/* 枝: 登場人物から伸びた線 (幹) につなげて行の上端に横の線を通し、各業務の枠へ縦の短い線を下ろす (最後は枠の中央までにとどめる) */
+.wf-branch-item::before { content: ""; position: absolute; top: calc(var(--wf-stub) * -1); left: -8px; right: -8px; border-top: 2px solid var(--wf-line); }
+.wf-branch-item:first-child::before { left: 0; }
+.wf-branch-item:last-child::before { right: 50%; }
+.wf-branch-item::after { content: ""; position: absolute; top: calc(var(--wf-stub) * -1); left: 50%; height: var(--wf-stub); border-left: 2px solid var(--wf-line); }
+.wf-frame { background: #fff; border: 1.5px solid var(--c, var(--border)); border-radius: 8px; padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 190px; cursor: pointer; }
+.wf-business { --c: var(--c-business); background: color-mix(in srgb, var(--c-business) 5%, #fff); }
+.wf-buc { --c: var(--c-buc); background: color-mix(in srgb, var(--c-buc) 7%, #fff); }
+.wf-frame.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+/* 枠の見出しは、枠の強調と二重にならないよう選択中の枠線を出さない (フォーカス時は出る) */
+.wf-frame-title.is-selected, .wf-frame-title.is-selected:hover { outline: none; background: transparent; }
+.wf-frame-title.is-selected:focus-visible { outline: 2px solid var(--selected); }
+.wf-frame-head { display: flex; }
+.wf-frame-title { display: flex; flex-direction: column; text-align: left; background: transparent; border: none; padding: 2px 4px; border-radius: 4px; }
+.wf-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-activity { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-activity); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
+.wf-assignees { font-size: 11px; color: var(--muted); }
+/* 条件の行だけ、長い添え書きを折り返す (ほかのボードの枠が細く縮まないように) */
+.wf-condition .wf-assignees { overflow-wrap: anywhere; }
+.wf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.wf-warning { margin: 0; padding: 4px 8px; border-radius: 4px; background: #fbeee9; color: #8a3a2c; font-size: 11px; line-height: 1.5; }
+.wf-section { margin-top: 8px; }
+.wf-section-title { margin: 0 0 4px; font-size: 14px; }
+
+/* 狭い画面: 登場人物のカードの下に、業務を縦に並べる (枝は左端の縦線にする) */
+@media (max-width: 768px) {
+  .wf-lane { flex-direction: column; }
+  .wf-actor { flex-basis: auto; align-self: stretch; }
+  .wf-trunk { display: none; }
+  .wf-businesses { flex-direction: column; overflow-x: visible; align-self: stretch; padding: 8px 6px 4px 14px; margin-left: 10px; border-left: 2px solid var(--wf-line); gap: 12px; }
+  .wf-branch-item { width: 100%; }
+  .wf-branch-item::before, .wf-branch-item::after { display: none; }
+  .wf-frame { min-width: 0; }
+}
+
+/* 分析（簡易）のボード「システム操作」: 作業 → 操作 → 画面・情報・条件。外側の枠は活動 (無ければ業務) */
+.wf-outers { display: flex; flex-direction: column; gap: 16px; }
+.wf-outer { min-width: 0; cursor: pointer; }
+.wf-outer .wf-lane.wf-row { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.wf-actor-card.wf-activity { border-color: var(--c-activity); }
+.wf-operation { --c: var(--c-usecase); background: color-mix(in srgb, var(--c-usecase) 5%, #fff); cursor: pointer; }
+.wf-screen, .wf-information, .wf-condition, .wf-state, .wf-variation { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-screen); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
+.wf-information { border-color: var(--c-information); }
+.wf-condition { border-color: var(--c-condition); }
+.wf-state { border-color: var(--c-state); }
+.wf-variation { border-color: var(--c-variation); }
+.wf-screen.is-selected, .wf-information.is-selected, .wf-condition.is-selected, .wf-state.is-selected, .wf-variation.is-selected, .wf-chip.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+.wf-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-chips li { min-width: 0; max-width: 100%; }
+.wf-chip { max-width: 100%; font-size: 11px; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; background: #fff; border: 1.5px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.wf-chip.kind-system { border-color: var(--c-system); }
+.wf-chip.kind-ledger { border-color: var(--c-ledger); border-style: dashed; }
+.wf-chip.kind-event { border-color: var(--c-event); border-style: dashed; }
+
+/* 分析（簡易）のボード「情報と状態」: コンテキスト → 情報 (・バリエーション)・状態 */
+.wf-context { --c: var(--c-context); background: color-mix(in srgb, var(--c-context) 5%, #fff); }
+/* 区画の区切りは、直前の行の破線だけにする (二重にしない) */
+.wf-subsection { padding-top: 2px; }
+.wf-subtitle { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+.wf-state-groups { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.wf-state-group { --c: var(--c-state); min-width: 160px; }
+.wf-variation-frame { --c: var(--c-variation); min-width: 160px; cursor: default; }
+.wf-actor-card.wf-information { border-color: var(--c-information); }
+.wf-state-group .wf-frame-head { flex-direction: column; }
+.wf-information:hover, .wf-condition:hover, .wf-state:hover, .wf-variation:hover, .wf-screen:hover { background: #fff; }
+/* 操作の枠の見出しの下の添え書き (前提の状態・次の状態)。長くても折り返す */
+/* 2 行を 1 つの入れ物に包み、枠の gap ではなく条件の行の添え書きと同じ詰まった行間にする */
+.wf-op-notes { padding: 0 4px; }
+.wf-op-note { margin: 0; padding: 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* システム操作ボード: 操作の枠はすべて同じ幅にする (長い文字は枠の中で折り返す)。狭い画面では行いっぱいに広げる */
+.wf-operation { width: 240px; max-width: 100%; min-width: 0; }
+.wf-operation .wf-name, .wf-operation .wf-kind, .wf-operation .wf-assignees, .wf-operation .wf-chip { overflow-wrap: anywhere; }
+.wf-operation .wf-chips li, .wf-operation .wf-stack li { min-width: 0; }
+@media (max-width: 768px) {
+  .wf-operation { width: auto; max-width: none; }
+}
+
+/* ワークフロー: 外部の登場人物の行の枠は「担当する作業のある業務」(主担当の業務ではない) なので、枠と枝を破線にして控えめに区別する */
+.wf-frame.is-assigned { border-style: dashed; }
+.wf-branch-item.is-assigned::after { border-left-style: dashed; }
