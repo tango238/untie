@@ -300,10 +300,10 @@ describe("プロパティからの関連の追加・削除と、削除の確認"
 });
 
 describe("ツールバー", () => {
-  it("簡易モードではボードの選択肢は簡易ボードの 3 枚だけで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
+  it("簡易モードではボードの選択肢は簡易ボードの 3 枚と分析ボードで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
     render(<Toolbar />);
     const options = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
-    expect(options()).toEqual(["ワークフロー", "システム操作", "情報と状態"]);
+    expect(options()).toEqual(["ワークフロー", "システム操作", "情報と状態", "課題の分布", "担当別の作業一覧", "情報の所在"]);
     expect(screen.queryByRole("button", { name: "＋ボード" })).toBeNull();
     expect(screen.queryByRole("button", { name: "名前変更" })).toBeNull();
     act(() => st().setMode("analysis"));
