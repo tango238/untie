@@ -13,6 +13,7 @@ import {
   type SecretStore,
 } from "@untie/ui/platform";
 import { makeZip } from "@untie/ui/io/zip";
+import { pickSourceFolderInBrowser } from "@untie/ui/io/sourceFolder";
 
 // ---- ファイル ----
 
@@ -311,6 +312,8 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       return { where: zipName, count: files.length, kept: [] };
     },
+
+    pickSourceFolder: pickSourceFolderInBrowser,
 
     canReopenFiles,
 

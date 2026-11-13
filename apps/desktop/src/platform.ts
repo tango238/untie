@@ -16,6 +16,7 @@ import {
   type SecretStore,
   parseServerOrigin,
 } from "@untie/ui/platform";
+import { pickSourceFolderInBrowser } from "@untie/ui/io/sourceFolder";
 
 const FILE_FILTERS = [{ name: "Untie モデル", extensions: [FILE_EXTENSION] }];
 
@@ -342,6 +343,8 @@ export function desktopPlatform(): Platform {
       }
       return { where: dir, count: files.length - kept.length, kept };
     },
+
+    pickSourceFolder: pickSourceFolderInBrowser,
 
     canReopenFiles: () => true,
 

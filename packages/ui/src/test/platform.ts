@@ -1,5 +1,6 @@
 // テスト用の Platform: ファイルもキーも最近開いたファイルもメモリの上で動く。
 // setup.ts が各テストの前に新しいものを setPlatform する。テストは memory() で取り出して、状態を仕込む・確かめる。
+import type { SourceTree } from "../ai/sourceTree";
 import {
   RECENT_LIMIT,
   baseName,
@@ -18,6 +19,8 @@ export interface MemoryPlatform extends Platform {
   saved: { text: string; path: string | null; name: string }[];
   /** saveTextFiles で選ぶフォルダ (null なら取り消し) */
   folder: string | null;
+  /** pickSourceFolder が返す木 (null なら取り消し) */
+  sourceTree: SourceTree | null;
   /** saveTextFiles で書いた内容 */
   savedFolders: { folder: string; files: { name: string; text: string }[]; options: { zipName: string; zipFolder: string; keep?: readonly string[] } }[];
   /** saveTextFiles のフォルダに、既にあるファイルの名前 */
@@ -57,6 +60,7 @@ export function memoryPlatform(): MemoryPlatform {
     saved: [],
     folder: "/repo/docs/domain",
     savedFolders: [],
+    sourceTree: null,
     existingFiles: new Set(),
     discard: true,
     openedUrls: [],
@@ -88,6 +92,9 @@ export function memoryPlatform(): MemoryPlatform {
       const written = files.filter((f) => !kept.includes(f.name));
       p.savedFolders.push({ folder: p.folder, files: written.map((f) => ({ ...f })), options });
       return { where: p.folder, count: written.length, kept };
+    },
+    async pickSourceFolder() {
+      return p.sourceTree;
     },
     canReopenFiles: () => true,
     async confirmDiscard() {
