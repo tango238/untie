@@ -12,7 +12,7 @@ function granularityGuide(): string {
     .join("\n");
 }
 
-const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言語化するための業務可視化ツールで、RDRA の業務レイヤーを扱います。
+export const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言語化するための業務可視化ツールで、RDRA の業務レイヤーを扱います。
 モデルの要素と、画面での呼び名は次のとおりです (kind は内部名)。
 
 - 担い手: actor (アクター: 社内の人の役割)、externalActor (外部アクター: 社外の人・組織)。作業の担当は人だけ

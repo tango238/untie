@@ -604,6 +604,18 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .prompt-analysis { white-space: pre-wrap; font: inherit; margin: 0 0 6px; }
 .prompt-log { color: var(--muted); white-space: pre-wrap; }
 .prompt-error { color: var(--danger); margin: 0; }
+.source-dialog { width: 600px; max-height: 90vh; overflow-y: auto; }
+.source-folder { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.source-folder-name { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.source-folder-count { font-size: 12px; color: var(--muted); }
+.source-note { margin: 0; font-size: 12px; color: var(--muted); }
+.source-notes { margin: 0; padding-left: 18px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.source-stages { list-style: none; margin: 0 0 6px; padding: 0; }
+.source-stage.is-next { color: var(--muted); }
+.source-stage.is-now { font-weight: 600; }
+.source-reads { margin-bottom: 6px; }
+.source-warnings { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 200px; overflow-y: auto; }
+.source-warnings ul { margin: 4px 0 0; padding-left: 18px; }
 
 /* ホーム (ファイルの一覧・ログイン) */
 .home { min-height: 100%; background: var(--bg); display: flex; flex-direction: column; }
