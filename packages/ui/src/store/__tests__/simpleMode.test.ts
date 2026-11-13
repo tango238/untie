@@ -232,3 +232,14 @@ describe("既定のモードは分析（簡易）", () => {
     expect(s.getState().ui.mode).toBe("analysis");
   });
 });
+
+describe("createUntieStore: モードを省いたとき、開くボードに合うモードで始まる", () => {
+  it("簡易ボードなら簡易、自由ボード・固定ボード・分析ボードなら詳細。ボードとモードが合わない状態は作らない", () => {
+    expect(createUntieStore(createHotelSample(), "simple:workflow").getState().ui.mode).toBe("analysisSimple");
+    expect(createUntieStore(createHotelSample(), "board_overview").getState().ui.mode).toBe("analysis");
+    expect(createUntieStore(createHotelSample()).getState().ui.mode).toBe("analysis");
+    expect(createUntieStore(createHotelSample(), "analysis:issues").getState().ui.mode).toBe("analysis");
+    // 明示すれば、そのとおり
+    expect(createUntieStore(createHotelSample(), "simple:workflow", "properties", "analysisSimple").getState().ui.mode).toBe("analysisSimple");
+  });
+});

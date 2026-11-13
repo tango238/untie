@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { addElement, addRelation, removeElement, removeRelation } from "../commands";
 import {
   activityParentOptions,
+  isShownOnSimpleBoard,
+  pickSimpleTarget,
   addWorkflowElement,
   buildWorkflow,
   canAddActivityToBusiness,
@@ -332,6 +334,10 @@ describe("addWorkflowElement: 担当つきの作業", () => {
     const inBuc = okModel(addWorkflowElement(sample(), "activity", "buc_dining", { assigneeId: "ext_guest" }));
     expect(inBuc.elements.at(-1)!.kind).toBe("activity");
     expectFail(addWorkflowElement(sample(), "activity", "biz_checkin", { assigneeId: "sys_pms" }), /登場人物/);
+    // 活動のある業務の既定の活動 (業務直下) にも足せない (混在させない)。担当つきでも同じ
+    expectFail(addWorkflowElement(sample(), "activity", "buc_default_stay"), /活動の中/);
+    expectFail(addWorkflowElement(sample(), "activity", "buc_default_stay", { assigneeId: "ext_guest" }), /活動の中/);
+    expect(addWorkflowElement(sample(), "activity", "buc_default_checkin").ok).toBe(true);
     // 足し先が決まりに合わなければ、結び付けも作らず失敗する (活動のある業務の直下)
     expectFail(addWorkflowElement(sample(), "activity", "biz_stay", { assigneeId: "ext_guest" }), /活動の中/);
   });
@@ -342,5 +348,40 @@ describe("addWorkflowElement: 担当つきの作業", () => {
     expect(options.some((o) => o.id === "biz_stay")).toBe(false);
     expect(options.find((o) => o.id === "buc_dining")!.label).toBe("滞在中の対応 / 飲食提供");
     expect(activityParentOptions({ ...sample(), elements: sample().elements.filter((e) => e.kind !== "business" && e.kind !== "buc") })).toEqual([]);
+  });
+});
+
+describe("簡易ボードに実際に出る要素 (isShownOnSimpleBoard / pickSimpleTarget)", () => {
+  const el = (m: UntieModel, id: string) => m.elements.find((e) => e.id === id)!;
+
+  it("既定の活動と、どの操作にも結ばれていないイベントは出ない。操作に結ばれたイベントと、区画に出る要素 (結ばれていない条件・画面・情報) は出る", () => {
+    let m = sample();
+    expect(isShownOnSimpleBoard(m, el(m, "buc_default_stay"), "workflow")).toBe(false);
+    expect(isShownOnSimpleBoard(m, el(m, "buc_dining"), "workflow")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "act_hand_key"), "operation")).toBe(false);
+    // ev_checkout_day はシステムからだけ発生して、きっかけにする操作 (uc_calc_charge) に結ばれている。結びを外した状態の孤立イベント
+    m = okModel(addElement(m, { kind: "event", name: "孤立", id: "ev_lone" }));
+    expect(isShownOnSimpleBoard(m, el(m, "ev_lone"), "operation")).toBe(false);
+    expect(isShownOnSimpleBoard(m, el(m, "ev_charge_calculated"), "operation")).toBe(true);
+    m = okModel(addElement(m, { kind: "condition", name: "孤立条件", id: "cond_lone" }));
+    m = okModel(addElement(m, { kind: "state", name: "孤立状態", id: "st_lone" }));
+    expect(isShownOnSimpleBoard(m, el(m, "cond_lone"), "operation")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "st_lone"), "information")).toBe(true);
+    expect(isShownOnSimpleBoard(m, el(m, "st_lone"), "workflow")).toBe(false);
+  });
+
+  it("選ぶ要素: 行き先に出ているものから、主の種類を先に (操作はイベントより先、社内の登場人物は外部の登場人物より先)。出ているものが無ければ null", () => {
+    let m = okModel(addElement(sample(), { kind: "event", name: "孤立", id: "ev_lone" }));
+    const ev = el(m, "ev_lone");
+    const linked = el(m, "ev_charge_calculated");
+    const uc = el(m, "uc_issue_invoice");
+    expect(pickSimpleTarget(m, [ev], "operation")).toBeNull();
+    expect(pickSimpleTarget(m, [ev, linked], "operation")).toBe("ev_charge_calculated");
+    expect(pickSimpleTarget(m, [linked, uc], "operation")).toBe("uc_issue_invoice");
+    expect(pickSimpleTarget(m, [el(m, "ext_guest"), el(m, "actor_front")], "workflow")).toBe("actor_front");
+    expect(pickSimpleTarget(m, [el(m, "buc_default_stay")], "workflow")).toBeNull();
+    expect(pickSimpleTarget(m, [], "workflow")).toBeNull();
+    m = okModel(addElement(m, { kind: "information", name: "x", id: "info_x" }));
+    expect(pickSimpleTarget(m, [el(m, "info_x")], "workflow")).toBeNull();
   });
 });

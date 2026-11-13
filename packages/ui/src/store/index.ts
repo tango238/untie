@@ -32,6 +32,9 @@ export type RightPanel = "properties" | "issues" | "trace";
  */
 export type Mode = "analysis" | "analysisSimple" | "design";
 
+/** モードの表示名 */
+export const MODE_LABELS: Record<Mode, string> = { analysisSimple: "分析（簡易）", analysis: "分析（詳細）", design: "設計" };
+
 /** 既定のモード (ui.mode が未設定のとき・アプリを開いたとき)。未設定の解釈はすべてここに揃える */
 export const DEFAULT_MODE: Mode = "analysisSimple";
 
@@ -425,13 +428,16 @@ export function isBuiltinBoard(boardId: string): boolean {
   return isFixedBoard(boardId) || isAnalysisBoard(boardId) || isDesignBoard(boardId) || isSimpleBoard(boardId);
 }
 
-/** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード */
+/** ストアを作る (テストでは初期モデルを渡す)。開くボードの既定は最初の自由ボード。モードを省くと、開くボードに合うモードで始まる (アプリ本体は既定のモードを明示する) */
 export function createUntieStore(
   initial: UntieModel = createHotelSample(),
   startBoardId = initial.boards[0]?.id ?? "",
   startPanel: RightPanel = "properties",
-  startMode: Mode = DEFAULT_MODE,
+  startMode?: Mode,
 ) {
+  // モードを省いたときは、開くボードから導く (簡易のボードなら簡易、それ以外は詳細。設計は対象のシステムが要るので詳細)。
+  // 「簡易モードで自由ボードを開いている」ようなボードとモードが合わない状態は作らない
+  const mode: Mode = startMode ?? (isSimpleBoard(startBoardId) ? "analysisSimple" : "analysis");
   return create<UntieState>()((set, get) => ({
     model: initial,
     file: null,
@@ -442,7 +448,7 @@ export function createUntieStore(
       selection: null,
       rightPanel: startPanel,
       nameFocusNonce: 0,
-      mode: startMode,
+      mode,
       ...(isNarrowViewport() ? { rightPanelOpen: false, elementListOpen: false } : {}),
     },
     dragBase: null,
@@ -648,7 +654,7 @@ export function createUntieStore(
           ...s.ui,
           ...startUi(s.ui),
           // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析のモード (簡易・詳細) ならそのまま、設計なら既定 (分析（簡易）) に戻す
-          ...(options?.keepUi ? { mode: s.ui.mode, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
+          ...(options?.keepUi ? { mode: s.ui.mode, modeBeforeDesign: s.ui.modeBeforeDesign, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
           issueDraft: undefined,

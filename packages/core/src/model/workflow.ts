@@ -40,7 +40,7 @@ export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: bool
   return el.kind === "actor" || el.kind === "externalActor" || el.kind === "business" || el.kind === "activity" || el.kind === "usecase" || el.kind === "screen" || el.kind === "event" || el.kind === "information" || el.kind === "condition" || el.kind === "context" || el.kind === "state" || el.kind === "variation";
 }
 
-/** 簡易ボードごとの、主役の要素の種類 (そのボードで選んで直せる。システム・帳票・イベントのチップは主役ではない) */
+/** 簡易ボードごとの、主役の要素の種類 (そのボードで選んで直せる。システム・帳票は、システム操作ボードにチップで出るだけで主役ではない。イベントは操作に結ばれていれば、システム操作ボードのチップで選べる) */
 export const SIMPLE_BOARD_ELEMENT_KINDS: Record<SimpleBoardKind, readonly ElementKind[]> = {
   workflow: ["actor", "externalActor", "business", "buc", "activity"],
   operation: ["usecase", "screen", "condition", "event"],
@@ -68,6 +68,32 @@ export const SIMPLE_LAYER_BOARDS: Partial<Record<FixedLayer, SimpleBoardKind>> =
 /** そのレイヤーを見る簡易ボード。無ければ null */
 export function simpleBoardOfLayer(layer: FixedLayer): SimpleBoardKind | null {
   return SIMPLE_LAYER_BOARDS[layer] ?? null;
+}
+
+/** 「移動」で選ぶ要素の優先順。行の主の種類 (操作の行なら操作) を先にし、外部の登場人物・イベントは後にする */
+const PICK_ORDER: readonly ElementKind[] = ["actor", "business", "buc", "activity", "usecase", "screen", "condition", "context", "information", "state", "variation", "externalActor", "event"];
+
+/**
+ * その要素は、その簡易ボードに実際に出ているか (出ていれば、ボードで選べてスクロールもできる)。
+ * 主役の種類でも、既定の活動 (どのボードにも出ない) と、どの操作にも結ばれていないイベント (チップは操作の枠の中に出る) は出ない。
+ * 操作に結ばれていない条件・画面・情報などは区画に出るので、出ている
+ */
+export function isShownOnSimpleBoard(model: UntieModel, element: Element, board: SimpleBoardKind): boolean {
+  if (!SIMPLE_BOARD_ELEMENT_KINDS[board].includes(element.kind)) return false;
+  if (element.kind === "buc") return !element.isDefault;
+  if (element.kind === "event") {
+    const usecaseIds = new Set(model.elements.filter((e) => e.kind === "usecase").map((e) => e.id));
+    return model.relations.some((r) => (r.kind === "eventUsecase" && r.sourceId === element.id && usecaseIds.has(r.targetId)) || (r.kind === "usecaseEvent" && r.targetId === element.id && usecaseIds.has(r.sourceId)));
+  }
+  return true;
+}
+
+/** 「移動」で選ぶ要素: 候補のうち、行き先のボードに実際に出ているものを、主の種類を先に選ぶ。無ければ null */
+export function pickSimpleTarget(model: UntieModel, candidates: readonly Element[], board: SimpleBoardKind): string | null {
+  const shown = candidates.filter((e) => isShownOnSimpleBoard(model, e, board));
+  if (shown.length === 0) return null;
+  const rank = (e: Element) => PICK_ORDER.indexOf(e.kind);
+  return shown.reduce((best, e) => (rank(e) < rank(best) ? e : best)).id;
 }
 
 /** その種類の要素を主役にする簡易ボード。システム・帳票など、どのボードの主役でもなければ null */
@@ -444,7 +470,11 @@ export function addWorkflowElement(model: UntieModel, kind: WorkflowAddKind, par
     if (parent.kind !== "business") return { ok: false, reason: "活動は業務の中に足します" };
     return addToGroup(model, group({ type: "business", businessId: parent.id }, "buc"), "新しい活動");
   }
-  if (parent.kind === "buc") return addToGroup(model, group({ type: "buc", bucId: parent.id }, "activity"), "新しい作業");
+  if (parent.kind === "buc") {
+    // 活動のある業務の既定の活動 (業務直下) には足せない (混在させない)
+    if (parent.isDefault && !canAddActivityToBusiness(model, parent.businessId)) return { ok: false, reason: "この業務には活動があります。作業は活動の中に足してください" };
+    return addToGroup(model, group({ type: "buc", bucId: parent.id }, "activity"), "新しい作業");
+  }
   if (parent.kind !== "business") return { ok: false, reason: "作業は業務か活動の中に足します" };
   if (!canAddActivityToBusiness(model, parent.id)) return { ok: false, reason: "この業務には活動があります。作業は活動の中に足してください" };
   const def = defaultBucOf(model, parent.id);

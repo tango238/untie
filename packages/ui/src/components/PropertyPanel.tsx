@@ -72,8 +72,8 @@ import {
   type Variation,
 } from "@untie/core/model/types";
 import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
-import { impactLines, isWorkflowElement, parseSimpleBoardId, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
-import { createIssue, goToLayer, goToSimpleBoard, isOnSimpleBoard, revealOnFixedBoard, revealOnSimpleBoard, selectAndReveal } from "./actions";
+import { impactLines, isWorkflowElement, parseSimpleBoardId, pickSimpleTarget, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
+import { createIssue, goToLayer, goToSimpleBoard, revealElement, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
 import { getApiKey } from "../ai/keys";
@@ -550,9 +550,8 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
     const target = simple ? simpleBoardOfLayer(r.layer) : null;
     if (!target) return { type: "fixed", current: boardId === fixedBoardId(r.layer) };
     if (target === here) return { type: "none" };
-    // 行に行き先で選べる要素があれば先頭の要素を選ぶ。無ければ、いま選んでいる要素が行き先で見えるときだけ、それを選んだままにする
-    const first = r.elements.find((e) => isOnSimpleBoard(e.kind, target));
-    return { type: "simple", board: target, elementId: first?.id ?? (isOnSimpleBoard(element.kind, target) ? element.id : null) };
+    // 行き先のボードに実際に出ている要素を、主の種類 (操作の行なら操作) を先にして選ぶ。無ければ、いま選んでいる要素が行き先で見えるときだけ、それを選んだままにする
+    return { type: "simple", board: target, elementId: pickSimpleTarget(model, r.elements, target) ?? pickSimpleTarget(model, [element], target) };
   };
   const { up, down } = useMemo(() => lineage(model, element.id, { includeEmpty: true }), [model, element.id]);
   if (!own) return null;
@@ -1466,6 +1465,7 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
               const t = model.elements.find((e) => e.id === id);
               // 簡易モードでは、対象を主役にする簡易ボードへ移る (システム・帳票はどのボードの主役でもないので出さない)
               const targetBoard = t ? simpleBoardOfKind(t.kind) : null;
+              const fixedLayer = t ? fixedLayerOf(t.kind) : null;
               return (
                 <li key={id}>
                   <span className="relation-kind">{t ? ELEMENT_KIND_LABELS[t.kind] : ""}</span>
@@ -1478,7 +1478,19 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
                       className="link"
                       title={`${ELEMENT_KIND_LABELS[t.kind]}を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
                       aria-label={`「${t.name}」を${SIMPLE_BOARD_LABELS[targetBoard]}ボードで見る`}
-                      onClick={() => revealOnSimpleBoard(t.id)}
+                      onClick={() => revealElement(t.id)}
+                    >
+                      移動
+                    </button>
+                  )}
+                  {/* 簡易ボードの主役でない種類のうち、固定ボードのあるもの (非機能要件など。システム・帳票は出さない) は、簡易でも固定ボードへ移る */}
+                  {t && simple && !targetBoard && fixedLayer && fixedLayer !== "actor" && (
+                    <button
+                      type="button"
+                      className="link"
+                      title={`${ELEMENT_KIND_LABELS[t.kind]}の固定ボードへ移る`}
+                      aria-label={`「${t.name}」の固定ボードへ移る`}
+                      onClick={() => revealElement(t.id)}
                     >
                       移動
                     </button>
@@ -1489,7 +1501,7 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
                       className="link"
                       title={`${ELEMENT_KIND_LABELS[t.kind]}の固定ボードへ移る`}
                       aria-label={`「${t.name}」の固定ボードへ移る`}
-                      onClick={() => revealOnFixedBoard(t.id)}
+                      onClick={() => revealElement(t.id)}
                     >
                       移動
                     </button>

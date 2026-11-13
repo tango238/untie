@@ -4,8 +4,9 @@ import { contextNotices, type ContextNotice } from "@untie/core/model/contexts";
 import { issuesByScope } from "@untie/core/model/selectors";
 import { TRACE_ERROR_TITLES, TRACE_WARNING_HINTS, TRACE_WARNING_TITLES, traceToActors, traceWarnings, type TraceError, type TraceProblem, type TraceWarning, type TraceWarningType } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type Element } from "@untie/core/model/types";
-import { selectReadOnly, useUntieStore } from "../store";
-import { revealOnFixedBoard } from "./actions";
+import { modeOf, selectReadOnly, useUntieStore } from "../store";
+import { SIMPLE_BOARD_LABELS, simpleBoardOfKind } from "@untie/core/model/workflow";
+import { revealElement } from "./actions";
 
 /**
  * すべての要素が担い手 (アクター / 外部アクター / システム) まで辿れるかを、途切れている箇所ごとに出す。
@@ -202,12 +203,14 @@ function NoticeRow({ notice, element, contextName }: { notice: ContextNotice; el
 }
 
 function ElementLink({ element }: { element: Element }) {
+  // 簡易モードでは、要素を主役にする簡易ボードへ移る (無い種類は今までどおり固定ボードへ)
+  const board = useUntieStore((s) => (modeOf(s.ui) === "analysisSimple" ? simpleBoardOfKind(element.kind) : null));
   return (
     <button
       type="button"
       className={`chip-link kind-${element.kind}`}
-      title="この要素を編集できる固定ボードへ移る"
-      onClick={() => revealOnFixedBoard(element.id)}
+      title={board ? `${SIMPLE_BOARD_LABELS[board]}ボードで見る` : "この要素を編集できる固定ボードへ移る"}
+      onClick={() => revealElement(element.id)}
     >
       <span className="kind-dot" />
       {element.name || "(名前なし)"}

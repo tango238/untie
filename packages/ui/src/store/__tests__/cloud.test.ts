@@ -503,6 +503,18 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("design:data");
   });
 
+  it("つなぎ直し (keepUi) では、設計に入る前にいたモードも引き継ぐ (詳細 → 設計 → つなぎ直し → 対象のシステムが消えると、詳細へ戻る)", () => {
+    st().setMode("analysis");
+    st().enterDesign("sys_pms");
+    detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "design:sitemap", selection: null } });
+    st().setCloudStatus("connected");
+    expect(st().ui.mode).toBe("design");
+    expect(st().ui.modeBeforeDesign).toBe("analysis");
+    peerEdit((m) => removeElement(m, { id: "sys_pms" }));
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.currentBoardId).toBe("analysis:issues");
+  });
+
   it("つなぎ直し (keepUi) でも、簡易モードはワークフローのまま", () => {
     st().setMode("analysisSimple");
     detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "simple:workflow", selection: null } });

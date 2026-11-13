@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addElement, addRelation, removeElement, removeRelation, type CommandResult } from "@untie/core/model/commands";
-import type { UntieModel } from "@untie/core/model/types";
-import type { Activity } from "@untie/core/model/types";
+import type { Activity, UntieModel } from "@untie/core/model/types";
 import { useUntieStore } from "../../store";
 import { handleKeyDown } from "../useKeyboard";
 import { resetStore } from "../../test/utils";
@@ -474,8 +473,8 @@ describe("外部の登場人物の行: 担当する作業のある業務", () =>
     });
     render(<WorkflowBoard />);
     const stay = within(lane("宿泊客")).getByRole("region", { name: /^業務 滞在中の対応/ });
-    expect(within(stay).getByRole("region", { name: "活動 飲食提供" })).toBeDefined();
-    expect(within(stay).queryByRole("region", { name: "活動 客室対応" })).toBeNull();
+    expect(within(stay).getByRole("region", { name: "活動 飲食提供 (宿泊客 が担当する作業)" })).toBeDefined();
+    expect(within(stay).queryByRole("region", { name: /^活動 客室対応/ })).toBeNull();
     const orphan = within(lane("宿泊客")).getByRole("region", { name: /^業務に属さない作業/ });
     expect(within(orphan).getByRole("button", { name: /^作業 迷子の作業/ })).toBeDefined();
     // 社内の登場人物の行には出ない
@@ -503,7 +502,7 @@ describe("外部の登場人物の行から作業を足す", () => {
     expect(within(guest).queryByRole("button", { name: /に業務を足す|に活動を足す/ })).toBeNull();
     const checkin = within(guest).getByRole("region", { name: /^業務 チェックイン/ });
     const past = st().history.past.length;
-    fireEvent.click(within(checkin).getByRole("button", { name: "「チェックイン」に作業を足す" }));
+    fireEvent.click(within(checkin).getByRole("button", { name: "「チェックイン」に宿泊客が担当する作業を足す" }));
     const added = st().model.elements.find((e) => e.kind === "activity" && e.name === "新しい作業")!;
     expect(st().model.relations.some((r) => r.kind === "actorActivity" && r.sourceId === "ext_guest" && r.targetId === added.id)).toBe(true);
     expect((added as { bucId: string | null }).bucId).toBe("buc_default_checkin");
@@ -518,8 +517,8 @@ describe("外部の登場人物の行から作業を足す", () => {
     // 活動のある業務の枠 (滞在中の対応) には、業務への「＋作業」は出ない
     act(() => void st().dispatch((m) => addRelationOf(m, "ext_guest", "act_room_service")));
     const stay = within(lane("宿泊客")).getByRole("region", { name: /^業務 滞在中の対応/ });
-    expect(within(stay).queryByRole("button", { name: "「滞在中の対応」に作業を足す" })).toBeNull();
-    fireEvent.click(within(stay).getByRole("button", { name: "「飲食提供」に作業を足す" }));
+    expect(within(stay).queryByRole("button", { name: /「滞在中の対応」に.*作業を足す/ })).toBeNull();
+    fireEvent.click(within(stay).getByRole("button", { name: "「飲食提供」に宿泊客が担当する作業を足す" }));
     const inBuc = st().model.elements.find((e) => e.kind === "activity" && e.name === "新しい作業") as { bucId: string | null; id: string };
     expect(inBuc.bucId).toBe("buc_dining");
     expect(st().model.relations.some((r) => r.kind === "actorActivity" && r.sourceId === "ext_guest" && r.targetId === inBuc.id)).toBe(true);
@@ -563,3 +562,78 @@ const removeRelationOf = (m: UntieModel, sourceId: string, targetId: string): Co
   const rel = m.relations.find((r) => r.sourceId === sourceId && r.targetId === targetId);
   return rel ? removeRelation(m, { id: rel.id }) : { ok: false, reason: "関係が無い" };
 };
+
+describe("外部の登場人物の行: 足した直後のスクロール・読み上げ名・足せない理由", () => {
+  it("足した直後は、押した行の中の要素へスクロールする (主担当の行の同じ業務・作業へは飛ばない)", () => {
+    vi.useFakeTimers();
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      renderBoth();
+      const guest = lane("宿泊客");
+      const checkin = within(guest).getByRole("region", { name: /^業務 チェックイン/ });
+      fireEvent.click(within(checkin).getByRole("button", { name: "「チェックイン」に宿泊客が担当する作業を足す" }));
+      vi.advanceTimersByTime(100);
+      expect(scrolled.length).toBeGreaterThan(0);
+      const added = st().model.elements.find((e) => e.kind === "activity" && e.name === "新しい作業")!;
+      const target = scrolled[scrolled.length - 1]!;
+      expect(target.getAttribute("data-workflow-el")).toBe(added.id);
+      expect(target.closest("[data-workflow-lane]")?.getAttribute("data-workflow-lane")).toBe("ext_guest");
+      // 主担当が複数いる業務でも、押した行の中へ
+      scrolled.length = 0;
+      act(() => void st().dispatch((m) => addRelation(m, { sourceId: "actor_manager", targetId: "biz_checkin" })));
+      fireEvent.click(within(within(lane("支配人")).getByRole("region", { name: /^業務 チェックイン/ })).getByRole("button", { name: "「チェックイン」に作業を足す" }));
+      vi.advanceTimersByTime(100);
+      expect(scrolled[scrolled.length - 1]!.closest("[data-workflow-lane]")?.getAttribute("data-workflow-lane")).toBe("actor_manager");
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      vi.useRealTimers();
+    }
+  });
+
+  it("担当の枠と主担当の枠は、読み上げ名で区別できる (担当に結ばれることが伝わる)。活動の枠も同じ", () => {
+    act(() => void st().dispatch((m) => addRelation(m, { sourceId: "ext_guest", targetId: "act_room_service" })));
+    render(<WorkflowBoard />);
+    expect(within(lane("フロント担当")).getByRole("region", { name: "業務 チェックイン (フロント担当 の行)" })).toBeDefined();
+    expect(within(lane("宿泊客")).getByRole("region", { name: "業務 チェックイン (宿泊客 が担当する作業)" })).toBeDefined();
+    expect(within(lane("宿泊客")).getByRole("button", { name: "「チェックイン」に宿泊客が担当する作業を足す" })).toBeDefined();
+    expect(within(lane("宿泊客")).getByRole("region", { name: "活動 飲食提供 (宿泊客 が担当する作業)" })).toBeDefined();
+    expect(within(lane("宿泊客")).getByRole("button", { name: "「飲食提供」に宿泊客が担当する作業を足す" })).toBeDefined();
+    expect(within(lane("フロント担当")).getByRole("button", { name: "「チェックイン」に作業を足す" })).toBeDefined();
+  });
+
+  it("活動のある業務の直下の作業だけを担当しているとき、担当の枠に足せない理由 (活動に足す・カードのセレクト) を出す。読み取り専用では出さない", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "activity", name: "直下の作業", id: "act_direct", init: { bucId: "buc_default_stay" } }));
+      st().dispatch((m) => addRelation(m, { sourceId: "ext_guest", targetId: "act_direct" }));
+    });
+    const { unmount } = render(<WorkflowBoard />);
+    const stay = within(lane("宿泊客")).getByRole("region", { name: /^業務 滞在中の対応/ });
+    expect(within(stay).getByText(/この業務には活動があるので、作業は活動に足します。カードの「＋作業 \(業務・活動を選ぶ\)」から活動を選んでください/)).toBeDefined();
+    expect(within(stay).queryByRole("button", { name: /に.*作業を足す/ })).toBeNull();
+    unmount();
+    useUntieStore.setState({ cloud: { role: "viewer" } as never });
+    render(<WorkflowBoard />);
+    expect(within(lane("宿泊客")).getByRole("region", { name: /^業務 滞在中の対応/ }).textContent).not.toContain("活動に足します");
+  });
+
+  it("「担当が決まっていない業務」の区画に、外部の登場人物が担当する作業はその人の行にも出る旨を添える", () => {
+    act(() => void st().dispatch((m) => removeRelationOf(m, "actor_front", "biz_checkin")));
+    render(<WorkflowBoard />);
+    expect(within(screen.getByRole("region", { name: "担当が決まっていない業務" })).getByText(/外部の登場人物が担当する作業は、その人の行にも出ます/)).toBeDefined();
+  });
+
+  it("既定の活動が 2 つある業務の作業を外部の登場人物が担当しているとき、行の「業務に属さない作業」と全体の区画に 1 回ずつ出る", () => {
+    act(() => {
+      useUntieStore.setState((s) => ({ model: { ...s.model, elements: [...s.model.elements, { id: "buc_default_twin", kind: "buc", name: "二つ目", businessId: "biz_checkin", isDefault: true }, { id: "act_twin", kind: "activity", name: "二つ目の作業", bucId: "buc_default_twin" }] as typeof s.model.elements, relations: [...s.model.relations, { id: "rel_twin", kind: "actorActivity", sourceId: "ext_guest", targetId: "act_twin" }] as typeof s.model.relations } }));
+    });
+    render(<WorkflowBoard />);
+    const buttons = screen.getAllByRole("button", { name: /^作業 二つ目の作業/ });
+    expect(buttons).toHaveLength(2);
+    expect(within(lane("宿泊客")).getAllByRole("button", { name: /^作業 二つ目の作業/ })).toHaveLength(1);
+    expect(within(screen.getByRole("region", { name: "業務に属さない作業" })).getAllByRole("button", { name: /^作業 二つ目の作業/ })).toHaveLength(1);
+  });
+});

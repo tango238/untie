@@ -4,6 +4,9 @@ import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { canvasApi } from "../canvas/canvasApi";
 import { PropertyPanel } from "../PropertyPanel";
+import { IssuePanel } from "../IssuePanel";
+import { TracePanel } from "../TracePanel";
+import { addElement } from "@untie/core/model/commands";
 import { SIMPLE_BOARD_ELEMENT_KINDS, SIMPLE_LAYER_BOARDS, simpleBoardOfKind, simpleBoardOfLayer } from "@untie/core/model/workflow";
 
 const st = () => useUntieStore.getState();
@@ -123,5 +126,86 @@ describe("トレース表の「移動」を押す", () => {
     expect(screen.queryByRole("button", { name: /「宿泊管理システム」を.*ボードで見る/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /「宿泊者名簿」を.*ボードで見る/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /固定ボードへ移る/ })).toBeNull();
+  });
+});
+
+describe("右ペインの課題一覧・検証の「移動」とリンク (簡易モード)", () => {
+  it("課題一覧の対象の「移動」: 簡易モードでは、対象を主役にする簡易ボードへ移って選ぶ。詳細モードでは今までどおり固定ボード", () => {
+    act(() => st().setRightPanel("issues"));
+    const { unmount } = render(<IssuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
+    fireEvent.click(screen.getByRole("button", { name: "「予約受付」をワークフローボードで見る" }));
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+    expect(st().ui.selection).toEqual({ type: "element", id: "biz_reservation" });
+    unmount();
+    // いまのボードの対象は、移らず選ぶだけ
+    act(() => st().setCurrentBoard("simple:operation"));
+    render(<IssuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "「追加料金を登録する」をシステム操作ボードで見る" })[0]!);
+    expect(st().ui.currentBoardId).toBe("simple:operation");
+    expect(st().ui.selection).toEqual({ type: "element", id: "uc_register_extra" });
+  });
+
+  it("詳細モードの課題一覧の「移動」は、固定ボードへ移る (変えない)", () => {
+    act(() => st().setMode("analysis"));
+    render(<IssuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
+    fireEvent.click(screen.getByRole("button", { name: "「予約受付」の固定ボードへ移る" }));
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.currentBoardId).toBe("fixed:business");
+  });
+
+  it("検証の途切れ箇所のリンク: 簡易モードでは、要素を主役にする簡易ボードへ移って選ぶ (詳細へ切り替えない)", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "activity", name: "孤立した作業", id: "act_x" }));
+    });
+    render(<TracePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "孤立した作業" }));
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_x" });
+  });
+
+  it("簡易ボードの主役でない種類 (システム・帳票) のリンクは、今までどおり固定ボードへ移る", () => {
+    act(() => {
+      st().dispatch((m) => addElement(m, { kind: "system", name: "孤立したシステム", id: "sys_x" }));
+    });
+    act(() => st().setRightPanel("issues"));
+    act(() => void st().dispatch((m) => ({ ok: true, model: { ...m, elements: m.elements.map((e) => (e.id === "issue_extra_missing" ? { ...e, targetIds: ["sys_x"] } : e)) as typeof m.elements } })));
+    render(<IssuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
+    fireEvent.click(screen.getByRole("button", { name: "「孤立したシステム」の固定ボードへ移る" }));
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    expect(st().ui.mode).toBe("analysis");
+  });
+});
+
+describe("簡易モードの課題の対象が非機能要件 (簡易ボードの主役ではない) のとき", () => {
+  it("固定ボードへ移る「移動」を出し、押すと固定ボードへ移る。システム・帳票が対象のときは出さない", () => {
+    act(() => {
+      useUntieStore.setState((s) => ({
+        model: {
+          ...s.model,
+          elements: [...s.model.elements, { id: "nfr_fast", kind: "nfr", name: "速く応答する", systemId: "sys_pms" }].map((e) => (e.id === "issue_extra_missing" ? { ...e, targetIds: ["nfr_fast", "sys_pms"] } : e)) as typeof s.model.elements,
+        },
+      }));
+      st().select({ type: "element", id: "issue_extra_missing" });
+    });
+    render(<PropertyPanel />);
+    expect(screen.queryByRole("button", { name: "「宿泊管理システム」の固定ボードへ移る" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "「速く応答する」の固定ボードへ移る" }));
+    expect(st().ui.currentBoardId).toBe("fixed:nfr");
+  });
+});
+
+describe("「移動」で選ぶ要素 (UI)", () => {
+  it("操作の行の「移動」は、行き先に出ている主の種類 (操作) を選ぶ (選ぶ規則そのものは core の pickSimpleTarget のテスト)", () => {
+    act(() => st().select({ type: "element", id: "act_create_bill" }));
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "操作をシステム操作ボードで見る" }));
+    const sel = st().ui.selection;
+    expect(st().model.elements.find((e) => sel?.type === "element" && e.id === sel.id)?.kind).toBe("usecase");
   });
 });

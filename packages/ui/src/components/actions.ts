@@ -1,9 +1,9 @@
 // 複数のコンポーネントから使う、ストアとキャンバスをまたぐ操作。
 import { DEFAULT_FRAME_SIZE, addElement, placeOnBoard, type CommandResult } from "@untie/core/model/commands";
 import { fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
-import { simpleBoardId, simpleBoardOfKind, SIMPLE_BOARD_ELEMENT_KINDS, type SimpleBoardKind } from "@untie/core/model/workflow";
+import { isShownOnSimpleBoard, simpleBoardId, simpleBoardOfKind, SIMPLE_BOARD_ELEMENT_KINDS, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { isFrameKind, type UntieModel } from "@untie/core/model/types";
-import { isBuiltinBoard, useUntieStore } from "../store";
+import { isBuiltinBoard, modeOf, useUntieStore } from "../store";
 import { viewCenter, canvasApi } from "./canvas/canvasApi";
 import { CARD_SIZE } from "./canvas/toFlow";
 
@@ -141,11 +141,35 @@ export function goToSimpleBoard(board: SimpleBoardKind, elementId: string | null
   setTimeout(() => canvasApi.focus?.(elementId), 50);
 }
 
-/** 要素を主役にする簡易ボードへ移って、その要素を選ぶ (課題の対象の「移動」)。主役にするボードが無ければ何もしない */
+/**
+ * 要素を主役にする簡易ボードへ移って、その要素を選ぶ。主役にするボードが無ければ何もしない。
+ * 行き先のボードに実際に出ない要素 (どの操作にも結ばれていないイベントなど) は、選ばずにボードを切り替えるだけ
+ */
 export function revealOnSimpleBoard(elementId: string): void {
-  const el = useUntieStore.getState().model.elements.find((e) => e.id === elementId);
+  const st = useUntieStore.getState();
+  const el = st.model.elements.find((e) => e.id === elementId);
   const board = el ? simpleBoardOfKind(el.kind) : null;
-  if (board) goToSimpleBoard(board, elementId);
+  if (!el || !board) return;
+  goToSimpleBoard(board, isShownOnSimpleBoard(st.model, el, board) ? elementId : null);
+}
+
+/**
+ * 「移動」で要素の場所へ移る (右ペインの課題一覧・検証、プロパティの課題の対象)。簡易モードでは、要素を主役にする簡易ボードへ
+ * (いま開いているボードなら、選んでスクロールするだけ)。主役にする簡易ボードが無い種類は、今までどおり固定ボードへ (分析（詳細）に切り替わる)。
+ * 詳細・設計モードは固定ボードへ移る
+ */
+export function revealElement(elementId: string): void {
+  const st = useUntieStore.getState();
+  const el = st.model.elements.find((e) => e.id === elementId);
+  if (el && modeOf(st.ui) === "analysisSimple") {
+    const board = simpleBoardOfKind(el.kind);
+    if (board) {
+      if (st.ui.currentBoardId === simpleBoardId(board)) selectAndReveal(elementId, { showProperties: true });
+      else revealOnSimpleBoard(elementId);
+      return;
+    }
+  }
+  revealOnFixedBoard(elementId);
 }
 
 /** 簡易ボードで、その種類の要素を選べるか (そのボードの主役の種類か) */
