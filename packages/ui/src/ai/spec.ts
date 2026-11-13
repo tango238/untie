@@ -1,6 +1,6 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, setPersona, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { addElement, addRelation, setPersona, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
 import { defaultBucOf } from "@untie/core/model/selectors";
 import { emptyModel, isIssueTargetKind, isPersonaItSkill, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
@@ -47,8 +47,27 @@ export interface SpecActivity extends SpecNamed {
   usecases?: SpecUsecase[];
   /** 起点となる作業の名前 (別の作業。モデルのどこにあってもよい) */
   trigger_activities?: string[];
+  /** 起点となるイベントの名前 (events に定義したもの) */
+  trigger_events?: string[];
   /** 起点のうち、作業・イベント以外 (「電話」など。1 行) */
   trigger_note?: string;
+}
+
+/** 画面 (分析の画面)。1 つの画面を使う操作は 1 つだけ */
+export interface SpecScreen extends SpecNamed {
+  /** 属するシステムの名前 (systems に定義したもの。システムが 1 つだけなら省いてよい) */
+  system?: string;
+  /** この画面を使う操作の名前。1 つだけ (操作の対象がこの画面になる)。同じ画面で済ませたい操作が複数あれば、操作ごとに画面を分ける */
+  usecase?: string;
+}
+
+/** イベント。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) は作業にせず、イベントをきっかけにした操作にする */
+export interface SpecEvent extends SpecNamed {
+  context?: string;
+  /** このイベントを起こすもの: システムの名前か、操作の名前。必ず 1 つ以上 (無いと担い手まで辿れない) */
+  raised_by?: string[];
+  /** このイベントをきっかけに行う操作 (作業に属さない処理。ほかの場所で定義した操作の名前でもよい) */
+  usecases?: SpecUsecase[];
 }
 
 export interface SpecBuc extends SpecNamed {
@@ -76,6 +95,8 @@ export interface ModelSpec {
   systems?: SpecNamed[];
   ledgers?: SpecNamed[];
   businesses: SpecBusiness[];
+  screens?: SpecScreen[];
+  events?: SpecEvent[];
   contexts?: SpecNamed[];
   informations?: SpecInformation[];
   conditions?: (SpecNamed & { context?: string; variations?: string[]; states?: string[] })[];
@@ -117,6 +138,7 @@ const activitySchema = named({
   performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
   usecases: list(usecaseSchema, "この作業で使う操作 (システム・帳票に対する 1 回の操作)。同じ名前の操作は同じものとして扱う"),
   trigger_activities: names("この作業が始まる起点になる別の作業の名前 (どこの業務の作業でもよい。モデルのほかの作業と同じ名前にする)。無ければ省く"),
+  trigger_events: names("この作業が始まる起点になるイベントの名前 (events に定義したもの)。無ければ省く"),
   trigger_note: { type: "string", description: "起点のうち、作業以外の 1 行 (例: 電話、月初になったとき)。無ければ省く" },
 });
 
@@ -140,6 +162,21 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
           bucs: list(named({ activities: list(activitySchema, "この活動の作業 (順番どおり)") }), "活動 (BUC): 1 つの目的を果たす作業のまとまり"),
         }),
         "業務: 部門や担当で分かれる仕事の大きなまとまり",
+      ),
+      screens: list(
+        named({
+          system: { type: "string", description: "属するシステムの名前 (systems に定義したもの)。システムが 1 つだけなら省いてよい" },
+          usecase: { type: "string", description: "この画面を使う操作の名前。1 つだけ。操作の対象はこの画面になる (その操作に別のシステム・帳票を対象にしない)。複数の操作が同じ画面を使うなら、操作ごとに画面を分ける" },
+        }),
+        "画面: 利用者が操作する画面。ソースコードの画面・ルートから読み取れるものだけ書く",
+      ),
+      events: list(
+        named({
+          context: { type: "string", description: "所属するコンテキストの名前" },
+          raised_by: names("このイベントを起こすシステム (systems に定義したもの) か操作の名前。必ず 1 つ以上"),
+          usecases: list(usecaseSchema, "このイベントをきっかけに行う操作。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) はこちらに書き、作業にはしない。同じ名前の操作は同じものとして扱う"),
+        }),
+        "イベント: システムや操作が起こす出来事。ほかの処理や作業のきっかけになる",
       ),
       contexts: list(named(), "コンテキスト: 役割の同じ情報をまとめる親カテゴリ"),
       informations: list(
@@ -301,13 +338,31 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     for (const n of c.states ?? []) relate(id, ref(["state"], n, "状態"));
   }
 
+  /** 操作を作り、対象・情報・条件・状態を結ぶ (作業から使う操作も、イベントをきっかけにする操作も同じ) */
+  const addUsecase = (u: SpecUsecase, systemTargets: string[] = []): string | null => {
+    const ucId = add("usecase", "usecase", u);
+    if (!ucId) return null;
+    // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
+    const targets = [...systemTargets.map((id) => ({ id })), ...(u.targets ?? []).map((n) => ({ name: n }))];
+    const [first, ...rest] = targets;
+    if (first) relate(ucId, "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象"));
+    if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
+    for (const n of u.informations ?? []) relate(ucId, ref(["information"], n, "情報"));
+    for (const n of u.reads ?? []) relate(ucId, ref(["information"], n, "情報"), "read");
+    for (const n of u.writes ?? []) relate(ucId, ref(["information"], n, "情報"), "write");
+    for (const n of u.conditions ?? []) relate(ucId, ref(["condition"], n, "条件"));
+    for (const n of u.from_states ?? []) relate(ref(["state"], n, "状態"), ucId);
+    for (const n of u.to_states ?? []) relate(ucId, ref(["state"], n, "状態"));
+    return ucId;
+  };
+
   // 業務 → 活動 → 作業 → 操作
   // 起点の作業は後ろの作業を指してもよいので、全部作ってから結ぶ
   const pendingTriggers: { id: string; spec: SpecActivity }[] = [];
   const addActivity = (a: SpecActivity, bucId: string) => {
     const id = add("activity", `activity:${bucId}`, a, { bucId });
     if (!id) return;
-    if (a.trigger_activities?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
+    if (a.trigger_activities?.length || a.trigger_events?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
     // システムは作業の担当にならない (0.2.0)。担当に書かれたシステムは、その作業の操作の対象にする
     const systemTargets: string[] = [];
     for (const n of a.performers ?? []) {
@@ -316,19 +371,8 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       else relate(performer, id);
     }
     for (const u of a.usecases ?? []) {
-      const ucId = add("usecase", "usecase", u);
+      const ucId = addUsecase(u, systemTargets);
       relate(id, ucId);
-      // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
-      const targets = [...systemTargets.map((id) => ({ id })), ...(u.targets ?? []).map((n) => ({ name: n }))];
-      const [first, ...rest] = targets;
-      if (first) relate(ucId, "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象"));
-      if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
-      for (const n of u.informations ?? []) relate(ucId, ref(["information"], n, "情報"));
-      for (const n of u.reads ?? []) relate(ucId, ref(["information"], n, "情報"), "read");
-      for (const n of u.writes ?? []) relate(ucId, ref(["information"], n, "情報"), "write");
-      for (const n of u.conditions ?? []) relate(ucId, ref(["condition"], n, "条件"));
-      for (const n of u.from_states ?? []) relate(ref(["state"], n, "状態"), ucId);
-      for (const n of u.to_states ?? []) relate(ucId, ref(["state"], n, "状態"));
     }
   };
   for (const b of spec.businesses ?? []) {
@@ -347,7 +391,68 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     }
   }
 
-  // 作業の起点 (作業・その他)。イベントは下書きに無いので扱わない
+  // イベント (作業のあとに作る。操作は作業から使われるものも、イベントをきっかけにするものもある)
+  // 起こすもの (操作) はほかのイベントの下で定義されていてもよいので、全部作ってから結ぶ
+  const pendingEvents: { id: string; spec: SpecEvent }[] = [];
+  for (const ev of spec.events ?? []) {
+    const id = add("event", "event", ev, { contextId: ctx(ev.context) });
+    if (!id) continue;
+    pendingEvents.push({ id, spec: ev });
+    for (const u of ev.usecases ?? []) relate(id, addUsecase(u));
+  }
+  const findByName = (kind: ElementKind, name: string) => model.elements.find((e) => e.kind === kind && e.name === nameOf(name));
+  for (const { id, spec: ev } of pendingEvents) {
+    let origins = 0;
+    for (const n of ev.raised_by ?? []) {
+      const origin = findByName("system", n) ?? findByName("usecase", n);
+      if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システムか操作の名前にしてください)`);
+      else {
+        relate(origin.id, id);
+        origins++;
+      }
+    }
+    if (origins === 0) warnings.push(`イベント「${ev.name}」を起こすシステムか操作がありません`);
+  }
+
+  // 画面 (分析の画面)。1 つの画面を使う操作は 1 つだけ、1 つの操作の対象はシステム・帳票・画面のどれか 1 つ
+  const systems = model.elements.filter((e) => e.kind === "system");
+  for (const sc of spec.screens ?? []) {
+    const name = sc.name ? nameOf(sc.name) : "";
+    if (!name) continue;
+    const usecase = sc.usecase ? findByName("usecase", sc.usecase) : undefined;
+    if (sc.usecase && !usecase) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
+    // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム
+    let system = sc.system ? findByName("system", sc.system) : systems.length === 1 ? systems[0] : undefined;
+    if (!system && sc.system) warnings.push(`画面「${name}」の属するシステム「${sc.system}」が見つかりません`);
+    // 操作がシステムを対象にしていれば、そのシステムに合わせる (画面を使うと対象は画面に替わる)
+    if (!system && usecase) {
+      const rel = model.relations.find((r) => r.kind === "usecaseSystem" && r.sourceId === usecase.id);
+      system = rel ? systems.find((e) => e.id === rel.targetId) : undefined;
+    }
+    if (!system) {
+      warnings.push(`画面「${name}」は属するシステムが決まらないので作りませんでした`);
+      continue;
+    }
+    const screenId = add("screen", `screen:${system.id}`, sc, { systemId: system.id });
+    if (!screenId || !usecase) continue;
+    const used = model.relations.find((r) => r.kind === "usecaseScreen" && (r.targetId === screenId || r.sourceId === usecase.id));
+    if (used) {
+      warnings.push(
+        used.targetId === screenId
+          ? `画面「${name}」はすでに別の操作が使っているので、操作「${usecase.name}」とは結びませんでした (1 つの画面を使う操作は 1 つだけ)`
+          : `操作「${usecase.name}」はすでに別の画面を使っているので、画面「${name}」とは結びませんでした (1 つの操作が使う画面は 1 つだけ)`,
+      );
+      continue;
+    }
+    const ledger = model.relations.find((r) => r.kind === "usecaseSystem" && r.sourceId === usecase.id && model.elements.find((e) => e.id === r.targetId)?.kind === "ledger");
+    if (ledger) {
+      warnings.push(`操作「${usecase.name}」は帳票を対象にしているので、画面「${name}」とは結びませんでした (1 つの操作の対象は 1 つだけ)`);
+      continue;
+    }
+    apply(setScreenUsecase(model, { screenId, usecaseId: usecase.id }), `画面「${name}」を操作「${usecase.name}」に結べません`);
+  }
+
+  // 作業の起点 (作業・イベント・その他)
   for (const { id, spec: a } of pendingTriggers) {
     for (const n of a.trigger_activities ?? []) {
       const same = model.elements.filter((e) => e.kind === "activity" && e.name === nameOf(n));
@@ -358,6 +463,11 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
         if (others.length > 1) warnings.push(`起点の作業「${n}」と同じ名前の作業が ${others.length} つあるので、最初の 1 つを結びました`);
         relate(others[0]!.id, id);
       }
+    }
+    for (const n of a.trigger_events ?? []) {
+      const ev = findByName("event", n);
+      if (ev) relate(ev.id, id);
+      else warnings.push(`起点のイベント「${n}」が見つかりません`);
     }
     const note = a.trigger_note?.trim();
     if (note) apply(updateElement(model, { id, patch: { triggerNote: truncateText(note, TRIGGER_NOTE_MAX_LENGTH) } }), `作業「${a.name}」の起点を書けません`);
