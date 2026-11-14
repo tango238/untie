@@ -56,6 +56,9 @@ vi.mock("openai", async (importOriginal) => {
 });
 
 vi.mock("@google/genai", () => ({
+  ApiError: class ApiError extends Error {
+    status?: number;
+  },
   GoogleGenAI: class {
     models = {
       generateContent: async (params: Record<string, unknown>) => {
@@ -66,7 +69,7 @@ vi.mock("@google/genai", () => ({
   },
 }));
 
-const { createChatSession } = await import("../chat");
+const { createChatSession, createAnthropicClient, describeChatError } = await import("../chat");
 
 const tools = [{ name: "add_element", description: "d", parameters: { type: "object", properties: {} } }];
 const calls: [string, unknown][] = [];
@@ -149,5 +152,33 @@ describe("Gemini", () => {
     const second = script.geminiRequests[1]! as { contents: { role: string; parts: Record<string, unknown>[] }[]; config: Record<string, unknown> };
     expect(second.config.systemInstruction).toBe("sys");
     expect(second.contents.slice(-1)[0]).toEqual({ role: "user", parts: [{ functionResponse: { id: "f1", name: "add_element", response: { output: { id: "act_1" } } } }] });
+  });
+});
+
+describe("Anthropic のクライアント", () => {
+  it("キーを x-api-key で送り、Authorization (Bearer) は付けない", async () => {
+    let sent: Headers | undefined;
+    const client = createAnthropicClient("sk-ant-test").withOptions({
+      maxRetries: 0,
+      fetch: (async (_url: unknown, init?: RequestInit) => {
+        sent = new Headers(init?.headers);
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+    await client.models.list();
+    expect(sent?.get("x-api-key")).toBe("sk-ant-test");
+    expect(sent?.has("authorization")).toBe(false);
+  });
+});
+
+describe("describeChatError", () => {
+  it("中断は、どのプロバイダーでも「中断しました。」", async () => {
+    const anthropic = (await import("@anthropic-ai/sdk")).default;
+    const openai = (await import("openai")).default;
+    const abort = Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
+    expect(describeChatError(new anthropic.APIUserAbortError())).toBe("中断しました。");
+    expect(describeChatError(new openai.APIUserAbortError())).toBe("中断しました。");
+    expect(describeChatError(abort)).toBe("中断しました。");
+    expect(describeChatError(new Error("boom"))).toBe("boom");
   });
 });

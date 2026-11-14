@@ -20,6 +20,7 @@ import { hasUnsavedChanges, isBuiltinBoard, modeOf, selectReadOnly, useUntieStor
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
+import { CreateFromSourceDialog } from "./ai/CreateFromSourceDialog";
 import { AboutDialog } from "./AboutDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SystemSelectDialog } from "./design/SystemSelectDialog";
@@ -27,7 +28,7 @@ import { comboLabel, modLabel } from "../shortcuts";
 import { useShortcutsUi } from "../store/shortcutsUi";
 import { ShareDialog } from "./share/ShareDialog";
 
-type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "about" | "selectSystem" | null;
+type Dialog = "removeBoard" | "newDocument" | "createFromPrompt" | "createFromSource" | "about" | "selectSystem" | null;
 
 /** 既存のボード名と被らない「ボード N」 */
 export function nextBoardName(existing: readonly string[]): string {
@@ -163,6 +164,7 @@ export function Toolbar() {
             onHome={() => void goHome()}
             onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
             onCreateFromPrompt={() => setDialog("createFromPrompt")}
+            onCreateFromSource={() => setDialog("createFromSource")}
           />
         </div>
 
@@ -385,6 +387,7 @@ export function Toolbar() {
         />
       )}
       {dialog === "createFromPrompt" && <CreateFromPromptDialog onClose={() => setDialog(null)} />}
+      {dialog === "createFromSource" && <CreateFromSourceDialog onClose={() => setDialog(null)} />}
       {dialog === "selectSystem" && <SystemSelectDialog onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutDialog onClose={() => setDialog(null)} />}
       {/* 所有者でなくなった (譲った) ら、ダイアログも閉じる */}
@@ -456,7 +459,7 @@ function CloudBadges({ name, status, role }: { name: string; status: CloudStatus
 }
 
 /**
- * ファイルのメニュー: 新規作成・開く・最近開いたファイル・モード・保存・別名で保存・クラウドへ保存・プロンプトから作成。
+ * ファイルのメニュー: 新規作成・開く・最近開いたファイル・モード・保存・別名で保存・クラウドへ保存・プロンプトから作成・ソースコードから作成。
  * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製)・モードだけ
  */
 function FileMenu({
@@ -468,6 +471,7 @@ function FileMenu({
   onHome,
   onNew,
   onCreateFromPrompt,
+  onCreateFromSource,
 }: {
   cloud: boolean;
   guest: boolean;
@@ -477,6 +481,7 @@ function FileMenu({
   onHome: () => void;
   onNew: () => void;
   onCreateFromPrompt: () => void;
+  onCreateFromSource: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
@@ -737,6 +742,7 @@ function FileMenu({
           {signedIn && item("クラウドへ保存", "", saveCopyToCloud, savingToCloud)}
           <div className="menu-sep" role="separator" />
           {item("プロンプトから作成…", "", onCreateFromPrompt)}
+          {item("ソースコードから作成…", "", onCreateFromSource)}
           {item("AI の設定…", "", () => setSettingsOpen(true))}
         </div>
       )}

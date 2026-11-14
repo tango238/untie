@@ -12,7 +12,7 @@ function granularityGuide(): string {
     .join("\n");
 }
 
-const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言語化するための業務可視化ツールで、RDRA の業務レイヤーを扱います。
+export const MODEL_DESCRIPTION = `Untie は、現場担当者が自分の業務を言語化するための業務可視化ツールで、RDRA の業務レイヤーを扱います。
 モデルの要素と、画面での呼び名は次のとおりです (kind は内部名)。
 
 - 担い手: actor (アクター: 社内の人の役割)、externalActor (外部アクター: 社外の人・組織)。作業の担当は人だけ
@@ -54,7 +54,7 @@ ${MODEL_DESCRIPTION}
 - イベントの発生タイミングを書く・直すときは set_event_timing を使う (置き換え)
 - 新しい作業を作ったら担当を結び、操作を作ったら使う作業に結ぶ。どこにもつながらない要素を残さない
 - 道具が失敗したら、理由を読んで直してからやり直す
-- 設計モードのデータベース (list_databases / get_database_dsl / set_database_dsl / set_table_information) は、DSL を Prisma のスキーマの一部で書き、テーブル (model) が表す情報を別に結ぶ。リバースエンジニアリングの専用機能は無いので、既存の DDL や Prisma スキーマは利用者に会話へ貼ってもらい、あなたが DSL に組み立てる
+- 設計モードのデータベース (list_databases / get_database_dsl / set_database_dsl / set_table_information) は、DSL を Prisma のスキーマの一部で書き、テーブル (model) が表す情報を別に結ぶ。既存のソースコードからモデル全体を作る機能は、メニューの「ファイル > ソースコードから作成」にある。この会話のあなたはソースコードを読めないので、既存の DDL や Prisma スキーマ・ソースの一部は、利用者に会話へ貼ってもらい、あなたが DSL に組み立てる。ソースコードの続きを読ませたいときは、もう一度「ファイル > ソースコードから作成」を使うか、該当の部分を貼ってもらうよう伝える
 - set_database_dsl は解析エラーがあっても保存する。結果の parseErrors が空になるまで直す。データベースは設計をまたいで共有されるので、他の設計が使う DSL を消さない
 - 設計モードの画面 (list_design_screens / get_design_screen / set_design_screen_view) の画面 UI は mokkun v2 の view (title, goal, sections ...) で、set_design_screen_view が view 全体を置き換える。直す前に get_design_screen で今の view と使えるテーブル・列を読む。遷移は action の navigate / submit の to、一覧の列の to に設計の画面の id を書く。項目と列の対応は bindings (item は fields[].item、一覧の列は 「セクションの id.列の id」) で渡す。mokkun の検証に通らないと失敗して理由が返るので、直して出し直す
 - 終わったら、何を変えたかを短くまとめて伝える (要素名で書く。id は書かない)

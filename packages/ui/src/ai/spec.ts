@@ -1,9 +1,10 @@
 // 「プロンプトから作成」で AI に出してもらうモデルの下書き (名前で参照する形) と、それをモデルに組み立てる処理。
 // AI には id を作らせず、名前で参照させる。組み立ては既存のコマンドで行い、整合性の検査もコマンドに任せる。
-import { addElement, addRelation, setPersona, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
+import { addElement, addRelation, DUPLICATE_RELATION_REASON, setPersona, setRelationAccess, setScreenUsecase, updateElement, type CommandResult, type ElementInit } from "@untie/core/model/commands";
 import { DESCRIPTION_MAX_LENGTH, GROUP_MAX_LENGTH, NAME_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH } from "@untie/core/model/limits";
+import { isUndirected, relationKindFor } from "@untie/core/model/relations";
 import { defaultBucOf } from "@untie/core/model/selectors";
-import { emptyModel, isIssueTargetKind, isPersonaItSkill, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
+import { ELEMENT_KIND_LABELS, emptyModel, isIssueTargetKind, isPersonaItSkill, issueScopeOfKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
 import { mergePersonaInput, PERSONA_TOOL_PROPERTIES, type ToolDef } from "./tools";
 
 export interface SpecNamed {
@@ -47,8 +48,27 @@ export interface SpecActivity extends SpecNamed {
   usecases?: SpecUsecase[];
   /** 起点となる作業の名前 (別の作業。モデルのどこにあってもよい) */
   trigger_activities?: string[];
+  /** 起点となるイベントの名前 (events に定義したもの) */
+  trigger_events?: string[];
   /** 起点のうち、作業・イベント以外 (「電話」など。1 行) */
   trigger_note?: string;
+}
+
+/** 画面 (分析の画面)。1 つの画面を使う操作は 1 つだけ */
+export interface SpecScreen extends SpecNamed {
+  /** 属するシステムの名前 (systems に定義したもの。システムが 1 つだけなら省いてよい) */
+  system?: string;
+  /** この画面を使う操作の名前。1 つだけ (操作の対象がこの画面になる)。同じ画面で済ませたい操作が複数あれば、操作ごとに画面を分ける */
+  usecase?: string;
+}
+
+/** イベント。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) は作業にせず、イベントをきっかけにした操作にする */
+export interface SpecEvent extends SpecNamed {
+  context?: string;
+  /** このイベントを起こすもの: システムの名前か、操作の名前。必ず 1 つ以上 (無いと担い手まで辿れない) */
+  raised_by?: string[];
+  /** このイベントをきっかけに行う操作 (作業に属さない処理。ほかの場所で定義した操作の名前でもよい) */
+  usecases?: SpecUsecase[];
 }
 
 export interface SpecBuc extends SpecNamed {
@@ -76,6 +96,8 @@ export interface ModelSpec {
   systems?: SpecNamed[];
   ledgers?: SpecNamed[];
   businesses: SpecBusiness[];
+  screens?: SpecScreen[];
+  events?: SpecEvent[];
   contexts?: SpecNamed[];
   informations?: SpecInformation[];
   conditions?: (SpecNamed & { context?: string; variations?: string[]; states?: string[] })[];
@@ -111,12 +133,13 @@ const usecaseSchema = named({
   conditions: names("判断に使う条件の名前 (conditions に定義したもの)"),
   from_states: names("この操作を実行できる状態の名前"),
   to_states: names("実行後に移る状態の名前"),
-  targets: names("操作の対象のシステム・帳票の名前 (systems / ledgers に定義したもの)。1 つだけ。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
+  targets: names("操作の対象のシステム・帳票・画面の名前 (systems / ledgers / screens に定義したもの)。1 つだけ。画面を通す操作は、画面の名前を書いてもよい (screens の usecase に操作を書くのと同じ意味)。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
 });
 const activitySchema = named({
   performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
   usecases: list(usecaseSchema, "この作業で使う操作 (システム・帳票に対する 1 回の操作)。同じ名前の操作は同じものとして扱う"),
   trigger_activities: names("この作業が始まる起点になる別の作業の名前 (どこの業務の作業でもよい。モデルのほかの作業と同じ名前にする)。無ければ省く"),
+  trigger_events: names("この作業が始まる起点になるイベントの名前 (events に定義したもの)。無ければ省く"),
   trigger_note: { type: "string", description: "起点のうち、作業以外の 1 行 (例: 電話、月初になったとき)。無ければ省く" },
 });
 
@@ -140,6 +163,21 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
           bucs: list(named({ activities: list(activitySchema, "この活動の作業 (順番どおり)") }), "活動 (BUC): 1 つの目的を果たす作業のまとまり"),
         }),
         "業務: 部門や担当で分かれる仕事の大きなまとまり",
+      ),
+      screens: list(
+        named({
+          system: { type: "string", description: "属するシステムの名前 (systems に定義したもの)。システムが 1 つだけなら省いてよい" },
+          usecase: { type: "string", description: "この画面を使う操作の名前。1 つだけ。操作の対象はこの画面になる (その操作に別のシステム・帳票を対象にしない)。操作の targets に画面の名前を書いても同じ意味になる。複数の操作が同じ画面を使うなら、操作ごとに画面を分ける" },
+        }),
+        "画面: 利用者が操作する画面。要望・資料から読み取れるものだけ書く",
+      ),
+      events: list(
+        named({
+          context: { type: "string", description: "所属するコンテキストの名前" },
+          raised_by: names("このイベントを起こすシステム (systems に定義したもの) か操作の名前。必ず 1 つ以上"),
+          usecases: list(usecaseSchema, "このイベントをきっかけに行う操作。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) はこちらに書き、作業にはしない。同じ名前の操作は同じものとして扱う"),
+        }),
+        "イベント: システムや操作が起こす出来事。ほかの処理や作業のきっかけになる",
       ),
       contexts: list(named(), "コンテキスト: 役割の同じ情報をまとめる親カテゴリ"),
       informations: list(
@@ -201,6 +239,36 @@ function clipInit(init: Record<string, unknown>): Record<string, unknown> {
 /** AI の出力は長さが読めないので、スキーマの上限 (limits.ts) に収まるよう切り詰める (要素ごと作れなくなるより、末尾が欠ける方がよい) */
 const nameOf = (text: string) => truncateText(text.trim(), NAME_MAX_LENGTH);
 
+/**
+ * 下書きの一覧ごとの上限。AI の出力 (特にソースコードから読んだ大きな下書き) が巨大でも、組み立てで画面が固まらないようにする。
+ * 超えた分は先頭から使い、「先頭 N 件だけ使いました」と warnings に残す。activities・usecases は、業務・活動・イベントをまたいだ合計
+ */
+export const SPEC_LIMITS = {
+  actors: 200,
+  externalActors: 200,
+  systems: 50,
+  ledgers: 200,
+  contexts: 100,
+  variations: 300,
+  /** 1 つのバリエーションの値・1 つの状態グループの状態 */
+  valuesPerItem: 200,
+  stateGroups: 100,
+  informations: 500,
+  conditions: 300,
+  businesses: 50,
+  /** 1 つの業務の活動 */
+  bucsPerBusiness: 100,
+  /** 作業の合計 */
+  activities: 500,
+  /** 操作の合計 (作業の下とイベントの下の合計) */
+  usecases: 500,
+  screens: 300,
+  events: 150,
+  issues: 200,
+  /** 1 つの要素が名前で参照するものの数 (担当・情報・条件・状態・対象・起点など。種類ごと) */
+  refsPerItem: 100,
+} as const;
+
 export interface BuildResult {
   model: UntieModel;
   /** 名前が見つからなかったなど、組み立てで気づいたこと */
@@ -213,6 +281,35 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   let model = emptyModel(nameOf(spec.system_name || "") || "新しいモデル");
   if (spec.overview) model = { ...model, meta: { ...model.meta, description: truncateText(spec.overview, DESCRIPTION_MAX_LENGTH) } };
   const warnings: string[] = [];
+  /** 名前が無くて飛ばした要素の数 (種類ごと) */
+  const nameless = new Map<ElementKind, number>();
+  const L = SPEC_LIMITS;
+  /** 一覧の先頭 max 件だけ使い、超えたら警告に残す (配列でなければ空) */
+  const clip = <T,>(list: readonly T[] | undefined, max: number, what: string): T[] => {
+    if (!Array.isArray(list)) return [];
+    if (list.length > max) warnings.push(`${what}は先頭 ${max} 件だけ使いました (${list.length} 件ありました)`);
+    return list.slice(0, max);
+  };
+  /** 合計の上限 (作業・操作)。超えた分は数えて、最後に 1 度だけ警告にする */
+  const budget = (max: number, what: string) => {
+    let used = 0;
+    let over = 0;
+    return {
+      take: (): boolean => {
+        if (used < max) {
+          used++;
+          return true;
+        }
+        over++;
+        return false;
+      },
+      report: () => {
+        if (over > 0) warnings.push(`${what}は先頭 ${max} 件だけ使いました (${over} 件を飛ばしました)`);
+      },
+    };
+  };
+  const activityBudget = budget(L.activities, "作業");
+  const usecaseBudget = budget(L.usecases, "操作");
   // 種類ごとの名前 → id
   const ids = new Map<string, Map<string, string>>();
   const idOf = (group: string, name: string) => ids.get(group)?.get(nameOf(name));
@@ -226,8 +323,11 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     return r as T & { model: UntieModel };
   };
   const add = (kind: ElementKind, group: string, item: SpecNamed, init: Record<string, unknown> = {}): string | null => {
-    const name = item.name ? nameOf(item.name) : "";
-    if (!name) return null;
+    const name = typeof item.name === "string" ? nameOf(item.name) : "";
+    if (!name) {
+      nameless.set(kind, (nameless.get(kind) ?? 0) + 1);
+      return null;
+    }
     const existing = idOf(group, name);
     if (existing) return existing;
     const r = apply(
@@ -237,12 +337,33 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     if (!r) return null;
     if (!ids.has(group)) ids.set(group, new Map());
     ids.get(group)!.set(name, r.id);
+    kindById.set(r.id, kind);
     return r.id;
   };
+  /** 要素の id → 種類、関係の (種類・両端) → 関係の id。関係を作るたびに全部を調べ直さないための索引 (向きを持たない関係は、両端の順を無視する) */
+  const kindById = new Map<string, ElementKind>();
+  const relationByKey = new Map<string, string>();
+  const relationKey = (kind: string, a: string, b: string) => (isUndirected(kind as never) && a > b ? `${kind}:${b}:${a}` : `${kind}:${a}:${b}`);
   const relate = (sourceId: string | null | undefined, targetId: string | null | undefined, access?: "read" | "write") => {
     if (!sourceId || !targetId) return;
-    if (model.relations.some((r) => r.sourceId === sourceId && r.targetId === targetId)) return;
-    apply(addRelation(model, { sourceId, targetId, ...(access ? { access } : {}) }), "関係を作れません");
+    const sourceKind = kindById.get(sourceId);
+    const targetKind = kindById.get(targetId);
+    const kind = sourceKind && targetKind ? relationKindFor(sourceKind, targetKind) : null;
+    const sameId = kind ? relationByKey.get(relationKey(kind, sourceId, targetId)) : undefined;
+    if (kind && sameId) {
+      // 操作が情報を取得と保存の両方に書かれたら、区別を外して取得も保存もする関係にする
+      const same = kind === "usecaseInformation" ? model.relations.find((r) => r.id === sameId) : undefined;
+      if (same && same.access !== undefined && same.access !== access) {
+        const r = setRelationAccess(model, { id: same.id, access: null });
+        if (r.ok) model = r.model;
+      }
+      return;
+    }
+    const r = addRelation(model, { sourceId, targetId, ...(access ? { access } : {}) });
+    if (r.ok) {
+      model = r.model;
+      if (kind) relationByKey.set(relationKey(kind, sourceId, targetId), r.id);
+    } else if (r.reason !== DUPLICATE_RELATION_REASON) /* AI が同じつながりを 2 か所に書いただけなので、警告にしない */ warnings.push(`関係を作れません: ${r.reason}`);
   };
   const ref = (groups: string[], name: string, what: string): string | null => {
     for (const g of groups) {
@@ -277,79 +398,289 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     };
     apply(setPersona(model, { id, persona: clipped }), `${a.name} のペルソナを置けません`);
   };
-  for (const a of spec.actors ?? []) addActor("actor", a);
-  for (const a of spec.external_actors ?? []) addActor("externalActor", a);
-  for (const a of spec.systems ?? []) add("system", "actor", a);
-  for (const a of spec.ledgers ?? []) add("ledger", "ledger", a);
+  for (const a of clip(spec.actors, L.actors, "アクター")) addActor("actor", a);
+  for (const a of clip(spec.external_actors, L.externalActors, "外部アクター")) addActor("externalActor", a);
+  for (const a of clip(spec.systems, L.systems, "システム")) add("system", "actor", a);
+  for (const a of clip(spec.ledgers, L.ledgers, "帳票")) add("ledger", "ledger", a);
   // 情報のまわり (操作から参照されるので先に作る)
-  for (const c of spec.contexts ?? []) add("context", "context", c);
+  for (const c of clip(spec.contexts, L.contexts, "コンテキスト")) add("context", "context", c);
   const ctx = (name: string | undefined) => (name ? ref(["context"], name, "コンテキスト") : null);
-  for (const v of spec.variations ?? []) add("variation", "variation", v, { values: v.values ?? [], contextId: ctx(v.context) });
-  for (const g of spec.state_groups ?? []) {
-    for (const st of g.states ?? []) add("state", "state", st, { group: g.name, contextId: ctx(g.context) });
+  for (const v of clip(spec.variations, L.variations, "バリエーション")) {
+    add("variation", "variation", v, { values: clip(v.values, L.valuesPerItem, `バリエーション「${v.name}」の値`), contextId: ctx(v.context) });
   }
-  for (const i of spec.informations ?? []) add("information", "information", i, { contextId: ctx(i.context) });
-  for (const c of spec.conditions ?? []) add("condition", "condition", c, { contextId: ctx(c.context) });
-  for (const i of spec.informations ?? []) {
+  for (const g of clip(spec.state_groups, L.stateGroups, "状態グループ")) {
+    for (const st of clip(g.states, L.valuesPerItem, `状態グループ「${g.name}」の状態`)) add("state", "state", st, { group: g.name, contextId: ctx(g.context) });
+  }
+  const informations = clip(spec.informations, L.informations, "情報");
+  const conditions = clip(spec.conditions, L.conditions, "条件");
+  for (const i of informations) add("information", "information", i, { contextId: ctx(i.context) });
+  for (const c of conditions) add("condition", "condition", c, { contextId: ctx(c.context) });
+  for (const i of informations) {
     const id = idOf("information", i.name);
-    for (const n of i.related ?? []) relate(id, ref(["information"], n, "関連する情報"));
-    for (const n of i.variations ?? []) relate(id, ref(["variation"], n, "バリエーション"));
+    for (const n of clip(i.related, L.refsPerItem, `情報「${i.name}」の関連する情報`)) relate(id, ref(["information"], n, "関連する情報"));
+    for (const n of clip(i.variations, L.refsPerItem, `情報「${i.name}」のバリエーション`)) relate(id, ref(["variation"], n, "バリエーション"));
   }
-  for (const c of spec.conditions ?? []) {
+  for (const c of conditions) {
     const id = idOf("condition", c.name);
-    for (const n of c.variations ?? []) relate(id, ref(["variation"], n, "バリエーション"));
-    for (const n of c.states ?? []) relate(id, ref(["state"], n, "状態"));
+    for (const n of clip(c.variations, L.refsPerItem, `条件「${c.name}」のバリエーション`)) relate(id, ref(["variation"], n, "バリエーション"));
+    for (const n of clip(c.states, L.refsPerItem, `条件「${c.name}」の状態`)) relate(id, ref(["state"], n, "状態"));
   }
+
+  const nameOfId = (id: string) => model.elements.find((e) => e.id === id)?.name ?? id;
+  /** 画面の名前 (spec.screens)。操作の targets にこの名前が書かれたら、その画面を使う操作として画面の段階で結ぶ (screens[].usecase と同じ扱い) */
+  // 上限で切られる画面 (先頭 SPEC_LIMITS.screens 件のあと) は含めない。切られた画面を指す targets は、「対象が見つかりません」の警告になる
+  const specScreens = (Array.isArray(spec.screens) ? spec.screens : []).slice(0, L.screens);
+  const specScreenNames = new Set(specScreens.flatMap((sc) => (typeof sc?.name === "string" && nameOf(sc.name) ? [nameOf(sc.name)] : [])));
+  /** 画面の名前 → targets にその名前を書いた操作の id */
+  const usecasesNamingScreen = new Map<string, string[]>();
+  /** 画面の段階で、targets の画面の名前から結びにいった操作の id (結べたかは別。ここに無いものは、画面が作られなかったなどで結びにいけなかった) */
+  const namedAttempted = new Set<string>();
+  /** 操作を作り、対象・情報・条件・状態を結ぶ (作業から使う操作も、イベントをきっかけにする操作も同じ) */
+  const addUsecase = (u: SpecUsecase, systemTargets: string[] = []): string | null => {
+    // すでにある操作 (同じ名前) は上限に数えない
+    if (!(typeof u.name === "string" && idOf("usecase", u.name)) && !usecaseBudget.take()) return null;
+    const ucId = add("usecase", "usecase", u);
+    if (!ucId) return null;
+    // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
+    const written = clip(u.targets, L.refsPerItem, `操作「${u.name}」の対象`).filter((n) => {
+      // システム・帳票の名前ではなく、画面の名前なら、画面の段階でその画面を使う操作として結ぶ
+      const screenName = typeof n === "string" ? nameOf(n) : "";
+      if (!screenName || idOf("actor", screenName) || idOf("ledger", screenName) || !specScreenNames.has(screenName)) return true;
+      const list = usecasesNamingScreen.get(screenName) ?? [];
+      if (!list.includes(ucId)) list.push(ucId);
+      usecasesNamingScreen.set(screenName, list);
+      return false;
+    });
+    const targets = [...systemTargets.map((id) => ({ id })), ...written.map((n) => ({ name: n }))];
+    const [first, ...rest] = targets;
+    if (first) {
+      const targetId = "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象");
+      const current = targetId ? model.relations.find((r) => r.kind === "usecaseSystem" && r.sourceId === ucId) : undefined;
+      if (targetId && current && current.targetId !== targetId) {
+        warnings.push(`操作「${nameOfId(ucId)}」の対象はすでに「${nameOfId(current.targetId)}」なので「${nameOfId(targetId)}」は結びませんでした`);
+      } else relate(ucId, targetId);
+    }
+    if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
+    for (const n of clip(u.informations, L.refsPerItem, `操作「${u.name}」の情報`)) relate(ucId, ref(["information"], n, "情報"));
+    for (const n of clip(u.reads, L.refsPerItem, `操作「${u.name}」の取得する情報`)) relate(ucId, ref(["information"], n, "情報"), "read");
+    for (const n of clip(u.writes, L.refsPerItem, `操作「${u.name}」の保存する情報`)) relate(ucId, ref(["information"], n, "情報"), "write");
+    for (const n of clip(u.conditions, L.refsPerItem, `操作「${u.name}」の条件`)) relate(ucId, ref(["condition"], n, "条件"));
+    for (const n of clip(u.from_states, L.refsPerItem, `操作「${u.name}」の実行できる状態`)) relate(ref(["state"], n, "状態"), ucId);
+    for (const n of clip(u.to_states, L.refsPerItem, `操作「${u.name}」の実行後の状態`)) relate(ucId, ref(["state"], n, "状態"));
+    return ucId;
+  };
 
   // 業務 → 活動 → 作業 → 操作
   // 起点の作業は後ろの作業を指してもよいので、全部作ってから結ぶ
   const pendingTriggers: { id: string; spec: SpecActivity }[] = [];
   const addActivity = (a: SpecActivity, bucId: string) => {
+    if (!(typeof a.name === "string" && idOf(`activity:${bucId}`, a.name)) && !activityBudget.take()) return;
     const id = add("activity", `activity:${bucId}`, a, { bucId });
     if (!id) return;
-    if (a.trigger_activities?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
+    if (a.trigger_activities?.length || a.trigger_events?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
     // システムは作業の担当にならない (0.2.0)。担当に書かれたシステムは、その作業の操作の対象にする
     const systemTargets: string[] = [];
-    for (const n of a.performers ?? []) {
+    for (const n of clip(a.performers, L.refsPerItem, `作業「${a.name}」の担当`)) {
       const performer = ref(["actor"], n, "担当");
       if (performer && model.elements.find((e) => e.id === performer)?.kind === "system") systemTargets.push(performer);
       else relate(performer, id);
     }
-    for (const u of a.usecases ?? []) {
-      const ucId = add("usecase", "usecase", u);
+    for (const u of Array.isArray(a.usecases) ? a.usecases : []) {
+      const ucId = addUsecase(u, systemTargets);
       relate(id, ucId);
-      // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
-      const targets = [...systemTargets.map((id) => ({ id })), ...(u.targets ?? []).map((n) => ({ name: n }))];
-      const [first, ...rest] = targets;
-      if (first) relate(ucId, "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象"));
-      if (rest.length > 0) warnings.push(`操作「${u.name}」の対象は 1 つだけなので、2 つ目からは結びませんでした`);
-      for (const n of u.informations ?? []) relate(ucId, ref(["information"], n, "情報"));
-      for (const n of u.reads ?? []) relate(ucId, ref(["information"], n, "情報"), "read");
-      for (const n of u.writes ?? []) relate(ucId, ref(["information"], n, "情報"), "write");
-      for (const n of u.conditions ?? []) relate(ucId, ref(["condition"], n, "条件"));
-      for (const n of u.from_states ?? []) relate(ref(["state"], n, "状態"), ucId);
-      for (const n of u.to_states ?? []) relate(ucId, ref(["state"], n, "状態"));
     }
   };
-  for (const b of spec.businesses ?? []) {
+  for (const b of clip(spec.businesses, L.businesses, "業務")) {
     const bizId = add("business", "business", b);
     if (!bizId) continue;
-    for (const n of b.main_actors ?? []) {
+    for (const n of clip(b.main_actors, L.refsPerItem, `業務「${b.name}」の主担当`)) {
       const actorId = ref(["actor"], n, "主担当");
       if (actorId && model.elements.find((e) => e.id === actorId)?.kind === "actor") relate(actorId, bizId);
       else if (actorId) warnings.push(`主担当「${n}」はアクターではないので結べません`);
     }
     const def = defaultBucOf(model, bizId);
-    if (def) for (const a of b.activities ?? []) addActivity(a, def.id);
-    for (const buc of b.bucs ?? []) {
+    if (def) for (const a of Array.isArray(b.activities) ? b.activities : []) addActivity(a, def.id);
+    for (const buc of clip(b.bucs, L.bucsPerBusiness, `業務「${b.name}」の活動`)) {
       const bucId = add("buc", `buc:${bizId}`, buc, { businessId: bizId });
-      if (bucId) for (const a of buc.activities ?? []) addActivity(a, bucId);
+      if (bucId) for (const a of Array.isArray(buc.activities) ? buc.activities : []) addActivity(a, bucId);
     }
   }
 
-  // 作業の起点 (作業・その他)。イベントは下書きに無いので扱わない
+  // イベント (作業のあとに作る。操作は作業から使われるものも、イベントをきっかけにするものもある)
+  // 起こすもの (操作) はほかのイベントの下で定義されていてもよいので、全部作ってから結ぶ
+  const pendingEvents: { id: string; spec: SpecEvent }[] = [];
+  for (const ev of clip(spec.events, L.events, "イベント")) {
+    const id = add("event", "event", ev, { contextId: ctx(ev.context) });
+    if (!id) continue;
+    pendingEvents.push({ id, spec: ev });
+    for (const u of Array.isArray(ev.usecases) ? ev.usecases : []) relate(id, addUsecase(u));
+  }
+  // 名前 → 要素 (種類ごと。最初のもの)。要素を足し終えた段階で作り直す
+  const indexOf = (kind: ElementKind): Map<string, Element> => {
+    const m = new Map<string, Element>();
+    for (const e of model.elements) if (e.kind === kind && !m.has(e.name)) m.set(e.name, e);
+    return m;
+  };
+  const findByName = (kind: ElementKind, name: string) => model.elements.find((e) => e.kind === kind && e.name === nameOf(name));
+  const systemIndex = indexOf("system");
+  const usecaseIndex = indexOf("usecase");
+  for (const { id, spec: ev } of pendingEvents) {
+    let origins = 0;
+    for (const n of clip(ev.raised_by, L.refsPerItem, `イベント「${ev.name}」を起こすもの`)) {
+      const origin = systemIndex.get(nameOf(n)) ?? usecaseIndex.get(nameOf(n));
+      if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システムか操作の名前にしてください)`);
+      else {
+        relate(origin.id, id);
+        origins++;
+      }
+    }
+    if (origins === 0) warnings.push(`イベント「${ev.name}」を起こすシステムか操作がありません`);
+  }
+
+  // 画面 (分析の画面)。1 つの画面を使う操作は 1 つだけ、1 つの操作の対象はシステム・帳票・画面のどれか 1 つ
+  const systems = [...systemIndex.values()];
+  /** 操作 → 今の対象 (システム・帳票)。画面を結ぶと対象は画面に替わるので、この段階の最初の状態を覚えておく */
+  const targetOfUsecase = new Map<string, Element>();
+  {
+    const byId = new Map(model.elements.map((e) => [e.id, e]));
+    for (const r of model.relations) {
+      if (r.kind !== "usecaseSystem") continue;
+      const t = byId.get(r.targetId);
+      if (t) targetOfUsecase.set(r.sourceId, t);
+    }
+  }
+  /**
+   * 画面の宣言 (名前・属するシステム・使う操作) を、画面を作る前に解決する。作られない画面 (名前が無い・属するシステムが見つからない・
+   * 属するシステムが決まらない) は含めない。属するシステムは、書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム、
+   * それも無ければ宣言した操作の対象のシステム
+   */
+  const resolvedScreens: { name: string; systemKey: string; declaredName?: string }[] = [];
+  for (const sc of specScreens) {
+    const name = typeof sc?.name === "string" ? nameOf(sc.name) : "";
+    if (!name) continue;
+    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
+    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(nameOf(sc.system)) : undefined;
+    // 書かれたシステムが見つからない画面は作られない
+    if (typeof sc.system === "string" && sc.system && !explicit) continue;
+    const declaredTarget = declaredUc ? targetOfUsecase.get(declaredUc.id) : undefined;
+    const system = explicit ?? (systems.length === 1 ? systems[0] : undefined) ?? (declaredTarget?.kind === "system" ? declaredTarget : undefined);
+    // システムが決まらない画面は、宣言した操作が無ければ、名前を書いた操作の対象から決まることがある (そのため、宣言には数えず、同じ名前の判定では 1 つのシステム扱いにする)
+    resolvedScreens.push({ name, systemKey: system?.id ?? "", ...(declaredUc && system ? { declaredName: declaredUc.name } : {}) });
+  }
+  /** 同じ名前の画面が、別のシステムにも (または、システムが決まらないまま) 複数あるときの名前。targets の名前だけでは、どの画面か決められない。同じシステムの同じ名前は 1 つの画面 */
+  const ambiguousScreenNames = new Set<string>();
+  {
+    const systemsByName = new Map<string, Set<string>>();
+    for (const r of resolvedScreens) {
+      const set = systemsByName.get(r.name) ?? new Set<string>();
+      set.add(r.systemKey);
+      systemsByName.set(r.name, set);
+    }
+    for (const [n, set] of systemsByName) if (set.size > 1) ambiguousScreenNames.add(n);
+  }
+  /** 作られる画面が screens[].usecase で宣言した操作の名前 → 宣言した画面の名前 (宣言が勝つ。targets に別の画面の名前があっても、そちらには結ばない) */
+  const declaredScreensOfUsecase = new Map<string, Set<string>>();
+  for (const r of resolvedScreens) {
+    if (r.declaredName === undefined) continue;
+    const set = declaredScreensOfUsecase.get(r.declaredName) ?? new Set<string>();
+    set.add(r.name);
+    declaredScreensOfUsecase.set(r.declaredName, set);
+  }
+  const declaredUsecaseNames = new Set(declaredScreensOfUsecase.keys());
+  /** 画面 (分析の要素の id) → 使う操作の id と、操作 → 画面。結んだものだけを覚える (画面はこの段階で初めて結ぶ) */
+  const usecaseOfScreen = new Map<string, string>();
+  const screenOfUsecase = new Map<string, string>();
+  for (const sc of clip(spec.screens, L.screens, "画面")) {
+    const name = typeof sc.name === "string" ? nameOf(sc.name) : "";
+    if (!name) {
+      nameless.set("screen", (nameless.get("screen") ?? 0) + 1);
+      continue;
+    }
+    const declared = sc.usecase ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
+    if (sc.usecase && !declared) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
+    // 操作の targets に画面の名前を書いたものも、screens の usecase と同じ扱いで、その画面を使う操作にする
+    // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム
+    let system = sc.system ? systemIndex.get(nameOf(sc.system)) : systems.length === 1 ? systems[0] : undefined;
+    if (!system && sc.system) warnings.push(`画面「${name}」の属するシステム「${sc.system}」が見つかりません`);
+    // targets に名前を書いた操作: どこかの画面が screens[].usecase で宣言した操作には結ばない (宣言が勝つ)。同じ名前の画面が複数あるときは、
+    // 操作の対象のシステムが、この画面のシステムと同じものだけ結ぶ (それで 1 つに決まる。決まらないものは、最後に 1 件だけ警告する)
+    const named: Element[] = [];
+    for (const id of usecasesNamingScreen.get(name) ?? []) {
+      const u = model.elements.find((e) => e.id === id);
+      if (!u || declaredUsecaseNames.has(u.name)) continue;
+      if (ambiguousScreenNames.has(name)) {
+        const t = targetOfUsecase.get(u.id);
+        if (!(t?.kind === "system" && system && t.id === system.id)) continue;
+      }
+      named.push(u);
+    }
+    const usecases: Element[] = [];
+    for (const u of [declared, ...named]) {
+      if (u && !usecases.some((x) => x.id === u.id)) usecases.push(u);
+    }
+    const usecase = usecases[0];
+    // 操作がシステムを対象にしていれば、そのシステムに合わせる (画面を使うと対象は画面に替わる)
+    const firstTarget = usecase ? targetOfUsecase.get(usecase.id) : undefined;
+    if (!system && firstTarget?.kind === "system") system = firstTarget;
+    if (!system) {
+      warnings.push(`画面「${name}」は属するシステムが決まらないので作りませんでした`);
+      continue;
+    }
+    const screenId = add("screen", `screen:${system.id}`, sc, { systemId: system.id });
+    if (!screenId) continue;
+    for (const u of named) namedAttempted.add(u.id);
+    for (const uc of usecases) {
+      const target = targetOfUsecase.get(uc.id);
+      const userOfScreen = usecaseOfScreen.get(screenId);
+      // すでに同じ組で結んでいれば、黙って飛ばす (同じ下書きを 2 回書かれても警告にしない)
+      if (userOfScreen === uc.id) continue;
+      if (userOfScreen !== undefined) {
+        warnings.push(`画面「${name}」はすでに別の操作が使っているので、操作「${uc.name}」とは結びませんでした (1 つの画面を使う操作は 1 つだけ)`);
+        continue;
+      }
+      if (screenOfUsecase.has(uc.id)) {
+        warnings.push(`操作「${uc.name}」はすでに別の画面を使っているので、画面「${name}」とは結びませんでした (1 つの操作が使う画面は 1 つだけ)`);
+        continue;
+      }
+      if (target?.kind === "ledger") {
+        warnings.push(`操作「${uc.name}」は帳票を対象にしているので、画面「${name}」とは結びませんでした (1 つの操作の対象は 1 つだけ)`);
+        continue;
+      }
+      if (target?.kind === "system" && target.id !== system.id) {
+        warnings.push(`操作「${uc.name}」の対象はシステム「${target.name}」なので、システム「${system.name}」の画面「${name}」とは結びませんでした (画面の属するシステムを合わせてください)`);
+        continue;
+      }
+      if (apply(setScreenUsecase(model, { screenId, usecaseId: uc.id }), `画面「${name}」を操作「${uc.name}」に結べません`)) {
+        usecaseOfScreen.set(screenId, uc.id);
+        screenOfUsecase.set(uc.id, screenId);
+      }
+    }
+  }
+
+  // targets に画面の名前を書いたのに、その画面に結べなかった操作 (画面が作られなかった・同じ名前の画面が複数あって決められなかった)
+  for (const [screenName, ucIds] of usecasesNamingScreen) {
+    // 宣言のある操作の targets がほかの画面を指していたら、宣言を優先したことを知らせる
+    for (const id of ucIds) {
+      const u = model.elements.find((e) => e.id === id);
+      const declaredBy = u ? declaredScreensOfUsecase.get(u.name) : undefined;
+      if (u && declaredBy && !declaredBy.has(screenName)) {
+        warnings.push(
+          `操作「${u.name}」の targets の画面「${screenName}」は結びませんでした (画面${[...declaredBy].map((n) => `「${n}」`).join("")}が screens[].usecase でこの操作を使うと宣言しているため。1 つの操作が使う画面は 1 つだけ)`,
+        );
+      }
+    }
+    const left = ucIds.map((id) => model.elements.find((e) => e.id === id)).filter((u): u is Element => !!u && !declaredUsecaseNames.has(u.name) && !namedAttempted.has(u.id));
+    if (left.length === 0) continue;
+    if (ambiguousScreenNames.has(screenName)) {
+      warnings.push(`画面「${screenName}」は同じ名前の画面が複数あるので、操作 (${left.map((u) => `「${u.name}」`).join("")}) の targets からは結べません。screens[].usecase で書いてください`);
+    } else {
+      for (const u of left) warnings.push(`操作「${u.name}」の対象「${screenName}」が見つかりません (その画面は作られませんでした)`);
+    }
+  }
+
+  // 作業の起点 (作業・イベント・その他)
   for (const { id, spec: a } of pendingTriggers) {
-    for (const n of a.trigger_activities ?? []) {
+    for (const n of clip(a.trigger_activities, L.refsPerItem, `作業「${a.name}」の起点の作業`)) {
       const same = model.elements.filter((e) => e.kind === "activity" && e.name === nameOf(n));
       const others = same.filter((e) => e.id !== id);
       if (same.length === 0) warnings.push(`起点の作業「${n}」が見つかりません`);
@@ -359,13 +690,18 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
         relate(others[0]!.id, id);
       }
     }
+    for (const n of clip(a.trigger_events, L.refsPerItem, `作業「${a.name}」の起点のイベント`)) {
+      const ev = findByName("event", n);
+      if (ev) relate(ev.id, id);
+      else warnings.push(`起点のイベント「${n}」が見つかりません`);
+    }
     const note = a.trigger_note?.trim();
     if (note) apply(updateElement(model, { id, patch: { triggerNote: truncateText(note, TRIGGER_NOTE_MAX_LENGTH) } }), `作業「${a.name}」の起点を書けません`);
   }
 
   // 課題
-  for (const issue of spec.issues ?? []) {
-    const found = (issue.targets ?? [])
+  for (const issue of clip(spec.issues, L.issues, "課題")) {
+    const found = clip(issue.targets, L.refsPerItem, `課題「${issue.name}」の対象`)
       .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === nameOf(n)))
       .filter((e): e is Element => !!e);
     // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は混ぜられないので、最初の対象と同じ区分だけを残す
@@ -384,6 +720,10 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       `課題「${issue.name}」を作れません`,
     );
   }
+
+  activityBudget.report();
+  usecaseBudget.report();
+  for (const [kind, n] of nameless) warnings.push(`名前の無い${ELEMENT_KIND_LABELS[kind]}を ${n} 件飛ばしました`);
 
   const counts: BuildResult["counts"] = {};
   for (const e of model.elements) {

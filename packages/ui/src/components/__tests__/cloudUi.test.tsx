@@ -107,7 +107,7 @@ describe("ツールバー (クラウドファイル)", () => {
       .getAllByRole("menuitem")
       .map((i) => i.textContent);
     expect(names).toEqual(["ホーム", "JSON に書き出す…Ctrl+S", "クラウドへ保存 (複製)", "モード▸", "ショートカット一覧Ctrl+B", "AI の設定…"]);
-    for (const hidden of ["新規作成", "開く…", "最近開いたファイル", "保存", "別名で保存…", "プロンプトから作成…"]) {
+    for (const hidden of ["新規作成", "開く…", "最近開いたファイル", "保存", "別名で保存…", "プロンプトから作成…", "ソースコードから作成…"]) {
       expect(screen.queryByRole("menuitem", { name: new RegExp(`^${hidden}`) })).toBeNull();
     }
   });
