@@ -212,12 +212,23 @@ export const labelKey = (label: string): string => label.normalize("NFKC").toLow
 const LABEL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
 /** 見えない文字: 書式文字 (ソフトハイフン U+00AD・タグ文字 U+E0000 台などの \p{Cf}) と、空白に見えるハングルの埋め字・点字の空白 */
 const LABEL_INVISIBLE = /[\p{Cf}\u115f\u1160\u3164\uffa0\u2800]/u;
-/** glob の記号。ラベルが search_code の glob (ラベル付きの絞り込み) でワイルドカードとして扱われないよう、ラベルには使えない */
-const LABEL_GLOB = /[*?[\]{}]/;
+/**
+ * glob の記号 (sourceTools.ts の globMatcher で実際に効くもの)。ラベルが search_code の glob (ラベル付きの絞り込み) でワイルドカードとして扱われないよう、ラベルには使えない。
+ * `[` `]` は globMatcher では文字どおりなので使える (「[admin]」など)。`,` は `{}` の中でだけ区切りとして効き、ラベルに `{}` は使えないので、ラベルの `,` も文字どおり使える
+ */
+const LABEL_GLOB = /[*?{}]/;
+/** 見えない文字のうち、書式文字 (\p{Cf}) では拾えないもの: 結合文字の書記素接合子 (U+034F) */
+const LABEL_INVISIBLE_EXTRA = /\u034f/;
+/** 孤立したサロゲート (対にならない半分。画面や API に出すと壊れる) */
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+/** 絵文字と絵文字の間の ZWJ (U+200D。👨‍👩‍👧 のような絵文字の組み合わせ)。見えない文字ではあるが、絵文字を作るので許す */
+const EMOJI_JOINER = /(?<=\p{Extended_Pictographic}[\ufe0f\u{1f3fb}-\u{1f3ff}]?)\u200d(?=\p{Extended_Pictographic})/gu;
+/** 絵文字の間の ZWJ を除く (ほかの検査にかける前に) */
+const withoutEmojiJoiners = (label: string): string => label.replace(EMOJI_JOINER, "");
 
 /**
  * ラベルの形の検査。使えるなら null、使えないなら理由 (画面にそのまま出す)。
- * パスの 1 階層としてそのまま使えること: `/`・`\`・`:`・制御文字・見えない文字・glob の記号 (`* ? [ ] { }`)・先頭や末尾の空白・`.`・`..`・先頭の `~` は使えない。空も不可。長さは MAX_SOURCE_LABEL_CHARS まで
+ * パスの 1 階層としてそのまま使えること: `/`・`\`・`:`・制御文字・見えない文字 (絵文字の間の ZWJ は除く)・孤立したサロゲート・glob の記号 (`* ? { }`)・先頭や末尾の空白・`.`・`..`・先頭の `~` は使えない。空も不可。長さは MAX_SOURCE_LABEL_CHARS まで
  */
 export function sourceLabelProblem(label: string): string | null {
   if (label === "") return "ラベルを入力してください";
@@ -225,9 +236,11 @@ export function sourceLabelProblem(label: string): string | null {
   if (label === "." || label === "..") return "「.」「..」はラベルに使えません";
   if ([...label].length > MAX_SOURCE_LABEL_CHARS) return `ラベルは ${MAX_SOURCE_LABEL_CHARS} 文字までです`;
   if (/[/\\:]/.test(label)) return "ラベルに「/」「\\」「:」は使えません";
-  if (LABEL_CONTROL.test(label)) return "ラベルに制御文字は使えません";
-  if (LABEL_INVISIBLE.test(label)) return "ラベルに見えない文字 (ソフトハイフン・書式文字・空白に見える文字など) は使えません";
-  if (LABEL_GLOB.test(label)) return "ラベルに「* ? [ ] { }」は使えません (検索の絞り込みの記号と混ざるため)";
+  const plain = withoutEmojiJoiners(label);
+  if (LABEL_CONTROL.test(plain)) return "ラベルに制御文字は使えません";
+  if (LONE_SURROGATE.test(label)) return "ラベルに、文字として読めない文字 (対になっていないサロゲート) は使えません";
+  if (LABEL_INVISIBLE.test(plain) || LABEL_INVISIBLE_EXTRA.test(plain)) return "ラベルに見えない文字 (ソフトハイフン・書式文字・空白に見える文字など) は使えません";
+  if (LABEL_GLOB.test(label)) return "ラベルに「* ? { }」は使えません (検索の絞り込みの記号と混ざるため)";
   if (label.startsWith("~")) return "ラベルを「~」で始めることはできません";
   return null;
 }
@@ -251,11 +264,15 @@ export function sourceLabelProblems(labels: readonly string[]): (string | null)[
 
 /**
  * フォルダ名を、ラベルの規則に合う形に整える (2 つ目のソースを足したとき、空のラベルへ入れる)。
- * 使えない文字 (`/ \\ :`・制御文字・見えない文字・glob の記号) を取り、前後の空白・先頭の `~` と `.` を取り、MAX_SOURCE_LABEL_CHARS までに切る。
+ * 使えない文字 (`/ \\ :`・制御文字・見えない文字・glob の記号 `* ? { }`) を取り、前後の空白・先頭の `~` と `.` を取り、MAX_SOURCE_LABEL_CHARS までに切る。
  * 何も残らなければ空 (呼ぶ側が候補を入れる)
  */
 export function tidySourceLabel(name: string): string {
-  let t = name.replace(/[/\\:*?[\]{}]/g, " ").replace(new RegExp(`${LABEL_CONTROL.source}|${LABEL_INVISIBLE.source}`, "gu"), "");
+  let t = name.replace(/[/\\:*?{}]/g, " ");
+  // 見えない文字を取る (絵文字の間の ZWJ は残す)。孤立したサロゲートも取る
+  t = t.replace(new RegExp(`${LABEL_CONTROL.source}|${LABEL_INVISIBLE.source}|${LABEL_INVISIBLE_EXTRA.source}|[\\ud800-\\udfff]`, "gu"), (m, offset: number, whole: string) =>
+    m === "\u200d" && /\p{Extended_Pictographic}[\ufe0f\u{1f3fb}-\u{1f3ff}]?$/u.test(whole.slice(0, offset)) && /^\p{Extended_Pictographic}/u.test(whole.slice(offset + 1)) ? m : "",
+  );
   t = t.replace(/\s+/g, " ").trim().replace(/^[~.\s]+/, "");
   t = [...t].slice(0, MAX_SOURCE_LABEL_CHARS).join("").trim();
   return sourceLabelProblem(t) === null ? t : "";
@@ -308,21 +325,32 @@ export function shareFileQuota(counts: readonly number[], max: number): number[]
   return quota;
 }
 
-/** パスの最上位のフォルダの名前 (根のファイルは "") */
-const topOf = (path: string): string => {
-  const i = path.indexOf("/");
-  return i < 0 ? "" : path.slice(0, i);
+const byPath = (a: { path: string }, b: { path: string }): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
+/** パスの depth 番目 (0 始まり) の階層の名前。そこがファイルの名前 (それより下が無い) なら "" */
+const segmentAt = (path: string, depth: number): string => {
+  const parts = path.split("/");
+  return depth < parts.length - 1 ? parts[depth]! : "";
 };
 
 /**
- * ファイルを quota 件に減らす。最上位のフォルダごとに順番に 1 件ずつ取る (どのフォルダも少しずつ残る。パスの名前順で後ろから落とすと、
- * `docs/` が残って `src/` が 0 件になる)。フォルダの中は名前順。返す一覧は名前順
+ * ファイルを quota 件に減らす。フォルダごとに順番に 1 件ずつ取る (どのフォルダも少しずつ残る。パスの名前順で後ろから落とすと、
+ * `docs/` が残って `src/` が 0 件になる)。最上位のフォルダが 1 つだけ (`src/` の下に全部) のときは、その中の次の階層で分ける (1 つでなくなるまで繰り返す)。
+ * フォルダの中は名前順。返す一覧は、減らさないときも名前順
  */
 export function takeFairly<T extends { path: string }>(files: readonly T[], quota: number): T[] {
-  if (quota >= files.length) return [...files];
+  const sorted = [...files].sort(byPath);
+  if (quota >= sorted.length) return sorted;
+  // 1 つのフォルダの下に全部あるあいだは、次の階層へ降りて分ける
+  let depth = 0;
+  for (;;) {
+    const keys = new Set(sorted.map((f) => segmentAt(f.path, depth)));
+    if (keys.size === 1 && !keys.has("")) depth++;
+    else break;
+  }
   const groups = new Map<string, T[]>();
-  for (const f of files) {
-    const k = topOf(f.path);
+  for (const f of sorted) {
+    const k = segmentAt(f.path, depth);
     const g = groups.get(k);
     if (g) g.push(f);
     else groups.set(k, [f]);
@@ -341,7 +369,7 @@ export function takeFairly<T extends { path: string }>(files: readonly T[], quot
     }
     if (!took) break;
   }
-  return kept.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return kept.sort(byPath);
 }
 
 export interface CombineOptions {
@@ -356,7 +384,7 @@ export interface CombineOptions {
  *   除外規則はラベルを除いた、もとのソースの中のパスで当てる (ラベルが build・secrets・.env でも、そのソース全体が除外されたり、除外すべきものが通ったりしない。
  *   根の直下だけ除外するフォルダ (build・out・target など) は、各ソースの根の直下で効く)。
  * - 件数の上限 (MAX_TREE_FILES) はソースで分け合う (shareFileQuota)。1 つのソースが使い切って、ほかが見えなくなることはない。減らしたソースは sources[].trimmed に出る (木の truncated も真になる)。
- *   ソースの中で減らすときは、最上位のフォルダごとに順番に取る (takeFairly)。減らしたファイルは、一覧だけでなく読み取りも検索もできない
+ *   ソースの中で減らすときは、フォルダごとに順番に取る (takeFairly。最上位が 1 つだけなら、その下の階層で分ける)。減らしたファイルは、一覧だけでなく読み取りも検索もできない
  * ラベルが使えない・重なる・数が 0 または MAX_SOURCES を超えるときは Error (画面で先に検査する)
  */
 export function combineSourceTrees(sources: readonly LabeledSource[], options: CombineOptions = {}): SourceTree {

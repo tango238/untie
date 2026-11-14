@@ -73,6 +73,8 @@ export interface DatabaseDraft {
   system: string;
   /** データベースの名前 (省略はシステム名から) */
   database_name?: string;
+  /** すでにあるデータベースとテーブルが重なるのに、別のデータベースとして出す理由 (任意。ソースコードから作成の、ほかのシステムと共有するデータベースの確認に使う) */
+  separate_reason?: string;
   /** Prisma のスキーマ (model / enum だけ) */
   dsl: string;
   /** テーブル (model の名前) と、それが表す情報の名前 */
@@ -85,6 +87,12 @@ export interface DatabaseDraftOptions {
    * true なら DSL をそのまま置き、エラーを警告に残す
    */
   acceptDslErrors?: boolean;
+  /**
+   * 同じ名前なら置き換えてよいデータベースの id。省略すると、設計がすでに使っているデータベースのうち同じ名前のもの。
+   * ここに無い、すでにあるデータベースと同じ名前の提出は置き換えず、何も足さずに nameTaken を返す (データベースの名前は 1 つのモデルで 1 つだけ。
+   * ほかのシステムが写した・使うデータベースを、別のスキーマで上書きしないため)
+   */
+  replaceableIds?: readonly string[];
 }
 
 export interface DatabaseDraftResult extends DraftResult {
@@ -94,37 +102,72 @@ export interface DatabaseDraftResult extends DraftResult {
   dslErrors: PrismaError[];
   /** 見つからないシステムなど、足せなかった理由 (dslErrors とは別。出し直しても直らない) */
   failure?: string;
+  /** 置き換えてよくない、すでにあるデータベースと同じ名前だったので足さなかった (failure も返る) */
+  nameTaken?: boolean;
   databaseId?: string;
   added: { tables: number; informations: number };
 }
 
-export const SUBMIT_DATABASE_DRAFT_TOOL: ToolDef = {
-  name: "submit_database",
-  description: "システムのデータベースの DSL (Prisma のスキーマの一部) と、テーブル → 情報の対応を提出する。情報は名前で書く (id は作らない)。DSL に解析エラーがあると理由が返るので直して出し直す。",
-  parameters: {
-    type: "object",
-    properties: {
-      system: { type: "string", description: "対象のシステムの名前 (モデルにあるもの)" },
-      database_name: { type: "string", description: "データベースの名前。データの中身で付ける (例: 注文DB。システムの名前にしない。ほかのシステムも同じデータベースを使うことがあるため)。省略するとシステム名から付ける" },
-      dsl: { type: "string", description: "Prisma のスキーマ (model / enum だけ。datasource や generator は書かない)" },
-      tables: {
-        type: "array",
-        description: "model の名前と、それが表す情報の名前 (モデルにある情報)。1 つの情報を複数のテーブルが表してもよい",
-        items: {
-          type: "object",
-          properties: {
-            table: { type: "string", description: "DSL の model の名前 (enum の名前ではない)。DSL に無いテーブルの対応は捨てられる" },
-            informations: { type: "array", items: { type: "string" }, description: "このテーブルが表す情報の名前 (モデルにある情報)。モデルに無い名前は捨てられる" },
-          },
-          required: ["table", "informations"],
-          additionalProperties: false,
-        },
+const DATABASE_TOOL_BODY = {
+  dsl: { type: "string", description: "Prisma のスキーマ (model / enum だけ。datasource や generator は書かない)" },
+  tables: {
+    type: "array",
+    description: "model の名前と、それが表す情報の名前 (モデルにある情報)。1 つの情報を複数のテーブルが表してもよい",
+    items: {
+      type: "object",
+      properties: {
+        table: { type: "string", description: "DSL の model の名前 (enum の名前ではない)。DSL に無いテーブルの対応は捨てられる" },
+        informations: { type: "array", items: { type: "string" }, description: "このテーブルが表す情報の名前 (モデルにある情報)。モデルに無い名前は捨てられる" },
       },
+      required: ["table", "informations"],
+      additionalProperties: false,
     },
-    required: ["system", "dsl", "tables"],
-    additionalProperties: false,
   },
 };
+
+/** データベースの名前。書かれていなければ、システムの名前から付ける */
+export function resolveDatabaseName(systemName: string, databaseName?: string): string {
+  return nameOf(databaseName ?? "") || nameOf(`${systemName}のデータベース`);
+}
+
+export interface SubmitDatabaseToolOptions {
+  /** ほかのシステムも同じデータベースを使うことがあるか (システムが複数あるとき)。真のときだけ、データの中身で名前を付ける説明を出す */
+  shareable?: boolean;
+  /** すでにあるデータベースがあるか。真のときだけ、別のデータベースである理由 (separate_reason) の項目を足す */
+  existing?: boolean;
+}
+
+/** submit_database の道具。システムが 1 つだけの会話 (オプションなし) では、共有の説明も理由の項目も出さない */
+export function submitDatabaseTool(options: SubmitDatabaseToolOptions = {}): ToolDef {
+  const name = options.shareable
+    ? "データベースの名前。データの中身で付ける (例: 注文DB。システムの名前にしない。ほかのシステムも同じデータベースを使うため)。省略するとシステム名から付ける。すでにあるデータベースと同じ名前は使えない"
+    : "データベースの名前。データの中身で付ける (例: 注文DB)。省略するとシステム名から付ける";
+  return {
+    name: "submit_database",
+    description: "システムのデータベースの DSL (Prisma のスキーマの一部) と、テーブル → 情報の対応を提出する。情報は名前で書く (id は作らない)。DSL に解析エラーがあると理由が返るので直して出し直す。",
+    parameters: {
+      type: "object",
+      properties: {
+        system: { type: "string", description: "対象のシステムの名前 (モデルにあるもの)" },
+        database_name: { type: "string", description: name },
+        ...(options.existing
+          ? {
+              separate_reason: {
+                type: "string",
+                description: "すでにあるデータベースとテーブルが重なると断られたとき、本当に別のデータベースだと出し直すときに添える理由 (例: このシステム専用の別のデータベースで、テーブルの名前だけが重なる)。同じデータベースなら use_database を使い、これは書かない",
+              },
+            }
+          : {}),
+        ...DATABASE_TOOL_BODY,
+      },
+      required: ["system", "dsl", "tables"],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** システムが 1 つだけの会話の submit_database (共有の説明も理由の項目も無い) */
+export const SUBMIT_DATABASE_DRAFT_TOOL: ToolDef = submitDatabaseTool();
 
 /** 提出された内容を取り出す。形が違えば null */
 export function readDatabaseDraft(raw: unknown): DatabaseDraft | null {
@@ -133,11 +176,18 @@ export function readDatabaseDraft(raw: unknown): DatabaseDraft | null {
     if (!isObject(t) || typeof t.table !== "string" || t.table === "") return [];
     return [{ table: t.table, informations: strings(t.informations) }];
   });
-  return { system: raw.system, ...(typeof raw.database_name === "string" ? { database_name: raw.database_name } : {}), dsl: raw.dsl, tables };
+  return {
+    system: raw.system,
+    ...(typeof raw.database_name === "string" ? { database_name: raw.database_name } : {}),
+    ...(typeof raw.separate_reason === "string" && raw.separate_reason.trim() !== "" ? { separate_reason: raw.separate_reason.trim() } : {}),
+    dsl: raw.dsl,
+    tables,
+  };
 }
 
 /**
- * データベースの下書きを、システムの設計に足す。データベースを 1 つ作り (同じ名前が設計にあればそれを置き換え)、
+ * データベースの下書きを、システムの設計に足す。データベースを 1 つ作り (置き換えてよいデータベース (options.replaceableIds。省略は設計が使っているもの) に同じ名前があればそれを置き換え。
+ * それ以外のすでにあるデータベースと同じ名前なら、足さずに nameTaken を返す)、
  * DSL とテーブル → 情報の対応を置いて、設計が使うデータベースにする。
  * 落とす: DSL に無いテーブルの対応、見つからない情報の名前。システムが見つからない・DSL が置けないときは何も足さず failure を返す。
  * DSL の解析エラーは acceptDslErrors でないとき足さずに dslErrors を返す
@@ -189,7 +239,7 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
   // 設計に同じ名前のデータベースがあれば置き換える。無ければ新しく足す。
   // 既定のデータベース (db_default) は、databaseIds が空のほかのシステムの設計が使うので、名前を替えて流用しない
   // (システムが 1 つだけで、空の既定のデータベースしか無いときは、それを使う。ほかに影響する設計が無い)
-  const dbName = nameOf(draft.database_name ?? "") || nameOf(`${system.name}のデータベース`);
+  const dbName = resolveDatabaseName(system.name, draft.database_name);
   const design = model.designs.find((d) => d.systemId === system.id);
   const systemCount = model.elements.filter((e) => e.kind === "system").length;
   let next = model;
@@ -201,9 +251,14 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
     next = r.model;
     return r as T & { model: UntieModel };
   };
-  const owned = (design?.databaseIds ?? []).map((id) => next.databases.find((d) => d.id === id)).find((d) => d?.name === dbName);
+  const owned = (options.replaceableIds ?? design?.databaseIds ?? []).map((id) => next.databases.find((d) => d.id === id)).find((d) => d?.name === dbName);
   const emptyDefault =
     systemCount === 1 && next.databases.length === 1 && next.databases[0]!.id === DEFAULT_DATABASE_ID && next.databases[0]!.dsl === "" && next.databases[0]!.tables.length === 0;
+  // 置き換えてよくないデータベースと同じ名前は、置き換えず、足さない (名前は一意。画面の対応の database と use_database が名前で引くため)
+  if (!owned && !emptyDefault && next.databases.some((d) => d.name === dbName)) {
+    const failure = `データ: データベース「${dbName}」はすでにあるので、同じ名前では足せません`;
+    return { model, warnings: [failure], applied: false, dslErrors: [], failure, nameTaken: true, added: { tables: 0, informations: 0 } };
+  }
   let databaseId: string;
   if (owned) databaseId = owned.id;
   else if (emptyDefault) {
@@ -254,6 +309,19 @@ export function unmappedTableNames(db: Pick<Database, "dsl" | "tables">): string
 export function tableNamesOf(db: Pick<Database, "dsl">): string[] {
   return parsePrismaDslCached(db.dsl).models.map((m) => m.name);
 }
+/**
+ * 出したテーブルの名前と、すでにあるデータベースのテーブルの名前の重なり (大文字小文字を無視)。
+ * 同じかもしれないのは、出したテーブルの過半が既存にある、または既存のテーブルの過半を含むとき (どちらの向きも見る)。どちらかが空なら重なりなし
+ */
+export function tableOverlap(submitted: readonly string[], existing: readonly string[]): { common: string[]; similar: boolean } {
+  const a = new Set(submitted.map((n) => n.toLowerCase()));
+  const b = new Set(existing.map((n) => n.toLowerCase()));
+  if (a.size === 0 || b.size === 0) return { common: [], similar: false };
+  const common = [...a].filter((n) => b.has(n));
+  const original = new Map(submitted.map((n) => [n.toLowerCase(), n]));
+  return { common: common.map((n) => original.get(n) ?? n), similar: common.length * 2 > a.size || common.length * 2 > b.size };
+}
+
 /** 警告に、どの項目がなぜ落ちたかを並べる数 */
 const DETAIL_MAX = 3;
 

@@ -216,16 +216,63 @@ export function isAbortError(e: unknown): boolean {
   return e instanceof Anthropic.APIUserAbortError || e instanceof OpenAI.APIUserAbortError || (e instanceof Error && e.name === "AbortError");
 }
 
+/** 利用残高が足りないときの文 (provider は管理画面を持つ会社の名前) */
+const noBalanceMessage = (provider: string): string => `API の利用残高が足りません。${provider} の管理画面で残高を確かめてください。`;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+
+/**
+ * SDK の例外から、API が返したメッセージだけを取り出す (「400 {"type":"error",…}」のような、状態と JSON の全文は出さない)。
+ * Anthropic は本文全体が error ({type:"error", error:{type, message}}) に入り、OpenAI は error が内側の {message, type, code} になっている。
+ * Gemini (@google/genai の ApiError) は message が本文の JSON 文字列 ({error:{code, message, status}})。取り出せなければ undefined
+ */
+function apiMessageOf(e: InstanceType<typeof Anthropic.APIError> | InstanceType<typeof OpenAI.APIError> | GeminiApiError): string | undefined {
+  if (e instanceof GeminiApiError) {
+    try {
+      const body: unknown = JSON.parse(e.message);
+      const inner = isRecord(body) && isRecord(body.error) ? body.error : body;
+      return isRecord(inner) && typeof inner.message === "string" ? inner.message : undefined;
+    } catch {
+      return e.message || undefined;
+    }
+  }
+  const body: unknown = e.error;
+  if (!isRecord(body)) return undefined;
+  if (isRecord(body.error) && typeof body.error.message === "string") return body.error.message;
+  return typeof body.message === "string" ? body.message : undefined;
+}
+
+/** API が利用残高の不足を返したか (Anthropic: 400 の本文に「credit balance is too low」。OpenAI: code が insufficient_quota。Gemini: 前払いの残高が尽きた旨の本文) */
+function providerOfNoBalance(e: unknown): string | null {
+  if (e instanceof Anthropic.APIError) return /credit balance is too low/i.test(apiMessageOf(e) ?? e.message) ? "Anthropic" : null;
+  if (e instanceof OpenAI.APIError) return e.code === "insufficient_quota" || e.type === "insufficient_quota" ? "OpenAI" : null;
+  if (e instanceof GeminiApiError) return /credits are depleted|insufficient (funds|balance)/i.test(apiMessageOf(e) ?? "") ? "Google AI Studio" : null;
+  return null;
+}
+
 /** API のエラーを、利用者に見せる短い文にする */
 export function describeChatError(e: unknown): string {
   if (e instanceof ChatError) return e.message;
   // 中断は、API のエラー (APIError を継承する) より先に見る
   if (isAbortError(e)) return "中断しました。";
+  // 残高不足は、状態 (400・429) によらず、ほかの API のエラーより先に見る
+  const noBalance = providerOfNoBalance(e);
+  if (noBalance) return noBalanceMessage(noBalance);
   if (e instanceof Anthropic.AuthenticationError || e instanceof OpenAI.AuthenticationError) return "API キーが正しくありません。設定を確かめてください。";
   if (e instanceof Anthropic.RateLimitError || e instanceof OpenAI.RateLimitError) return "利用の上限に達しました。少し待ってから試してください。";
   if (e instanceof Anthropic.NotFoundError || e instanceof OpenAI.NotFoundError) return "モデルが見つかりません。設定のモデル名を確かめてください。";
   if (e instanceof Anthropic.APIConnectionError || e instanceof OpenAI.APIConnectionError) return "API に接続できませんでした。ネットワークを確かめてください。";
-  if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError) return `API のエラー (${e.status ?? "?"}): ${e.message}`;
+  if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError || e instanceof GeminiApiError) {
+    // Gemini の例外は、キー・モデル・上限の別を状態から決める
+    if (e instanceof GeminiApiError) {
+      if (e.status === 401 || e.status === 403) return "API キーが正しくありません。設定を確かめてください。";
+      if (e.status === 404) return "モデルが見つかりません。設定のモデル名を確かめてください。";
+      if (e.status === 429) return "利用の上限に達しました。少し待ってから試してください。";
+    }
+    // 状態と API のメッセージだけを出す (本文の JSON の全文は出さない)
+    const message = apiMessageOf(e);
+    return `API のエラー (${e.status ?? "?"}): ${message ?? e.message.replace(/^\d{3}\s+/, "").slice(0, 300)}`;
+  }
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -239,6 +286,8 @@ const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 405, 413, 422]);
  */
 export function isTransientApiError(e: unknown): boolean {
   if (isAbortError(e)) return false;
+  // 残高が足りないのは、待っても (429 でも) 直らない
+  if (providerOfNoBalance(e)) return false;
   if (e instanceof Anthropic.APIError || e instanceof OpenAI.APIError) return e.status === undefined || !PERMANENT_STATUSES.has(e.status);
   if (e instanceof GeminiApiError) return typeof e.status === "number" && !PERMANENT_STATUSES.has(e.status);
   return false;

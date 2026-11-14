@@ -13,8 +13,11 @@ import {
   readDatabaseDraft,
   readScreenDraft,
   readSitemapDraft,
+  resolveDatabaseName,
   SUBMIT_DATABASE_DRAFT_TOOL,
   SUBMIT_SCREEN_DRAFT_TOOL,
+  submitDatabaseTool,
+  tableOverlap,
   type DatabaseDraft,
   type ScreenDraft,
 } from "../designDraft";
@@ -708,5 +711,93 @@ describe("上限と道具の説明", () => {
     expect(tables.informations!.description).toContain("モデルにある情報");
     // 「プロンプトから作成」と共有する道具なので、ソースコード前提の文を入れない
     expect(JSON.stringify(SUBMIT_MODEL_TOOL)).not.toContain("ソースコード");
+  });
+});
+
+describe("データベースの置き換えと名前 (共有のデータベースを上書きしない)", () => {
+  /** システムを 2 つにして、片方が「注文DB」を写し、もう片方がそれを使っているモデル */
+  function shared() {
+    const spec: ModelSpec = { ...FIXTURE_SPEC, systems: [...(FIXTURE_SPEC.systems ?? []), { name: "管理サイト" }] };
+    const base = buildModelFromSpec(spec).model;
+    const first = applyDatabaseDraft(base, FIXTURE_DATABASE);
+    expect(first.applied).toBe(true);
+    const dbId = first.databaseId!;
+    const admin = first.model.elements.find((e) => e.kind === "system" && e.name === "管理サイト")!;
+    const used = applyDatabaseDraftUse(first.model, admin.id, dbId);
+    return { model: used, dbId, adminName: "管理サイト" };
+  }
+  /** 設計が使うデータベースに、すでにあるデータベースを足す (use_database と同じ結果) */
+  function applyDatabaseDraftUse(m: UntieModel, systemId: string, dbId: string): UntieModel {
+    const design = m.designs.find((d) => d.systemId === systemId);
+    return {
+      ...m,
+      designs: design
+        ? m.designs.map((d) => (d.systemId === systemId ? { ...d, databaseIds: [...d.databaseIds, dbId] } : d))
+        : [...m.designs, { systemId, screens: [], transitions: [], navigation: [], databaseIds: [dbId] } as never],
+    };
+  }
+  const cart = (system: string): DatabaseDraft => ({ system, database_name: "注文DB", dsl: "model Cart {\n  id String @id\n}\n", tables: [{ table: "Cart", informations: ["注文"] }] });
+
+  it("設計が使っている共有のデータベースと同じ名前の提出は、置き換えず、何も足さずに nameTaken を返す (注文DB は元のまま)", () => {
+    const { model, dbId, adminName } = shared();
+    const r = applyDatabaseDraft(model, cart(adminName), { replaceableIds: [] });
+    expect(r.applied).toBe(false);
+    expect(r.nameTaken).toBe(true);
+    expect(r.model).toBe(model);
+    const db = r.model.databases.find((d) => d.id === dbId)!;
+    expect(db.dsl).toBe(FIXTURE_DSL);
+    expect(db.tables.length).toBeGreaterThan(0);
+    // 既定 (replaceableIds を省略): 設計が使っているデータベースは置き換えてよいことになる (これまでの動き)
+    const old = applyDatabaseDraft(model, cart(adminName));
+    expect(old.applied).toBe(true);
+  });
+
+  it("置き換えてよいのは replaceableIds のものだけ。自分で写したデータベースは、同じ名前の出し直しで置き換わる。同じ名前のデータベースは 2 つにならない", () => {
+    const { model, dbId, adminName } = shared();
+    const own = applyDatabaseDraft(model, { ...cart(adminName), database_name: "承認DB" }, { replaceableIds: [] });
+    expect(own.applied).toBe(true);
+    const ownId = own.databaseId!;
+    expect(ownId).not.toBe(dbId);
+    const again = applyDatabaseDraft(own.model, { ...cart(adminName), database_name: "承認DB", dsl: "model Cart {\n  id String @id\n  total Int\n}\n" }, { replaceableIds: [ownId] });
+    expect(again.applied).toBe(true);
+    expect(again.databaseId).toBe(ownId);
+    expect(again.model.databases.filter((d) => d.name === "承認DB")).toHaveLength(1);
+    expect(again.model.databases.find((d) => d.id === dbId)!.dsl).toBe(FIXTURE_DSL);
+    // 自分のものでも、共有のものと同じ名前に変えての出し直しは断る
+    const clash = applyDatabaseDraft(again.model, cart(adminName), { replaceableIds: [ownId] });
+    expect(clash.nameTaken).toBe(true);
+    expect(new Set(again.model.databases.map((d) => d.name)).size).toBe(again.model.databases.length);
+  });
+
+  it("単一のシステムで、空の既定のデータベースしか無いときは、同じ名前でもそれを使う (断らない)", () => {
+    const r = applyDatabaseDraft(analysis().model, { ...FIXTURE_DATABASE, database_name: "既定のデータベース" });
+    expect(r.applied).toBe(true);
+    expect(r.nameTaken).toBeUndefined();
+  });
+
+  it("tableOverlap: 大文字小文字を無視し、出したテーブルの過半が既存にある、または既存の過半を含むときだけ同じかもしれない", () => {
+    const existing = ["Order", "OrderItem", "Product"];
+    expect(tableOverlap(["Product"], existing).similar).toBe(true); // 出したものの全部が既存にある
+    expect(tableOverlap(["order", "ORDERITEM", "product"], existing)).toEqual({ common: ["order", "ORDERITEM", "product"], similar: true });
+    expect(tableOverlap([...existing, "Extra"], existing).similar).toBe(true); // 既存に 1 つ足しただけ
+    expect(tableOverlap(["Order", "Stock", "Shelf"], existing).similar).toBe(false); // 3 つのうち 1 つ (出したものも既存も過半ではない)
+    expect(tableOverlap(["Order", "OrderItem", "Stock", "Shelf"], existing).similar).toBe(true); // 既存の過半を含む
+    expect(tableOverlap(["Stock"], existing)).toEqual({ common: [], similar: false });
+    expect(tableOverlap([], existing).similar).toBe(false);
+    expect(tableOverlap(["Order"], []).similar).toBe(false);
+  });
+
+  it("submit_database の道具: 共有がありうる (システムが複数) ときだけ、データの中身で名前を付ける説明が出る。理由の項目は、すでにあるデータベースがあるときだけ", () => {
+    const desc = (t: ReturnType<typeof submitDatabaseTool>) => (t.parameters as { properties: Record<string, { description?: string }> }).properties;
+    expect(desc(SUBMIT_DATABASE_DRAFT_TOOL).database_name!.description).not.toMatch(/ほかのシステム/);
+    expect(desc(SUBMIT_DATABASE_DRAFT_TOOL).separate_reason).toBeUndefined();
+    expect(desc(submitDatabaseTool({ shareable: true })).database_name!.description).toMatch(/システムの名前にしない。ほかのシステムも同じデータベースを使うため/);
+    expect(desc(submitDatabaseTool({ shareable: true })).separate_reason).toBeUndefined();
+    const withExisting = submitDatabaseTool({ shareable: true, existing: true });
+    expect(desc(withExisting).separate_reason!.description).toMatch(/別のデータベース/);
+    expect((withExisting.parameters as { required: string[] }).required).toEqual(["system", "dsl", "tables"]);
+    expect(readDatabaseDraft({ system: "s", dsl: "", tables: [], separate_reason: "  別のもの  " })!.separate_reason).toBe("別のもの");
+    expect(readDatabaseDraft({ system: "s", dsl: "", tables: [], separate_reason: "  " })!.separate_reason).toBeUndefined();
+    expect(resolveDatabaseName("ショップ")).toBe("ショップのデータベース");
   });
 });

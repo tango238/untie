@@ -332,6 +332,75 @@ describe("CreateFromSourceDialog", () => {
     expect(live.every((n) => !n.textContent!.includes("一つ目"))).toBe(true);
   });
 
+  it("失敗の文は、スクロールする本文の外に role=alert で出る (本文の末尾で切れない)。長い文は折り返して、高さに上限を付ける class を持つ", async () => {
+    const long = `API のエラー (400): ${"x".repeat(300)} {"type":"error","error":{"message":"long"}}`;
+    mocked.mockRejectedValueOnce(new Error(long));
+    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(long);
+    expect(alert.className).toContain("source-error");
+    expect(container.querySelector(".source-dialog-body")!.contains(alert)).toBe(false);
+    expect(container.querySelector(".source-dialog")!.contains(alert)).toBe(true);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    // 見出しの直後 (本文より前) に出る
+    const dialog = container.querySelector(".source-dialog")!;
+    const order = [...dialog.children].map((c) => c.className || c.tagName);
+    expect(order.indexOf(alert.className)).toBeLessThan(order.indexOf("source-dialog-body"));
+  });
+
+  it("気づいたことがあって終わったとき、フォーカスは気づいたことの見出しへ移る (主ボタンが外れて body に落ちない)", async () => {
+    mocked.mockResolvedValue(result(["画面「在庫」は置けませんでした"]));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    startButton().focus();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    const heading = await screen.findByText(/気づいたことが 1 件/);
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("提出と画面ごとの結果の行は、届くたびに本文の末尾までスクロールし、利用者が上へスクロールしているときは戻さない", async () => {
+    let opts: ReverseOptions | undefined;
+    mocked.mockImplementation((_t, _r, o) => {
+      opts = o;
+      o.onStep?.("screens");
+      return new Promise(() => {});
+    });
+    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    const body = container.querySelector<HTMLElement>(".source-dialog-body")!;
+    let top = 0;
+    Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => 900 });
+    Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(body, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    act(() => opts!.onScreen?.(1, 12, "画面 1", true));
+    expect(top).toBe(900);
+    // 上へスクロールした (末尾から離れた) ら、行が増えても戻さない
+    top = 100;
+    fireEvent.scroll(body);
+    act(() => opts!.onScreen?.(2, 12, "画面 2", true));
+    act(() => opts!.onSubmit?.(true, "受け付けました: 対応 3 件"));
+    expect(top).toBe(100);
+    // 末尾まで戻したら、また追う
+    top = 590;
+    fireEvent.scroll(body);
+    act(() => opts!.onScreen?.(3, 12, "画面 3", false));
+    expect(top).toBe(900);
+  });
+
   it("保存していない変更があって破棄しないなら、始めない", async () => {
     useUntieStore.setState((s) => ({ savedModel: { ...s.model } }));
     memory().discard = false;
@@ -506,7 +575,7 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
   it("見えない文字・glob の記号を含むラベルは断る", async () => {
     await threeSources();
     await fill();
-    for (const bad of ["\u00ad", "\u3164", "管理\u00ad画面", "x\u{e0041}", "管理*"]) {
+    for (const bad of ["\u00ad", "\u3164", "管理\u00ad画面", "x\u{e0041}", "管理*", "管理{a}", "管理\u034f"]) {
       setLabel(2, bad);
       expect(startButton().disabled, JSON.stringify(bad)).toBe(true);
       expect(labelBox(2).getAttribute("aria-invalid")).toBe("true");

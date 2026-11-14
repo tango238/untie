@@ -125,7 +125,7 @@ describe("ソースのラベル", () => {
     for (const bad of ["\u00ad", "ab\u00adc", "\u3164", "a\u3164", "\u115f\u1160", "\uffa0", "x\u{e0041}", "a\u200bb", "\u2060", "a\u2800"]) {
       expect(sourceLabelProblem(bad), JSON.stringify(bad)).not.toBeNull();
     }
-    for (const bad of ["a*", "src?", "[a]", "{a,b}", "a}"]) expect(sourceLabelProblem(bad), bad).toMatch(/\* \? \[ \] \{ \}/);
+    for (const bad of ["a*", "src?", "{a,b}", "a}", "{x"]) expect(sourceLabelProblem(bad), bad).toMatch(/\* \? \{ \}/);
     expect(sourceLabelProblem("バックエンド (本番)")).toBeNull();
     expect(tidySourceLabel("~/work/my-app")).toBe("work my-app");
     expect(tidySourceLabel("a".repeat(60))).toBe("a".repeat(40));
@@ -133,6 +133,28 @@ describe("ソースのラベル", () => {
     expect(tidySourceLabel("a\u00adb")).toBe("ab");
     expect(tidySourceLabel("***")).toBe("");
     for (const name of ["~home", "x".repeat(50), "a:b/c", "[f]"]) expect(sourceLabelProblem(tidySourceLabel(name)) ?? null, name).toBeNull();
+  });
+  it("絵文字の間の ZWJ (👨‍👩‍👧) は使える。ZWJ だけ・文字の間の ZWJ・U+034F・孤立したサロゲートは断る", () => {
+    for (const ok of ["👨\u200d👩\u200d👧", "家族 👨\u200d👩\u200d👧", "🏳️\u200d🌈", "👩🏽\u200d💻"]) expect(sourceLabelProblem(ok), ok).toBeNull();
+    for (const bad of ["\u200d", "a\u200db", "👨\u200d", "\u200d👨", "a\u034fb", "\u034f", "a\ud800b", "\udc00", "x\ud83d"]) {
+      expect(sourceLabelProblem(bad), JSON.stringify(bad)).not.toBeNull();
+    }
+    // 整えるときも、絵文字の ZWJ は残し、見えない文字・孤立したサロゲートは取る
+    expect(tidySourceLabel("👨\u200d👩\u200d👧")).toBe("👨\u200d👩\u200d👧");
+    expect(tidySourceLabel("a\u200db\u034fc\ud800")).toBe("abc");
+  });
+  it("glob で効かない [ ] と、{} の外では区切りにならない , は、ラベルに使える (「[admin]」)。glob では文字どおり当たる", async () => {
+    for (const ok of ["[admin]", "a[1]", "a,b", "管理,画面"]) expect(sourceLabelProblem(ok), ok).toBeNull();
+    const { globMatcher } = await import("../sourceTools");
+    expect(globMatcher("[admin]/src/**")("[admin]/src/a.ts")).toBe(true);
+    expect(globMatcher("[admin]/src/**")("a/src/a.ts")).toBe(false);
+    expect(globMatcher("a,b/src/**")("a,b/src/x.ts")).toBe(true);
+    expect(tidySourceLabel("[f]")).toBe("[f]");
+    const tree = combineSourceTrees([
+      { label: "[admin]", tree: memorySourceTree("a", { "src/a.ts": "x" }) },
+      { label: "b,c", tree: memorySourceTree("b", { "src/b.ts": "y" }) },
+    ]);
+    expect(tree.files.map((f) => f.path)).toEqual(["[admin]/src/a.ts", "b,c/src/b.ts"]);
   });
   it("重複は、大文字小文字・全角半角の違いだけでも後ろの行に出す", () => {
     expect(sourceLabelProblems(["API", "管理", "api"])).toEqual([null, null, expect.stringMatching(/1 番目のソースと重なっています/)]);
@@ -240,6 +262,31 @@ describe("combineSourceTrees", () => {
     expect(kept).toContain("大/README.md");
     expect(takeFairly([{ path: "a/1" }, { path: "a/2" }, { path: "b/1" }], 2).map((f) => f.path)).toEqual(["a/1", "b/1"]);
     expect(takeFairly([{ path: "a/1" }], 5)).toHaveLength(1);
+  });
+
+  it("takeFairly: 最上位のフォルダが 1 つだけ (src/ の下に全部) のときは、次の階層で分ける。減らさないときも名前順に揃える", () => {
+    const paths = ["src/api/a.ts", "src/api/b.ts", "src/api/c.ts", "src/api/d.ts", "src/web/a.tsx", "src/web/b.tsx", "src/web/c.tsx", "src/web/d.tsx"];
+    const kept = takeFairly(paths.map((path) => ({ path })), 4).map((f) => f.path);
+    expect(kept.filter((p) => p.startsWith("src/api/"))).toHaveLength(2);
+    expect(kept.filter((p) => p.startsWith("src/web/"))).toHaveLength(2);
+    expect(kept).toEqual([...kept].sort());
+    // さらに 1 つのフォルダの下に全部あれば、もう 1 つ下で分ける
+    const deep = ["a/src/x/1", "a/src/x/2", "a/src/y/1", "a/src/y/2"].map((path) => ({ path }));
+    expect(takeFairly(deep, 2).map((f) => f.path)).toEqual(["a/src/x/1", "a/src/y/1"]);
+    // 根のファイルがあれば、そこで分ける (根のファイルも残る)
+    const mixed = ["README.md", "src/a", "src/b", "src/c"].map((path) => ({ path }));
+    expect(takeFairly(mixed, 2).map((f) => f.path)).toEqual(["README.md", "src/a"]);
+    // 減らさないときも、名前順
+    expect(takeFairly(["b", "a/x", "a/w"].map((path) => ({ path })), 10).map((f) => f.path)).toEqual(["a/w", "a/x", "b"]);
+    // まとめた木でも効く
+    const tree = combineSourceTrees([
+      { label: "あ", tree: memorySourceTree("a", Object.fromEntries(paths.map((p) => [p, "x"]))) },
+      { label: "い", tree: memorySourceTree("b", { "x.ts": "y" }) },
+    ], { maxFiles: 5 });
+    const kept2 = tree.files.map((f) => f.path).filter((p) => p.startsWith("あ/"));
+    expect(kept2).toHaveLength(4);
+    expect(kept2.some((p) => p.startsWith("あ/src/web/"))).toBe(true);
+    expect(kept2.some((p) => p.startsWith("あ/src/api/"))).toBe(true);
   });
 
   it("まとめた木の excludeReasonOf は、中の木の excludeReasonOf があればそれを使う", () => {

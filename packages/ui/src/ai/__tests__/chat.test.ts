@@ -56,6 +56,9 @@ vi.mock("openai", async (importOriginal) => {
 });
 
 vi.mock("@google/genai", () => ({
+  ApiError: class ApiError extends Error {
+    status?: number;
+  },
   GoogleGenAI: class {
     models = {
       generateContent: async (params: Record<string, unknown>) => {

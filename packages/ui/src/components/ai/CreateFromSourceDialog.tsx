@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useAgentStore } from "../../ai/agentStore";
 import { describeChatError, isAbortError } from "../../ai/chat";
 import { getApiKey } from "../../ai/keys";
@@ -48,7 +48,10 @@ const autoLabel = (folderName: string | undefined, used: readonly string[], inde
   return tidy !== "" && !used.some((u) => labelKey(u) === labelKey(tidy)) ? tidy : nextCandidate(used, index);
 };
 
-/** 畳んだ要約に出す、ソースの呼び名 (ラベルだけ。ラベルが無い 1 つだけのときは「ソースコード「フォルダ名」」) */
+/**
+ * 畳んだ要約に出す、ソースの呼び名。1 つだけのときは「ソースコード「フォルダ名」」 (ラベルは出さない。sourcesTitle と同じ)。
+ * 複数のときは「ソースコード N か所 (ラベル・ラベル…)」で、ラベルが空の行はフォルダ名、フォルダも選んでいなければ「未選択」
+ */
 const summaryTitle = (rows: readonly SourceRow[]): string =>
   rows.length === 1 ? sourcesTitle([{ label: rows[0]!.label.trim(), folder: rows[0]!.tree?.name ?? "" }]) : `ソースコード ${rows.length} か所 (${rows.map((r) => r.label.trim() || r.tree?.name || "未選択").join("・")})`;
 
@@ -147,6 +150,19 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     const el = surveyBox.current;
     if (el && followSurvey.current) el.scrollTop = el.scrollHeight;
   }, [survey]);
+  // 提出と画面ごとの結果の行は、画面の数だけ本文の下へ伸びる。調査結果の枠と同じく、利用者が上へスクロールしていない限り、本文の末尾 (最新の行) を追いかける
+  const bodyBox = useRef<HTMLDivElement | null>(null);
+  const followBody = useRef(true);
+  useLayoutEffect(() => {
+    const el = bodyBox.current;
+    if (el && followBody.current) el.scrollTop = el.scrollHeight;
+  }, [log, screen, readCount]);
+  // 気づいたことがあって終わったとき、押していた主ボタンは外れるので、気づいたことの見出しへフォーカスを移す (読み上げと、キー操作の続きのため)
+  const warningsHeading = useRef<HTMLDivElement | null>(null);
+  const hasWarnings = warnings !== null;
+  useEffect(() => {
+    if (hasWarnings) warningsHeading.current?.focus();
+  }, [hasWarnings]);
 
   const patchRow = (key: number, patch: Partial<SourceRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
@@ -211,6 +227,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     setLog([]);
     setScreen(null);
     setWarnings(null);
+    followBody.current = true;
     const st = useUntieStore.getState();
     if (hasUnsavedChanges(st) && !(await getPlatform().confirmDiscard("保存していない変更があります。破棄して新しいモデルを作りますか？"))) return;
     if (!mounted.current) return;
@@ -289,7 +306,20 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     <div className="dialog-backdrop" onKeyDown={(e) => e.key === "Escape" && !running && onClose()}>
       <div className="dialog prompt-dialog source-dialog" role="dialog" aria-modal="true" aria-label="ソースコードから作成">
         <h2>ソースコードから作成</h2>
-        <div className="source-dialog-body">
+        {/* 失敗は、本文のスクロールの外 (見出しの下) に出す。本文の末尾に置くと、長い本文の下端で切れて読めない */}
+        {error && (
+          <p className="prompt-error source-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div
+          className="source-dialog-body"
+          ref={bodyBox}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            followBody.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+          }}
+        >
           {collapsed ? (
             <div className="source-summary" title={`${summaryTitle(rows)} / 業務: ${request.trim()}`}>
               <div className="source-summary-sources">{summaryTitle(rows)}</div>
@@ -478,7 +508,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           )}
           {warnings && (
             <div className="source-warnings">
-              <div className="prompt-step" role="status">
+              <div className="prompt-step source-warnings-heading" role="status" tabIndex={-1} ref={warningsHeading}>
                 モデルを作りました。気づいたことが {warnings.length} 件あります。
               </div>
               <ul>
@@ -488,7 +518,6 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
               </ul>
             </div>
           )}
-          {error && <p className="prompt-error">{error}</p>}
         </div>
         <div className="dialog-actions">
           {running ? (

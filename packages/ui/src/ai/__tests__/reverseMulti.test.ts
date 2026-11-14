@@ -223,14 +223,15 @@ describe("reverseEngineer: 複数のソース", () => {
     const dataCalls = callsOf("data").map((c) => c.text);
     expect(dataCalls).toHaveLength(3);
     expect(dataCalls.map(systemNameOf)).toEqual([MULTI_API, MULTI_SHOP, MULTI_ADMIN]);
-    expect(dataCalls[0]).toMatch(/まだ誰もデータベースを写していません/);
-    expect(dataCalls[0]).toMatch(/スキーマ定義は、ふつうバックエンド/);
-    expect(dataCalls[0]).toMatch(/データの中身で付け/);
+    // 画面を持たないバックエンドの依頼は、このシステム自身のスキーマ定義だけを写す (「ここで写したものはほかも使う」は画面を持つシステムの依頼にだけ入る)
+    expect(dataCalls[0]).toMatch(/このシステム自身のスキーマ定義/);
+    expect(dataCalls[0]).not.toMatch(/まだ誰もデータベースを写していません/);
+    expect(dataCalls[0]).not.toMatch(/ここで写したデータベースは/);
     const shop = dataCalls.find((t) => systemNameOf(t) === MULTI_SHOP)!;
     expect(shop).toMatch(/<すでにあるデータベース/);
     expect(shop).toMatch(/"name": "注文DB"/);
     expect(shop).toMatch(/use_database/);
-    expect(shop).toMatch(/同じスキーマを submit_database でもう一度出すと断られる/);
+    expect(shop).toMatch(/テーブルが重なるものを submit_database で出すと、同じかどうかを確かめられる/);
   });
 
   it("画面 UI の依頼に、その画面のソースのパス (ラベル付き) が手がかりとして渡る", async () => {
@@ -330,11 +331,61 @@ describe("プロンプトと手がかり", () => {
     expect(reverseSystemPrompt(true)).toMatch(/利用者から見て別のものとして使われているか/);
   });
 
-  it("データの依頼 (複数): スキーマ定義のあるソースから写す。画面を持たないシステムの依頼に、画面だけのシステムの決めは入らない", () => {
-    const m = { elements: [{ id: "s", kind: "system", name: "サーバー" }], relations: [] } as never;
-    expect(reverseDataRequest(m, "s", true)).toMatch(/スキーマ定義のあるソースから写す/);
-    expect(reverseDataRequest(m, "s", true)).not.toMatch(/画面だけで/);
-    expect(reverseDataRequest(m, "s", false)).not.toMatch(/ソースが複数/);
+  it("データの依頼 (複数): 画面を持つシステムは、スキーマ定義のあるソースから写し、ここで写したものはほかも使う。画面を持たないシステムの依頼は、このシステム自身のスキーマだけ", () => {
+    const withScreen = { elements: [{ id: "s", kind: "system", name: "サーバー" }, { id: "p", kind: "screen", name: "画面", systemId: "s" }], relations: [] } as never;
+    const first = reverseDataRequest(withScreen, "s", true);
+    expect(first).toMatch(/スキーマ定義のあるソースから写す/);
+    expect(first).toMatch(/ここで写したデータベースは、ほかのシステムも使います/);
+    expect(first).not.toMatch(/画面だけで/);
+    expect(reverseDataRequest(withScreen, "s", false)).not.toMatch(/ソースが複数/);
+    // システムが 1 つだけの単一ソースは、共有に触れない (今までどおり)
+    expect(reverseDataRequest(withScreen, "s", false)).not.toMatch(/ほかのシステムも使います/);
+    expect(reverseDataRequest(withScreen, "s", false)).toMatch(/スキーマ定義が見つからないときは、コードのデータの使い方/);
+    const screenless = { elements: [{ id: "s", kind: "system", name: "サーバー" }], relations: [] } as never;
+    const back = reverseDataRequest(screenless, "s", true);
+    expect(back).toMatch(/このシステム自身のスキーマ定義/);
+    expect(back).toMatch(/ほかのシステムのデータは写さない/);
+    expect(back).not.toMatch(/画面のソースではなく/);
+    expect(back).not.toMatch(/ここで写したデータベースは/);
+  });
+
+  it("データの依頼: すでにデータベースがあるときは、ソースが 1 つでも use_database を案内し、推測で別のテーブルを作らせない。社外のシステムはスキーマを写さない", () => {
+    const base = {
+      elements: [
+        { id: "s", kind: "system", name: "ショップ" },
+        { id: "p", kind: "screen", name: "画面", systemId: "s" },
+        { id: "x", kind: "system", name: "決済サービス" },
+      ],
+      relations: [],
+      databases: [{ id: "d1", name: "注文DB", dsl: "model Order {\n  id String @id\n}\n", tables: [] }],
+    } as never;
+    for (const multi of [false, true]) {
+      const shop = reverseDataRequest(base, "s", multi, ["d1"], true);
+      expect(shop, `multi=${multi}`).toMatch(/<すでにあるデータベース/);
+      expect(shop).toMatch(/use_database で、そのデータベースを名前で指して使うと答える/);
+      expect(shop).toMatch(/自分のソースにスキーマ定義が無ければ、use_database を使う。推測で別のテーブルを作らない/);
+      expect(shop).not.toMatch(/スキーマ定義が見つからないときは、コードのデータの使い方/);
+      expect(shop).not.toMatch(/ここで写したデータベースは/);
+      const pay = reverseDataRequest(base, "x", multi, ["d1"], true);
+      expect(pay).toMatch(/このシステム自身のスキーマ定義/);
+      expect(pay).toMatch(/「ありません」と答える/);
+      expect(pay).not.toMatch(/ここで写したデータベースは/);
+      expect(pay).not.toMatch(/画面のソースではなく/);
+    }
+    expect(reverseDataRequest(base, "s", false, ["d1"], true)).not.toMatch(/ソースが複数/);
+  });
+
+  it("sourcePathsIn は、ラベルがほかのラベルの末尾と重なるとき (「画面」と「フロント画面」) も、ほかのパスの途中に当たらない", () => {
+    const tree = combineSourceTrees([
+      { label: "画面", tree: memorySourceTree("a", { "src/Top.tsx": "a", "src/Only.tsx": "x" }) },
+      { label: "フロント画面", tree: memorySourceTree("b", { "src/Top.tsx": "b", "src/Cart.tsx": "c" }) },
+    ]);
+    // フロント画面/src/Top.tsx の途中の「画面/src/Top.tsx」は、画面ラベルのパスとして拾わない
+    expect(sourcePathsIn("カート (フロント画面/src/Top.tsx)", tree)).toEqual(["フロント画面/src/Top.tsx"]);
+    expect(sourcePathsIn("一覧は 画面/src/Top.tsx と フロント画面/src/Cart.tsx", tree)).toEqual(["画面/src/Top.tsx", "フロント画面/src/Cart.tsx"]);
+    // パスの先頭・区切りの直後は拾える。ラベルでないフォルダの途中 (x/画面/…) は拾わない
+    expect(sourcePathsIn("(画面/src/Only.tsx)、`画面/src/Top.tsx`", tree)).toEqual(["画面/src/Only.tsx", "画面/src/Top.tsx"]);
+    expect(sourcePathsIn("共通/画面/src/Only.tsx", tree)).toEqual([]);
   });
 
   it("sourcePathsIn は、説明にあるラベル付きのパスのうち、木にあるものだけを取り出す", () => {
@@ -500,31 +551,143 @@ describe("共有されたデータベース", () => {
     expect(note).not.toMatch(/直さなくてかまいません。$/);
   });
 
-  it("(c) AI が指示に反して同じスキーマを 2 回出したら、2 つ目は断って、すでにあるものを使うよう返す (データベースは 1 つのまま)", async () => {
+  it("(c) 同じスキーマを別の名前で出したら、1 回だけ断って use_database を案内する。そのとおり使えば、データベースは 1 つのまま", async () => {
     const r = await modelOf({
       data: async (c) => {
         const system = systemNameOf(c.text);
         if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
         else {
-          for (let i = 0; i < 3; i++) keep("dup", await c.runTool("submit_database", { ...MULTI_DATABASE, system, database_name: "管理画面のデータベース" }));
+          keep("dup", await c.runTool("submit_database", { ...MULTI_DATABASE, system, database_name: "管理画面のデータベース" }));
+          keep("dup", await c.runTool("use_database", { system, database: "注文DB", tables: [] }));
+        }
+        keep("map", await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!));
+        return "提出しました";
+      },
+    });
+    const m = r.build.model;
+    const [first, used] = results.dup!;
+    expect(first!.ok).toBe(false);
+    expect(parse(first!).error).toMatch(/「注文DB」と重なっています/);
+    expect(parse(first!).error).toMatch(/use_database/);
+    expect(parse(first!).error).toMatch(/separate_reason/);
+    expect(used!.ok).toBe(true);
+    expect(realDbs(m)).toHaveLength(1);
+    expect(m.databases.some((d) => d.name === "管理画面のデータベース")).toBe(false);
+    expect(m.designs.find((d) => d.systemId === sysIdOf(m, MULTI_ADMIN))!.databaseIds).toEqual([realDbs(m)[0]!.id]);
+    expect(checkDesign(m, sysIdOf(m, MULTI_ADMIN)).problems).toEqual([]);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("(c2) 重なると断られても、本当に別のデータベースなら separate_reason を添えて出し直せば受け付ける (理由は気づいたことに残る)", async () => {
+    const r = await modelOf({
+      data: async (c) => {
+        const system = systemNameOf(c.text);
+        if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
+        else {
+          const own = { system, database_name: "承認の記録", dsl: "model Product {\n  id String @id\n  note String\n}\n", tables: [{ table: "Product", informations: ["商品"] }] };
+          keep("own", await c.runTool("submit_database", own));
+          keep("own", await c.runTool("submit_database", { ...own, separate_reason: "承認の記録専用のテーブルで、名前だけが重なる" }));
+        }
+        keep("map", await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!));
+        return "提出しました";
+      },
+    });
+    const m = r.build.model;
+    const [first, second] = results.own!;
+    expect(first!.ok).toBe(false); // 既存と同じ名前のテーブル Product だけを持つ → 同じかもしれない
+    expect(second!.ok).toBe(true);
+    expect(m.databases.map((d) => d.name)).toEqual(expect.arrayContaining(["注文DB", "承認の記録"]));
+    expect(m.designs.find((d) => d.systemId === sysIdOf(m, MULTI_ADMIN))!.databaseIds.map((id) => m.databases.find((d) => d.id === id)!.name)).toEqual(["承認の記録"]);
+    expect(r.warnings).toContainEqual(expect.stringMatching(/出したデータベースは、すでにあるデータベース「注文DB」とテーブルが重なりますが.*別のデータベースとして受け付けました \(理由: 承認の記録専用/));
+    // 受け付けたので、サイトマップの返事は「続けて submit_database か use_database」と食い違わず、データベースを答えなかった警告も出ない
+    expect(parse(results.map![1]!).result).not.toMatch(/続けて submit_database/);
+    expect(r.warnings.some((w) => /AI がデータベースを(答えなかった|提出しなかった)/.test(w))).toBe(false);
+  });
+
+  it("(c3) 断ったあと、理由を添えずに出し直しても、断り切らずに受け付ける (そのことは気づいたことに残る)", async () => {
+    const r = await modelOf({
+      data: async (c) => {
+        const system = systemNameOf(c.text);
+        if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
+        else {
+          const dup = { ...MULTI_DATABASE, system, database_name: "管理画面のデータベース" };
+          keep("dup", await c.runTool("submit_database", dup));
+          keep("dup", await c.runTool("submit_database", dup));
+        }
+        keep("map", await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!));
+        return "提出しました";
+      },
+    });
+    const m = r.build.model;
+    expect(results.dup!.map((x) => x.ok)).toEqual([false, true]);
+    expect(m.databases.filter((d) => d.dsl.includes("model Order")).map((d) => d.name).sort()).toEqual(["注文DB", "管理画面のデータベース"]);
+    expect(r.warnings).toContainEqual(expect.stringMatching(/確かめたうえで、別のデータベースとして受け付けました \(理由は添えられていません\)/));
+  });
+
+  it("(c4) 重なりの判定: 既存と同じテーブルに 1 つ足しただけ・大文字小文字だけの違いは、別のデータベースとして通さず、1 回確かめる。重ならないものは確かめない", async () => {
+    const run1 = async (dsl: string, tables: { table: string; informations: string[] }[]) => {
+      useScripts({
+        model: specScript(NO_JOB_SPEC),
+        data: async (c) => {
+          const system = systemNameOf(c.text);
+          if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
+          else keep("x", await c.runTool("submit_database", { system, database_name: "別名DB", dsl, tables }));
+          await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!);
+          return "提出しました";
+        },
+      });
+      for (const k of Object.keys(results)) delete results[k];
+      await run();
+      return results.x![0]!;
+    };
+    const base = "model Order {\n  id String @id\n}\nmodel OrderItem {\n  id String @id\n}\nmodel Product {\n  id String @id\n}\n";
+    // (b) 既存と同じテーブルに 1 つ足しただけ
+    expect((await run1(`${base}model Extra {\n  id String @id\n}\n`, [])).ok).toBe(false);
+    // (c) テーブルの名前の大文字小文字が違うだけ
+    expect((await run1("model order {\n  id String @id\n}\nmodel ORDERITEM {\n  id String @id\n}\nmodel product {\n  id String @id\n}\n", [])).ok).toBe(false);
+    // 重ならない
+    expect((await run1("model Stock {\n  id String @id\n}\nmodel Shelf {\n  id String @id\n}\n", [])).ok).toBe(true);
+    // 1 つだけ重なり、出したテーブルも既存も過半ではない
+    expect((await run1("model Order {\n  id String @id\n}\nmodel Stock {\n  id String @id\n}\nmodel Shelf {\n  id String @id\n}\n", [])).ok).toBe(true);
+  });
+
+  it("(c5) 共有のデータベースは、別のスキーマで置き換えない: 同じ名前の提出は断り、本当に別なら別の名前を案内する。2 回断っても変わらなければ、名前を付け替えて受け付ける (データベースの名前は重ならない)", async () => {
+    const cart = { database_name: "注文DB", dsl: "model Cart {\n  id String @id\n  total Int\n}\n", tables: [{ table: "Cart", informations: ["注文"] }] };
+    const r = await modelOf({
+      data: async (c) => {
+        const system = systemNameOf(c.text);
+        if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
+        else {
+          // 管理画面は、すでにある「注文DB」を使うと答えたあと、同じ名前で別のスキーマを出し直す (設計の databaseIds に共有のデータベースが入っている)
           await c.runTool("use_database", { system, database: "注文DB", tables: [] });
+          for (let i = 0; i < 3; i++) keep("cart", await c.runTool("submit_database", { system, ...cart }));
         }
         await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!);
         return "提出しました";
       },
     });
     const m = r.build.model;
-    const [first, second, third] = results.dup!;
-    expect(first!.ok).toBe(false);
-    expect(parse(first!).error).toMatch(/「注文DB」が、ほかのシステムによってすでに写されています/);
-    expect(parse(first!).error).toMatch(/use_database/);
-    expect(second!.ok).toBe(false);
-    expect(third!.ok).toBe(true); // 3 回目からは断らず、受け付けないと返して進める
-    expect(parse(third!).result).toMatch(/受け付けません/);
-    expect(realDbs(m)).toHaveLength(1);
-    expect(m.databases.some((d) => d.name === "管理画面のデータベース")).toBe(false);
-    expect(m.designs.find((d) => d.systemId === sysIdOf(m, MULTI_ADMIN))!.databaseIds).toEqual([realDbs(m)[0]!.id]);
-    expect(checkDesign(m, sysIdOf(m, MULTI_ADMIN)).problems).toEqual([]);
+    // 注文DB は元のスキーマのまま
+    const orderDb = m.databases.filter((d) => d.name === "注文DB");
+    expect(orderDb).toHaveLength(1);
+    expect(orderDb[0]!.dsl).toContain("model Order ");
+    expect(orderDb[0]!.dsl).not.toContain("Cart");
+    expect(new Set(m.databases.map((d) => d.name)).size).toBe(m.databases.length);
+    // 最初の 2 回は、置き換えずに断る (別の名前・use_database の案内)
+    const [one, two, three] = results.cart!;
+    expect(one!.ok).toBe(false);
+    expect(parse(one!).error).toMatch(/「注文DB」は、すでにモデルにあります。置き換えません/);
+    expect(parse(one!).error).toMatch(/use_database/);
+    expect(parse(one!).error).toMatch(/別の名前/);
+    expect(two!.ok).toBe(false);
+    // 3 回目は名前を付け替えて受け付ける (行き止まりにしない)
+    expect(three!.ok).toBe(true);
+    const cartDb = m.databases.find((d) => d.dsl.includes("model Cart"))!;
+    expect(cartDb.name).not.toBe("注文DB");
+    expect(r.warnings).toContainEqual(expect.stringMatching(/データベース「注文DB」はすでにあったので、「.+」の名前で受け付けました/));
+    // 注文サーバーの対応も、全システムの画面の対応も落ちていない
+    expect(orderDb[0]!.tables.length).toBeGreaterThan(0);
+    for (const name of [MULTI_SHOP, MULTI_ADMIN]) expect(checkDesign(m, sysIdOf(m, name)).problems, name).toEqual([]);
   });
 
   it("use_database は、すでにあるデータベースの名前でないものを断って、名前の一覧を返す", async () => {

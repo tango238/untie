@@ -636,6 +636,10 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .source-stage.is-next { color: var(--muted); }
 .source-stage.is-now { font-weight: 600; }
 .source-reads { margin-bottom: 6px; }
+/* 失敗の文は、本文のスクロールの外 (見出しの下) に出す。長い文 (API の JSON など) は折り返し、高さに上限を付けてスクロールできるようにする */
+.source-error { max-height: 96px; overflow-y: auto; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; line-height: 1.5; padding: 6px 10px; border: 1px solid var(--danger); border-radius: 6px; background: #fdf3f1; }
+.source-warnings-heading:focus { outline: none; }
+.source-warnings-heading:focus-visible { outline: 2px solid var(--accent, #3a6ea5); outline-offset: 2px; }
 .source-warnings { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 200px; overflow-y: auto; }
 .source-warnings ul { margin: 4px 0 0; padding-left: 18px; }
 

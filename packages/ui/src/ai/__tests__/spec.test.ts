@@ -167,6 +167,79 @@ describe("buildModelFromSpec: 操作の targets に画面の名前を書いた�
     expect(r.warnings.some((w) => /対象「予約入力画面」が見つかりません/.test(w))).toBe(true);
   });
 
+  describe("同じ名前の画面が複数のシステムにあるとき", () => {
+    const two = (usecases: { name: string; targets?: string[]; usecase?: never }[], screens: ModelSpec["screens"]): ModelSpec => ({
+      system_name: "店",
+      actors: [{ name: "店員" }],
+      systems: [{ name: "管理" }, { name: "店" }],
+      informations: [{ name: "会員" }],
+      businesses: [{ name: "業務", main_actors: ["店員"], activities: [{ name: "作業", performers: ["店員"], usecases: usecases.map((u) => ({ ...u, reads: ["会員"] })) }] }],
+      screens,
+    });
+    const both = [{ name: "ログイン", system: "管理" }, { name: "ログイン", system: "店" }];
+    const screensNamed = (r: ReturnType<typeof buildModelFromSpec>, usecase: string) => {
+      const uc = r.model.elements.find((e) => e.kind === "usecase" && e.name === usecase)!;
+      return r.model.relations
+        .filter((x) => x.kind === "usecaseScreen" && x.sourceId === uc.id)
+        .map((x) => {
+          const sc = r.model.elements.find((e) => e.id === x.targetId)!;
+          return `${r.model.elements.find((e) => e.id === (sc as { systemId?: string }).systemId)?.name}/${sc.name}`;
+        });
+    };
+
+    it("targets の名前だけでは、別のシステムの画面に結ばない。操作の対象のシステムで 1 つに決まるなら、そのシステムの画面に結ぶ", () => {
+      const r = buildModelFromSpec(two([{ name: "店でログイン", targets: ["店", "ログイン"] }], both));
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "店でログイン")).toEqual(["店/ログイン"]);
+      // 管理の画面に結ばれ、店の画面で逆向きの警告が出る、ということが無い
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("操作の対象のシステムが書かれていないときは、結ばずに「screens[].usecase で書いてください」を 1 件だけ警告する (両方の操作が書いても 1 件)", () => {
+      const r = buildModelFromSpec(two([{ name: "店でログイン", targets: ["ログイン"] }, { name: "管理でログイン", targets: ["ログイン"] }], both));
+      expect(screensNamed(r, "店でログイン")).toEqual([]);
+      expect(screensNamed(r, "管理でログイン")).toEqual([]);
+      const lines = r.warnings.filter((w) => /同じ名前の画面が複数/.test(w));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/screens\[\]\.usecase で書いてください/);
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("screens[].usecase の宣言は、同じ名前の画面が複数のシステムにあっても、それぞれの操作に結ばれる。宣言した操作は targets 経由で別の画面には結ばない", () => {
+      const declared = [{ name: "ログイン", system: "管理", usecase: "管理でログイン" }, { name: "ログイン", system: "店", usecase: "店でログイン" }];
+      const r = buildModelFromSpec(two([{ name: "管理でログイン", targets: ["管理"] }, { name: "店でログイン", targets: ["店"] }], declared));
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "管理でログイン")).toEqual(["管理/ログイン"]);
+      expect(screensNamed(r, "店でログイン")).toEqual(["店/ログイン"]);
+      expect(r.model.elements.filter((e) => e.kind === "screen")).toHaveLength(2);
+      // 宣言した操作が、targets にも同じ名前を書いていても、別の画面 (管理) には結ばない
+      const withTargets = buildModelFromSpec(two([{ name: "管理でログイン", targets: ["ログイン"] }, { name: "店でログイン", targets: ["店"] }], declared));
+      expect(screensNamed(withTargets, "管理でログイン")).toEqual(["管理/ログイン"]);
+      expect(screensNamed(withTargets, "店でログイン")).toEqual(["店/ログイン"]);
+      expect(withTargets.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("宣言が勝つ: 別の画面が screens[].usecase で宣言した操作は、targets に別の画面の名前があっても、その画面には結ばない", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "ログイン", system: "店", usecase: "ログインする" }, { name: "会員一覧", system: "店" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("上限で切られた画面・作られなかった画面 (属するシステムが決まらない) を指した targets は、「対象が見つかりません」の警告になる", () => {
+      const many = Array.from({ length: SPEC_LIMITS.screens }, (_, i) => ({ name: `画面${i}`, system: "店" }));
+      const cut = buildModelFromSpec(two([{ name: "切られる操作", targets: ["後ろの画面"] }], [...many, { name: "後ろの画面", system: "店" }]));
+      expect(cut.warnings).toContainEqual(expect.stringMatching(/対象「後ろの画面」が見つかりません/));
+      expect(cut.warnings).toContainEqual(expect.stringMatching(/画面は先頭 300 件だけ使いました/));
+      expect(screensNamed(cut, "切られる操作")).toEqual([]);
+      // システムを書かず、システムが複数あるので作られない画面
+      const lost = buildModelFromSpec(two([{ name: "迷子の操作", targets: ["行き先不明"] }], [{ name: "行き先不明" }]));
+      expect(lost.warnings).toContainEqual(expect.stringMatching(/画面「行き先不明」は属するシステムが決まらない/));
+      expect(lost.warnings).toContainEqual(expect.stringMatching(/操作「迷子の操作」の対象「行き先不明」が見つかりません/));
+    });
+  });
+
   it("道具の説明に、画面は targets に書いても screens の usecase に書いてもよいと書いてある", async () => {
     const { SUBMIT_MODEL_TOOL } = await import("../spec");
     const text = JSON.stringify(SUBMIT_MODEL_TOOL.parameters);
