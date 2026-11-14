@@ -235,7 +235,7 @@ export function describeSharedDatabases(model: UntieModel, databaseIds: readonly
 /**
  * 段階 3: システムのデータ (データベースの DSL とサイトマップ) の依頼。画面を持たないシステム (バッチ・API だけ) には、データベースだけを頼む。
  * sharedDbIds は、ここまでのシステムが写した、すでにあるデータベース (ソースの数に関わらず、あとのシステムは、これを使うと答える)。
- * othersShare は、ほかのシステムも同じデータを使いうるか (システムが複数あるとき。既定は multi。ソースが 1 つでシステムも 1 つなら偽で、依頼文は共有に触れない)
+ * othersShare は、ほかのシステムも同じデータを使いうるか (データを使うシステムが 2 つ以上のとき。既定は multi。システムが 1 つなら、ソースがいくつあっても偽で、依頼文は共有やほかのシステムに触れない)
  */
 export function reverseDataRequest(model: UntieModel, systemId: string, multi = false, sharedDbIds: readonly string[] = [], othersShare = multi): string {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
@@ -311,9 +311,15 @@ ${JSON.stringify(otherInfos.slice(0, SHARED_DB_LIMITS.informationNames))}${other
 
 ${infoBlock}
 
-submit_database: このシステム自身のスキーマ定義 (このシステムが持つデータ。マイグレーション・ORM のモデル・SQL・Prisma のスキーマ) がソースにあるときだけ、それを探して読み、Prisma の DSL に写して、テーブル (model) が表す情報を結ぶ
+${
+    othersShare
+      ? `submit_database: このシステム自身のスキーマ定義 (このシステムが持つデータ。マイグレーション・ORM のモデル・SQL・Prisma のスキーマ) がソースにあるときだけ、それを探して読み、Prisma の DSL に写して、テーブル (model) が表す情報を結ぶ
    - ソースにあるテーブル・列を写す。ソースに無いテーブル・列は作らない。ほかのシステムのデータは写さない
-   - このシステム自身のスキーマ定義がソースに無ければ (ソースコードの外にある社外のシステム、データを持たない連携先など)、submit_database を提出せず、「ありません」と答える。コードのデータの使い方から推測して、スキーマを作らない。バックエンドなどほかのシステムのスキーマを、このシステムのものとして写さない
+   - このシステム自身のスキーマ定義がソースに無ければ (ソースコードの外にある社外のシステム、データを持たない連携先など)、submit_database を提出せず、「ありません」と答える。コードのデータの使い方から推測して、スキーマを作らない。バックエンドなどほかのシステムのスキーマを、このシステムのものとして写さない`
+      : `submit_database: ソースのスキーマ定義 (マイグレーション・ORM のモデル・SQL・Prisma のスキーマ) を探して読み、Prisma の DSL に写して、テーブル (model) が表す情報を結ぶ
+   - ソースにあるテーブル・列を写す。ソースに無いテーブル・列は作らない
+   - このシステムのスキーマ定義がソースに無ければ (ソースコードの外にある社外のシステム、データを持たない連携先など)、submit_database を提出せず、「ありません」と答える。コードのデータの使い方から推測して、スキーマを作らない`
+  }
 ${commonRules}${sharedRules}
 
 submit_database で解析エラーが返ったら直して出し直してください。

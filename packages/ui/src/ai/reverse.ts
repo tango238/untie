@@ -2,6 +2,7 @@
 // 対象の業務と関連する業務を調べて、分析の要素・データ・サイトマップ・画面 UI まで入ったモデルを作る。
 // 段階: 調査 → 分析モデル → データ → 画面 UI。組み立ては spec.ts と designDraft.ts に任せる。
 import { setDesignDatabases, setDesignNavigation } from "@untie/core/model/commands";
+import { NAME_MAX_LENGTH, textLength, truncateText } from "@untie/core/model/limits";
 import { checkDesign, DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
 import { systemInformationIds, unmappedInformationIds } from "@untie/core/model/designData";
 import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitemap";
@@ -300,13 +301,26 @@ function designNamer(model: UntieModel, systemId: string) {
 
 const defined = (names: (string | undefined)[]): string[] => names.filter((n): n is string => !!n);
 
-/** すでにあるデータベースと重ならない名前 (「名前 (システム名)」、それも使われていれば番号を付ける) */
+/**
+ * すでにあるデータベースと重ならない名前 (「名前 (システム名)」、それも使われていれば番号を付ける)。
+ * 名前は NAME_MAX_LENGTH で切られるので、後ろに付ける部分の長さを先に数え、元の名前をその分だけ切ってからつなぐ (切り落とされて同じ名前に戻らないように)。
+ * 番号は、すでにある数 + 1 回までで必ず空きが見つかる。最後は、番号だけの接尾辞で必ず一意にする
+ */
 function uniqueDatabaseName(model: UntieModel, base: string, systemName: string): string {
   const taken = new Set(model.databases.map((d) => d.name));
-  const first = resolveDatabaseName(systemName, `${base} (${systemName})`);
+  const system = truncateText(systemName.trim(), 50);
+  const join = (suffix: string): string => {
+    const head = truncateText(base, Math.max(1, NAME_MAX_LENGTH - textLength(suffix)));
+    return `${head}${suffix}`;
+  };
+  const first = join(` (${system})`);
   if (!taken.has(first)) return first;
-  for (let i = 2; ; i++) {
-    const n = resolveDatabaseName(systemName, `${base} (${systemName}) ${i}`);
+  for (let i = 2; i <= taken.size + 2; i++) {
+    const n = join(` (${system}) ${i}`);
+    if (!taken.has(n)) return n;
+  }
+  for (let i = taken.size + 3; ; i++) {
+    const n = join(` ${i}`);
     if (!taken.has(n)) return n;
   }
 }
@@ -435,10 +449,10 @@ function stoppedWarning(stage: "データ" | "画面 UI", failure: StageFailure,
 }
 
 /** パスの区切りに使う文字 (空白は、ラベルやファイル名に空白があっても使えるよう、区切りにしない) */
-const PATH_DELIMITERS = /[、。,;()（）「」『』"'`<>\n\r\t]/;
+const PATH_DELIMITERS = /[、。,，;；:：・→⇒←()（）「」『』【】"'`<>\n\r\t]/;
 
 /** ラベル付きのパスが始まる直前に来てよい文字 (空白・区切り・箇条書きや強調の記号)。それ以外 (文字・`/` など) の直後は、ほかのパスの途中とみなす */
-const PATH_START_BEFORE = /[\s、。,;()（）「」『』"'`<>*[\]{}:=|#]/;
+const PATH_START_BEFORE = /[\s、。,，;；・→⇒←()（）「」『』【】"'`<>*[\]{}:：=|#]/;
 
 /**
  * 画面の説明などの文章から、ラベル付きのパス (木にあるもの) を取り出す。ソースが複数のとき、画面 UI の会話の手がかりにする。
@@ -688,6 +702,8 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       if (dbApplied && dbAttempts >= dbMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${afterDb()}`, false);
       // すでにあるデータベースとテーブルが重なるもの (同じかもしれないもの) は、1 回だけ確かめる (データベースが重複して、対応が割れないように)。
       // 同じなら use_database、本当に別のデータベースなら separate_reason を添えて出し直す。確かめたあとは、理由の有無にかかわらず受け付ける (断り切らない)
+      // 気づいたことは、受け付ける前の提出のたびに作り直す (断られた提出の分を残さない)
+      if (!dbApplied) dbNotes = [];
       if (!dbApplied && sharedHere.length > 0) {
         const submitted = tableNamesOf({ dsl: draft.dsl });
         let same: { name: string; common: string[] } | undefined;
@@ -834,7 +850,7 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
           withScreens ? { ...handlers, submit_sitemap: submitSitemap } : handlers,
           stageSeed,
         );
-        await dataSession.send(reverseDataRequest(model, sys.id, multi, sharedHere, multi || shareable), {}, o.signal);
+        await dataSession.send(reverseDataRequest(model, sys.id, multi, sharedHere, shareable), {}, o.signal);
         throwIfAborted(o.signal);
         // 画面を持たないシステムは、ソースにスキーマ定義が無ければ (社外のシステムなど) 提出しない答えが正しいので、頼み直さない
         // (会話が失敗したシステムも頼み直さない)。
@@ -866,6 +882,10 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       if (ownDbId) sharedDbs.push(ownDbId);
     }
     if (usedDb) withDb.add(sys.id);
+    // システムが 1 つだけのときは、画面の有無に関係なく、データベースが無いまま終わったことを気づいたことに残す (ほかのシステムのデータで補えず、気づけないので)
+    if (dataSystems.length === 1 && !withScreens && !dbApplied && !usedDb && !dbGaveUp && !failure && !skippedHere) {
+      warnings.push(`データ: システム「${sys.name}」のデータベースは作られませんでした (AI が、このシステム自身のスキーマ定義はソースに無いと答えました。ソースにあるはずなら、設計モードで足してください)`);
+    }
     // 画面のあるシステムが、データベースについて答えなかったときは、最後に補う (会話が失敗したときも)
     if (withScreens && !dbApplied && !usedDb && !dbGaveUp) unanswered.push({ id: sys.id, name: sys.name, failed: !!failure || skippedHere, askedSimilar: similarAsked });
     warnings.push(...dbWarnings, ...useWarnings);

@@ -227,6 +227,34 @@ describe("buildModelFromSpec: 操作の targets に画面の名前を書いた�
       expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
     });
 
+    it("作られなかった画面 (属するシステムが見つからない) の usecase の宣言は、宣言済みに数えない: 操作は targets の画面に結ばれる", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "会員一覧", system: "店" }, { name: "詳細", system: "存在しない", usecase: "ログインする" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/会員一覧"]);
+      expect(r.warnings).toContainEqual(expect.stringMatching(/画面「詳細」の属するシステム「存在しない」が見つかりません/));
+      expect(r.warnings.some((w) => /targets の画面/.test(w))).toBe(false);
+    });
+
+    it("宣言のある操作の targets がほかの画面を指していたら、結ばなかったことを (どの操作の・どの画面を・なぜ) 警告に出す", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "ログイン", system: "店", usecase: "ログインする" }, { name: "会員一覧", system: "店" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      const lines = r.warnings.filter((w) => /targets の画面/.test(w));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/操作「ログインする」の targets の画面「会員一覧」は結びませんでした/);
+      expect(lines[0]).toMatch(/「ログイン」が screens\[\]\.usecase でこの操作を使うと宣言している/);
+    });
+
+    it("システムが 1 つのモデルで、同じ画面をシステムありとなしで 2 回書いても、同じ名前の画面が複数ある扱いにならず、targets から結べる", () => {
+      const one: ModelSpec = { ...two([{ name: "ログインする", targets: ["ログイン"] }], [{ name: "ログイン", system: "店" }, { name: "ログイン" }]), systems: [{ name: "店" }] };
+      const r = buildModelFromSpec(one);
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      expect(r.model.elements.filter((e) => e.kind === "screen")).toHaveLength(1);
+    });
+
     it("上限で切られた画面・作られなかった画面 (属するシステムが決まらない) を指した targets は、「対象が見つかりません」の警告になる", () => {
       const many = Array.from({ length: SPEC_LIMITS.screens }, (_, i) => ({ name: `画面${i}`, system: "店" }));
       const cut = buildModelFromSpec(two([{ name: "切られる操作", targets: ["後ろの画面"] }], [...many, { name: "後ろの画面", system: "店" }]));

@@ -8,7 +8,7 @@ import { memorySourceTree } from "../sourceTree";
 import type { ModelSpec } from "../spec";
 import type { ToolOutcome } from "../tools";
 import { FIXTURE_DATABASE, FIXTURE_SITEMAP, FIXTURE_SPEC } from "./fixtures/reverseDraft";
-import { MULTI_ADMIN, MULTI_API, MULTI_DATABASE, MULTI_SHOP, MULTI_SITEMAPS, MULTI_SPEC } from "./fixtures/reverseMultiSource";
+import { MULTI_ADMIN, MULTI_API, MULTI_DATABASE, MULTI_SHOP, MULTI_SITEMAPS, MULTI_SPEC, multiFixtureSources } from "./fixtures/reverseMultiSource";
 
 type Kind = "survey" | "model" | "data" | "screen";
 interface Call {
@@ -64,7 +64,7 @@ const TWO_SYSTEMS: ModelSpec = { ...MULTI_SPEC, systems: MULTI_SPEC.systems!.fil
 /** ソースが 1 つ (ラベルなし) */
 const ONE_SOURCE = () => memorySourceTree("shop-app", { "README.md": "# ショップ\n", "prisma/schema.prisma": MULTI_DATABASE.dsl, "src/a.ts": "export {};\n" });
 
-async function run(spec: ModelSpec, data: Script) {
+async function run(spec: ModelSpec, data: Script, source: Parameters<typeof reverseEngineer>[0] = ONE_SOURCE()) {
   fake.calls.length = 0;
   fake.dataTools.length = 0;
   for (const k of Object.keys(results)) delete results[k];
@@ -74,7 +74,7 @@ async function run(spec: ModelSpec, data: Script) {
     data,
     screen: () => "提出しました",
   } as typeof fake.scripts;
-  return reverseEngineer(ONE_SOURCE(), "お客様の注文から、スタッフの承認まで", { provider: "claude", model: "claude-opus-5-5", apiKey: "k" });
+  return reverseEngineer(source, "お客様の注文から、スタッフの承認まで", { provider: "claude", model: "claude-opus-5-5", apiKey: "k" });
 }
 const sysIdOf = (m: UntieModel, name: string) => m.elements.find((e) => e.kind === "system" && e.name === name)!.id;
 const toolNames = (tools: { name: string }[]) => tools.map((t) => t.name).filter((n) => !["list_files", "read_file", "search_code"].includes(n));
@@ -159,5 +159,77 @@ describe("データの段階: ソースが 1 つでも、すでにあるデー�
     expect(secondOwn).toMatch(/どの情報にも結ばれていないもの: Memo/);
     expect(secondOwn).not.toMatch(/OrderItem/);
     expect(secondOwn).toMatch(/どのテーブルにも結ばれていない情報: 注文明細/);
+  });
+
+  it("名前が 200 文字のデータベースと同じ名前で 3 回出されても、名前の付け替えが終わり、200 文字以内の別の名前で受け付ける", async () => {
+    const longName = "長".repeat(210);
+    const cart = { database_name: longName, dsl: "model Cart {\n  id String @id\n}\n", tables: [{ table: "Cart", informations: ["商品"] }] };
+    const r = await run(MULTI_SPEC, async (c) => {
+      const system = systemNameOf(c.text);
+      if (system === MULTI_API) await c.runTool("submit_database", { ...MULTI_DATABASE, system, database_name: longName });
+      else if (system === MULTI_SHOP) for (let i = 0; i < 3; i++) keep("same", await c.runTool("submit_database", { system, ...cart }));
+      if (system !== MULTI_API) await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!);
+      return "提出しました";
+    });
+    expect(results.same!.map((x) => x.ok)).toEqual([false, false, true]);
+    const names = r.build.model.databases.map((d) => d.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    for (const n of names) expect([...n].length).toBeLessThanOrEqual(200);
+    expect(r.warnings.some((w) => /はすでにあったので/.test(w))).toBe(true);
+  });
+
+  it("確かめた → 名前で断られた → 重ならない別の内容で出し直した、の順でも、受け付けた提出に古い「重なりますが」の警告は付かない", async () => {
+    const r = await run(TWO_SYSTEMS, async (c) => {
+      const system = systemNameOf(c.text);
+      if (system === MULTI_SHOP) await c.runTool("submit_database", { ...MULTI_DATABASE, system });
+      else {
+        // 重なる (確かめられる) → 理由を添えて、同じ名前で出す (名前で断られる) → 重ならない別の内容・別の名前で出し直す
+        keep("seq", await c.runTool("submit_database", { ...MULTI_DATABASE, system }));
+        keep("seq", await c.runTool("submit_database", { ...MULTI_DATABASE, system, separate_reason: "別のデータベース" }));
+        keep("seq", await c.runTool("submit_database", { system, database_name: "買い物DB", dsl: "model Cart {\n  id String @id\n}\n", tables: [{ table: "Cart", informations: ["商品"] }] }));
+      }
+      await c.runTool("submit_sitemap", MULTI_SITEMAPS[system]!);
+      return "提出しました";
+    });
+    expect(results.seq!.map((x) => x.ok)).toEqual([false, false, true]);
+    expect(r.build.model.databases.map((d) => d.name)).toContain("買い物DB");
+    expect(r.warnings.filter((w) => /重なります/.test(w))).toEqual([]);
+  });
+});
+
+describe("データの段階: システムが 1 つで、ソースが複数のとき", () => {
+  const ONE_SYSTEM = (withScreen: boolean): ModelSpec => ({
+    system_name: "注文API",
+    actors: [{ name: "店のスタッフ" }],
+    systems: [{ name: "注文サーバー" }],
+    informations: [{ name: "注文" }],
+    businesses: [
+      {
+        name: "受付",
+        main_actors: ["店のスタッフ"],
+        activities: [{ name: "注文を受ける", performers: ["店のスタッフ"], usecases: [{ name: "注文を登録する", reads: ["注文"], targets: ["注文サーバー"] }] }],
+      },
+    ],
+    ...(withScreen ? { screens: [{ name: "注文入力", system: "注文サーバー" }] } : {}),
+  });
+
+  it("画面を持たないシステム: 依頼文はほかのシステムを前提にせず (複数ソース前と同じ文)、AI がデータベースを出さなかったことを気づいたことに残す", async () => {
+    const r = await run(ONE_SYSTEM(false), () => "ありません", multiFixtureSources());
+    const text = fake.calls.find((c) => c.kind === "data")!.text;
+    expect(text).not.toMatch(/ほかのシステムのデータは写さない|ほかのシステムのスキーマ/);
+    expect(text).toMatch(/このシステムのスキーマ定義がソースに無ければ/);
+    expect(r.warnings.some((w) => /システム「注文サーバー」のデータベースは作られませんでした/.test(w))).toBe(true);
+  });
+
+  it("画面を持つシステム: 「ここで写したデータベースは、ほかのシステムも使います」を入れない (道具の説明と合わせる)", async () => {
+    await run(ONE_SYSTEM(true), async (c) => {
+      await c.runTool("submit_database", { system: "注文サーバー", dsl: "model Order {\n  id String @id\n}\n", tables: [{ table: "Order", informations: ["注文"] }] });
+      return "提出しました";
+    }, multiFixtureSources());
+    const text = fake.calls.find((c) => c.kind === "data")!.text;
+    expect(text).toMatch(/ソースが複数/);
+    expect(text).not.toMatch(/ほかのシステムも使います|モデルにあるほかの情報/);
+    expect(props(dbTool(fake.dataTools[0]!)).database_name!.description).not.toMatch(/ほかのシステム/);
   });
 });

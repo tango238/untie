@@ -431,21 +431,6 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   // 上限で切られる画面 (先頭 SPEC_LIMITS.screens 件のあと) は含めない。切られた画面を指す targets は、「対象が見つかりません」の警告になる
   const specScreens = (Array.isArray(spec.screens) ? spec.screens : []).slice(0, L.screens);
   const specScreenNames = new Set(specScreens.flatMap((sc) => (typeof sc?.name === "string" && nameOf(sc.name) ? [nameOf(sc.name)] : [])));
-  /** 同じ名前の画面が、別のシステムにも (または、システムを書かずに) 複数あるときの名前。targets の名前だけでは、どの画面か決められない */
-  const ambiguousScreenNames = new Set<string>();
-  {
-    const systemsByName = new Map<string, Set<string>>();
-    for (const sc of specScreens) {
-      const n = typeof sc?.name === "string" ? nameOf(sc.name) : "";
-      if (!n) continue;
-      const set = systemsByName.get(n) ?? new Set<string>();
-      set.add(typeof sc.system === "string" ? nameOf(sc.system) : "");
-      systemsByName.set(n, set);
-    }
-    for (const [n, set] of systemsByName) if (set.size > 1) ambiguousScreenNames.add(n);
-  }
-  /** screens[].usecase でどこかの画面が宣言した操作の名前 (宣言が勝つ。targets に別の画面の名前があっても、そちらには結ばない) */
-  const declaredUsecaseNames = new Set(specScreens.flatMap((sc) => (typeof sc?.usecase === "string" && nameOf(sc.usecase) ? [nameOf(sc.usecase)] : [])));
   /** 画面の名前 → targets にその名前を書いた操作の id */
   const usecasesNamingScreen = new Map<string, string[]>();
   /** 画面の段階で、targets の画面の名前から結びにいった操作の id (結べたかは別。ここに無いものは、画面が作られなかったなどで結びにいけなかった) */
@@ -564,6 +549,44 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       if (t) targetOfUsecase.set(r.sourceId, t);
     }
   }
+  /**
+   * 画面の宣言 (名前・属するシステム・使う操作) を、画面を作る前に解決する。作られない画面 (名前が無い・属するシステムが見つからない・
+   * 属するシステムが決まらない) は含めない。属するシステムは、書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム、
+   * それも無ければ宣言した操作の対象のシステム
+   */
+  const resolvedScreens: { name: string; systemKey: string; declaredName?: string }[] = [];
+  for (const sc of specScreens) {
+    const name = typeof sc?.name === "string" ? nameOf(sc.name) : "";
+    if (!name) continue;
+    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
+    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(nameOf(sc.system)) : undefined;
+    // 書かれたシステムが見つからない画面は作られない
+    if (typeof sc.system === "string" && sc.system && !explicit) continue;
+    const declaredTarget = declaredUc ? targetOfUsecase.get(declaredUc.id) : undefined;
+    const system = explicit ?? (systems.length === 1 ? systems[0] : undefined) ?? (declaredTarget?.kind === "system" ? declaredTarget : undefined);
+    // システムが決まらない画面は、宣言した操作が無ければ、名前を書いた操作の対象から決まることがある (そのため、宣言には数えず、同じ名前の判定では 1 つのシステム扱いにする)
+    resolvedScreens.push({ name, systemKey: system?.id ?? "", ...(declaredUc && system ? { declaredName: declaredUc.name } : {}) });
+  }
+  /** 同じ名前の画面が、別のシステムにも (または、システムが決まらないまま) 複数あるときの名前。targets の名前だけでは、どの画面か決められない。同じシステムの同じ名前は 1 つの画面 */
+  const ambiguousScreenNames = new Set<string>();
+  {
+    const systemsByName = new Map<string, Set<string>>();
+    for (const r of resolvedScreens) {
+      const set = systemsByName.get(r.name) ?? new Set<string>();
+      set.add(r.systemKey);
+      systemsByName.set(r.name, set);
+    }
+    for (const [n, set] of systemsByName) if (set.size > 1) ambiguousScreenNames.add(n);
+  }
+  /** 作られる画面が screens[].usecase で宣言した操作の名前 → 宣言した画面の名前 (宣言が勝つ。targets に別の画面の名前があっても、そちらには結ばない) */
+  const declaredScreensOfUsecase = new Map<string, Set<string>>();
+  for (const r of resolvedScreens) {
+    if (r.declaredName === undefined) continue;
+    const set = declaredScreensOfUsecase.get(r.declaredName) ?? new Set<string>();
+    set.add(r.name);
+    declaredScreensOfUsecase.set(r.declaredName, set);
+  }
+  const declaredUsecaseNames = new Set(declaredScreensOfUsecase.keys());
   /** 画面 (分析の要素の id) → 使う操作の id と、操作 → 画面。結んだものだけを覚える (画面はこの段階で初めて結ぶ) */
   const usecaseOfScreen = new Map<string, string>();
   const screenOfUsecase = new Map<string, string>();
@@ -636,6 +659,16 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
 
   // targets に画面の名前を書いたのに、その画面に結べなかった操作 (画面が作られなかった・同じ名前の画面が複数あって決められなかった)
   for (const [screenName, ucIds] of usecasesNamingScreen) {
+    // 宣言のある操作の targets がほかの画面を指していたら、宣言を優先したことを知らせる
+    for (const id of ucIds) {
+      const u = model.elements.find((e) => e.id === id);
+      const declaredBy = u ? declaredScreensOfUsecase.get(u.name) : undefined;
+      if (u && declaredBy && !declaredBy.has(screenName)) {
+        warnings.push(
+          `操作「${u.name}」の targets の画面「${screenName}」は結びませんでした (画面${[...declaredBy].map((n) => `「${n}」`).join("")}が screens[].usecase でこの操作を使うと宣言しているため。1 つの操作が使う画面は 1 つだけ)`,
+        );
+      }
+    }
     const left = ucIds.map((id) => model.elements.find((e) => e.id === id)).filter((u): u is Element => !!u && !declaredUsecaseNames.has(u.name) && !namedAttempted.has(u.id));
     if (left.length === 0) continue;
     if (ambiguousScreenNames.has(screenName)) {

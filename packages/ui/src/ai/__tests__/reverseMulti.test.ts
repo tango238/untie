@@ -388,6 +388,30 @@ describe("プロンプトと手がかり", () => {
     expect(sourcePathsIn("共通/画面/src/Only.tsx", tree)).toEqual([]);
   });
 
+  it("sourcePathsIn は、「・」「→」などの区切りの前後でもパスを拾う", () => {
+    const tree = combineSourceTrees([
+      { label: "画面", tree: memorySourceTree("a", { "src/A.tsx": "a", "src/B.tsx": "b", "src/x.ts": "x" }) },
+      { label: "フロント画面", tree: memorySourceTree("b", { "src/Cart.tsx": "c" }) },
+    ]);
+    expect(sourcePathsIn("・画面/src/x.ts", tree)).toEqual(["画面/src/x.ts"]);
+    expect(sourcePathsIn("一覧→画面/src/x.ts", tree)).toEqual(["画面/src/x.ts"]);
+    expect(sourcePathsIn("画面/src/A.tsx・画面/src/B.tsx", tree)).toEqual(["画面/src/A.tsx", "画面/src/B.tsx"]);
+    expect(sourcePathsIn("画面/src/A.tsx・B.tsx、「画面/src/x.ts」。（画面/src/B.tsx）,画面/src/A.tsx", tree)).toEqual(["画面/src/A.tsx", "画面/src/x.ts", "画面/src/B.tsx"]);
+    // ほかのラベルの末尾に重なるものは、区切りがあっても拾わない
+    expect(sourcePathsIn("・フロント画面/src/Cart.tsx", tree)).toEqual(["フロント画面/src/Cart.tsx"]);
+  });
+
+  it("データの依頼: システムが 1 つ (othersShare が偽) なら、ソースが複数でも共有・ほかのシステムの文を入れない。画面を持たない依頼は複数ソース前の文", () => {
+    const screenless = { elements: [{ id: "s", kind: "system", name: "サーバー" }], relations: [] } as never;
+    const one = reverseDataRequest(screenless, "s", true, [], false);
+    expect(one).toMatch(/このシステムのスキーマ定義がソースに無ければ/);
+    expect(one).not.toMatch(/このシステム自身のスキーマ定義|ほかのシステムのスキーマ/);
+    const two = reverseDataRequest(screenless, "s", true, [], true);
+    expect(two).toMatch(/バックエンドなどほかのシステムのスキーマを、このシステムのものとして写さない/);
+    const withScreen = { elements: [{ id: "s", kind: "system", name: "サーバー" }, { id: "p", kind: "screen", name: "画面", systemId: "s" }], relations: [] } as never;
+    expect(reverseDataRequest(withScreen, "s", true, [], false)).not.toMatch(/ほかのシステムも使います/);
+  });
+
   it("sourcePathsIn は、説明にあるラベル付きのパスのうち、木にあるものだけを取り出す", () => {
     const tree = combineSourceTrees(multiFixtureSources());
     const text = "お客様が注文を送る (フロント画面/src/pages/OrderNew.tsx:12)。参考: バックエンド/src/routes/orders.ts、フロント画面/src/pages/Nothing.tsx、フロント画面/.env";
