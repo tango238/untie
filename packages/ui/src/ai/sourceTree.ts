@@ -42,7 +42,7 @@ export interface SourceSummary {
   folder: string;
   /** まとめた木に入れた、読めるファイルの数 (件数の上限で減らした後) */
   fileCount: number;
-  /** もとのソースが件数の上限で打ち切られていた */
+  /** もとのソースが、たどる時点で件数の上限で打ち切られていた (件数を分け合って減らしたことは trimmed で別に持つ) */
   truncated: boolean;
   /** もとのソースが深さの上限で一部の枝を飛ばしていた */
   depthTruncated: boolean;
@@ -192,6 +192,14 @@ export function visibleFiles(tree: SourceTree): SourceFileInfo[] {
   return tree.files.filter((f) => treeExcludeReason(tree, f.path, f.size) === null);
 }
 
+/**
+ * ソースの呼び名 (依頼・履歴・サマリー・会話の最初の発言で同じ形)。1 つなら「ソースコード「フォルダ名」」、
+ * 複数なら「ソースコード 3 か所 (ラベル (フォルダ名)、…)」
+ */
+export function sourcesTitle(sources: readonly { label: string; folder: string }[]): string {
+  return sources.length === 1 ? `ソースコード「${sources[0]!.folder}」` : `ソースコード ${sources.length} か所 (${sources.map((s) => `${s.label} (${s.folder})`).join("、")})`;
+}
+
 /** ソースが 2 つ以上のまとめた木か (パスの先頭がラベルになっている) */
 export const isMultiSourceTree = (tree: SourceTree): boolean => (tree.sources?.length ?? 0) > 1 && tree.sources!.every((s) => s.label !== "");
 
@@ -202,10 +210,14 @@ export const labelKey = (label: string): string => label.normalize("NFKC").toLow
 
 // eslint-disable-next-line no-control-regex
 const LABEL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
+/** 見えない文字: 書式文字 (ソフトハイフン U+00AD・タグ文字 U+E0000 台などの \p{Cf}) と、空白に見えるハングルの埋め字・点字の空白 */
+const LABEL_INVISIBLE = /[\p{Cf}\u115f\u1160\u3164\uffa0\u2800]/u;
+/** glob の記号。ラベルが search_code の glob (ラベル付きの絞り込み) でワイルドカードとして扱われないよう、ラベルには使えない */
+const LABEL_GLOB = /[*?[\]{}]/;
 
 /**
  * ラベルの形の検査。使えるなら null、使えないなら理由 (画面にそのまま出す)。
- * パスの 1 階層としてそのまま使えること: `/`・`\`・`:`・制御文字・先頭や末尾の空白・`.`・`..`・先頭の `~` は使えない。空も不可。長さは MAX_SOURCE_LABEL_CHARS まで
+ * パスの 1 階層としてそのまま使えること: `/`・`\`・`:`・制御文字・見えない文字・glob の記号 (`* ? [ ] { }`)・先頭や末尾の空白・`.`・`..`・先頭の `~` は使えない。空も不可。長さは MAX_SOURCE_LABEL_CHARS まで
  */
 export function sourceLabelProblem(label: string): string | null {
   if (label === "") return "ラベルを入力してください";
@@ -214,6 +226,8 @@ export function sourceLabelProblem(label: string): string | null {
   if ([...label].length > MAX_SOURCE_LABEL_CHARS) return `ラベルは ${MAX_SOURCE_LABEL_CHARS} 文字までです`;
   if (/[/\\:]/.test(label)) return "ラベルに「/」「\\」「:」は使えません";
   if (LABEL_CONTROL.test(label)) return "ラベルに制御文字は使えません";
+  if (LABEL_INVISIBLE.test(label)) return "ラベルに見えない文字 (ソフトハイフン・書式文字・空白に見える文字など) は使えません";
+  if (LABEL_GLOB.test(label)) return "ラベルに「* ? [ ] { }」は使えません (検索の絞り込みの記号と混ざるため)";
   if (label.startsWith("~")) return "ラベルを「~」で始めることはできません";
   return null;
 }
@@ -233,6 +247,18 @@ export function sourceLabelProblems(labels: readonly string[]): (string | null)[
     seen.set(key, i);
     return null;
   });
+}
+
+/**
+ * フォルダ名を、ラベルの規則に合う形に整える (2 つ目のソースを足したとき、空のラベルへ入れる)。
+ * 使えない文字 (`/ \\ :`・制御文字・見えない文字・glob の記号) を取り、前後の空白・先頭の `~` と `.` を取り、MAX_SOURCE_LABEL_CHARS までに切る。
+ * 何も残らなければ空 (呼ぶ側が候補を入れる)
+ */
+export function tidySourceLabel(name: string): string {
+  let t = name.replace(/[/\\:*?[\]{}]/g, " ").replace(new RegExp(`${LABEL_CONTROL.source}|${LABEL_INVISIBLE.source}`, "gu"), "");
+  t = t.replace(/\s+/g, " ").trim().replace(/^[~.\s]+/, "");
+  t = [...t].slice(0, MAX_SOURCE_LABEL_CHARS).join("").trim();
+  return sourceLabelProblem(t) === null ? t : "";
 }
 
 /**
@@ -282,6 +308,42 @@ export function shareFileQuota(counts: readonly number[], max: number): number[]
   return quota;
 }
 
+/** パスの最上位のフォルダの名前 (根のファイルは "") */
+const topOf = (path: string): string => {
+  const i = path.indexOf("/");
+  return i < 0 ? "" : path.slice(0, i);
+};
+
+/**
+ * ファイルを quota 件に減らす。最上位のフォルダごとに順番に 1 件ずつ取る (どのフォルダも少しずつ残る。パスの名前順で後ろから落とすと、
+ * `docs/` が残って `src/` が 0 件になる)。フォルダの中は名前順。返す一覧は名前順
+ */
+export function takeFairly<T extends { path: string }>(files: readonly T[], quota: number): T[] {
+  if (quota >= files.length) return [...files];
+  const groups = new Map<string, T[]>();
+  for (const f of files) {
+    const k = topOf(f.path);
+    const g = groups.get(k);
+    if (g) g.push(f);
+    else groups.set(k, [f]);
+  }
+  const lists = [...groups.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([, g]) => g);
+  const kept: T[] = [];
+  for (let round = 0; kept.length < quota; round++) {
+    let took = false;
+    for (const g of lists) {
+      if (kept.length >= quota) break;
+      const f = g[round];
+      if (f) {
+        kept.push(f);
+        took = true;
+      }
+    }
+    if (!took) break;
+  }
+  return kept.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
 export interface CombineOptions {
   /** まとめた木に入れるファイルの数の上限 (テストで小さな値に差し替える) */
   maxFiles?: number;
@@ -293,7 +355,8 @@ export interface CombineOptions {
  * - 2 つ以上なら、各ソースがラベルを名前にした最上位のフォルダになる (`バックエンド/src/routes/orders.ts`)。
  *   除外規則はラベルを除いた、もとのソースの中のパスで当てる (ラベルが build・secrets・.env でも、そのソース全体が除外されたり、除外すべきものが通ったりしない。
  *   根の直下だけ除外するフォルダ (build・out・target など) は、各ソースの根の直下で効く)。
- * - 件数の上限 (MAX_TREE_FILES) はソースで分け合う (shareFileQuota)。1 つのソースが使い切って、ほかが見えなくなることはない。減らしたソースは sources[].trimmed と truncated に出る
+ * - 件数の上限 (MAX_TREE_FILES) はソースで分け合う (shareFileQuota)。1 つのソースが使い切って、ほかが見えなくなることはない。減らしたソースは sources[].trimmed に出る (木の truncated も真になる)。
+ *   ソースの中で減らすときは、最上位のフォルダごとに順番に取る (takeFairly)。減らしたファイルは、一覧だけでなく読み取りも検索もできない
  * ラベルが使えない・重なる・数が 0 または MAX_SOURCES を超えるときは Error (画面で先に検査する)
  */
 export function combineSourceTrees(sources: readonly LabeledSource[], options: CombineOptions = {}): SourceTree {
@@ -328,10 +391,10 @@ export function combineSourceTrees(sources: readonly LabeledSource[], options: C
   const files: SourceFileInfo[] = [];
   const summaries: SourceSummary[] = sources.map((s, i) => {
     byLabel.set(s.label, s.tree);
-    const kept = visible[i]!.slice(0, quota[i]!);
+    const kept = takeFairly(visible[i]!, quota[i]!);
     for (const f of kept) files.push({ path: `${s.label}/${f.path}`, size: f.size });
     const trimmed = visible[i]!.length - kept.length;
-    return { label: s.label, folder: s.tree.name, fileCount: kept.length, truncated: !!s.tree.truncated || trimmed > 0, depthTruncated: !!s.tree.depthTruncated, trimmed };
+    return { label: s.label, folder: s.tree.name, fileCount: kept.length, truncated: !!s.tree.truncated, depthTruncated: !!s.tree.depthTruncated, trimmed };
   });
   const split = (path: string): { tree: SourceTree; rest: string } | null => {
     const i = path.indexOf("/");
@@ -342,13 +405,13 @@ export function combineSourceTrees(sources: readonly LabeledSource[], options: C
   return {
     name: sources.map((s) => s.label).join("・"),
     files,
-    ...(summaries.some((s) => s.truncated) ? { truncated: true } : {}),
+    ...(summaries.some((s) => s.truncated || s.trimmed > 0) ? { truncated: true } : {}),
     ...(summaries.some((s) => s.depthTruncated) ? { depthTruncated: true } : {}),
     sources: summaries,
     // ラベルを除いた、もとのソースの中のパスで判定する。ラベルだけのパス (フォルダ) や、知らないラベルは「フォルダ」として出さない
     excludeReasonOf: (path, size) => {
       const part = split(path);
-      return part ? excludeReason(part.rest, size) : "folder";
+      return part ? treeExcludeReason(part.tree, part.rest, size) : "folder";
     },
     async readFile(path) {
       const part = split(path);

@@ -13,6 +13,8 @@ import {
   shareFileQuota,
   sourceLabelProblem,
   sourceLabelProblems,
+  takeFairly,
+  tidySourceLabel,
   treeExcludeReason,
   visibleFiles,
 } from "../sourceTree";
@@ -119,6 +121,19 @@ describe("ソースのラベル", () => {
   it("使えるラベルは、normalizeTreePath を 1 階層のまま通る", () => {
     for (const ok of ["バックエンド", "a.b", ".env", "Front End"]) expect(normalizeTreePath(ok)).toEqual({ ok: true, path: ok });
   });
+  it("見えない文字・glob の記号を含むラベルを断る。tidySourceLabel はフォルダ名を規則に合う形に整える", () => {
+    for (const bad of ["\u00ad", "ab\u00adc", "\u3164", "a\u3164", "\u115f\u1160", "\uffa0", "x\u{e0041}", "a\u200bb", "\u2060", "a\u2800"]) {
+      expect(sourceLabelProblem(bad), JSON.stringify(bad)).not.toBeNull();
+    }
+    for (const bad of ["a*", "src?", "[a]", "{a,b}", "a}"]) expect(sourceLabelProblem(bad), bad).toMatch(/\* \? \[ \] \{ \}/);
+    expect(sourceLabelProblem("バックエンド (本番)")).toBeNull();
+    expect(tidySourceLabel("~/work/my-app")).toBe("work my-app");
+    expect(tidySourceLabel("a".repeat(60))).toBe("a".repeat(40));
+    expect(tidySourceLabel("..hidden*")).toBe("hidden");
+    expect(tidySourceLabel("a\u00adb")).toBe("ab");
+    expect(tidySourceLabel("***")).toBe("");
+    for (const name of ["~home", "x".repeat(50), "a:b/c", "[f]"]) expect(sourceLabelProblem(tidySourceLabel(name)) ?? null, name).toBeNull();
+  });
   it("重複は、大文字小文字・全角半角の違いだけでも後ろの行に出す", () => {
     expect(sourceLabelProblems(["API", "管理", "api"])).toEqual([null, null, expect.stringMatching(/1 番目のソースと重なっています/)]);
     expect(sourceLabelProblems(["API", "ＡＰＩ"])[1]).toMatch(/重なっています/);
@@ -198,13 +213,41 @@ describe("combineSourceTrees", () => {
     expect(t.files.filter((f) => f.path.startsWith("小/"))).toHaveLength(2);
     expect(t.files.filter((f) => f.path.startsWith("大/"))).toHaveLength(10);
     expect(t.truncated).toBe(true);
-    expect(t.sources!.find((s) => s.label === "大")).toMatchObject({ fileCount: 10, trimmed: 40, truncated: true });
+    expect(t.sources!.find((s) => s.label === "大")).toMatchObject({ fileCount: 10, trimmed: 40, truncated: false });
     expect(t.sources!.find((s) => s.label === "小")).toMatchObject({ fileCount: 2, trimmed: 0, truncated: false });
+    // 打ち切り (たどる時点) と減らし (分け合うとき) は別の印。両方に当たるソースは、両方が付く
+    const both = combineSourceTrees([{ label: "大", tree: { ...big, truncated: true } }, { label: "小", tree: small }], { maxFiles: 12 });
+    expect(both.sources!.find((s) => s.label === "大")).toMatchObject({ truncated: true, trimmed: 40 });
     // もとのソースが打ち切られていたなら、そのソースの印が付く (もとの深さの打ち切りも)
     const cut = combineSourceTrees([{ label: "a", tree: { ...small, truncated: true } }, { label: "b", tree: { ...big, depthTruncated: true } }]);
     expect(cut.sources!.map((s) => [s.truncated, s.depthTruncated])).toEqual([[true, false], [false, true]]);
     expect(cut.truncated).toBe(true);
     expect(cut.depthTruncated).toBe(true);
+  });
+
+  it("ソースの中で減らすときは、最上位のフォルダごとに順番に取る (docs が残って src が 0 件にならない)", () => {
+    const files = [
+      ...Array.from({ length: 30 }, (_, i) => `docs/d${String(i).padStart(2, "0")}.md`),
+      ...Array.from({ length: 30 }, (_, i) => `src/s${String(i).padStart(2, "0")}.ts`),
+      "README.md",
+    ];
+    const big = memorySourceTree("big", Object.fromEntries(files.map((f) => [f, "x"])));
+    const small = memorySourceTree("small", { "a.ts": "a" });
+    const t = combineSourceTrees([{ label: "大", tree: big }, { label: "小", tree: small }], { maxFiles: 13 });
+    const kept = t.files.map((f) => f.path).filter((p) => p.startsWith("大/"));
+    expect(kept).toHaveLength(12);
+    for (const top of ["docs/", "src/"]) expect(kept.filter((p) => p.startsWith(`大/${top}`)).length, top).toBeGreaterThanOrEqual(4);
+    expect(kept).toContain("大/README.md");
+    expect(takeFairly([{ path: "a/1" }, { path: "a/2" }, { path: "b/1" }], 2).map((f) => f.path)).toEqual(["a/1", "b/1"]);
+    expect(takeFairly([{ path: "a/1" }], 5)).toHaveLength(1);
+  });
+
+  it("まとめた木の excludeReasonOf は、中の木の excludeReasonOf があればそれを使う", () => {
+    const inner = { ...memorySourceTree("inner", { "x/keep.ts": "a", "x/hide.ts": "b" }), excludeReasonOf: (p: string) => (p.endsWith("hide.ts") ? ("generated" as const) : null) };
+    const t = combineSourceTrees([{ label: "A", tree: inner }, { label: "B", tree: memorySourceTree("b", { "b.ts": "b" }) }]);
+    expect(treeExcludeReason(t, "A/x/hide.ts", 1)).toBe("generated");
+    expect(treeExcludeReason(t, "A/x/keep.ts", 1)).toBeNull();
+    expect(t.files.map((f) => f.path)).not.toContain("A/x/hide.ts");
   });
 
   it("shareFileQuota: 少ないソースはそのまま、余りは多いソースへ回る。合計は上限を超えない", () => {

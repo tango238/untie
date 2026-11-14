@@ -83,6 +83,98 @@ describe("buildModelFromSpec", () => {
   });
 });
 
+describe("buildModelFromSpec: 操作の targets に画面の名前を書いたとき", () => {
+  const base = (over: Partial<ModelSpec> = {}): ModelSpec => ({
+    system_name: "旅館",
+    actors: [{ name: "フロント係" }],
+    systems: [{ name: "予約サイト" }],
+    informations: [{ name: "予約" }],
+    businesses: [
+      {
+        name: "予約受付",
+        main_actors: ["フロント係"],
+        activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"], targets: ["予約入力画面"] }] }],
+      },
+    ],
+    screens: [{ name: "予約入力画面", system: "予約サイト" }],
+    ...over,
+  });
+  const screenOf = (r: ReturnType<typeof buildModelFromSpec>, usecase: string) => {
+    const uc = r.model.elements.find((e) => e.kind === "usecase" && e.name === usecase)!;
+    return r.model.relations.filter((x) => x.kind === "usecaseScreen" && x.sourceId === uc.id).map((x) => r.model.elements.find((e) => e.id === x.targetId)!.name);
+  };
+
+  it("targets に書かれた名前が画面なら、その画面をその操作の画面として結ぶ (screens の usecase と同じ。「対象が見つかりません」にならない)", () => {
+    const r = buildModelFromSpec(base());
+    expect(r.warnings).toEqual([]);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+    expect(traceToActors(r.model).problems.filter((p) => p.isBreak)).toEqual([]);
+    // screens の usecase に書いた場合と同じモデルになる
+    const viaScreen = buildModelFromSpec(
+      base({
+        businesses: [{ name: "予約受付", main_actors: ["フロント係"], activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"] }] }] }],
+        screens: [{ name: "予約入力画面", system: "予約サイト", usecase: "予約を入力する" }],
+      }),
+    );
+    const shape = (x: ReturnType<typeof buildModelFromSpec>) => x.model.relations.map((rel) => rel.kind).sort();
+    expect(shape(r)).toEqual(shape(viaScreen));
+  });
+
+  it("画面にシステムを書かなくても、システムが 1 つなら結べる。システムの名前と同じ名前の対象はこれまでどおりシステム", () => {
+    const r = buildModelFromSpec(base({ screens: [{ name: "予約入力画面" }] }));
+    expect(r.warnings).toEqual([]);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    const sys = buildModelFromSpec(
+      base({
+        businesses: [{ name: "予約受付", main_actors: ["フロント係"], activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"], targets: ["予約サイト"] }] }] }],
+        screens: [{ name: "予約サイト", system: "予約サイト" }],
+      }),
+    );
+    expect(sys.warnings).toEqual([]); // 予約サイトという名前の画面があっても、操作の対象 (システム) を優先する
+  });
+
+  it("規則 (1 画面 = 1 操作) に反するときは、これまでどおり警告する", () => {
+    const r = buildModelFromSpec(
+      base({
+        businesses: [
+          {
+            name: "予約受付",
+            main_actors: ["フロント係"],
+            activities: [
+              {
+                name: "予約を受ける",
+                performers: ["フロント係"],
+                usecases: [
+                  { name: "予約を入力する", writes: ["予約"], targets: ["予約入力画面"] },
+                  { name: "予約を直す", writes: ["予約"], targets: ["予約入力画面"] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(r.warnings.some((w) => /画面「予約入力画面」はすでに別の操作が使っているので、操作「予約を直す」とは結びませんでした/.test(w))).toBe(true);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    // 別のシステムの画面なら、システムを合わせるよう警告する (対象のシステムは targets に書いたまま)
+    const other = buildModelFromSpec(base({ systems: [{ name: "予約サイト" }, { name: "管理サイト" }], screens: [{ name: "予約入力画面", system: "管理サイト" }] }));
+    expect(screenOf(other, "予約を入力する")).toEqual(["予約入力画面"]);
+  });
+
+  it("画面の名前が無い (screens に定義が無い) 対象は、これまでどおり「見つかりません」", () => {
+    const r = buildModelFromSpec(base({ screens: [] }));
+    expect(r.warnings.some((w) => /対象「予約入力画面」が見つかりません/.test(w))).toBe(true);
+  });
+
+  it("道具の説明に、画面は targets に書いても screens の usecase に書いてもよいと書いてある", async () => {
+    const { SUBMIT_MODEL_TOOL } = await import("../spec");
+    const text = JSON.stringify(SUBMIT_MODEL_TOOL.parameters);
+    expect(text).toMatch(/画面を通す操作は、画面の名前を書いてもよい/);
+    expect(text).toMatch(/操作の targets に画面の名前を書いても同じ意味/);
+  });
+});
+
 describe("buildModelFromSpec: AI の出力が長くても要素が消えない", () => {
   it("名前・説明・グループ・値・課題・概要は上限に切り詰めて、スキーマに合うモデルにする", () => {
     const long = "あ".repeat(5000);

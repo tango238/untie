@@ -6,6 +6,7 @@ import { reverseEngineer } from "../../ai/reverse";
 import { PROVIDERS } from "../../ai/providers";
 import { MAX_SOURCES, memorySourceTree, type LabeledSource, type SourceTree } from "../../ai/sourceTree";
 import { emptyModel } from "@untie/core";
+import { getPlatform } from "../../platform";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
 import { useUntieStore } from "../../store";
@@ -405,16 +406,44 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     expect(screen.getByText(`${MAX_SOURCES} か所まで登録できます`)).toBeDefined();
   });
 
-  it("フォルダを選んだとき、ラベルが空ならフォルダ名を入れる。入っていれば変えない", async () => {
+  it("1 行だけのときは、フォルダを選んでもラベルを自動で入れない。2 行目を足すと、空のラベルへフォルダ名を規則に合う形に整えて入れる", async () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickRow(1, backTree);
-    expect((screen.getByLabelText("ラベル (任意)") as HTMLInputElement).value).toBe("aozora-api");
+    expect((screen.getByLabelText("ラベル (任意)") as HTMLInputElement).value).toBe("");
     addRow();
+    expect(labelBox(1).value).toBe("aozora-api");
     await pickRow(2, adminTree);
-    expect(labelBox(2).value).toBe("管理画面");
+    expect(labelBox(2).value).toBe("管理画面"); // 入っていれば変えない
     setLabel(1, "");
-    await pickRow(1, shopTree); // 選び直し
+    await pickRow(1, shopTree); // 2 行以上のときの選び直し: 空ならフォルダ名
     expect(labelBox(1).value).toBe("aozora-shop");
+  });
+
+  it("フォルダ名がラベルの規則に当たっても (41 文字以上・~ で始まる)、1 行だけなら作成できる。2 行目を足すと整えた名前が入る", async () => {
+    mocked.mockResolvedValue(result());
+    const long = memorySourceTree("x".repeat(60), { "a.ts": "a" });
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, long);
+    await fill();
+    expect(startButton().disabled).toBe(false);
+    await pickRow(1, memorySourceTree("~home-app", { "a.ts": "a" }));
+    expect(startButton().disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    // ラベルは空のまま渡る (調査の依頼にフォルダ名を重ねて入れない)
+    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((x) => x.label)).toEqual([""]);
+  });
+
+  it("2 行目を足したとき、規則に当たるフォルダ名は整えて入る (40 文字まで・~ を取る)", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, memorySourceTree(`~${"y".repeat(60)}`, { "a.ts": "a" }));
+    addRow();
+    expect(labelBox(1).value).toBe("y".repeat(40));
+    await pickRow(2, adminTree);
+    await fill();
+    expect(startButton().disabled).toBe(false);
   });
 
   it("3 つ登録すると、行ごとのフォルダ名と読めるファイル数、合計が出る。作成できる", async () => {
@@ -470,8 +499,34 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     setLabel(2, "ａｐｉ");
     expect(screen.getByText(/1 番目のソースと重なっています/)).toBeDefined();
     setLabel(2, "管理画面");
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelector(".source-row-problem")).toBeNull();
     expect(startButton().disabled).toBe(false);
+  });
+
+  it("見えない文字・glob の記号を含むラベルは断る", async () => {
+    await threeSources();
+    await fill();
+    for (const bad of ["\u00ad", "\u3164", "管理\u00ad画面", "x\u{e0041}", "管理*"]) {
+      setLabel(2, bad);
+      expect(startButton().disabled, JSON.stringify(bad)).toBe(true);
+      expect(labelBox(2).getAttribute("aria-invalid")).toBe("true");
+    }
+    setLabel(2, "管理画面");
+    expect(startButton().disabled).toBe(false);
+  });
+
+  it("行を足した直後は、空のラベルのエラーを読み上げない (alert にしない)。欄を離れてから出し、入力中のエラーは aria-live polite", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    for (let i = 1; i < 7; i++) addRow();
+    // 7 行目は候補が尽きて、ラベルが空で足される (足した直後は、エラーを出さない)
+    expect(labelBox(7).value).toBe("");
+    expect(document.querySelector(".source-row-problem")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.blur(labelBox(7));
+    const problem = document.querySelector(".source-row-problem")!;
+    expect(problem.textContent).toBe("ラベルを入力してください");
+    expect(problem.getAttribute("role")).toBeNull();
+    expect(problem.getAttribute("aria-live")).toBe("polite");
   });
 
   it("ソースが 1 つのときは、ラベルが空でも作れる。使えないラベルは断る", async () => {
@@ -536,7 +591,7 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     const sources = mocked.mock.calls[0]![0] as unknown as LabeledSource[];
     expect(sources.map((s) => [s.label, s.tree.name])).toEqual([["バックエンド", "aozora-api"], ["管理画面", "aozora-admin"], ["フロント画面", "aozora-shop"]]);
-    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード 3 か所 (バックエンド: aozora-api、管理画面: aozora-admin、フロント画面: aozora-shop)から作成: 受注から出荷まで")).toBe(true);
+    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード 3 か所 (バックエンド (aozora-api)、管理画面 (aozora-admin)、フロント画面 (aozora-shop))から作成: 受注から出荷まで")).toBe(true);
   });
 
   it("ソースが 1 つのときの最初の発言は、これまでどおり", async () => {
@@ -550,7 +605,7 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード「shop-app」から作成: 受注から出荷まで")).toBe(true);
-    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((s) => s.label)).toEqual(["shop-app"]);
+    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((s) => s.label)).toEqual([""]);
   });
 
   it("実行中は行の操作ができず、二度押しでも 1 本だけ。中断できる", async () => {
@@ -567,11 +622,84 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     });
     await waitFor(() => expect(mocked).toHaveBeenCalled());
     expect(mocked).toHaveBeenCalledTimes(1);
-    expect((screen.getByRole("button", { name: "ソースコードの場所を足す" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "ソース 2「管理画面」を外す" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(labelBox(1).disabled).toBe(true);
+    // 生成が始まったら、登録欄・説明・入力欄は畳んで要約になる (行の操作はできない)
+    expect(screen.queryByRole("button", { name: "ソースコードの場所を足す" })).toBeNull();
+    expect(screen.queryByLabelText("モデルに起こしたい業務")).toBeNull();
+    expect(document.querySelector(".source-summary-sources")!.textContent).toBe("ソースコード 3 か所 (aozora-api・管理画面・フロント画面)");
+    expect(document.querySelector(".source-summary-request")!.textContent).toBe("業務: 受注から出荷まで");
+    expect(document.querySelector(".source-rows")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "中断" }));
     expect(opts.signal?.aborted).toBe(true);
+  });
+
+  it("生成中も、進み具合は登録欄の下ではなく本文の先頭に近い位置に出る。失敗したら登録欄に戻って、やり直せる。終わって気づいたことを出すときも畳んだまま", async () => {
+    mocked.mockRejectedValueOnce(new Error("boom"));
+    await threeSources();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(document.querySelector(".prompt-error")).not.toBeNull());
+    // 失敗: 登録欄・入力欄が戻り、入力は残っている
+    expect(document.querySelector(".source-summary")).toBeNull();
+    expect(document.querySelectorAll(".source-row")).toHaveLength(3);
+    expect((screen.getByLabelText("モデルに起こしたい業務") as HTMLTextAreaElement).value).toBe("受注から出荷まで");
+    expect(startButton().textContent).toBe("やり直す");
+    mocked.mockResolvedValueOnce(result(["気づいたこと 1"]));
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/気づいたことが 1 件/)).toBeDefined());
+    expect(document.querySelector(".source-summary")).not.toBeNull();
+    expect(document.querySelector(".source-rows")).toBeNull();
+    expect(document.querySelector(".source-dialog-body")!.contains(screen.getByText("気づいたこと 1"))).toBe(true);
+  });
+
+  it("フォルダをたどっている間 (選び直し中) は作成を押せない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    await fill();
+    expect(startButton().disabled).toBe(false);
+    let release!: (t: SourceTree | null) => void;
+    const spy = vi.spyOn(getPlatform(), "pickSourceFolder").mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "選び直す…" }));
+    });
+    expect(startButton().disabled).toBe(true);
+    await act(async () => {
+      release(adminTree);
+    });
+    expect(startButton().disabled).toBe(false);
+    spy.mockRestore();
+  });
+
+  it("同じ名前の別のフォルダに選び直したら、同じフォルダの警告を見直す (消える。逆も検出される)", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    const a = memorySourceTree("same-name", { "src/a.ts": "aaa" });
+    const b = memorySourceTree("other-name", { "src/b.ts": "bbbb" });
+    await pickRow(1, a);
+    addRow();
+    await pickRow(2, memorySourceTree("same-name", { "src/a.ts": "aaa" })); // 名前もファイルも同じ
+    await waitFor(() => expect(screen.getByText(/重ねて登録していませんか/)).toBeDefined());
+    // 同じ名前 (same-name) のまま、中身が違うフォルダに選び直す → 警告は消える
+    await pickRow(2, memorySourceTree("same-name", { "src/zzz.ts": "z" }));
+    await waitFor(() => expect(screen.queryByText(/重ねて登録していませんか/)).toBeNull());
+    // 逆: 名前が同じで中身も同じものへ選び直すと検出される
+    await pickRow(2, memorySourceTree("same-name", { "src/a.ts": "aaa" }));
+    await waitFor(() => expect(screen.getByText(/重ねて登録していませんか/)).toBeDefined());
+    await pickRow(1, b);
+    await waitFor(() => expect(screen.queryByText(/重ねて登録していませんか/)).toBeNull());
+  });
+
+  it("合計が上限を超えるとき、打ち切られたソースがあっても、分け合うことを知らせる (読めない・検索されないことも)", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    const many = (n: number, name: string) => memorySourceTree(name, Object.fromEntries(Array.from({ length: n }, (_, i) => [`f${i}.ts`, "x"])));
+    await pickRow(1, { ...many(15000, "big1"), truncated: true } as SourceTree);
+    addRow();
+    await pickRow(2, many(9000, "big2"));
+    expect(screen.getByText(/合計が上限 \(20,000 件\) を超えるため/)).toBeDefined();
+    expect(screen.getAllByText(/読み取りも検索もできません/)).toHaveLength(2); // 分け合いの知らせと、打ち切られた行の知らせ
+    expect(screen.getByText(/途中までしか数えていません/)).toBeDefined();
   });
 
   it("合計が上限を超えるとき、ソースごとに分け合うことを知らせる。打ち切られたソースにはその旨を出す", async () => {

@@ -11,6 +11,8 @@ import {
   labelKey,
   looksSameSource,
   sourceLabelProblems,
+  sourcesTitle,
+  tidySourceLabel,
   visibleFiles,
   type LabeledSource,
   type SourceTree,
@@ -40,10 +42,15 @@ const nextCandidate = (used: readonly string[], index: number): string => {
   return SOURCE_LABEL_CANDIDATES.find((c) => !keys.has(labelKey(c))) ?? "";
 };
 
-/** 会話の最初の発言に出す、ソースの呼び名。1 つなら「ソースコード「フォルダ名」」、複数なら「ソースコード 3 か所 (ラベル: フォルダ名、…)」 */
-export function sourcesTitle(sources: readonly LabeledSource[]): string {
-  return sources.length === 1 ? `ソースコード「${sources[0]!.tree.name}」` : `ソースコード ${sources.length} か所 (${sources.map((s) => `${s.label}: ${s.tree.name}`).join("、")})`;
-}
+/** 空のラベルへ自動で入れる値。フォルダ名を規則に合う形に整えたもの (ほかの行と重なる・整えて空になるなら、使っていない候補) */
+const autoLabel = (folderName: string | undefined, used: readonly string[], index: number): string => {
+  const tidy = folderName ? tidySourceLabel(folderName) : "";
+  return tidy !== "" && !used.some((u) => labelKey(u) === labelKey(tidy)) ? tidy : nextCandidate(used, index);
+};
+
+/** 畳んだ要約に出す、ソースの呼び名 (ラベルだけ。ラベルが無い 1 つだけのときは「ソースコード「フォルダ名」」) */
+const summaryTitle = (rows: readonly SourceRow[]): string =>
+  rows.length === 1 ? sourcesTitle([{ label: rows[0]!.label.trim(), folder: rows[0]!.tree?.name ?? "" }]) : `ソースコード ${rows.length} か所 (${rows.map((r) => r.label.trim() || r.tree?.name || "未選択").join("・")})`;
 
 /** 登録したソース (ソースコードのフォルダ) の 1 行 */
 interface SourceRow {
@@ -52,6 +59,8 @@ interface SourceRow {
   tree: SourceTree | null;
   /** 読めるファイルの数 (選んだときに 1 度だけ数える。2 万件で約 22ms) */
   fileCount: number;
+  /** フォルダを選んだ回数 (同じ名前の別のフォルダに選び直したときも、同じフォルダの警告を見直すきっかけにする) */
+  picks: number;
 }
 
 /** ファイル > ソースコードから作成: ソースコードのフォルダを AI に読んでもらい、業務のモデルに起こす */
@@ -60,11 +69,13 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const continueFrom = useAgentStore((s) => s.continueFrom);
   const nextKey = useRef(1);
-  const [rows, setRows] = useState<SourceRow[]>([{ key: 0, label: "", tree: null, fileCount: 0 }]);
+  const [rows, setRows] = useState<SourceRow[]>([{ key: 0, label: "", tree: null, fileCount: 0, picks: 0 }]);
   /** 同じフォルダを重ねて登録しているらしい行 (key → 先に登録した行の番号 (1 始まり)) */
   const [duplicates, setDuplicates] = useState<Map<number, number>>(new Map());
   /** 足した行のラベルの入力欄へフォーカスを移す (行の key) */
   const [focusRow, setFocusRow] = useState<number | null>(null);
+  /** ラベルの欄を一度離れた行 (空のラベルのエラーは、離れてから出す。足した直後から読み上げられないように) */
+  const [touched, setTouched] = useState<ReadonlySet<number>>(new Set());
   const labelInputs = useRef(new Map<number, HTMLInputElement>());
   const addButton = useRef<HTMLButtonElement | null>(null);
   const datalistId = useId();
@@ -99,7 +110,6 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     ? sourceLabelProblems(rows.map((r) => r.label.trim()))
     : rows.map((r) => (r.label.trim() === "" ? null : sourceLabelProblems([r.label.trim()])[0]!));
   const totalFiles = rows.reduce((n, r) => n + r.fileCount, 0);
-  const anyTruncated = rows.some((r) => r.tree?.truncated);
   const anyDepthTruncated = rows.some((r) => r.tree?.depthTruncated);
   const emptyRow = rows.some((r) => r.tree && r.fileCount === 0);
   // 同じフォルダを 2 回登録していないか。確かなのは isSameEntry (Chrome・Edge)。使えなければ、フォルダ名とファイルの一覧が同じかで見る (警告だけで、作成は止めない)
@@ -122,9 +132,9 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true;
     };
-    // 木の組が替わったときだけ見直す (ラベルの入力では見直さない)
+    // 木の組が替わったときだけ見直す (ラベルの入力では見直さない)。同じ名前の別のフォルダに選び直したときも見直すよう、選んだ回数を入れる
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.map((r) => (r.tree ? r.key : "-")).join(","), rows.map((r) => r.tree?.name).join("\n")]);
+  }, [rows.map((r) => (r.tree ? `${r.key}:${r.picks}` : "-")).join(",")]);
   useEffect(() => {
     if (focusRow === null) return;
     labelInputs.current.get(focusRow)?.focus();
@@ -147,8 +157,14 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
       const picked = await getPlatform().pickSourceFolder();
       if (picked && mounted.current) {
         const fileCount = visibleFiles(picked).length;
-        // ラベルが空なら、フォルダ名を入れる
-        setRows((rs) => rs.map((r) => (r.key === key ? { ...r, tree: picked, fileCount, label: r.label.trim() === "" ? picked.name : r.label } : r)));
+        // ソースが 2 つ以上のとき (ラベルが必須) だけ、空のラベルへフォルダ名を規則に合う形に整えて入れる。1 つだけのときは任意なので、自動では入れない
+        setRows((rs) =>
+          rs.map((r, i) =>
+            r.key === key
+              ? { ...r, tree: picked, fileCount, picks: r.picks + 1, label: rs.length > 1 && r.label.trim() === "" ? autoLabel(picked.name, rs.map((x) => x.label.trim()), i) : r.label }
+              : r,
+          ),
+        );
       }
     } catch (e) {
       setError(`フォルダを読めませんでした。(${String(e)})`);
@@ -161,17 +177,17 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     if (rows.length >= MAX_SOURCES) return;
     const key = nextKey.current++;
     setRows((rs) => {
-      // 1 つ目のラベルが空なら、2 つ目を足すときに候補を入れる (ソースが 2 つ以上のときは、ラベルが必須)
-      const first = rs[0]!.label.trim() === "" ? { ...rs[0]!, label: nextCandidate(rs.map((r) => r.label), 0) } : rs[0]!;
+      // 1 つ目のラベルが空なら、2 つ目を足すときに入れる (ソースが 2 つ以上のときは、ラベルが必須)。フォルダを選んでいれば規則に合う形に整えたフォルダ名、無ければ候補
+      const first = rs[0]!.label.trim() === "" ? { ...rs[0]!, label: autoLabel(rs[0]!.tree?.name, [], 0) } : rs[0]!;
       const base = [first, ...rs.slice(1)];
-      return [...base, { key, label: nextCandidate(base.map((r) => r.label), base.length), tree: null, fileCount: 0 }];
+      return [...base, { key, label: nextCandidate(base.map((r) => r.label), base.length), tree: null, fileCount: 0, picks: 0 }];
     });
     setFocusRow(key);
   };
 
   const removeRow = (key: number) => {
     // 最後の 1 行を外したら、空の行に戻す
-    setRows((rs) => (rs.length <= 1 ? [{ key: nextKey.current++, label: "", tree: null, fileCount: 0 }] : rs.filter((r) => r.key !== key)));
+    setRows((rs) => (rs.length <= 1 ? [{ key: nextKey.current++, label: "", tree: null, fileCount: 0, picks: 0 }] : rs.filter((r) => r.key !== key)));
     // 外した行のフォーカスは、行を足すボタンへ
     requestAnimationFrame(() => addButton.current?.focus());
   };
@@ -241,7 +257,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
       useUntieStore.getState().newDocument(res.build.model);
       // 作成の会話を引き継いで、AI エージェントで続けられるようにする
       continueFrom(res.seed, [
-        { role: "user", text: `${sourcesTitle(sources)}から作成: ${request}` },
+        { role: "user", text: `${sourcesTitle(sources.map((x) => ({ label: x.label, folder: x.tree.name })))}から作成: ${request}` },
         { role: "assistant", text: res.summary },
         { role: "info", text: "このまま会話を続けて、モデルを直せます。" },
       ]);
@@ -264,198 +280,216 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const finished = warnings !== null;
   const stageIndex = step ? STAGES.findIndex((s) => s.step === step) : -1;
   const allPicked = rows.every((r) => r.tree !== null);
-  const canStart = allPicked && !emptyRow && labelProblems.every((p) => p === null) && !!request.trim() && !running && !finished;
+  // フォルダをたどっている間 (選び直し中) は押せない (たどり終えるまで、古い木のまま始めてしまわないように)
+  const canStart = allPicked && !emptyRow && labelProblems.every((p) => p === null) && !!request.trim() && !running && !finished && pickingKey === null;
+  /** 生成が始まったら (終わって気づいたことを見せるときも)、登録欄・説明・入力欄は畳んで要約にし、進み具合を見せる。失敗・中断で step が戻ったら、登録欄へ戻る */
+  const collapsed = step !== null;
 
   return (
     <div className="dialog-backdrop" onKeyDown={(e) => e.key === "Escape" && !running && onClose()}>
       <div className="dialog prompt-dialog source-dialog" role="dialog" aria-modal="true" aria-label="ソースコードから作成">
         <h2>ソースコードから作成</h2>
-        <p className="hint">
-          既存のソースコードのフォルダを AI が読み、対象の業務と、関係する業務・データ・画面を調べて、新しいモデルを作ります。バックエンド・管理画面・フロント画面のようにソースコードが分かれているときは、フォルダを複数登録できます。今のモデルは置き換わります (保存はしません)。
-        </p>
-        <datalist id={datalistId}>
-          {SOURCE_LABEL_CANDIDATES.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        <ul className="source-rows" aria-label="ソースコードの場所">
-          {rows.map((row, i) => {
-            const titleId = `${datalistId}-title-${row.key}`;
-            const problemId = `${datalistId}-problem-${row.key}`;
-            const problem = labelProblems[i];
-            const duplicateOf = duplicates.get(row.key);
-            const shown = row.label.trim() || row.tree?.name || "未選択";
-            const busy = running || finished;
-            return (
-              <li key={row.key} className="source-row">
-                <div className="source-row-head">
-                  <strong id={titleId}>ソース {i + 1}</strong>
-                  {(multi || row.tree) && (
-                    <button
-                      type="button"
-                      className="link-plain"
-                      disabled={busy}
-                      aria-label={`ソース ${i + 1}「${shown}」を外す`}
-                      onClick={() => removeRow(row.key)}
-                    >
-                      外す
-                    </button>
-                  )}
-                </div>
-                <label className="source-label-field">
-                  <span>{multi ? "ラベル" : "ラベル (任意)"}</span>
-                  <input
-                    ref={(el) => {
-                      if (el) labelInputs.current.set(row.key, el);
-                      else labelInputs.current.delete(row.key);
-                    }}
-                    list={datalistId}
-                    value={row.label}
-                    maxLength={MAX_SOURCE_LABEL_CHARS + 20}
-                    placeholder="例: バックエンド"
-                    disabled={busy}
-                    aria-label={multi ? `ソース ${i + 1} のラベル` : undefined}
-                    aria-invalid={problem ? true : undefined}
-                    aria-describedby={problem ? problemId : undefined}
-                    onChange={(e) => patchRow(row.key, { label: e.target.value })}
-                  />
-                </label>
-                {problem && (
-                  <p className="prompt-error source-row-problem" id={problemId} role="alert">
-                    {problem}
-                  </p>
-                )}
-                <div className="source-folder">
-                  <button type="button" disabled={busy || pickingKey !== null} aria-describedby={titleId} onClick={() => void pick(row.key)}>
-                    {row.tree ? "選び直す…" : "フォルダを選ぶ…"}
-                  </button>
-                  {row.tree ? (
-                    <span className="source-folder-name">
-                      <strong>{row.tree.name}</strong>
-                      <span className="source-folder-count">読めるファイル {row.fileCount} 件</span>
-                    </span>
-                  ) : (
-                    <span className="source-folder-count">ソースコードのフォルダを選んでください (読み取りだけで、書き換えません)</span>
-                  )}
-                </div>
-                {row.tree && row.fileCount === 0 && (
-                  <p className="prompt-error">このフォルダには、AI が読めるファイルがありません。別のフォルダを選ぶか、この行を外してください。</p>
-                )}
-                {row.tree?.truncated && (
-                  <p className="source-note">ファイルが多すぎるため、途中までしか数えていません。AI は一部のファイルだけを見ることになります。</p>
-                )}
-                {row.tree?.depthTruncated && <p className="source-note">深すぎるフォルダは読んでいません。その下のファイルは AI に見えません。</p>}
-                {duplicateOf !== undefined && (
-                  <p className="source-note source-duplicate">同じフォルダを、ソース {duplicateOf} と重ねて登録していませんか? (フォルダ名とファイルの一覧が同じです)</p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        <div className="source-add">
-          <button type="button" ref={addButton} disabled={running || finished || rows.length >= MAX_SOURCES} onClick={addRow}>
-            ソースコードの場所を足す
-          </button>
-          <span className="source-folder-count">
-            {rows.length >= MAX_SOURCES ? `${MAX_SOURCES} か所まで登録できます` : multi ? `${rows.length}/${MAX_SOURCES} か所` : "別のフォルダにあるソースコードも、あわせて読めます"}
-          </span>
-          {multi && (
-            <span className="source-total" aria-live="polite">
-              合計 読めるファイル {totalFiles} 件
-            </span>
-          )}
-        </div>
-        {multi && totalFiles > MAX_TREE_FILES && !anyTruncated && (
-          <p className="source-note">合計が上限 ({MAX_TREE_FILES.toLocaleString("ja-JP")} 件) を超えるため、多いソースの一部は AI から見えません。ソースごとに上限を分け合います。</p>
-        )}
-        {multi && anyDepthTruncated && <p className="source-note">深すぎるフォルダがあるソースがあります。</p>}
-        <textarea
-          aria-label="モデルに起こしたい業務"
-          className="prompt-input"
-          placeholder="例: 受注から出荷まで"
-          value={request}
-          rows={3}
-          disabled={running || finished}
-          onChange={(e) => setRequest(e.target.value)}
-        />
-        <ul className="source-notes">
-          <li>
-            選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行です。フォルダ全体は送りません。
-          </li>
-          <li>
-            <code>.env</code> や鍵のファイル、<code>node_modules</code> などの依存・生成物は読みません。ただし、ふつうのソースファイルに直接書かれたキーや個人情報は送られることがあります。
-          </li>
-          {multi && <li>ソースを複数登録すると、ラベルが、どのソースのファイルかを示すパスの先頭 (例: バックエンド/src/routes/orders.ts) として AI に渡ります。AI は、ソースをまたいで読みます。</li>}
-          <li>対象の業務のほか、関係する業務・データ・画面も調べます。画面の数だけ AI を呼ぶので、数分かかり、API の利用料がかかります。</li>
-        </ul>
-        <div className="prompt-ai">
-          使う AI: {provider.label} ({model})
-          <button type="button" className="link-plain context-apply" disabled={running} onClick={() => setSettingsOpen(true)}>
-            変える
-          </button>
-        </div>
-        {step && (
-          <div className="prompt-progress">
-            <div className="visually-hidden" role="status">
-              {stageIndex >= 0 ? `${stageIndex + 1}/${STAGES.length} ${STAGES[stageIndex]!.label}` : "完了"}
+        <div className="source-dialog-body">
+          {collapsed ? (
+            <div className="source-summary" title={`${summaryTitle(rows)} / 業務: ${request.trim()}`}>
+              <div className="source-summary-sources">{summaryTitle(rows)}</div>
+              <div className="source-summary-request">業務: {request.trim()}</div>
             </div>
-            <ol className="source-stages">
-              {STAGES.map((s, i) => {
-                const state = step === "done" || i < stageIndex ? "done" : i === stageIndex ? "now" : "next";
+          ) : (
+            <>
+            <p className="hint">
+              既存のソースコードのフォルダを AI が読み、対象の業務と、関係する業務・データ・画面を調べて、新しいモデルを作ります。バックエンド・管理画面・フロント画面のようにソースコードが分かれているときは、フォルダを複数登録できます。今のモデルは置き換わります (保存はしません)。
+            </p>
+            <datalist id={datalistId}>
+              {SOURCE_LABEL_CANDIDATES.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <ul className="source-rows" aria-label="ソースコードの場所">
+              {rows.map((row, i) => {
+                const titleId = `${datalistId}-title-${row.key}`;
+                const problemId = `${datalistId}-problem-${row.key}`;
+                // 空のラベルのエラーは、欄を離れてから出す (行を足した直後から、入力のたびに読み上げられないように)
+                const problem = labelProblems[i] && (row.label.trim() !== "" || touched.has(row.key)) ? labelProblems[i] : null;
+                const duplicateOf = duplicates.get(row.key);
+                const shown = row.label.trim() || row.tree?.name || "未選択";
+                const busy = running || finished;
                 return (
-                  <li key={s.step} className={`source-stage is-${state}`} aria-current={state === "now" ? "step" : undefined}>
-                    <span aria-hidden="true">{state === "done" ? "✓" : state === "now" ? "▶" : "・"}</span> {i + 1}/{STAGES.length} {s.label}
+                  <li key={row.key} className="source-row">
+                    <div className="source-row-head">
+                      <strong id={titleId}>ソース {i + 1}</strong>
+                      {(multi || row.tree) && (
+                        <button
+                          type="button"
+                          className="link-plain"
+                          disabled={busy}
+                          aria-label={`ソース ${i + 1}「${shown}」を外す`}
+                          onClick={() => removeRow(row.key)}
+                        >
+                          外す
+                        </button>
+                      )}
+                    </div>
+                    <label className="source-label-field">
+                      <span>{multi ? "ラベル" : "ラベル (任意)"}</span>
+                      <input
+                        ref={(el) => {
+                          if (el) labelInputs.current.set(row.key, el);
+                          else labelInputs.current.delete(row.key);
+                        }}
+                        list={datalistId}
+                        value={row.label}
+                        maxLength={MAX_SOURCE_LABEL_CHARS + 20}
+                        placeholder="例: バックエンド"
+                        disabled={busy}
+                        aria-label={multi ? `ソース ${i + 1} のラベル` : undefined}
+                        aria-invalid={problem ? true : undefined}
+                        aria-describedby={problem ? problemId : undefined}
+                        onChange={(e) => patchRow(row.key, { label: e.target.value })}
+                        onBlur={() => setTouched((t) => (t.has(row.key) ? t : new Set(t).add(row.key)))}
+                      />
+                    </label>
+                    {problem && (
+                      <p className="prompt-error source-row-problem" id={problemId} aria-live="polite">
+                        {problem}
+                      </p>
+                    )}
+                    <div className="source-folder">
+                      <button type="button" disabled={busy || pickingKey !== null} aria-describedby={titleId} onClick={() => void pick(row.key)}>
+                        {row.tree ? "選び直す…" : "フォルダを選ぶ…"}
+                      </button>
+                      {row.tree ? (
+                        <span className="source-folder-name">
+                          <strong>{row.tree.name}</strong>
+                          <span className="source-folder-count">読めるファイル {row.fileCount} 件</span>
+                        </span>
+                      ) : (
+                        <span className="source-folder-count">ソースコードのフォルダを選んでください (読み取りだけで、書き換えません)</span>
+                      )}
+                    </div>
+                    {row.tree && row.fileCount === 0 && (
+                      <p className="prompt-error">このフォルダには、AI が読めるファイルがありません。別のフォルダを選ぶか、この行を外してください。</p>
+                    )}
+                    {row.tree?.truncated && (
+                      <p className="source-note">ファイルが多すぎるため、途中までしか数えていません。数えていないファイルは、AI が読み取りも検索もできません。</p>
+                    )}
+                    {row.tree?.depthTruncated && <p className="source-note">深すぎるフォルダは読んでいません。その下のファイルは AI に見えません。</p>}
+                    {duplicateOf !== undefined && (
+                      <p className="source-note source-duplicate">同じフォルダを、ソース {duplicateOf} と重ねて登録していませんか? (フォルダ名とファイルの一覧が同じです)</p>
+                    )}
                   </li>
                 );
               })}
-            </ol>
-            {readCount > 0 && (
-              <div className="source-reads">
-                <div className="prompt-step">読んだ場所 ({readCount} 件)</div>
-                {reads.map((r, i) => (
-                  <div key={`${readCount}-${i}`} className="prompt-log">
-                    {r}
-                  </div>
-                ))}
-              </div>
-            )}
-            {survey && (
-              <pre
-                ref={surveyBox}
-                className="prompt-analysis source-survey"
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  followSurvey.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
-                }}
-              >
-                {survey}
-              </pre>
-            )}
-            {screen && (
-              <div className="prompt-step">
-                画面 {screen.done}/{screen.total}
-              </div>
-            )}
-            {log.map((l, i) => (
-              <div key={i} className="prompt-log">
-                {l}
-              </div>
-            ))}
-          </div>
-        )}
-        {warnings && (
-          <div className="source-warnings">
-            <div className="prompt-step" role="status">
-              モデルを作りました。気づいたことが {warnings.length} 件あります。
-            </div>
-            <ul>
-              {warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
             </ul>
-          </div>
-        )}
-        {error && <p className="prompt-error">{error}</p>}
+            <div className="source-add">
+              <button type="button" ref={addButton} disabled={running || finished || rows.length >= MAX_SOURCES} onClick={addRow}>
+                ソースコードの場所を足す
+              </button>
+              <span className="source-folder-count">
+                {rows.length >= MAX_SOURCES ? `${MAX_SOURCES} か所まで登録できます` : multi ? `${rows.length}/${MAX_SOURCES} か所` : "別のフォルダにあるソースコードも、あわせて読めます"}
+              </span>
+              {multi && (
+                <span className="source-total" aria-live="polite">
+                  合計 読めるファイル {totalFiles} 件
+                </span>
+              )}
+            </div>
+            {multi && totalFiles > MAX_TREE_FILES && (
+              <p className="source-note">
+                合計が上限 ({MAX_TREE_FILES.toLocaleString("ja-JP")} 件) を超えるため、ソースごとに上限を分け合います。多いソースの一部のファイルは、一覧に出ず、AI は読み取りも検索もできません (フォルダごとに少しずつ残します)。
+              </p>
+            )}
+            {multi && anyDepthTruncated && <p className="source-note">深すぎるフォルダがあるソースがあります。</p>}
+            <textarea
+              aria-label="モデルに起こしたい業務"
+              className="prompt-input"
+              placeholder="例: 受注から出荷まで"
+              value={request}
+              rows={3}
+              disabled={running || finished}
+              onChange={(e) => setRequest(e.target.value)}
+            />
+            <ul className="source-notes">
+              <li>
+                選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行です。フォルダ全体は送りません。
+              </li>
+              <li>
+                <code>.env</code> や鍵のファイル、<code>node_modules</code> などの依存・生成物は読みません。ただし、ふつうのソースファイルに直接書かれたキーや個人情報は送られることがあります。
+              </li>
+              {multi && <li>ソースを複数登録すると、ラベルが、どのソースのファイルかを示すパスの先頭 (例: バックエンド/src/routes/orders.ts) として AI に渡ります。AI は、ソースをまたいで読みます。</li>}
+              <li>対象の業務のほか、関係する業務・データ・画面も調べます。画面の数だけ AI を呼ぶので、数分かかり、API の利用料がかかります。</li>
+            </ul>
+            <div className="prompt-ai">
+              使う AI: {provider.label} ({model})
+              <button type="button" className="link-plain context-apply" disabled={running} onClick={() => setSettingsOpen(true)}>
+                変える
+              </button>
+            </div>
+            </>
+          )}
+          {step && (
+            <div className="prompt-progress">
+              <div className="visually-hidden" role="status">
+                {stageIndex >= 0 ? `${stageIndex + 1}/${STAGES.length} ${STAGES[stageIndex]!.label}` : "完了"}
+              </div>
+              <ol className="source-stages">
+                {STAGES.map((s, i) => {
+                  const state = step === "done" || i < stageIndex ? "done" : i === stageIndex ? "now" : "next";
+                  return (
+                    <li key={s.step} className={`source-stage is-${state}`} aria-current={state === "now" ? "step" : undefined}>
+                      <span aria-hidden="true">{state === "done" ? "✓" : state === "now" ? "▶" : "・"}</span> {i + 1}/{STAGES.length} {s.label}
+                    </li>
+                  );
+                })}
+              </ol>
+              {readCount > 0 && (
+                <div className="source-reads">
+                  <div className="prompt-step">読んだ場所 ({readCount} 件)</div>
+                  {reads.map((r, i) => (
+                    <div key={`${readCount}-${i}`} className="prompt-log">
+                      {r}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {survey && (
+                <pre
+                  ref={surveyBox}
+                  className="prompt-analysis source-survey"
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    followSurvey.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+                  }}
+                >
+                  {survey}
+                </pre>
+              )}
+              {screen && (
+                <div className="prompt-step">
+                  画面 {screen.done}/{screen.total}
+                </div>
+              )}
+              {log.map((l, i) => (
+                <div key={i} className="prompt-log">
+                  {l}
+                </div>
+              ))}
+            </div>
+          )}
+          {warnings && (
+            <div className="source-warnings">
+              <div className="prompt-step" role="status">
+                モデルを作りました。気づいたことが {warnings.length} 件あります。
+              </div>
+              <ul>
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {error && <p className="prompt-error">{error}</p>}
+        </div>
         <div className="dialog-actions">
           {running ? (
             <button type="button" onClick={() => controller.current?.abort()}>

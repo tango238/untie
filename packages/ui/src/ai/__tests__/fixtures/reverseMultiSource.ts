@@ -133,7 +133,11 @@ export function multiFixtureSources(): LabeledSource[] {
   return MULTI_LABELS.map((label) => ({ label, tree: memorySourceTree(MULTI_FOLDERS[label], MULTI_SOURCE_FILES[label]) }));
 }
 
-/** ディスクに書き出す (実際の API での確認・スクリーンショット用。dir は空のフォルダ。<dir>/<フォルダ名>/ に 1 ソースずつ) */
+/**
+ * ディスクに書き出す。テストでは使わない (テストは multiFixtureSources のメモリ上の木を使う)。
+ * ブラウザでの確認 (開発サーバーのダイアログで、実際のフォルダとして選ぶ。スクリーンショット・実際の API での通し確認) 用で、
+ * dir は空のフォルダ。<dir>/<フォルダ名>/ に 1 ソースずつ書く
+ */
 export async function writeMultiFixtureSources(dir: string): Promise<Record<string, string>> {
   const { mkdir, writeFile } = await import("node:fs/promises");
   const { dirname, join } = await import("node:path");

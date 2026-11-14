@@ -3,7 +3,7 @@
 // 段階: 調査 → 分析モデル → データ → 画面 UI。組み立ては spec.ts と designDraft.ts に任せる。
 import { setDesignDatabases, setDesignNavigation } from "@untie/core/model/commands";
 import { checkDesign, DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
-import { systemInformationIds } from "@untie/core/model/designData";
+import { systemInformationIds, unmappedInformationIds } from "@untie/core/model/designData";
 import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitemap";
 import { traceToActors } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type UntieModel } from "@untie/core/model/types";
@@ -11,14 +11,19 @@ import { validateModel } from "@untie/core/model/validate";
 import { ChatError, createChatSession, describeChatError, isTransientApiError, type ChatEvents, type ChatSession, type SeedTurn } from "./chat";
 import {
   applyDatabaseDraft,
+  applyDatabaseUse,
   applyScreenDraft,
   applySitemapDraft,
   readDatabaseDraft,
+  readDatabaseUse,
   readScreenDraft,
   readSitemapDraft,
   SUBMIT_DATABASE_DRAFT_TOOL,
   SUBMIT_SCREEN_DRAFT_TOOL,
   SUBMIT_SITEMAP_TOOL,
+  tableNamesOf,
+  unmappedTableNames,
+  USE_DATABASE_TOOL,
 } from "./designDraft";
 import { screenRequest } from "./designScreen";
 import { summarizeCounts } from "./generate";
@@ -34,7 +39,7 @@ import {
   wrapSurvey,
 } from "./reversePrompts";
 import { executeSourceTool, isSourceTool, SOURCE_TOOLS } from "./sourceTools";
-import { combineSourceTrees, isMultiSourceTree, visibleFiles, type LabeledSource, type SourceTree } from "./sourceTree";
+import { combineSourceTrees, isMultiSourceTree, sourcesTitle, visibleFiles, type LabeledSource, type SourceTree } from "./sourceTree";
 import { buildModelFromSpec, SUBMIT_MODEL_TOOL, type BuildResult, type ModelSpec } from "./spec";
 import type { ToolDef, ToolOutcome } from "./tools";
 
@@ -111,17 +116,22 @@ export const REVERSE_LIMITS = {
  * 方針 (ソースが複数のとき): 会話は分けず、調査は 1 つの会話のまま、上限だけを増やす。理由: ソースをまたいだつながり
  * (画面の API 呼び出し → バックエンドのハンドラー → テーブル) をたどるには、1 つの会話が全部のソースを見渡せるほうがよい。
  * ソースごとに調査の会話を分けて最後にまとめると、境目で「どの URL がどのハンドラーか」が欠け、まとめの会話でまた読み直すことになる。
- * 増やし方は 1 ソースにつき調査 +6 回 (+8 万文字) などで、上限は 1 回の会話の往復の上限 (chat.ts の MAX_STEPS = 60) から決める
- * (調査は 52 回 + 返答の往復 1 = 53 < 60。conversationSteps で検査する)。ソースが 4 つ以上になると、1 ソースあたりの調査は薄くなる
- * (いまの限界。ソースごとに調査の会話を分ける方法は、その先の案)。データ・画面 UI の会話は、画面やシステムごとに分かれているので、少しだけ増やす。
+ * 増やし方は 1 ソースにつき調査 +6 回 (+8 万文字) などで、上限は 1 回の会話の往復の上限 (chat.ts の MAX_STEPS = 60) と、文脈の窓
+ * (20 万トークン) から決める。調査の回数は 52 回 (ソースが 3 つで頭打ち。52 回 + 返答の往復 1 = 53 < 60。conversationSteps で検査する)、
+ * 文字数は 30 万 (ソースが 2 つで頭打ち) までで、ソースが増えても 30 万前後を超えない (文字数は読んだ分が会話に積み重なるため)。
+ * ソースが 3 つ以上になると、1 ソースあたりの調査は薄くなる (いまの限界。ソースごとに調査の会話を分ける方法は、その先の案)。
+ * データ・画面 UI の会話は、画面やシステムごとに分かれているので、少しだけ増やす。
  */
+/** 会話ごとの、道具が返す文字数の上限の最大 (ソースがいくつあっても超えない。文脈の窓に収めるため) */
+export const SOURCE_CHARS_CAP = { survey: 300_000, model: 120_000, data: 160_000 } as const;
+
 export function sourceLimits(sources: number): Record<"survey" | "model" | "data" | "screen", { calls: number; chars: number }> {
   const L = REVERSE_LIMITS;
   const extra = Math.max(0, Math.floor(sources) - 1);
   return {
-    survey: { calls: Math.min(52, L.sourceCallsSurvey + 6 * extra), chars: Math.min(500_000, L.sourceCharsSurvey + 80_000 * extra) },
-    model: { calls: Math.min(20, L.sourceCallsModel + 2 * extra), chars: Math.min(140_000, L.sourceCharsModel + 20_000 * extra) },
-    data: { calls: Math.min(32, L.sourceCallsData + 4 * extra), chars: Math.min(200_000, L.sourceCharsData + 30_000 * extra) },
+    survey: { calls: Math.min(52, L.sourceCallsSurvey + 6 * extra), chars: Math.min(SOURCE_CHARS_CAP.survey, L.sourceCharsSurvey + 80_000 * extra) },
+    model: { calls: Math.min(20, L.sourceCallsModel + 2 * extra), chars: Math.min(SOURCE_CHARS_CAP.model, L.sourceCharsModel + 20_000 * extra) },
+    data: { calls: Math.min(32, L.sourceCallsData + 4 * extra), chars: Math.min(SOURCE_CHARS_CAP.data, L.sourceCharsData + 20_000 * extra) },
     screen: { calls: Math.min(10, L.sourceCallsScreen + (extra > 0 ? 2 : 0)), chars: L.sourceCharsScreen + (extra > 0 ? 20_000 : 0) },
   };
 }
@@ -331,6 +341,17 @@ function screensOfBusinesses(model: UntieModel, businessNames: string[]): Set<st
   return new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && usecases.has(r.sourceId)).map((r) => r.targetId));
 }
 
+/** 画面 (分析の要素) の操作に関わる状態の名前 (その操作を実行できる状態と、実行後の状態)。画面 UI の一覧の例の値に使う */
+function statesOfScreen(model: UntieModel, screenId: string): string[] {
+  const usecases = new Set(model.relations.filter((r) => r.kind === "usecaseScreen" && r.targetId === screenId).map((r) => r.sourceId));
+  if (usecases.size === 0) return [];
+  const ids = model.relations.flatMap((r) =>
+    r.kind === "stateUsecase" && usecases.has(r.targetId) ? [r.sourceId] : r.kind === "usecaseState" && usecases.has(r.sourceId) ? [r.targetId] : [],
+  );
+  const names = new Set(ids.map((id) => elementName(model, id)).filter((n) => n !== ""));
+  return [...names].slice(0, 12);
+}
+
 /** submit_model に、対象の業務の名前を受け取る項目を足した道具 (spec.ts の道具は「プロンプトから作成」と共有なので、ここで包む) */
 const SUBMIT_REVERSE_MODEL_TOOL: ToolDef = {
   ...SUBMIT_MODEL_TOOL,
@@ -400,23 +421,39 @@ function stoppedWarning(stage: "データ" | "画面 UI", failure: StageFailure,
     : `画面 UI: 画面の会話が続けて ${streak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`;
 }
 
-/** 画面の説明などの文章から、ラベル付きのパス (木にあるもの) を取り出す。ソースが複数のとき、画面 UI の会話の手がかりにする */
+/** パスの区切りに使う文字 (空白は、ラベルやファイル名に空白があっても使えるよう、区切りにしない) */
+const PATH_DELIMITERS = /[、。,;()（）「」『』"'`<>\n\r\t]/;
+
+/**
+ * 画面の説明などの文章から、ラベル付きのパス (木にあるもの) を取り出す。ソースが複数のとき、画面 UI の会話の手がかりにする。
+ * ラベルやパスに空白があっても拾える (ラベルで始まる箇所から、木にあるパスのうち最も長く一致するものを取る)
+ */
 export function sourcePathsIn(text: string, tree: SourceTree, max = 5): string[] {
   if (!isMultiSourceTree(tree)) return [];
   const known = new Set(visibleFiles(tree).map((f) => f.path));
-  const found: string[] = [];
-  for (const token of text.split(/[\s、。,;()（）「」『』"'`<>]+/)) {
-    // 末尾の句読点・行番号 (:12) を取る
-    const path = token.replace(/(?::\d+(?:-\d+)?)?[.:]*$/, "");
-    if (known.has(path) && !found.includes(path)) found.push(path);
-    if (found.length >= max) break;
+  const found: { at: number; path: string }[] = [];
+  for (const s of tree.sources!) {
+    const head = `${s.label}/`;
+    for (let from = text.indexOf(head); from >= 0; from = text.indexOf(head, from + 1)) {
+      // 次の区切りまで (空白は含める)。末尾の行番号 (:12)・句読点を取り、空白で区切って短くしながら、木にあるパスを探す
+      const rest = text.slice(from);
+      const stop = rest.search(PATH_DELIMITERS);
+      let candidate = stop < 0 ? rest : rest.slice(0, stop);
+      let hit: string | undefined;
+      for (;;) {
+        const path = candidate.replace(/(?::\d+(?:-\d+)?)?[.:]*$/, "");
+        if (known.has(path)) {
+          hit = path;
+          break;
+        }
+        const cut = candidate.lastIndexOf(" ");
+        if (cut <= head.length) break;
+        candidate = candidate.slice(0, cut);
+      }
+      if (hit && !found.some((f) => f.path === hit)) found.push({ at: from, path: hit });
+    }
   }
-  return found;
-}
-
-/** 依頼文・履歴に出す、ソースの名前 (ソースが 1 つなら「フォルダ名」、複数なら「ラベル (フォルダ名)」の並び) */
-function sourceTitle(tree: SourceTree): string {
-  return isMultiSourceTree(tree) ? tree.sources!.map((s) => `${s.label} (${s.folder})`).join("、") : tree.name;
+  return found.sort((a, b) => a.at - b.at).slice(0, max).map((f) => f.path);
 }
 
 /**
@@ -547,19 +584,25 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
 
   // ---- 3. データ (システムごと) ----
   // データベースを作るのは、画面を持つシステムと、画面は持たないが操作の対象になっているシステム (バッチ・API だけのシステム)。
-  // 画面を持たないシステムには submit_database だけの会話をする (サイトマップ・画面 UI は無し)
+  // 画面を持たないシステムには submit_database だけの会話をする (サイトマップ・画面 UI は無し)。
+  // 順は、画面を持たないシステムが先 (データを持つバックエンドのシステムが先に写す)。ソースが複数のとき、あとのシステムの依頼には、
+  // すでに写されたデータベース (名前・テーブルと列・テーブルと情報のいまの対応) を渡し、そのシステムのデータが入っているなら、新しく出さず、
+  // それを使うと答えさせる (use_database。足りない対応はこの道具で足す)。誰も写していなければ、最初に当たったシステムが写す。
+  // 設計の databaseIds は、AI の答え (写した・使うと答えた) で決める。答えが無かったシステムは、最後に推測で補い、補ったことを気づいたことに残す
   o.onStep?.("data");
   const hasScreens = (systemId: string) => model.elements.some((s) => s.kind === "screen" && s.systemId === systemId);
   const isUsecaseTarget = (systemId: string) => model.relations.some((r) => r.kind === "usecaseSystem" && r.targetId === systemId);
-  const dataSystems = model.elements.filter((e) => e.kind === "system" && (hasScreens(e.id) || isUsecaseTarget(e.id)));
+  const candidates = model.elements.filter((e) => e.kind === "system" && (hasScreens(e.id) || isUsecaseTarget(e.id)));
+  const dataSystems = [...candidates.filter((e) => !hasScreens(e.id)), ...candidates.filter((e) => hasScreens(e.id))];
   const screenSystems = dataSystems.filter((e) => hasScreens(e.id));
   ctx.budget.calls = sourceBudget(dataSystems.length, 0, nSources).calls;
   ctx.budget.chars = sourceBudget(dataSystems.length, 0, nSources).chars;
-  let databases = 0;
-  /** システムごとの、そのシステムのスキーマ定義から作ったデータベースの id (ソースが複数のとき、画面だけのシステムが結ぶ先) */
-  const ownedDbs = new Map<string, string>();
-  /** データベースを自分では作らなかった、画面のあるシステム (ソースが複数のとき、あとでほかのシステムのデータベースに結ぶ) */
-  const withoutOwnDb: { id: string; name: string; missed: boolean }[] = [];
+  /** ここまでのシステムが写したデータベースの id (ソースが複数のとき、あとのシステムが使えるもの) */
+  const sharedDbs: string[] = [];
+  /** データベースについて答えたシステム (写した・使うと答えた・見送った)。数える (サマリー) のは写した・使うと答えたもの */
+  const withDb = new Set<string>();
+  /** AI がデータベースについて答えなかった、画面のあるシステム (会話が失敗した・打ち切られたものを含む)。最後に補う */
+  const unanswered: { id: string; name: string; failed: boolean }[] = [];
   let dataStreak = 0;
   let dataStopped: StageFailure | null = null;
   let dataSkipped = 0;
@@ -570,15 +613,35 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
     let dbApplied = false;
     let dbGaveUp = false;
     let dbAttempts = 0;
+    /** すでにあるデータベースを使うと答えたか */
+    let usedDb = false;
+    let useAttempts = 0;
+    let dupRefusals = 0;
     /** 最初に受け付けた提出のデータベースの名前 (出し直しで名前が変わって、データベースが 2 つにならないように固定する) */
     let pinnedDbName: string | undefined;
     let ownDbId: string | undefined;
     let sitemapDone = false;
     let dbWarnings: string[] = [];
+    let useWarnings: string[] = [];
     let sitemapWarnings: string[] = [];
     let failure: StageFailure | null = null;
+    /** 前のシステムで会話の失敗が続いたので、会話をしなかった */
+    let skippedHere = false;
+    /** この会話を開いたときの、すでにあるデータベース (ソースが複数のときだけ) */
+    const sharedHere = multi ? [...sharedDbs] : [];
     const dbMaxAttempts = 1 + REVERSE_LIMITS.dataRetries;
     const afterDb = () => (withScreens ? (sitemapDone ? FINISH_NOTE : "続けて submit_sitemap を提出してください") : FINISH_NOTE);
+    const dbNameOf = (id: string | undefined) => model.databases.find((d) => d.id === id)?.name ?? "";
+    /** 出し直しの案内に添える、対応のすきま: DSL にあるのにどの情報にも結ばれていないテーブルと、どのテーブルにも結ばれていない情報 */
+    const gapLines = (): { lines: string[]; any: boolean } => {
+      const infos = unmappedInformationIds(model, sys.id).map((id) => elementName(model, id));
+      const used = (model.designs.find((d) => d.systemId === sys.id)?.databaseIds ?? []).map((id) => model.databases.find((d) => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d);
+      const tables = used.flatMap((d) => unmappedTableNames(d).map((t) => (used.length > 1 ? `${d.name}.${t}` : t)));
+      const lines: string[] = [];
+      if (tables.length > 0) lines.push(`DSL にあるテーブルのうち、どの情報にも結ばれていないもの: ${tables.slice(0, 20).join("、")}${tables.length > 20 ? " ほか" : ""}`);
+      if (infos.length > 0) lines.push(`どのテーブルにも結ばれていない情報: ${infos.slice(0, 20).join("、")}${infos.length > 20 ? " ほか" : ""}`);
+      return { lines, any: infos.length > 0 };
+    };
     const submitDatabase = (input: unknown): ToolOutcome => {
       const draft = readDatabaseDraft(input);
       if (!draft) return errorOutcome("system・dsl・tables が必要です");
@@ -586,6 +649,17 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       if (dbGaveUp) return okOutcome("データベースは見送りました。これ以上は受け付けません。次へ進んでください", false);
       // 受け付けたあとの出し直しにも回数の上限がある (往復を使い切らないように)
       if (dbApplied && dbAttempts >= dbMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${afterDb()}`, false);
+      // ほかのシステムがすでに写したスキーマと同じものは、断って、すでにあるものを使うよう返す (データベースが重複して、対応が割れないように)
+      if (!dbApplied && sharedHere.length > 0) {
+        const names = new Set(tableNamesOf({ dsl: draft.dsl }));
+        const same = names.size > 0 ? sharedHere.map((id) => model.databases.find((d) => d.id === id)).find((d) => d && tableNamesOf(d).length > 0 && [...names].every((n) => tableNamesOf(d).includes(n))) : undefined;
+        if (same) {
+          dupRefusals++;
+          if (dupRefusals > 2) return okOutcome(`同じスキーマのデータベース「${same.name}」がすでにあるので、新しいデータベースは受け付けません。use_database で使うか、このまま終えてください`, false);
+          o.onSubmit?.(false, `データベース「${same.name}」がすでにあるので、それを使うよう頼んでいます`);
+          return errorOutcome(`同じテーブルを持つデータベース「${same.name}」が、ほかのシステムによってすでに写されています。新しく出さず、use_database でそのデータベースを使い、このシステムの情報を tables で結んでください`);
+        }
+      }
       dbAttempts++;
       const databaseName = dbApplied ? pinnedDbName : draft.database_name;
       const toApply = { system: sys.name, dsl: draft.dsl, tables: draft.tables, ...(databaseName !== undefined ? { database_name: databaseName } : {}) };
@@ -615,7 +689,46 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       const message = `受け付けました: テーブル ${r.added.tables}、情報 ${r.added.informations}${r.dslErrors.length > 0 ? ` (DSL の解析エラー ${r.dslErrors.length} 件は残っています)` : ""}`;
       o.onSubmit?.(true, message);
       const retriesLeft = dbMaxAttempts - dbAttempts;
-      const note = revisionNote(r.warnings, retriesLeft, "submit_database", "対応するテーブルがソースに無い情報は、直さなくてかまいません。");
+      // 未対応の情報の警告は、下の「対応のすきま」で言い分けて示すので、ここでは除く
+      const others = r.warnings.filter((w) => !/がどのテーブルにも対応していません/.test(w));
+      const note = revisionNote(others, retriesLeft, "submit_database", "");
+      const gap = gapLines();
+      const gapNote =
+        gap.any && retriesLeft > 0
+          ? `\n${gap.lines.join("\n")}\nテーブルが DSL にあるのに対応が無い情報は、tables に足して submit_database を出し直してください (あと ${retriesLeft} 回まで)。対応するテーブルがソースに無い情報だけ、直さなくてかまいません`
+          : "";
+      const again = note !== "" || gapNote !== "";
+      return okOutcome(`${message}${note}${gapNote}${!again || retriesLeft <= 0 ? `\n${afterDb()}` : ""}`, true);
+    };
+    /** すでにあるデータベースを使うと答える。足りない対応を足し、未対応の情報が残れば、候補のテーブルを添えて出し直しを求める */
+    const submitUse = (input: unknown): ToolOutcome => {
+      const draft = readDatabaseUse(input);
+      if (!draft) return errorOutcome("system・database・tables が必要です");
+      if (useAttempts >= dbMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${afterDb()}`, false);
+      const wanted = draft.database.trim();
+      const target = sharedHere.map((id) => model.databases.find((d) => d.id === id)).find((d) => d && (d.id === wanted || d.name === wanted));
+      if (!target) {
+        const names = sharedHere.map(dbNameOf).filter((n) => n !== "");
+        return errorOutcome(`データベース「${draft.database}」は、すでにあるデータベースにありません。次のどれかの名前で指してください: ${names.map((n) => `「${n}」`).join("")}`);
+      }
+      useAttempts++;
+      const r = applyDatabaseUse(model, { ...draft, system: sys.name, database: target.id });
+      if (!r.applied) return errorOutcome(`${r.failure ?? "データベースを使えませんでした"}。直して出し直してください`);
+      model = r.model;
+      usedDb = true;
+      useWarnings = r.warnings;
+      const message = `受け付けました: データベース「${target.name}」を使います (対応を足したテーブル ${r.added.tables}、情報 ${r.added.informations})`;
+      o.onSubmit?.(true, message);
+      const retriesLeft = dbMaxAttempts - useAttempts;
+      const gap = gapLines();
+      const others = r.warnings.filter((w) => !/がどのテーブルにも対応していません/.test(w));
+      const note = revisionNote(others, retriesLeft, "use_database", "");
+      if (gap.any && retriesLeft > 0) {
+        return okOutcome(
+          `${message}${note}\n${gap.lines.join("\n")}\nこのシステムの情報で、テーブルが DSL にあるのに対応が無いものは、tables に足して use_database を出し直してください (あと ${retriesLeft} 回まで。足した対応は残ります)。対応するテーブルがソースに無い情報だけ、直さなくてかまいません`,
+          true,
+        );
+      }
       return okOutcome(`${message}${note}${note === "" || retriesLeft <= 0 ? `\n${afterDb()}` : ""}`, true);
     };
     const submitSitemap = (input: unknown): ToolOutcome => {
@@ -628,27 +741,36 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       sitemapWarnings = r.warnings;
       const message = `受け付けました: 画面 ${r.added.screens}、遷移 ${r.added.transitions + r.added.derivedTransitions}`;
       o.onSubmit?.(true, message);
-      return okOutcome(`${message}。${dbApplied || dbGaveUp ? FINISH_NOTE : "続けて submit_database を提出してください"}`, true);
+      return okOutcome(`${message}。${dbApplied || usedDb || dbGaveUp ? FINISH_NOTE : "続けて submit_database か use_database を提出してください"}`, true);
     };
     if (dataStopped) {
       // 前のシステムで会話の失敗が続いたので、会話はしない。画面は設計に足す (下の空の遷移)
       dataSkipped++;
+      skippedHere = true;
     } else {
       try {
+        const dbTools = sharedHere.length > 0 ? [SUBMIT_DATABASE_DRAFT_TOOL, USE_DATABASE_TOOL] : [SUBMIT_DATABASE_DRAFT_TOOL];
+        const handlers: Record<string, (input: unknown) => ToolOutcome> = { submit_database: submitDatabase, ...(sharedHere.length > 0 ? { use_database: submitUse } : {}) };
         const dataSession = openSession(
           ctx,
           system,
-          withScreens ? [SUBMIT_DATABASE_DRAFT_TOOL, SUBMIT_SITEMAP_TOOL] : [SUBMIT_DATABASE_DRAFT_TOOL],
+          withScreens ? [...dbTools, SUBMIT_SITEMAP_TOOL] : dbTools,
           { ...lim.data, finish: "submit" },
-          withScreens ? { submit_database: submitDatabase, submit_sitemap: submitSitemap } : { submit_database: submitDatabase },
+          withScreens ? { ...handlers, submit_sitemap: submitSitemap } : handlers,
           stageSeed,
         );
-        await dataSession.send(reverseDataRequest(model, sys.id, multi), {}, o.signal);
+        await dataSession.send(reverseDataRequest(model, sys.id, multi, sharedHere), {}, o.signal);
         throwIfAborted(o.signal);
-        // 画面を持たないシステムは、ソースにスキーマ定義が無ければ (社外のシステムなど) 提出しない答えが正しいので、頼み直さない
-        // (ソースが複数で、データを持つシステムがほかにもあるとき、画面だけのシステムのデータベースは無くてよい。ほかのシステムのデータベースに結ぶ)
-        if (withScreens && !dbApplied && !dbGaveUp && !(multi && dataSystems.length > 1)) {
-          await dataSession.send("submit_database でデータベースを提出してください。", {}, o.signal);
+        // 画面を持たないシステムは、ソースにスキーマ定義が無ければ (社外のシステムなど) 提出しない答えが正しいので、頼み直さない。
+        // 画面のあるシステムは、データベースを写すか、すでにあるデータベースを使うか、どちらかの答えが要る
+        if (withScreens && !dbApplied && !usedDb && !dbGaveUp) {
+          await dataSession.send(
+            sharedHere.length > 0
+              ? "すでにあるデータベースを使うなら use_database で、このシステムのソースに別のスキーマ定義があるなら submit_database で、データベースについて答えてください。"
+              : "submit_database でデータベースを提出してください。",
+            {},
+            o.signal,
+          );
           throwIfAborted(o.signal);
         }
       } catch (e) {
@@ -664,15 +786,13 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       } else dataStreak = 0;
     }
     if (dbApplied) {
-      databases++;
-      if (ownDbId) ownedDbs.set(sys.id, ownDbId);
+      withDb.add(sys.id);
+      if (ownDbId) sharedDbs.push(ownDbId);
     }
-    // 会話が失敗したときは、その警告だけ (同じことを 2 件に分けない)
-    else if (!dbGaveUp && !failure && !dataStopped && withScreens) {
-      if (multi && dataSystems.length > 1) withoutOwnDb.push({ id: sys.id, name: sys.name, missed: true });
-      else warnings.push(`データ: システム「${sys.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした`);
-    }
-    warnings.push(...dbWarnings);
+    if (usedDb) withDb.add(sys.id);
+    // 画面のあるシステムが、データベースについて答えなかったときは、最後に補う (会話が失敗したときも)
+    if (withScreens && !dbApplied && !usedDb && !dbGaveUp) unanswered.push({ id: sys.id, name: sys.name, failed: !!failure || skippedHere });
+    warnings.push(...dbWarnings, ...useWarnings);
     // 画面を設計に足すため、AI が遷移を出さなくても、空の遷移で必ず足す
     if (withScreens && !sitemapDone) {
       const r = applySitemapDraft(model, { system: sys.name, transitions: [] });
@@ -683,19 +803,27 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
   }
   if (dataStopped) warnings.push(stoppedWarning("データ", dataStopped, dataSkipped));
 
-  // ---- 画面だけのシステムのデータ (ソースが複数のとき) ----
-  // 画面のソース (フロント) にはスキーマ定義が無く、データはバックエンドのシステムが持つ。画面の項目をバックエンドのテーブルの列に結べるよう、
-  // そのシステムの設計が使うデータベースに、ほかのシステムのデータベースを足す。使うデータベースを空のままにすると、設計の規則で
-  // 先頭のデータベース (どのシステムのものか分からない) が使われてしまうので、明示する。
-  // 結び先: 画面のシステムが使う情報を表すテーブルのあるデータベース。1 つも当たらなければ、ほかのシステムのデータベースすべて
-  for (const w of withoutOwnDb) {
-    const others = [...ownedDbs.entries()].filter(([systemId]) => systemId !== w.id).map(([, id]) => id);
+  // ---- AI がデータベースについて答えなかった画面のシステム ----
+  // 設計の規則では、使うデータベースが空だと先頭のデータベース (どのシステムのものか分からない) が使われてしまう。そこで、
+  // そのシステムの情報を表すテーブルを最も多く持つデータベースに結び (推測)、結んだことを気づいたことに残す。当たるものが無ければ結ばない
+  for (const w of unanswered) {
     const infoIds = new Set(systemInformationIds(model, w.id));
-    const matching = others.filter((id) => model.databases.find((d) => d.id === id)?.tables.some((t) => t.informationIds.some((i) => infoIds.has(i))));
-    const use = matching.length > 0 ? matching : others;
-    const r = use.length > 0 ? setDesignDatabases(model, { systemId: w.id, databaseIds: use }) : null;
-    if (r?.ok) model = r.model;
-    else warnings.push(`データ: システム「${w.name}」: データベースを作らず、結べるほかのシステムのデータベースもなかったので、画面の項目をテーブルの列に結べません`);
+    let best: { id: string; name: string; count: number } | null = null;
+    for (const id of sharedDbs) {
+      const db = model.databases.find((d) => d.id === id);
+      const count = db ? db.tables.filter((t) => t.informationIds.some((i) => infoIds.has(i))).length : 0;
+      if (db && count > 0 && (!best || count > best.count)) best = { id, name: db.name, count };
+    }
+    const r = best ? setDesignDatabases(model, { systemId: w.id, databaseIds: [best.id] }) : null;
+    if (best && r?.ok) {
+      model = r.model;
+      withDb.add(w.id);
+      warnings.push(`データ: システム「${w.name}」: AI がデータベースを答えなかったので、このシステムの情報を表すテーブルが最も多いデータベース「${best.name}」に結びました (テーブル ${best.count} 件。推測です)`);
+    } else if (!w.failed) {
+      warnings.push(
+        `データ: システム「${w.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした${sharedDbs.length > 0 ? " (すでにあるデータベースにも、このシステムの情報を表すテーブルがなく、結べません)" : ""}`,
+      );
+    }
   }
 
   // ---- ナビゲーション (メニュー) ----
@@ -787,7 +915,7 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
       const screen = design.screens.find((s) => s.id === t.id)!;
       const description = model.elements.find((e) => e.id === t.analysisId)?.description ?? "";
       const hint = multi ? { labels: tree.sources!.map((x) => x.label), paths: sourcePathsIn(description, tree) } : undefined;
-      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen), t.name, hint), {}, o.signal);
+      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen), t.name, hint, statesOfScreen(model, t.analysisId)), {}, o.signal);
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {
@@ -815,7 +943,7 @@ export async function reverseEngineer(source: SourceTree | readonly LabeledSourc
     const prefix = checks.length > 1 ? `システム「${elementName(model, c.systemId)}」: ` : "";
     for (const line of designWarningLines(model, c.systemId, c.warnings)) warnings.push(`設計の検証: ${prefix}${line}`);
   }
-  const summary = `ソースコード${multi ? ` ${nSources} か所 (${sourceTitle(tree)})` : `「${tree.name}」`}からモデル「${model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。データベース ${databases}/${dataSystems.length} システム、画面 UI ${placed}/${allTargets.length} 画面。${
+  const summary = `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}からモデル「${model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。データベース ${withDb.size}/${dataSystems.length} システム、画面 UI ${placed}/${allTargets.length} 画面。${
     warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""
   }`;
   return {

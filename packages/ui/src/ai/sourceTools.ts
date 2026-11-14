@@ -98,18 +98,20 @@ const int = (v: unknown, fallback: number, min: number, max: number) =>
 function treeNoteFields(tree: SourceTree): Record<string, unknown> {
   // ソースが複数のときは、どのソースが全部ではないかを名指しする (全体の知らせだけでは、どのソースの一覧が欠けているか分からない)
   if (isMultiSourceTree(tree)) {
-    const cut = tree.sources!.filter((s) => s.truncated || s.depthTruncated);
+    const cut = tree.sources!.filter((s) => s.truncated || s.trimmed > 0 || s.depthTruncated);
     if (cut.length === 0) return {};
     const lines = cut.map((s) => {
       const why: string[] = [];
-      if (s.truncated) why.push(s.trimmed > 0 ? `ファイルが多すぎて、件数の上限で ${s.trimmed} 件を一覧に入れていない` : "ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない");
+      // 打ち切り (たどる時点) と減らし (件数を分け合うとき) の両方に当たるソースは、両方を伝える
+      if (s.truncated) why.push("ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない (数えていないファイルは、読み取りも検索もできない)");
+      if (s.trimmed > 0) why.push(`件数の上限をほかのソースと分け合うため ${s.trimmed} 件を減らした (減らしたファイルは、一覧に無く、読み取りも検索もできない)`);
       if (s.depthTruncated) why.push("深さの上限を超えるフォルダは読んでいないので、その下のファイルは一覧に無い");
       return `「${s.label}」: ${why.join("。")}`;
     });
     return { treeTruncated: true, truncatedSources: cut.map((s) => s.label), treeNote: lines.join("。") };
   }
   const reasons: string[] = [];
-  if (tree.truncated) reasons.push("ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない");
+  if (tree.truncated) reasons.push("ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない (数えていないファイルは、読み取りも検索もできない)");
   if (tree.depthTruncated) reasons.push("深さの上限を超えるフォルダは読んでいないので、その下のファイルは一覧に無い");
   return reasons.length > 0 ? { treeTruncated: true, treeNote: reasons.join("。") } : {};
 }
@@ -206,7 +208,8 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
             label: s.label,
             folder: s.folder,
             files: s.fileCount,
-            ...(s.truncated ? { truncated: true } : {}),
+            ...(s.truncated || s.trimmed > 0 ? { truncated: true } : {}),
+            ...(s.trimmed > 0 ? { trimmed: s.trimmed } : {}),
             ...(s.depthTruncated ? { depthTruncated: true } : {}),
           })),
         }

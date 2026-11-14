@@ -133,7 +133,7 @@ const usecaseSchema = named({
   conditions: names("判断に使う条件の名前 (conditions に定義したもの)"),
   from_states: names("この操作を実行できる状態の名前"),
   to_states: names("実行後に移る状態の名前"),
-  targets: names("操作の対象のシステム・帳票の名前 (systems / ledgers に定義したもの)。1 つだけ。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
+  targets: names("操作の対象のシステム・帳票・画面の名前 (systems / ledgers / screens に定義したもの)。1 つだけ。画面を通す操作は、画面の名前を書いてもよい (screens の usecase に操作を書くのと同じ意味)。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
 });
 const activitySchema = named({
   performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
@@ -167,7 +167,7 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
       screens: list(
         named({
           system: { type: "string", description: "属するシステムの名前 (systems に定義したもの)。システムが 1 つだけなら省いてよい" },
-          usecase: { type: "string", description: "この画面を使う操作の名前。1 つだけ。操作の対象はこの画面になる (その操作に別のシステム・帳票を対象にしない)。複数の操作が同じ画面を使うなら、操作ごとに画面を分ける" },
+          usecase: { type: "string", description: "この画面を使う操作の名前。1 つだけ。操作の対象はこの画面になる (その操作に別のシステム・帳票を対象にしない)。操作の targets に画面の名前を書いても同じ意味になる。複数の操作が同じ画面を使うなら、操作ごとに画面を分ける" },
         }),
         "画面: 利用者が操作する画面。要望・資料から読み取れるものだけ書く",
       ),
@@ -427,6 +427,12 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   }
 
   const nameOfId = (id: string) => model.elements.find((e) => e.id === id)?.name ?? id;
+  /** 画面の名前 (spec.screens)。操作の targets にこの名前が書かれたら、その画面を使う操作として画面の段階で結ぶ (screens[].usecase と同じ扱い) */
+  const specScreenNames = new Set(
+    (Array.isArray(spec.screens) ? spec.screens : []).flatMap((sc) => (typeof sc?.name === "string" && nameOf(sc.name) ? [nameOf(sc.name)] : [])),
+  );
+  /** 画面の名前 → targets にその名前を書いた操作の id */
+  const usecasesNamingScreen = new Map<string, string[]>();
   /** 操作を作り、対象・情報・条件・状態を結ぶ (作業から使う操作も、イベントをきっかけにする操作も同じ) */
   const addUsecase = (u: SpecUsecase, systemTargets: string[] = []): string | null => {
     // すでにある操作 (同じ名前) は上限に数えない
@@ -434,7 +440,16 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
     const ucId = add("usecase", "usecase", u);
     if (!ucId) return null;
     // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
-    const targets = [...systemTargets.map((id) => ({ id })), ...clip(u.targets, L.refsPerItem, `操作「${u.name}」の対象`).map((n) => ({ name: n }))];
+    const written = clip(u.targets, L.refsPerItem, `操作「${u.name}」の対象`).filter((n) => {
+      // システム・帳票の名前ではなく、画面の名前なら、画面の段階でその画面を使う操作として結ぶ
+      const screenName = typeof n === "string" ? nameOf(n) : "";
+      if (!screenName || idOf("actor", screenName) || idOf("ledger", screenName) || !specScreenNames.has(screenName)) return true;
+      const list = usecasesNamingScreen.get(screenName) ?? [];
+      if (!list.includes(ucId)) list.push(ucId);
+      usecasesNamingScreen.set(screenName, list);
+      return false;
+    });
+    const targets = [...systemTargets.map((id) => ({ id })), ...written.map((n) => ({ name: n }))];
     const [first, ...rest] = targets;
     if (first) {
       const targetId = "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象");
@@ -541,42 +556,51 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       nameless.set("screen", (nameless.get("screen") ?? 0) + 1);
       continue;
     }
-    const usecase = sc.usecase ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
-    if (sc.usecase && !usecase) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
+    const declared = sc.usecase ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
+    if (sc.usecase && !declared) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
+    // 操作の targets に画面の名前を書いたものも、screens の usecase と同じ扱いで、その画面を使う操作にする
+    const usecases: Element[] = [];
+    for (const u of [declared, ...(usecasesNamingScreen.get(name) ?? []).map((id) => model.elements.find((e) => e.id === id))]) {
+      if (u && !usecases.some((x) => x.id === u.id)) usecases.push(u);
+    }
+    const usecase = usecases[0];
     // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム
     let system = sc.system ? systemIndex.get(nameOf(sc.system)) : systems.length === 1 ? systems[0] : undefined;
     if (!system && sc.system) warnings.push(`画面「${name}」の属するシステム「${sc.system}」が見つかりません`);
     // 操作がシステムを対象にしていれば、そのシステムに合わせる (画面を使うと対象は画面に替わる)
-    const target = usecase ? targetOfUsecase.get(usecase.id) : undefined;
-    if (!system && target?.kind === "system") system = target;
+    const firstTarget = usecase ? targetOfUsecase.get(usecase.id) : undefined;
+    if (!system && firstTarget?.kind === "system") system = firstTarget;
     if (!system) {
       warnings.push(`画面「${name}」は属するシステムが決まらないので作りませんでした`);
       continue;
     }
     const screenId = add("screen", `screen:${system.id}`, sc, { systemId: system.id });
-    if (!screenId || !usecase) continue;
-    const userOfScreen = usecaseOfScreen.get(screenId);
-    // すでに同じ組で結んでいれば、黙って飛ばす (同じ下書きを 2 回書かれても警告にしない)
-    if (userOfScreen === usecase.id) continue;
-    if (userOfScreen !== undefined) {
-      warnings.push(`画面「${name}」はすでに別の操作が使っているので、操作「${usecase.name}」とは結びませんでした (1 つの画面を使う操作は 1 つだけ)`);
-      continue;
-    }
-    if (screenOfUsecase.has(usecase.id)) {
-      warnings.push(`操作「${usecase.name}」はすでに別の画面を使っているので、画面「${name}」とは結びませんでした (1 つの操作が使う画面は 1 つだけ)`);
-      continue;
-    }
-    if (target?.kind === "ledger") {
-      warnings.push(`操作「${usecase.name}」は帳票を対象にしているので、画面「${name}」とは結びませんでした (1 つの操作の対象は 1 つだけ)`);
-      continue;
-    }
-    if (target?.kind === "system" && target.id !== system.id) {
-      warnings.push(`操作「${usecase.name}」の対象はシステム「${target.name}」なので、システム「${system.name}」の画面「${name}」とは結びませんでした (画面の属するシステムを合わせてください)`);
-      continue;
-    }
-    if (apply(setScreenUsecase(model, { screenId, usecaseId: usecase.id }), `画面「${name}」を操作「${usecase.name}」に結べません`)) {
-      usecaseOfScreen.set(screenId, usecase.id);
-      screenOfUsecase.set(usecase.id, screenId);
+    if (!screenId) continue;
+    for (const uc of usecases) {
+      const target = targetOfUsecase.get(uc.id);
+      const userOfScreen = usecaseOfScreen.get(screenId);
+      // すでに同じ組で結んでいれば、黙って飛ばす (同じ下書きを 2 回書かれても警告にしない)
+      if (userOfScreen === uc.id) continue;
+      if (userOfScreen !== undefined) {
+        warnings.push(`画面「${name}」はすでに別の操作が使っているので、操作「${uc.name}」とは結びませんでした (1 つの画面を使う操作は 1 つだけ)`);
+        continue;
+      }
+      if (screenOfUsecase.has(uc.id)) {
+        warnings.push(`操作「${uc.name}」はすでに別の画面を使っているので、画面「${name}」とは結びませんでした (1 つの操作が使う画面は 1 つだけ)`);
+        continue;
+      }
+      if (target?.kind === "ledger") {
+        warnings.push(`操作「${uc.name}」は帳票を対象にしているので、画面「${name}」とは結びませんでした (1 つの操作の対象は 1 つだけ)`);
+        continue;
+      }
+      if (target?.kind === "system" && target.id !== system.id) {
+        warnings.push(`操作「${uc.name}」の対象はシステム「${target.name}」なので、システム「${system.name}」の画面「${name}」とは結びませんでした (画面の属するシステムを合わせてください)`);
+        continue;
+      }
+      if (apply(setScreenUsecase(model, { screenId, usecaseId: uc.id }), `画面「${name}」を操作「${uc.name}」に結べません`)) {
+        usecaseOfScreen.set(screenId, uc.id);
+        screenOfUsecase.set(uc.id, screenId);
+      }
     }
   }
 

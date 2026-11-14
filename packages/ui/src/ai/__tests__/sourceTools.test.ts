@@ -378,6 +378,25 @@ describe("複数のソースをまとめた木", () => {
     expect((await go("list_files", {}, deep)).treeNote).toMatch(/「A」: 深さの上限/);
   });
 
+  it("どれかのソースが、たどる時点で打ち切られているときも分け合いの知らせが出る。打ち切りと減らしの両方に当たるソースは両方を伝え、減らしたファイルは読めず検索にも出ない", async () => {
+    const big = memorySourceTree("big", Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`${i < 15 ? "docs" : "src"}/f${String(i).padStart(2, "0")}.ts`, "needle"])));
+    const t = combineSourceTrees([{ label: "大", tree: { ...big, truncated: true } }, { label: "小", tree: memorySourceTree("small", { "a.ts": "needle" }) }], { maxFiles: 10 });
+    const list = await go("list_files", {}, t);
+    expect(list.treeNote).toMatch(/「大」: ファイルが多すぎて、件数の上限で読むのをやめたので.*。件数の上限をほかのソースと分け合うため 21 件を減らした/);
+    expect(list.treeNote).toMatch(/読み取りも検索もできない/);
+    expect(list.sources.find((s: { label: string }) => s.label === "大")).toMatchObject({ files: 9, truncated: true, trimmed: 21 });
+    // 減らしたあとも、どの最上位のフォルダも少し残る
+    const kept = t.files.map((f) => f.path).filter((p) => p.startsWith("大/"));
+    expect(kept.some((p) => p.startsWith("大/docs/"))).toBe(true);
+    expect(kept.some((p) => p.startsWith("大/src/"))).toBe(true);
+    // 減らしたファイルは、読み取りも検索もできない
+    const dropped = big.files.map((f) => `大/${f.path}`).find((p) => !kept.includes(p))!;
+    expect((await go("read_file", { path: dropped }, t)).ok).toBe(false);
+    const found = await go("search_code", { pattern: "needle" }, t);
+    expect(found.matches.map((m: { path: string }) => m.path)).not.toContain(dropped);
+    expect(found.matches).toHaveLength(10);
+  });
+
   it("ソースが 1 つの木は、今までと同じ (ラベルのフォルダが無く、ソースの内訳も出ない)", async () => {
     const one = combineSourceTrees([{ label: "バックエンド", tree: sources[0]!.tree }]);
     const a = await go("list_files", {}, one);

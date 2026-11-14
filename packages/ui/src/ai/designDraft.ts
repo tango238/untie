@@ -8,6 +8,7 @@ import {
   renameDatabase,
   setDatabaseDesign,
   setDesignDatabases,
+  setTableInformation,
   setDesignScreenView,
   updateTransition,
   type CommandResult,
@@ -19,7 +20,7 @@ import { NAME_MAX_LENGTH, truncateText } from "@untie/core/model/limits";
 import { parsePrismaDsl, type PrismaError } from "@untie/core/model/prisma";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { addSitemapScreens, designScreenName, TRANSITION_VIAS } from "@untie/core/model/sitemap";
-import type { DesignScreen, Element, SystemDesign, Transition, UntieModel } from "@untie/core/model/types";
+import type { Database, DesignScreen, Element, SystemDesign, Transition, UntieModel } from "@untie/core/model/types";
 import { validateView } from "../components/design/viewValidate";
 import { sanitizeBindings } from "./designScreen";
 import type { ToolDef } from "./tools";
@@ -104,7 +105,7 @@ export const SUBMIT_DATABASE_DRAFT_TOOL: ToolDef = {
     type: "object",
     properties: {
       system: { type: "string", description: "対象のシステムの名前 (モデルにあるもの)" },
-      database_name: { type: "string", description: "データベースの名前 (省略するとシステム名から付ける)" },
+      database_name: { type: "string", description: "データベースの名前。データの中身で付ける (例: 注文DB。システムの名前にしない。ほかのシステムも同じデータベースを使うことがあるため)。省略するとシステム名から付ける" },
       dsl: { type: "string", description: "Prisma のスキーマ (model / enum だけ。datasource や generator は書かない)" },
       tables: {
         type: "array",
@@ -226,16 +227,33 @@ export function applyDatabaseDraft(model: UntieModel, draft: DatabaseDraft, opti
   // 置き直した DSL に、列やテーブルが無くなった画面の対応は外す (残すと検証が bindingInvalid を出す)
   next = dropInvalidBindings(next, databaseId, warnings);
   // このシステムが使う情報のうち、どのテーブルにも対応していないもの (空の DSL や、名前の誤りの手がかり。AI の出し直しの材料になる)
-  const unmapped = unmappedInformationIds(next, system.id);
-  const nameById = new Map(next.elements.map((e) => [e.id, e.name]));
-  for (const id of unmapped.slice(0, UNMAPPED_WARNING_MAX)) warnings.push(`データ: 情報「${nameById.get(id) ?? id}」がどのテーブルにも対応していません`);
-  if (unmapped.length > UNMAPPED_WARNING_MAX) warnings.push(`データ: ほか ${unmapped.length - UNMAPPED_WARNING_MAX} 件の情報もどのテーブルにも対応していません`);
+  warnings.push(...unmappedWarnings(next, system.id));
   const mapped = new Set(tables.flatMap((t) => t.informationIds));
   return { model: next, warnings, applied: true, dslErrors: schema.errors, databaseId, added: { tables: tables.length, informations: mapped.size } };
 }
 
 /** 対応していない情報を 1 件ずつ警告にする数 (これを超えたら、残りは 1 行にまとめる) */
 const UNMAPPED_WARNING_MAX = 20;
+
+/** システムが使う情報のうち、どのテーブルにも対応していないものの警告 (1 件ずつ。多いときは残りを 1 行にまとめる) */
+function unmappedWarnings(model: UntieModel, systemId: string): string[] {
+  const unmapped = unmappedInformationIds(model, systemId);
+  const nameById = new Map(model.elements.map((e) => [e.id, e.name]));
+  const out = unmapped.slice(0, UNMAPPED_WARNING_MAX).map((id) => `データ: 情報「${nameById.get(id) ?? id}」がどのテーブルにも対応していません`);
+  if (unmapped.length > UNMAPPED_WARNING_MAX) out.push(`データ: ほか ${unmapped.length - UNMAPPED_WARNING_MAX} 件の情報もどのテーブルにも対応していません`);
+  return out;
+}
+
+/** データベースの DSL にある model (テーブル) のうち、どの情報にも結ばれていないものの名前 (AI へ「対応を足せるテーブル」として示す) */
+export function unmappedTableNames(db: Pick<Database, "dsl" | "tables">): string[] {
+  const mapped = new Set(db.tables.filter((t) => t.informationIds.length > 0).map((t) => t.table));
+  return parsePrismaDslCached(db.dsl).models.map((m) => m.name).filter((n) => !mapped.has(n));
+}
+
+/** データベースの DSL にある model (テーブル) の名前 */
+export function tableNamesOf(db: Pick<Database, "dsl">): string[] {
+  return parsePrismaDslCached(db.dsl).models.map((m) => m.name);
+}
 /** 警告に、どの項目がなぜ落ちたかを並べる数 */
 const DETAIL_MAX = 3;
 
@@ -273,6 +291,117 @@ function dropInvalidBindings(model: UntieModel, databaseId: string, warnings: st
     }
   }
   return next;
+}
+
+// ---------------------------------------------------------------- すでにあるデータベースを使う
+
+export interface DatabaseUseDraft {
+  /** 対象のシステムの名前 */
+  system: string;
+  /** 使うデータベースの名前 (すでにあるもの) */
+  database: string;
+  /** そのデータベースのテーブルと、このシステムの情報の対応 (足すだけ。すでにある対応は消えない) */
+  tables: { table: string; informations: string[] }[];
+}
+
+export interface DatabaseUseResult extends DraftResult {
+  /** 使うデータベースにできたか (false ならモデルは変わっていない) */
+  applied: boolean;
+  /** 足せなかった理由 (システム・データベースが見つからないなど) */
+  failure?: string;
+  databaseId?: string;
+  /** 足した対応 (新しく結んだ情報の数) */
+  added: { tables: number; informations: number };
+}
+
+export const USE_DATABASE_TOOL: ToolDef = {
+  name: "use_database",
+  description:
+    "すでにあるデータベース (ほかのシステムが写したもの。依頼に一覧がある) を、このシステムが使うと答える。同じスキーマを submit_database で出し直さない。tables には、そのデータベースのテーブルと、このシステムの情報 (まだ対応が無いもの) の対応を書く。すでにある対応は消えず、足されるだけ。",
+  parameters: {
+    type: "object",
+    properties: {
+      system: { type: "string", description: "対象のシステムの名前 (モデルにあるもの)" },
+      database: { type: "string", description: "使うデータベースの名前 (依頼の「すでにあるデータベース」にあるもの)" },
+      tables: {
+        type: "array",
+        description: "足すテーブルと情報の対応。すでにある対応を変えない。空でもよい (対応を足さないとき)",
+        items: {
+          type: "object",
+          properties: {
+            table: { type: "string", description: "そのデータベースの DSL の model の名前" },
+            informations: { type: "array", items: { type: "string" }, description: "このテーブルが表す情報の名前 (モデルにある情報)" },
+          },
+          required: ["table", "informations"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["system", "database", "tables"],
+    additionalProperties: false,
+  },
+};
+
+/** 提出された内容を取り出す。形が違えば null */
+export function readDatabaseUse(raw: unknown): DatabaseUseDraft | null {
+  if (!isObject(raw) || typeof raw.system !== "string" || typeof raw.database !== "string") return null;
+  const tables = (Array.isArray(raw.tables) ? raw.tables : []).flatMap((t) => {
+    if (!isObject(t) || typeof t.table !== "string" || t.table === "") return [];
+    return [{ table: t.table, informations: strings(t.informations) }];
+  });
+  return { system: raw.system, database: raw.database, tables };
+}
+
+/**
+ * すでにあるデータベースを、システムの設計が使うデータベースに足し (すでに使っているものは残す)、テーブルと情報の対応を足す。
+ * 足すだけで、すでにある対応は消さない。落とす: DSL に無いテーブル・見つからない情報の名前。
+ * システム・データベースが見つからないときは何も足さず failure を返す。database は名前か id
+ */
+export function applyDatabaseUse(model: UntieModel, draft: DatabaseUseDraft): DatabaseUseResult {
+  const none = (failure: string): DatabaseUseResult => ({ model, warnings: [failure], applied: false, failure, added: { tables: 0, informations: 0 } });
+  const system = findNamed(model, "system", draft.system);
+  if (!system) return none(`データ: システム「${draft.system}」が見つからないので、データベースを使えません`);
+  const wanted = draft.database.trim();
+  const candidates = model.databases.filter((d) => d.id === wanted || d.name === nameOf(wanted));
+  if (candidates.length === 0) return none(`データ: データベース「${draft.database}」が見つかりません`);
+  const design0 = model.designs.find((d) => d.systemId === system.id);
+  const db = candidates.find((d) => design0?.databaseIds.includes(d.id)) ?? candidates[0]!;
+  const warnings: string[] = [];
+  const modelNames = new Set(tableNamesOf(db));
+  const informationByName = new Map<string, Element>();
+  for (const e of model.elements) if (e.kind === "information" && !informationByName.has(e.name)) informationByName.set(e.name, e);
+  let next = model;
+  const addedInfos = new Set<string>();
+  let addedTables = 0;
+  for (const t of clipList(draft.tables, DESIGN_DRAFT_LIMITS.tables, "データ: テーブルの対応", warnings)) {
+    if (!modelNames.has(t.table)) {
+      warnings.push(`データ: テーブル ${t.table} がデータベース「${db.name}」の DSL に無いので、情報との対応を外しました`);
+      continue;
+    }
+    const ids: string[] = [];
+    for (const n of clipList(t.informations, DESIGN_DRAFT_LIMITS.informationsPerTable, `データ: テーブル ${t.table} が表す情報`, warnings)) {
+      const info = informationByName.get(nameOf(n));
+      if (!info) warnings.push(`データ: テーブル ${t.table} が表す情報「${n}」が見つかりません`);
+      else if (!ids.includes(info.id)) ids.push(info.id);
+    }
+    const current = next.databases.find((d) => d.id === db.id)?.tables.find((x) => x.table === t.table)?.informationIds ?? [];
+    const fresh = ids.filter((id) => !current.includes(id));
+    if (fresh.length === 0) continue;
+    const r = setTableInformation(next, { id: db.id, table: t.table, informationIds: [...current, ...fresh] });
+    if (!r.ok) {
+      warnings.push(`データ: テーブル ${t.table} の対応を足せません: ${r.reason}`);
+      continue;
+    }
+    next = r.model;
+    addedTables++;
+    for (const id of fresh) addedInfos.add(id);
+  }
+  const explicit = next.designs.find((d) => d.systemId === system.id)?.databaseIds ?? [];
+  const used = setDesignDatabases(next, { systemId: system.id, databaseIds: [...new Set([...explicit, db.id])] });
+  if (!used.ok) return none(`データ: 設計が使うデータベースにできません: ${used.reason}`);
+  next = used.model;
+  warnings.push(...unmappedWarnings(next, system.id));
+  return { model: next, warnings, applied: true, databaseId: db.id, added: { tables: addedTables, informations: addedInfos.size } };
 }
 
 // ---------------------------------------------------------------- サイトマップ (画面と遷移)
