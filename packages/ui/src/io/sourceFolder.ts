@@ -16,6 +16,8 @@ interface DirHandle {
   kind: "directory";
   name: string;
   values(): AsyncIterable<DirHandle | FileEntryHandle>;
+  /** 同じフォルダか (Chrome・Edge)。無い環境もある */
+  isSameEntry?(other: unknown): Promise<boolean>;
 }
 interface FileEntryHandle {
   kind: "file";
@@ -25,6 +27,9 @@ interface FileEntryHandle {
 interface DirectoryPickerWindow {
   showDirectoryPicker?: (options: { mode: "read" }) => Promise<DirHandle>;
 }
+
+/** 木を作ったフォルダのハンドル (同じフォルダを 2 回選んだかを isSameEntry で確かめる用) */
+const rootHandles = new WeakMap<SourceTree, DirHandle>();
 
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
@@ -86,7 +91,7 @@ export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimit
   }
   await walk(root, "", 0);
 
-  return {
+  const tree: SourceTree = {
     name: root.name,
     files,
     ...(truncated ? { truncated: true } : {}),
@@ -99,7 +104,18 @@ export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimit
       if (file.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます: ${path}`);
       return file.text();
     },
+    async sameFolderAs(other) {
+      const theirs = rootHandles.get(other);
+      if (!theirs || !root.isSameEntry) return null;
+      try {
+        return await root.isSameEntry(theirs);
+      } catch {
+        return null;
+      }
+    },
   };
+  rootHandles.set(tree, root);
+  return tree;
 }
 
 /**

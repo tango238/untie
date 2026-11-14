@@ -4,11 +4,22 @@
 import { systemInformationIds } from "@untie/core/model/designData";
 import { PRISMA_SCALAR_TYPES } from "@untie/core/model/prisma";
 import type { UntieModel } from "@untie/core/model/types";
+import type { SourceSummary } from "./sourceTree";
 import { screenSystemPrompt } from "./designScreen";
 import { MODEL_DESCRIPTION } from "./prompts";
 
-/** どの段階でも使う指示 (読み方・引き上げ方・規則) */
-export function reverseSystemPrompt(): string {
+/** ソースが複数のときだけ、システムの指示に足す (パスの先頭がラベルになること・ラベルの扱い・システムと画面の写し方) */
+const MULTI_SOURCE_SYSTEM = `
+
+ソースコードが複数のフォルダに分かれているとき (調査の依頼にソースの一覧が付く):
+- どのパスも、先頭がソースのラベル (例: バックエンド/src/routes/orders.ts)。list_files の根にはラベルのフォルダが並び、search_code はすべてのソースをまたいで探す。glob にもラベルを付けて絞れる (例: バックエンド/src/**)
+- ラベルは利用者が自由に付けた呼び名で、役割の手がかりにする (バックエンド = API・データ・バッチ、管理画面 = 社内の人が使う画面、フロント = 利用者 (顧客) が使う画面、など)。決めつけず、中身 (ルーティング・ログインの仕組み・データベースへの接続) で確かめる。ラベルの言葉をそのまま業務やシステムの名前にしない
+- 根拠にするファイルのパスは、ラベル付きで書く。1 つのソースだけを見て終わらせず、画面の API 呼び出しと、バックエンドのルート・ハンドラーを突き合わせて、ソースをまたいだつながりをたどる
+- システムは、利用者から見て別のものとして使われているかで分ける。同じ人が同じ入口 (URL・ログイン) で使う画面とその裏側は 1 つのシステムにまとめ、使う人 (社内の人と利用者 (顧客)) や入口が別の管理画面と利用者向けのサイトは別のシステムにする。分けた理由を調査結果に書く
+- 画面は、その画面のソースに合うシステムに属させる。データベースは、スキーマ定義のあるソース (ふつうバックエンド) から写す。画面だけのシステムは、データベースを持たず、スキーマ定義のあるシステムのテーブルの列に画面の項目を結ぶ`;
+
+/** どの段階でも使う指示 (読み方・引き上げ方・規則)。multi は、ソースコードが複数のフォルダのとき */
+export function reverseSystemPrompt(multi = false): string {
   return `あなたは RDRA に詳しい要件分析の担当者で、既存のソースコードを読んで、業務を Untie のモデルに起こします。ソースコードは、利用者が選んだフォルダのものです。
 
 ${MODEL_DESCRIPTION}
@@ -42,13 +53,44 @@ ${MODEL_DESCRIPTION}
 
 依頼された範囲とソースの食い違い:
 - 依頼された業務の範囲のうち、ソースに無い部分 (例: 「出荷まで」と頼まれたが、出荷の機能がソースに無い) は、作らない。「ソースコードに見当たらなかったもの」として、調査結果・モデルの概要 (overview)・課題 (issues) に書く
-- ソースに根拠が無く、推測で足した要素 (README の一文から足した外部アクターなど) は、その要素の説明 (description) の最後に「(推測: 根拠は README の記述のみ)」のように、何が根拠かを書く`;
+- ソースに根拠が無く、推測で足した要素 (README の一文から足した外部アクターなど) は、その要素の説明 (description) の最後に「(推測: 根拠は README の記述のみ)」のように、何が根拠かを書く${multi ? MULTI_SOURCE_SYSTEM : ""}`;
 }
 
-/** 段階 1: 調査の依頼 */
-export function reverseSurveyRequest(request: string, treeName: string, fileCount: number): string {
-  return `ソースコード「${treeName}」(読めるファイル ${fileCount} 件) を調べます。次の業務をモデルに起こしたいので、まず調査してください。
+/** ソースの一覧 (ラベル・フォルダ名・読めるファイル数・打ち切り) を、依頼に入れる文にする */
+export function describeSources(sources: readonly SourceSummary[]): string {
+  return sources
+    .map((s) => {
+      const notes = [
+        s.trimmed > 0 ? `件数の上限で ${s.trimmed} 件を一覧に入れていない` : s.truncated ? "件数の上限で途中までしか数えていない" : "",
+        s.depthTruncated ? "深すぎるフォルダは読んでいない" : "",
+      ].filter((n) => n !== "");
+      return `- ${s.label || "(ラベルなし)"} / フォルダ名 ${s.folder} / 読めるファイル ${s.fileCount} 件${notes.length > 0 ? ` (${notes.join("。")})` : ""}`;
+    })
+    .join("\n");
+}
 
+/** 段階 1 の、ソースが複数のときの調べ方 (ソースをまたいでたどる手順) */
+const MULTI_SOURCE_SURVEY = `
+ソースが複数あります。ラベルは利用者が付けた呼び名で、役割の手がかりです (バックエンド = API・データ・バッチ、管理画面 = 社内の人が使う画面、フロント = 利用者 (顧客) が使う画面、など)。ただし決めつけず、中身で確かめてください。
+- 各ソースの役割を、README・package.json・ルーティング・スキーマ定義・ログインの仕組みから決める。画面のソースか、API・データのソースか、その両方か。使う人は社内の人か、利用者 (顧客) か
+- ソースをまたいでたどる:
+  1. 画面のソースで、API の呼び出し (fetch・axios・生成されたクライアント・GraphQL のクエリ) を探し、URL・メソッド・操作名を控える
+  2. 控えた URL の一部 (例: /orders) や操作名で search_code して、バックエンドのソースのルート・ハンドラーの定義と突き合わせる。見つけたら「画面 → API → ハンドラー → テーブル」のつながりとして、両側のパスを書く
+  3. 対象が読み書きするテーブル・モデルの名前で、ほかのソースも含めて search_code し、同じデータを読み書きする処理 (別の画面・ジョブ・サービス) を探す
+  4. 管理画面と利用者向けの画面が同じ業務を扱っているとき、同じ業務の別の担当 (社内の人・外部の利用者) の作業になっていないかを見る (例: 利用者が注文を出し、社内の人が承認する)
+- システムの分け方を決める。使う人と入口 (URL・ログイン) が同じなら 1 つのシステムにまとめ、管理画面と利用者向けのサイトのように、利用者から見て別のものとして使われているなら別のシステムにする。決めた分け方と理由を調査結果に書く
+- 根拠にするパスは、ラベル付きで書く (例: バックエンド/src/routes/orders.ts)
+`;
+
+/** 段階 1: 調査の依頼。sources があれば、ソースの一覧と、ソースをまたいだ調べ方を付ける (ソースが 1 つでラベルが空なら付けない) */
+export function reverseSurveyRequest(request: string, treeName: string, fileCount: number, sources?: readonly SourceSummary[]): string {
+  const multi = (sources?.length ?? 0) > 1;
+  const labeled = sources !== undefined && sources.length === 1 && sources[0]!.label !== "";
+  const head = multi
+    ? `${sources!.length} か所のソースコード (読めるファイル合計 ${sources!.reduce((n, s) => n + s.fileCount, 0)} 件) を調べます。`
+    : `ソースコード「${treeName}」(読めるファイル ${fileCount} 件${labeled ? `、ラベル「${sources![0]!.label}」` : ""}) を調べます。`;
+  return `${head}次の業務をモデルに起こしたいので、まず調査してください。
+${multi ? `\n<ソースコードの一覧 (ラベル / フォルダ名 / 読めるファイル)>\n${describeSources(sources!)}\n</ソースコードの一覧>\n${MULTI_SOURCE_SURVEY}` : ""}
 <モデルに起こしたい業務>
 ${request}
 </モデルに起こしたい業務>
@@ -66,7 +108,7 @@ ${request}
 読み終えたら、調査結果を見出し付きの箇条書きで書いてください (まだ submit_model などの提出はしない)。項目:
 - 対象の業務と、関連する業務 (それぞれ 1〜2 行。なぜ関連するか)
 - 登場人物 (権限・ロールから。社内の役割・社外の人・連携する外部サービス)
-- 画面 (名前・属するシステム・何をする画面か・ソースのパス)
+- 画面 (名前・属するシステム・何をする画面か・ソースのパス)${multi ? "\n- ソースごとの役割と、システムの分け方 (1 つにまとめるか、別のシステムに分けるか。その理由)\n- ソースをまたいだつながり (画面 → API → ハンドラー → テーブル。両側のパス)。突き合わせられなかった API 呼び出しも書く" : ""}
 - 人が担当しない処理 (バッチ・webhook・イベントハンドラー) と、そのきっかけ
 - データ (テーブル・モデルと、主な列・関連)
 - 状態 (enum・ステータスと、遷移のきっかけ)
@@ -80,7 +122,7 @@ ${request}
 }
 
 /** 段階 2: 分析モデルの提出の依頼 (調査結果は会話の履歴にある) */
-export function reverseModelRequest(request: string): string {
+export function reverseModelRequest(request: string, multi = false): string {
   return `調査結果をもとに、業務モデル全体を submit_model で提出してください。
 
 <モデルに起こしたい業務>
@@ -91,7 +133,15 @@ ${request}
 - 対象の業務と関連する業務で、詳しさを変える。対象の業務の名前は target_businesses に書く (businesses の name と同じ名前)
   - 対象の業務: 活動・作業・操作・画面まで詳しく書く
   - 関連する業務: 業務・活動・主な作業までにし、対象の業務とのつながり (同じ情報を扱う・起点になる作業・イベント) を書く。操作と画面は、対象の業務と行き来するもの (対象の業務から開く・対象の業務へ戻る) だけにする
-- 画面は調査結果の画面から作る。説明 (description) にソースのファイルのパスを書く。属するシステム (system) と使う操作 (usecase) を決める (1 画面 = 1 操作)
+- 画面は調査結果の画面から作る。説明 (description) にソースのファイルのパスを書く。属するシステム (system) と使う操作 (usecase) を決める (1 画面 = 1 操作)${
+    multi
+      ? `
+- ソースが複数あるので、次も守る
+  - 画面の説明のパスは、ラベル付きで書く (例: フロント画面/src/pages/OrderNew.tsx)。画面の属するシステムは、その画面のソースに合わせる。システムの分け方は調査結果のとおりにし、分けた理由 (利用者から見て別のものとして使われているか) をモデルの概要 (overview) に書く
+  - 管理画面と利用者向けの画面で、同じ業務の別の担当の作業になっているものは、社内の人 (アクター) と利用者 (外部アクター) の作業に分け、ソースをまたいでつないだ業務の流れ (画面 → API → ハンドラー) を 1 つの業務に載せる。業務の主担当は 1 人
+  - 操作の対象は 1 つだけ: 画面を通す操作は画面、画面を通さない API・バッチはシステム。画面だけのシステムとデータを持つシステムが別でも、操作が扱う情報は取得・保存で書く`
+      : ""
+  }
 - 人が担当しない処理は、events のイベントをきっかけにした操作にする。そうした処理だけで業務を作らず、主担当を推測で付けない (その結果を人が使う作業がソースにあるときだけ、その作業を業務に入れる)
 - 依頼された範囲のうち、調査結果の「ソースコードに見当たらなかったもの」は作らない。モデルの概要 (overview) に「ソースコードに見当たらなかったもの」として書き、課題 (issues) にも残す
 - 根拠が推測だけの要素は、説明の最後に「(推測: 根拠は〜のみ)」と書く
@@ -153,7 +203,7 @@ const DSL_FORMAT = `---- DSL の書式 (Prisma のスキーマ言語の一部。
 - 結果は submit_database で提出する。DSL に解析エラーがあると理由が返るので、直して出し直す`;
 
 /** 段階 3: システムのデータ (データベースの DSL とサイトマップ) の依頼。画面を持たないシステム (バッチ・API だけ) には、データベースだけを頼む */
-export function reverseDataRequest(model: UntieModel, systemId: string): string {
+export function reverseDataRequest(model: UntieModel, systemId: string, multi = false): string {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
   const system = byId.get(systemId);
   // そのシステムを対象にした操作 (画面を通すものを含む) が扱う情報だけ。無いときも、ほかのシステムの情報は渡さない
@@ -172,6 +222,15 @@ ${infos.length > 0 ? JSON.stringify(infos, null, 2) : "(このシステムを対
    - DSL の // コメントには、ソースから分かるそのテーブルの説明だけを書く。分析モデルの情報や、tables の対応と食い違うことは書かない
    - ソースの型は DSL の型 (String・Int・DateTime など) に置き換える。ソースが Prisma でなくてもよい。名前は DSL の決まりどおり英語にする (ソースの名前をそのまま使えるならそのまま)
    - tables には、DSL にある model の名前と、それが表す情報の名前 (上の一覧にあるもの) を書く`;
+  /** ソースが複数のとき: スキーマ定義の探し方と、画面だけのシステムの扱い */
+  const multiRules = multi
+    ? `
+- ソースが複数あります。スキーマ定義は、ふつうバックエンドなどデータを持つソース (search_code で model・CREATE TABLE・schema.prisma・@Entity などを探す) にあります。このシステムの画面のソースではなく、スキーマ定義のあるソースから写す${
+        screens.length > 0
+          ? "\n- このシステムが画面だけで、自分のソースにスキーマ定義が無く、データをほかのシステム (バックエンドなど) が持つなら、submit_database は提出しない (画面のソースの型や API の応答から、テーブルを作らない)。submit_sitemap だけ提出する。画面の項目は、あとでそのシステムのテーブルの列に結ぶ"
+          : ""
+      }`
+    : "";
   if (screens.length === 0) {
     return `システム「${system?.name ?? ""}」のデータを作ります。このシステムは画面を持たず、バッチ・API・ジョブなどが操作の対象にしています。調査結果と、作った分析モデルをもとに、submit_database だけを提出してください (サイトマップ submit_sitemap と画面 UI は要りません)。
 
@@ -180,7 +239,7 @@ ${infoBlock}
 submit_database: ソースのスキーマ定義 (マイグレーション・ORM のモデル・SQL・Prisma のスキーマ) を探して読み、Prisma の DSL に写して、テーブル (model) が表す情報を結ぶ
    - ソースにあるテーブル・列を写す。ソースに無いテーブル・列は作らない
    - このシステムのスキーマ定義がソースに無ければ (ソースコードの外にある社外のシステム、データを持たない連携先など)、submit_database を提出せず、「ありません」と答える。コードのデータの使い方から推測して、スキーマを作らない
-${commonRules}
+${commonRules}${multiRules}
 
 submit_database で解析エラーが返ったら直して出し直してください。
 
@@ -195,8 +254,8 @@ ${JSON.stringify(screens, null, 2)}
 </システムの画面>
 
 1. submit_database: ソースのスキーマ定義 (マイグレーション・ORM のモデル・SQL・Prisma のスキーマ) を探して読み、Prisma の DSL に写して、テーブル (model) が表す情報を結ぶ
-   - ソースにあるテーブル・列を写す。ソースに無いテーブル・列は作らない。スキーマ定義が見つからないときは、コードのデータの使い方 (クエリ・型) から読み取れる範囲で書き、// コメントに「推測」と書く
-${commonRules}
+   - ソースにあるテーブル・列を写す。ソースに無いテーブル・列は作らない。スキーマ定義が見つからないときは、コードのデータの使い方 (クエリ・型) から読み取れる範囲で書き、// コメントに「推測」と書く${multi ? " (ただし、ほかのシステムがデータを持つ画面だけのシステムは、下の決めのとおり提出しない)" : ""}
+${commonRules}${multiRules}
 2. submit_sitemap: ソースから読み取れる画面遷移 (リンク・リダイレクト・ルーターの遷移・フォーム送信のあとの行き先・メニュー) を提出する。画面は上の画面の名前で書く。読み取れなければ、transitions を空の配列で提出する (画面を設計に足すために、必ず提出する)
 
 submit_database で解析エラーが返ったら直して出し直してください。
@@ -205,14 +264,29 @@ ${DSL_FORMAT}`;
 }
 
 /** 段階 4: 画面 UI の依頼 (材料の文章 = screenRequest は呼ぶ側が渡す) */
-export function reverseScreenRequest(material: string, screenName: string): string {
+export interface ScreenSourceHint {
+  /** ソースのラベル (ソースが複数のとき) */
+  labels: string[];
+  /** 画面の説明などから見つけた、この画面のソースのパス (ラベル付き。木にあるものだけ) */
+  paths: string[];
+}
+
+export function reverseScreenRequest(material: string, screenName: string, hint?: ScreenSourceHint): string {
+  const sourceRule = hint
+    ? `
+- ソースが複数あります (ラベル: ${hint.labels.map((l) => `「${l}」`).join("")})。${
+        hint.paths.length > 0
+          ? `この画面のソースの手がかり: ${hint.paths.join("、")}。まずこれを読む。`
+          : "この画面のソースの手がかりは画面の説明にありません。画面の名前やルートで search_code して、画面のソース (ラベル付きのパス) を探す。"
+      }画面から呼ぶ API (fetch・axios・生成されたクライアント・GraphQL のクエリ) の URL や操作名から、バックエンドのソースのハンドラーを読むと、項目と「使うデータベース」の列の対応が分かる。画面のソースにスキーマ定義が無くても、バックエンドのテーブルと列に結んでよい`
+    : "";
   return `${toNames(material)}
 
 ---- ソースコードから作る場合の追加の決まり ----
 - この会話で作るのは画面「${screenName}」だけ。画面の説明にあるパスや、search_code で見つけたこの画面のソース (テンプレート・コンポーネント) を読み、項目・一覧の列・ボタンをソースから写す。ソースに無い項目・ボタンは作らない。読みすぎない
 - 項目と列は、上の「使うデータベース」のテーブルと列に結ぶ (bindings)。bindings の database には、データベースの名前を書く (使うデータベースが 1 つなら省略してよい)。対応するテーブル・列がソースに無い項目は、結ばなくてよい
 - submit_screen に書くのは、id ではなく名前。screen はこの画面の名前、遷移先 (view の to) は上の「この画面からの遷移」の toName にある画面の名前、bindings の database はデータベースの名前。上の材料に id が書いてあっても、id は書かない
-- 例 (example) には架空の値を入れる。ソースの中の実在の値は写さない
+- 例 (example) には架空の値を入れる。ソースの中の実在の値は写さない${sourceRule}
 - 提出を受け付けたら、そこで終わりです。あとの説明の文章は要りません
 
 ---- 参考: 画面 UI の書き方 (設計モードの「AI で作る」の指示。ただし、提出は submit_screen で、画面・遷移先・bindings の database は名前で書く) ----

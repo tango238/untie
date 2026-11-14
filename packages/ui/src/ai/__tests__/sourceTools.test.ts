@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SOURCE_LIMITS, SOURCE_TOOLS, executeSourceTool, globMatcher, isSourceTool } from "../sourceTools";
-import { MAX_FILE_BYTES, memorySourceTree } from "../sourceTree";
+import { MAX_FILE_BYTES, combineSourceTrees, memorySourceTree } from "../sourceTree";
 
 const tree = memorySourceTree("shop", {
   "README.md": "# shop\n",
@@ -294,5 +294,96 @@ describe("globMatcher", () => {
     expect(globMatcher("src/*.ts")("src/a/b.ts")).toBe(false);
     expect(globMatcher("*.{ts,tsx}")("a/b.tsx")).toBe(true);
     expect(globMatcher("a?.ts")("ab.ts")).toBe(true);
+  });
+});
+
+describe("複数のソースをまとめた木", () => {
+  const sources = [
+    { label: "バックエンド", tree: memorySourceTree("api", { "src/routes/orders.ts": "app.post('/api/orders')\n", "prisma/schema.prisma": "model Order {}\n", ".env": "KEY=abc", "build/out.js": "/api/orders", "secrets/key.txt": "s" }) },
+    { label: "build", tree: memorySourceTree("web", { "src/pages/New.tsx": "fetch('/api/orders')\n", ".env.local": "KEY=def", "build/y.js": "/api/orders", "src/build/ok.ts": "/api/orders\n", "dist/z.js": "/api/orders" }) },
+    { label: "空", tree: memorySourceTree("empty", { ".env": "x" }) },
+  ];
+  const multi = combineSourceTrees(sources);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const go = async (name: string, input: unknown, t = multi): Promise<Record<string, any>> => {
+    const r = await executeSourceTool(t, name, input);
+    return { ok: r.ok, ...(JSON.parse(r.content) as Record<string, any>) };
+  };
+
+  it("根の一覧に、すべてのラベル (読めるファイルが 0 件のソースも) が出る。ソースの内訳も付く", async () => {
+    const r = await go("list_files", {});
+    expect(r.entries.map((e: { path: string }) => e.path)).toEqual(["build/", "バックエンド/", "空/"]);
+    expect(r.entries.find((e: { path: string }) => e.path === "空/")).toEqual({ path: "空/", files: 0 });
+    expect(r.sources).toEqual([
+      { label: "バックエンド", folder: "api", files: 2 },
+      { label: "build", folder: "web", files: 2 },
+      { label: "空", folder: "empty", files: 0 },
+    ]);
+  });
+
+  it("limit が小さくても、根ではラベルのフォルダが落ちない", async () => {
+    const r = await go("list_files", { limit: 1 });
+    expect(r.entries.map((e: { path: string }) => e.path)).toEqual(["build/", "バックエンド/", "空/"]);
+  });
+
+  it("ラベルの中は、もとのソースと同じ規則で見える (.env・根の直下の build・secrets・dist は出ない)", async () => {
+    const back = await go("list_files", { path: "バックエンド", depth: 3 });
+    expect(back.entries.map((e: { path: string }) => e.path).sort()).toEqual(["バックエンド/prisma/", "バックエンド/prisma/schema.prisma", "バックエンド/src/", "バックエンド/src/routes/", "バックエンド/src/routes/orders.ts"]);
+    const web = await go("list_files", { path: "build", depth: 3 });
+    const paths = web.entries.map((e: { path: string }) => e.path);
+    expect(paths).toContain("build/src/pages/New.tsx");
+    expect(paths).toContain("build/src/build/ok.ts"); // ラベルが build でも、そのソースは消えない。根の直下ではない build は読める
+    expect(JSON.stringify(web)).not.toMatch(/\.env|y\.js|z\.js/);
+  });
+
+  it("read_file: ラベル付きで読める。.env・根の直下の build・秘密・ラベルなし・知らないラベルは読めない", async () => {
+    expect((await go("read_file", { path: "build/src/pages/New.tsx" })).content).toContain("fetch");
+    expect((await go("read_file", { path: "build/src/build/ok.ts" })).ok).toBe(true);
+    for (const p of ["バックエンド/.env", "build/.env.local", "バックエンド/build/out.js", "build/build/y.js", "build/dist/z.js", "バックエンド/secrets/key.txt", "src/routes/orders.ts", "知らない/a.ts", "バックエンド", "バックエンド/"]) {
+      expect((await go("read_file", { path: p })).ok, p).toBe(false);
+    }
+  });
+
+  it("../ で、別のソースにも木の外にも出られない", async () => {
+    for (const p of ["バックエンド/../build/src/pages/New.tsx", "../etc/passwd", "バックエンド/src/../../build/.env.local", "/バックエンド/src/routes/orders.ts", "C:/x"]) {
+      expect((await go("read_file", { path: p })).ok, p).toBe(false);
+    }
+    expect((await go("list_files", { path: "バックエンド/.." })).ok).toBe(false);
+    expect((await go("list_files", { path: "バックエンド/../build" })).ok).toBe(false);
+  });
+
+  it("search_code: ソースをまたいで探し、除外対象は見つからない。glob はラベル付きでもなしでも絞れる", async () => {
+    const r = await go("search_code", { pattern: "/api/orders" });
+    expect(r.matches.map((m: { path: string }) => m.path).sort()).toEqual(["build/src/build/ok.ts", "build/src/pages/New.tsx", "バックエンド/src/routes/orders.ts"].sort());
+    expect((await go("search_code", { pattern: "/api/orders", glob: "build/src/pages/**" })).matches).toHaveLength(1);
+    expect((await go("search_code", { pattern: "/api/orders", glob: "src/routes/**" })).matches.map((m: { path: string }) => m.path)).toEqual(["バックエンド/src/routes/orders.ts"]);
+    expect((await go("search_code", { pattern: "/api/orders", glob: "バックエンド/**" })).matches).toHaveLength(1);
+    expect((await go("search_code", { pattern: "KEY=" })).matches).toEqual([]);
+  });
+
+  it("打ち切りは、どのソースか名指しして知らせる", async () => {
+    const big = memorySourceTree("big", Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`f${i}.ts`, "needle"])));
+    const t = combineSourceTrees([{ label: "大", tree: big }, { label: "小", tree: memorySourceTree("small", { "a.ts": "needle" }) }], { maxFiles: 10 });
+    const list = await go("list_files", {}, t);
+    expect(list.treeTruncated).toBe(true);
+    expect(list.truncatedSources).toEqual(["大"]);
+    expect(list.treeNote).toMatch(/「大」/);
+    expect(list.treeNote).not.toMatch(/「小」/);
+    expect(list.sources.find((s: { label: string }) => s.label === "大")).toMatchObject({ files: 9, truncated: true });
+    const found = await go("search_code", { pattern: "needle" }, t);
+    expect(found.truncatedSources).toEqual(["大"]);
+    expect(found.matches.some((m: { path: string }) => m.path === "小/a.ts")).toBe(true);
+    // もとのソースが深さで打ち切られていれば、それも名指しする
+    const deep = combineSourceTrees([{ label: "A", tree: { ...memorySourceTree("a", { "x.ts": "x" }), depthTruncated: true } }, { label: "B", tree: memorySourceTree("b", { "y.ts": "y" }) }]);
+    expect((await go("list_files", {}, deep)).treeNote).toMatch(/「A」: 深さの上限/);
+  });
+
+  it("ソースが 1 つの木は、今までと同じ (ラベルのフォルダが無く、ソースの内訳も出ない)", async () => {
+    const one = combineSourceTrees([{ label: "バックエンド", tree: sources[0]!.tree }]);
+    const a = await go("list_files", {}, one);
+    const b = await go("list_files", {}, sources[0]!.tree);
+    expect(a).toEqual(b);
+    expect(a.sources).toBeUndefined();
+    expect(await go("search_code", { pattern: "api/orders" }, one)).toEqual(await go("search_code", { pattern: "api/orders" }, sources[0]!.tree));
   });
 });

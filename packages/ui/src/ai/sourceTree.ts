@@ -20,6 +20,40 @@ export interface SourceTree {
   depthTruncated?: boolean;
   /** ファイルの中身を UTF-8 の文字列で読む。一覧に無いパスは Error */
   readFile(path: string): Promise<string>;
+  /**
+   * ラベル付きの複数のソースをまとめた木 (combineSourceTrees) のとき、ソースごとの内訳。ソースが 1 つなら 1 件 (ラベルは AI への説明にだけ使う)。
+   * 普通の木では無い
+   */
+  sources?: readonly SourceSummary[];
+  /**
+   * 除外規則の当て方を差し替える (まとめた木が、ラベルを除いたもとのソースの中のパスで判定するため)。
+   * 省略した木は、木の中のパスにそのまま excludeReason を当てる。道具 (sourceTools.ts) は直に excludeReason を呼ばず、treeExcludeReason を使う
+   */
+  excludeReasonOf?(path: string, size?: number): ExcludeReason | null;
+  /** 同じフォルダを指す木か (ブラウザの isSameEntry で確かめられるとき)。確かめられなければ null (io/sourceFolder.ts) */
+  sameFolderAs?(other: SourceTree): Promise<boolean | null>;
+}
+
+/** まとめた木の中の 1 つのソース (サマリー) */
+export interface SourceSummary {
+  /** ラベル (まとめた木では最上位のフォルダの名前。ソースが 1 つのときは AI への説明にだけ使う。空なら無し) */
+  label: string;
+  /** 選んだフォルダの名前 */
+  folder: string;
+  /** まとめた木に入れた、読めるファイルの数 (件数の上限で減らした後) */
+  fileCount: number;
+  /** もとのソースが件数の上限で打ち切られていた */
+  truncated: boolean;
+  /** もとのソースが深さの上限で一部の枝を飛ばしていた */
+  depthTruncated: boolean;
+  /** まとめるときの件数の上限で、このソースから減らしたファイルの数 (0 なら減らしていない) */
+  trimmed: number;
+}
+
+/** ラベルを付けたソース (まとめる前) */
+export interface LabeledSource {
+  label: string;
+  tree: SourceTree;
 }
 
 // ---- 上限 ----
@@ -30,6 +64,10 @@ export const MAX_FILE_BYTES = 512 * 1024;
 export const MAX_TREE_FILES = 20000;
 /** 木をたどる深さの上限 */
 export const MAX_TREE_DEPTH = 24;
+/** 1 回に登録できるソース (ラベル付きのフォルダ) の数 */
+export const MAX_SOURCES = 8;
+/** ソースのラベルの長さの上限 (文字) */
+export const MAX_SOURCE_LABEL_CHARS = 40;
 
 // ---- 除外規則 ----
 
@@ -144,9 +182,180 @@ export function normalizeTreePath(input: string): NormalizedPath {
 
 // ---- 木の見え方 ----
 
+/** 木のパスが AI に見せない対象か。まとめた木はラベルを除いたもとのソースの中のパスで判定する (excludeReasonOf) */
+export function treeExcludeReason(tree: SourceTree, path: string, size?: number): ExcludeReason | null {
+  return tree.excludeReasonOf ? tree.excludeReasonOf(path, size) : excludeReason(path, size);
+}
+
 /** 除外規則を通したファイルの一覧 (木の実装が除外し忘れても、AI には出さない) */
 export function visibleFiles(tree: SourceTree): SourceFileInfo[] {
-  return tree.files.filter((f) => excludeReason(f.path, f.size) === null);
+  return tree.files.filter((f) => treeExcludeReason(tree, f.path, f.size) === null);
+}
+
+/** ソースが 2 つ以上のまとめた木か (パスの先頭がラベルになっている) */
+export const isMultiSourceTree = (tree: SourceTree): boolean => (tree.sources?.length ?? 0) > 1 && tree.sources!.every((s) => s.label !== "");
+
+// ---- ソースのラベル ----
+
+/** ラベルの重複を見るためのそろえ方 (大文字小文字・全角半角・結合文字の違いだけの重複も同じとみなす) */
+export const labelKey = (label: string): string => label.normalize("NFKC").toLowerCase();
+
+// eslint-disable-next-line no-control-regex
+const LABEL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
+
+/**
+ * ラベルの形の検査。使えるなら null、使えないなら理由 (画面にそのまま出す)。
+ * パスの 1 階層としてそのまま使えること: `/`・`\`・`:`・制御文字・先頭や末尾の空白・`.`・`..`・先頭の `~` は使えない。空も不可。長さは MAX_SOURCE_LABEL_CHARS まで
+ */
+export function sourceLabelProblem(label: string): string | null {
+  if (label === "") return "ラベルを入力してください";
+  if (label !== label.trim()) return "ラベルの先頭と末尾に空白は使えません";
+  if (label === "." || label === "..") return "「.」「..」はラベルに使えません";
+  if ([...label].length > MAX_SOURCE_LABEL_CHARS) return `ラベルは ${MAX_SOURCE_LABEL_CHARS} 文字までです`;
+  if (/[/\\:]/.test(label)) return "ラベルに「/」「\\」「:」は使えません";
+  if (LABEL_CONTROL.test(label)) return "ラベルに制御文字は使えません";
+  if (label.startsWith("~")) return "ラベルを「~」で始めることはできません";
+  return null;
+}
+
+/**
+ * 複数のラベルの検査。行ごとの理由 (問題が無ければ null) を返す。
+ * 空のラベルは必須として扱う (ソースが 1 つのときの「任意」は呼ぶ側が決める)。重複は後ろの行に「他の行と重なっています」を付ける
+ */
+export function sourceLabelProblems(labels: readonly string[]): (string | null)[] {
+  const seen = new Map<string, number>();
+  return labels.map((label, i) => {
+    const own = sourceLabelProblem(label);
+    if (own) return own;
+    const key = labelKey(label);
+    const first = seen.get(key);
+    if (first !== undefined) return `ラベルが ${first + 1} 番目のソースと重なっています (大文字小文字・全角半角の違いは同じとみなします)`;
+    seen.set(key, i);
+    return null;
+  });
+}
+
+/**
+ * 同じフォルダを 2 回選んだらしいか。同じ木 (同じ実体)、または、フォルダ名とファイルの一覧 (パスと大きさ) がすべて同じ。
+ * 確かなのは isSameEntry (io/sourceFolder.ts の sameFolderAs) で、これは使えない環境の手がかり (内容が同じ別のコピーでも真になる)
+ */
+export function looksSameSource(a: SourceTree, b: SourceTree): boolean {
+  if (a === b) return true;
+  if (a.name !== b.name || a.files.length !== b.files.length) return false;
+  const sizes = new Map(a.files.map((f) => [f.path, f.size]));
+  return b.files.every((f) => sizes.get(f.path) === f.size);
+}
+
+// ---- ソースをまとめる ----
+
+/**
+ * 件数の上限を、ソースの数で公平に分ける。少ないソースはそのまま、多いソースだけが上限を使い切らないように、余りを多いソースへ回す。
+ * counts の合計が max 以下なら、そのまま返す
+ */
+export function shareFileQuota(counts: readonly number[], max: number): number[] {
+  const quota = counts.map(() => 0);
+  let left = max;
+  let open = counts.map((_, i) => i);
+  while (open.length > 0 && left > 0) {
+    const share = Math.floor(left / open.length);
+    if (share === 0) break;
+    const small = open.filter((i) => counts[i]! - quota[i]! <= share);
+    if (small.length === 0) {
+      for (const i of open) quota[i]! += share;
+      left -= share * open.length;
+      break;
+    }
+    for (const i of small) {
+      left -= counts[i]! - quota[i]!;
+      quota[i] = counts[i]!;
+    }
+    open = open.filter((i) => !small.includes(i));
+  }
+  // 割り切れずに余った分は、まだ入りきっていないソースの先頭から 1 つずつ
+  for (let i = 0; left > 0 && i < counts.length * 2; i++) {
+    const j = i % counts.length;
+    if (quota[j]! < counts[j]!) {
+      quota[j]!++;
+      left--;
+    }
+  }
+  return quota;
+}
+
+export interface CombineOptions {
+  /** まとめた木に入れるファイルの数の上限 (テストで小さな値に差し替える) */
+  maxFiles?: number;
+}
+
+/**
+ * ラベル付きの複数のソースを、1 つの SourceTree にまとめる。
+ * - ソースが 1 つなら、ラベルがあってもなくても今までどおりの木 (ラベルのフォルダを挟まない)。ラベルは sources に残り、AI への説明にだけ使う
+ * - 2 つ以上なら、各ソースがラベルを名前にした最上位のフォルダになる (`バックエンド/src/routes/orders.ts`)。
+ *   除外規則はラベルを除いた、もとのソースの中のパスで当てる (ラベルが build・secrets・.env でも、そのソース全体が除外されたり、除外すべきものが通ったりしない。
+ *   根の直下だけ除外するフォルダ (build・out・target など) は、各ソースの根の直下で効く)。
+ * - 件数の上限 (MAX_TREE_FILES) はソースで分け合う (shareFileQuota)。1 つのソースが使い切って、ほかが見えなくなることはない。減らしたソースは sources[].trimmed と truncated に出る
+ * ラベルが使えない・重なる・数が 0 または MAX_SOURCES を超えるときは Error (画面で先に検査する)
+ */
+export function combineSourceTrees(sources: readonly LabeledSource[], options: CombineOptions = {}): SourceTree {
+  const maxFiles = options.maxFiles ?? MAX_TREE_FILES;
+  if (sources.length === 0) throw new Error("ソースが 1 つもありません");
+  if (sources.length > MAX_SOURCES) throw new Error(`ソースは ${MAX_SOURCES} 個までです`);
+  if (sources.length === 1) {
+    const { label, tree } = sources[0]!;
+    if (label !== "") {
+      const problem = sourceLabelProblem(label);
+      if (problem) throw new Error(problem);
+    }
+    const visible = visibleFiles(tree);
+    return {
+      name: tree.name,
+      get files() {
+        return tree.files;
+      },
+      ...(tree.truncated ? { truncated: true } : {}),
+      ...(tree.depthTruncated ? { depthTruncated: true } : {}),
+      readFile: (path) => tree.readFile(path),
+      sources: [{ label, folder: tree.name, fileCount: visible.length, truncated: !!tree.truncated, depthTruncated: !!tree.depthTruncated, trimmed: 0 }],
+    };
+  }
+  const problems = sourceLabelProblems(sources.map((s) => s.label));
+  const bad = problems.findIndex((p) => p !== null);
+  if (bad >= 0) throw new Error(`${bad + 1} 番目のソース: ${problems[bad]}`);
+
+  const visible = sources.map((s) => visibleFiles(s.tree).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
+  const quota = shareFileQuota(visible.map((v) => v.length), maxFiles);
+  const byLabel = new Map<string, SourceTree>();
+  const files: SourceFileInfo[] = [];
+  const summaries: SourceSummary[] = sources.map((s, i) => {
+    byLabel.set(s.label, s.tree);
+    const kept = visible[i]!.slice(0, quota[i]!);
+    for (const f of kept) files.push({ path: `${s.label}/${f.path}`, size: f.size });
+    const trimmed = visible[i]!.length - kept.length;
+    return { label: s.label, folder: s.tree.name, fileCount: kept.length, truncated: !!s.tree.truncated || trimmed > 0, depthTruncated: !!s.tree.depthTruncated, trimmed };
+  });
+  const split = (path: string): { tree: SourceTree; rest: string } | null => {
+    const i = path.indexOf("/");
+    if (i <= 0) return null;
+    const tree = byLabel.get(path.slice(0, i));
+    return tree ? { tree, rest: path.slice(i + 1) } : null;
+  };
+  return {
+    name: sources.map((s) => s.label).join("・"),
+    files,
+    ...(summaries.some((s) => s.truncated) ? { truncated: true } : {}),
+    ...(summaries.some((s) => s.depthTruncated) ? { depthTruncated: true } : {}),
+    sources: summaries,
+    // ラベルを除いた、もとのソースの中のパスで判定する。ラベルだけのパス (フォルダ) や、知らないラベルは「フォルダ」として出さない
+    excludeReasonOf: (path, size) => {
+      const part = split(path);
+      return part ? excludeReason(part.rest, size) : "folder";
+    },
+    async readFile(path) {
+      const part = split(path);
+      if (!part) throw new Error(`ファイルがありません: ${path}`);
+      return part.tree.readFile(part.rest);
+    },
+  };
 }
 
 // ---- メモリ上の木 (テストと、後続のフィクスチャ用) ----

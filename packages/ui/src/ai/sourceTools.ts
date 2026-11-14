@@ -1,7 +1,7 @@
 // 「ソースコードから作成」で AI がソースコードを読む道具 (list_files・read_file・search_code)。
 // 3 社のプロバイダーに同じ定義を渡す (ToolDef は tools.ts)。実行は SourceTree を通すだけで、モデルは触らない。
 // 結果は AI に返す JSON 文字列。上限を超えたら切り詰めて、切り詰めたことと続きの読み方を結果に入れる。
-import { MAX_FILE_BYTES, excludeReason, looksBinary, looksPrivateKey, normalizeTreePath, visibleFiles, type SourceFileInfo, type SourceTree } from "./sourceTree";
+import { MAX_FILE_BYTES, isMultiSourceTree, looksBinary, looksPrivateKey, normalizeTreePath, treeExcludeReason, visibleFiles, type SourceFileInfo, type SourceTree } from "./sourceTree";
 import type { ToolDef, ToolOutcome } from "./tools";
 
 // ---- 上限 ----
@@ -39,7 +39,7 @@ export const SOURCE_LIMITS = {
 export const SOURCE_TOOLS: ToolDef[] = [
   {
     name: "list_files",
-    description: `選んだソースコードのフォルダの中身を返す。path は木の根からの相対パス (省略か空で根)。depth (既定 ${SOURCE_LIMITS.depthDefault}、最大 ${SOURCE_LIMITS.depthMax}) まで降りて、フォルダ (末尾 /) とファイル (バイト数) を返す。${SOURCE_LIMITS.listMax} 件までで、超えたら truncated になる (path を絞って呼び直す)。依存・build の成果物・バイナリ・秘密になりうるファイルは出ない。`,
+    description: `選んだソースコードのフォルダの中身を返す。path は木の根からの相対パス (省略か空で根)。ソースコードが複数あるときは、根にソースのラベルのフォルダが並び、どのパスも先頭がラベルになる (例: バックエンド/src/routes)。depth (既定 ${SOURCE_LIMITS.depthDefault}、最大 ${SOURCE_LIMITS.depthMax}) まで降りて、フォルダ (末尾 /) とファイル (バイト数) を返す。${SOURCE_LIMITS.listMax} 件までで、超えたら truncated になる (path を絞って呼び直す)。依存・build の成果物・バイナリ・秘密になりうるファイルは出ない。`,
     parameters: {
       type: "object",
       properties: {
@@ -66,7 +66,7 @@ export const SOURCE_TOOLS: ToolDef[] = [
   },
   {
     name: "search_code",
-    description: `ソースコードの全体から文字列を探す。regex を true にすると pattern を正規表現として扱う (不正な正規表現や、重くなりうる正規表現 (量指定子の付いたグループ・後方参照・繰り返しの多用) は失敗として返すので、書き直すか文字列検索にする)。glob (例: src/**/*.ts、*.prisma) でファイルを絞れる。1 行ごとに照合する。既定では大文字小文字を区別しない。${SOURCE_LIMITS.searchMax} 件まで (既定 ${SOURCE_LIMITS.searchDefault})。超えたら truncated になる (語や glob を絞る)。`,
+    description: `ソースコードの全体 (複数のソースがあるときは、すべてのソースをまたいで) から文字列を探す。結果のパスの先頭はソースのラベル。regex を true にすると pattern を正規表現として扱う (不正な正規表現や、重くなりうる正規表現 (量指定子の付いたグループ・後方参照・繰り返しの多用) は失敗として返すので、書き直すか文字列検索にする)。glob (例: src/**/*.ts、*.prisma) でファイルを絞れる。1 行ごとに照合する。既定では大文字小文字を区別しない。${SOURCE_LIMITS.searchMax} 件まで (既定 ${SOURCE_LIMITS.searchDefault})。超えたら truncated になる (語や glob を絞る)。`,
     parameters: {
       type: "object",
       properties: {
@@ -96,6 +96,18 @@ const int = (v: unknown, fallback: number, min: number, max: number) =>
 
 /** 木が全部ではないときの知らせ (理由ごと)。件数の打ち切りと深さの打ち切りは別 */
 function treeNoteFields(tree: SourceTree): Record<string, unknown> {
+  // ソースが複数のときは、どのソースが全部ではないかを名指しする (全体の知らせだけでは、どのソースの一覧が欠けているか分からない)
+  if (isMultiSourceTree(tree)) {
+    const cut = tree.sources!.filter((s) => s.truncated || s.depthTruncated);
+    if (cut.length === 0) return {};
+    const lines = cut.map((s) => {
+      const why: string[] = [];
+      if (s.truncated) why.push(s.trimmed > 0 ? `ファイルが多すぎて、件数の上限で ${s.trimmed} 件を一覧に入れていない` : "ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない");
+      if (s.depthTruncated) why.push("深さの上限を超えるフォルダは読んでいないので、その下のファイルは一覧に無い");
+      return `「${s.label}」: ${why.join("。")}`;
+    });
+    return { treeTruncated: true, truncatedSources: cut.map((s) => s.label), treeNote: lines.join("。") };
+  }
   const reasons: string[] = [];
   if (tree.truncated) reasons.push("ファイルが多すぎて、件数の上限で読むのをやめたので、一覧は全部ではない");
   if (tree.depthTruncated) reasons.push("深さの上限を超えるフォルダは読んでいないので、その下のファイルは一覧に無い");
@@ -141,7 +153,7 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
   const prefix = dir === "" ? "" : `${dir}/`;
   const inside = visibleFiles(tree).filter((f) => f.path.startsWith(prefix));
   if (dir !== "" && inside.length === 0) {
-    const isFile = tree.files.some((f) => f.path === dir && excludeReason(f.path, f.size) === null);
+    const isFile = tree.files.some((f) => f.path === dir && treeExcludeReason(tree, f.path, f.size) === null);
     return fail(isFile ? `${dir} はファイルです (read_file で読んでください)` : `フォルダがありません: ${dir}`);
   }
   // フォルダ (depth までの途中も含む) は、その下のファイルの数と一緒に出す
@@ -155,6 +167,10 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
       dirs.set(d, (dirs.get(d) ?? 0) + 1);
     }
   }
+  // ソースが複数のとき、根では各ソースのラベルのフォルダを必ず出す (読めるファイルが 0 件のソースも、件数の上限で落ちることもない)
+  const multi = isMultiSourceTree(tree);
+  const rootOfMulti = multi && dir === "";
+  if (rootOfMulti) for (const s of tree.sources!) if (!dirs.has(s.label)) dirs.set(s.label, 0);
   // 浅い階層から順に並べ、limit で切るときも、その階層のファイルがフォルダに押し出されて全部落ちないようにする
   const levelOf = (p: string) => p.slice(prefix.length).replace(/\/$/, "").split("/").length;
   const dirEntries = [...dirs.keys()].sort().map((d) => ({ path: `${d}/`, files: dirs.get(d)! }));
@@ -166,6 +182,10 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
     const fs = fileEntries.filter((e) => levelOf(e.path) === level);
     const room = limit - shown.length;
     entries.push(...ds, ...fs);
+    if (rootOfMulti && level === 1) {
+      shown.push(...ds, ...fs.slice(0, Math.max(0, room - ds.length)));
+      continue;
+    }
     if (room <= 0) continue;
     if (ds.length + fs.length <= room) shown.push(...ds, ...fs);
     else {
@@ -180,6 +200,17 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
     total: entries.length,
     entries: shown,
     ...(truncated ? { truncated: true, note: `${entries.length} 件のうち ${shown.length} 件だけ返した。path を絞るか limit を増やして、見たいフォルダを呼び直す` } : {}),
+    ...(rootOfMulti
+      ? {
+          sources: tree.sources!.map((s) => ({
+            label: s.label,
+            folder: s.folder,
+            files: s.fileCount,
+            ...(s.truncated ? { truncated: true } : {}),
+            ...(s.depthTruncated ? { depthTruncated: true } : {}),
+          })),
+        }
+      : {}),
     ...treeNoteFields(tree),
   });
 }
@@ -189,7 +220,7 @@ function listFiles(tree: SourceTree, input: Input): ToolOutcome {
 async function readVisible(tree: SourceTree, path: string): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
   const info = tree.files.find((f) => f.path === path);
   // 除外対象・木に無いものは、存在を知らせない (秘密のファイル名を確かめさせない)
-  if (!info || excludeReason(info.path, info.size) !== null) return { ok: false, reason: `ファイルがありません (または読めない種類です): ${path}` };
+  if (!info || treeExcludeReason(tree, info.path, info.size) !== null) return { ok: false, reason: `ファイルがありません (または読めない種類です): ${path}` };
   const text = await tree.readFile(path);
   // 木の実装が大きさを確かめ損ねても、ここで断る (文字数は UTF-8 のバイト数以下なので、超えていれば確実に巨大)
   if (text.length > MAX_FILE_BYTES) return { ok: false, reason: `ファイルが大きすぎます: ${path}` };
@@ -406,7 +437,10 @@ async function searchCode(tree: SourceTree, input: Input): Promise<ToolOutcome> 
     }
   }
 
-  const candidates = visibleFiles(tree).filter((f) => inGlob(f.path)).sort(byPath);
+  // ソースが複数のとき、/ を含む glob は、ラベルを付けないパス (src/**/*.ts) でも、ラベルを付けたパス (バックエンド/src/**) でも当てられる
+  const multi = isMultiSourceTree(tree);
+  const inScope = (path: string) => inGlob(path) || (multi && inGlob(path.slice(path.indexOf("/") + 1)));
+  const candidates = visibleFiles(tree).filter((f) => inScope(f.path)).sort(byPath);
   const matches: { path: string; line: number; text: string }[] = [];
   const started = Date.now();
   let scannedChars = 0;

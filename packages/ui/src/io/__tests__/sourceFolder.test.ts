@@ -240,3 +240,21 @@ describe("pickSourceFolderInBrowser", () => {
     expect(await pickSourceFolderInBrowser()).toBeNull();
   });
 });
+
+describe("sameFolderAs (同じフォルダを 2 回選んだか)", () => {
+  it("isSameEntry があれば、それで確かめる。木が別の実装・isSameEntry が無い・投げるときは null", async () => {
+    const dirA = { ...mkDir("a", ["x.ts"]), isSameEntry: async (o: unknown) => o === dirA };
+    const dirB = { ...mkDir("a", ["x.ts"]), isSameEntry: async () => false };
+    const a = await treeFromDirectoryHandle(dirA);
+    const a2 = await treeFromDirectoryHandle(dirA);
+    const b = await treeFromDirectoryHandle(dirB);
+    expect(await a.sameFolderAs!(a2)).toBe(true); // 同じハンドルから作った別の木
+    expect(await a.sameFolderAs!(b)).toBe(false);
+    expect(await b.sameFolderAs!(a)).toBe(false);
+    const noApi = await treeFromDirectoryHandle(mkDir("a", ["x.ts"]));
+    expect(await noApi.sameFolderAs!(a)).toBeNull();
+    const throwing = await treeFromDirectoryHandle({ ...mkDir("a", ["x.ts"]), isSameEntry: async () => Promise.reject(new Error("x")) });
+    expect(await throwing.sameFolderAs!(a)).toBeNull();
+    expect(await a.sameFolderAs!(treeFromFileList([new File(["x"], "x.ts")]))).toBeNull();
+  });
+});

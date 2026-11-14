@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FILE_BYTES, excludeReason, isExcludedDirName, looksPrivateKey, memorySourceTree, normalizeTreePath, visibleFiles } from "../sourceTree";
+import {
+  MAX_FILE_BYTES,
+  MAX_SOURCES,
+  MAX_SOURCE_LABEL_CHARS,
+  combineSourceTrees,
+  excludeReason,
+  isExcludedDirName,
+  isMultiSourceTree,
+  looksPrivateKey,
+  memorySourceTree,
+  normalizeTreePath,
+  shareFileQuota,
+  sourceLabelProblem,
+  sourceLabelProblems,
+  treeExcludeReason,
+  visibleFiles,
+} from "../sourceTree";
 
 describe("normalizeTreePath", () => {
   it("相対パスをそろえる", () => {
@@ -84,5 +100,119 @@ describe("memorySourceTree", () => {
   });
   it("読めないパスは Error", async () => {
     await expect(memorySourceTree("app", {}).readFile("a")).rejects.toThrow();
+  });
+});
+
+describe("ソースのラベル", () => {
+  it("パスの 1 階層としてそのまま使えるものだけ", () => {
+    for (const ok of ["バックエンド", "管理画面", "api", "Front End", "web-1", "a.b", "共通ライブラリ", ".env", "build", "secrets", "dist"]) {
+      expect(sourceLabelProblem(ok), ok).toBeNull();
+    }
+  });
+  it("空・空白で始まる/終わる・. ・..・区切り文字・制御文字・長すぎるものは使えない", () => {
+    for (const bad of ["", " a", "a ", "\ta", ".", "..", "a/b", "a\\b", "C:x", "a\0b", "a\nb", "~root", "a\u200bb", "x".repeat(MAX_SOURCE_LABEL_CHARS + 1)]) {
+      expect(sourceLabelProblem(bad), JSON.stringify(bad)).not.toBeNull();
+    }
+    expect(sourceLabelProblem("x".repeat(MAX_SOURCE_LABEL_CHARS))).toBeNull();
+    expect(sourceLabelProblem("あ".repeat(MAX_SOURCE_LABEL_CHARS))).toBeNull();
+  });
+  it("使えるラベルは、normalizeTreePath を 1 階層のまま通る", () => {
+    for (const ok of ["バックエンド", "a.b", ".env", "Front End"]) expect(normalizeTreePath(ok)).toEqual({ ok: true, path: ok });
+  });
+  it("重複は、大文字小文字・全角半角の違いだけでも後ろの行に出す", () => {
+    expect(sourceLabelProblems(["API", "管理", "api"])).toEqual([null, null, expect.stringMatching(/1 番目のソースと重なっています/)]);
+    expect(sourceLabelProblems(["API", "ＡＰＩ"])[1]).toMatch(/重なっています/);
+    expect(sourceLabelProblems(["バックエンド", "フロント"])).toEqual([null, null]);
+    expect(sourceLabelProblems(["", "a"])[0]).toMatch(/入力/);
+  });
+});
+
+describe("combineSourceTrees", () => {
+  const back = () => memorySourceTree("api", { "src/routes/orders.ts": "orders\n", "src/db.ts": "db\n", ".env": "S=1", "build/x.js": "b", "build.gradle": "g" });
+  const front = () => memorySourceTree("web", { "src/pages/Order.tsx": "page\n", "build/y.js": "b", "src/build/ok.ts": "ok", ".env.local": "S=2" });
+
+  it("各ソースがラベルを名前にした最上位のフォルダになる。読み取りも、ラベルを除いたもとのパスに届く", async () => {
+    const t = combineSourceTrees([
+      { label: "バックエンド", tree: back() },
+      { label: "フロント", tree: front() },
+    ]);
+    expect(isMultiSourceTree(t)).toBe(true);
+    expect(t.files.map((f) => f.path).sort()).toEqual(["バックエンド/build.gradle", "バックエンド/src/db.ts", "バックエンド/src/routes/orders.ts", "フロント/src/build/ok.ts", "フロント/src/pages/Order.tsx"]);
+    expect(await t.readFile("フロント/src/pages/Order.tsx")).toBe("page\n");
+    await expect(t.readFile("src/pages/Order.tsx")).rejects.toThrow();
+    await expect(t.readFile("存在しない/a.ts")).rejects.toThrow();
+    expect(t.sources!.map((s) => [s.label, s.folder, s.fileCount])).toEqual([["バックエンド", "api", 3], ["フロント", "web", 2]]);
+  });
+
+  it("除外規則はラベルを除いたパスで当てる (ラベルが build・secrets・dist・.env でも、ソース全体が消えない)", () => {
+    const t = combineSourceTrees([
+      { label: "build", tree: back() },
+      { label: "secrets", tree: front() },
+      { label: "dist", tree: memorySourceTree("d", { "src/a.ts": "a" }) },
+      { label: ".env", tree: memorySourceTree("e", { "src/b.ts": "b" }) },
+    ]);
+    const visible = visibleFiles(t).map((f) => f.path);
+    expect(visible).toContain("build/src/db.ts");
+    expect(visible).toContain("secrets/src/pages/Order.tsx");
+    expect(visible).toContain("dist/src/a.ts");
+    expect(visible).toContain(".env/src/b.ts");
+    // もとのソースの除外規則は効く: 各ソースの根の直下の build、.env、.env.local
+    expect(visible.some((p) => /\/(\.env|build\/)/.test(p) && !p.includes("src/build/"))).toBe(false);
+    expect(visible).toContain("secrets/src/build/ok.ts"); // 根の直下ではない build は読める
+    expect(visible).toContain("build/build.gradle");
+    // 木の実装が除外し忘れていても (直に files へ入れても)、判定はもとのパスで行う
+    expect(treeExcludeReason(t, "secrets/.env.local", 1)).toBe("secret");
+    expect(treeExcludeReason(t, "build/build/y.js", 1)).toBe("folder");
+    expect(treeExcludeReason(t, "build/src/db.ts", 1)).toBeNull();
+    expect(treeExcludeReason(t, "知らないラベル/a.ts", 1)).not.toBeNull();
+    // 単純にラベル込みで判定すると、ラベルが build や secrets のソースが全部消える (これを避けている)
+    expect(excludeReason("build/src/db.ts")).toBe("folder");
+    expect(excludeReason("secrets/src/pages/Order.tsx")).toBe("secret");
+  });
+
+  it("ソースが 1 つなら、ラベルがあってもなくても今までの木 (ラベルのフォルダを挟まない)", async () => {
+    const one = combineSourceTrees([{ label: "バックエンド", tree: back() }]);
+    expect(isMultiSourceTree(one)).toBe(false);
+    expect(one.name).toBe("api");
+    expect(one.files.map((f) => f.path).sort()).toEqual(back().files.map((f) => f.path).sort());
+    expect(visibleFiles(one).map((f) => f.path).sort()).toEqual(["build.gradle", "src/db.ts", "src/routes/orders.ts"]);
+    expect(one.sources).toEqual([{ label: "バックエンド", folder: "api", fileCount: 3, truncated: false, depthTruncated: false, trimmed: 0 }]);
+    expect(await one.readFile("src/db.ts")).toBe("db\n");
+    expect(combineSourceTrees([{ label: "", tree: back() }]).sources![0]!.label).toBe("");
+    expect(() => combineSourceTrees([{ label: "a/b", tree: back() }])).toThrow();
+  });
+
+  it("ラベルが使えない・重なる・数が合わないときは Error", () => {
+    expect(() => combineSourceTrees([])).toThrow();
+    expect(() => combineSourceTrees([{ label: "a", tree: back() }, { label: "", tree: front() }])).toThrow(/2 番目のソース/);
+    expect(() => combineSourceTrees([{ label: "a", tree: back() }, { label: "A", tree: front() }])).toThrow(/重なっています/);
+    const many = Array.from({ length: MAX_SOURCES + 1 }, (_, i) => ({ label: `s${i}`, tree: back() }));
+    expect(() => combineSourceTrees(many)).toThrow();
+  });
+
+  it("件数の上限はソースで分け合い、1 つのソースが使い切って、ほかが見えなくならない。減らしたソースが分かる", () => {
+    const big = memorySourceTree("big", Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${String(i).padStart(2, "0")}.ts`, "x"])));
+    const small = memorySourceTree("small", { "a.ts": "a", "b.ts": "b" });
+    const t = combineSourceTrees([{ label: "大", tree: big }, { label: "小", tree: small }], { maxFiles: 12 });
+    expect(t.files).toHaveLength(12);
+    expect(t.files.filter((f) => f.path.startsWith("小/"))).toHaveLength(2);
+    expect(t.files.filter((f) => f.path.startsWith("大/"))).toHaveLength(10);
+    expect(t.truncated).toBe(true);
+    expect(t.sources!.find((s) => s.label === "大")).toMatchObject({ fileCount: 10, trimmed: 40, truncated: true });
+    expect(t.sources!.find((s) => s.label === "小")).toMatchObject({ fileCount: 2, trimmed: 0, truncated: false });
+    // もとのソースが打ち切られていたなら、そのソースの印が付く (もとの深さの打ち切りも)
+    const cut = combineSourceTrees([{ label: "a", tree: { ...small, truncated: true } }, { label: "b", tree: { ...big, depthTruncated: true } }]);
+    expect(cut.sources!.map((s) => [s.truncated, s.depthTruncated])).toEqual([[true, false], [false, true]]);
+    expect(cut.truncated).toBe(true);
+    expect(cut.depthTruncated).toBe(true);
+  });
+
+  it("shareFileQuota: 少ないソースはそのまま、余りは多いソースへ回る。合計は上限を超えない", () => {
+    expect(shareFileQuota([2, 50], 12)).toEqual([2, 10]);
+    expect(shareFileQuota([5, 5], 20)).toEqual([5, 5]);
+    expect(shareFileQuota([50, 50, 50], 10).reduce((a, b) => a + b, 0)).toBe(10);
+    expect(shareFileQuota([50, 50, 50], 10).every((n) => n >= 3)).toBe(true);
+    expect(shareFileQuota([0, 9], 5)).toEqual([0, 5]);
+    expect(shareFileQuota([100], 7)).toEqual([7]);
   });
 });

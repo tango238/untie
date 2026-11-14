@@ -1,8 +1,9 @@
 // ソースコードから作成 (リバースエンジニアリング): 選んだフォルダのソースコードを AI が道具で読み、
 // 対象の業務と関連する業務を調べて、分析の要素・データ・サイトマップ・画面 UI まで入ったモデルを作る。
 // 段階: 調査 → 分析モデル → データ → 画面 UI。組み立ては spec.ts と designDraft.ts に任せる。
-import { setDesignNavigation } from "@untie/core/model/commands";
+import { setDesignDatabases, setDesignNavigation } from "@untie/core/model/commands";
 import { checkDesign, DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
+import { systemInformationIds } from "@untie/core/model/designData";
 import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitemap";
 import { traceToActors } from "@untie/core/model/trace";
 import { ELEMENT_KIND_LABELS, type UntieModel } from "@untie/core/model/types";
@@ -33,7 +34,7 @@ import {
   wrapSurvey,
 } from "./reversePrompts";
 import { executeSourceTool, isSourceTool, SOURCE_TOOLS } from "./sourceTools";
-import { visibleFiles, type SourceTree } from "./sourceTree";
+import { combineSourceTrees, isMultiSourceTree, visibleFiles, type LabeledSource, type SourceTree } from "./sourceTree";
 import { buildModelFromSpec, SUBMIT_MODEL_TOOL, type BuildResult, type ModelSpec } from "./spec";
 import type { ToolDef, ToolOutcome } from "./tools";
 
@@ -105,15 +106,36 @@ export const REVERSE_LIMITS = {
 } as const;
 
 /**
+ * ソースの数に応じた、会話ごとの上限 (回数・文字数)。ソースが 1 つなら REVERSE_LIMITS のとおり。
+ *
+ * 方針 (ソースが複数のとき): 会話は分けず、調査は 1 つの会話のまま、上限だけを増やす。理由: ソースをまたいだつながり
+ * (画面の API 呼び出し → バックエンドのハンドラー → テーブル) をたどるには、1 つの会話が全部のソースを見渡せるほうがよい。
+ * ソースごとに調査の会話を分けて最後にまとめると、境目で「どの URL がどのハンドラーか」が欠け、まとめの会話でまた読み直すことになる。
+ * 増やし方は 1 ソースにつき調査 +6 回 (+8 万文字) などで、上限は 1 回の会話の往復の上限 (chat.ts の MAX_STEPS = 60) から決める
+ * (調査は 52 回 + 返答の往復 1 = 53 < 60。conversationSteps で検査する)。ソースが 4 つ以上になると、1 ソースあたりの調査は薄くなる
+ * (いまの限界。ソースごとに調査の会話を分ける方法は、その先の案)。データ・画面 UI の会話は、画面やシステムごとに分かれているので、少しだけ増やす。
+ */
+export function sourceLimits(sources: number): Record<"survey" | "model" | "data" | "screen", { calls: number; chars: number }> {
+  const L = REVERSE_LIMITS;
+  const extra = Math.max(0, Math.floor(sources) - 1);
+  return {
+    survey: { calls: Math.min(52, L.sourceCallsSurvey + 6 * extra), chars: Math.min(500_000, L.sourceCharsSurvey + 80_000 * extra) },
+    model: { calls: Math.min(20, L.sourceCallsModel + 2 * extra), chars: Math.min(140_000, L.sourceCharsModel + 20_000 * extra) },
+    data: { calls: Math.min(32, L.sourceCallsData + 4 * extra), chars: Math.min(200_000, L.sourceCharsData + 30_000 * extra) },
+    screen: { calls: Math.min(10, L.sourceCallsScreen + (extra > 0 ? 2 : 0)), chars: L.sourceCharsScreen + (extra > 0 ? 20_000 : 0) },
+  };
+}
+
+/**
  * 1 回の生成でソースの道具を呼べる回数と、道具が返す文字数の合計の上限。段階ごとの上限の合計から決める:
  * 調査 1 + 分析モデル 1 + データ (システムごと) + 画面 UI (画面ごと)。固定の数にすると、システムや画面が多いとき、
  * 後ろの画面の分が残らない (調査 40 + 分析モデル 12 + データ 20×システム + 画面 8×30 画面は 312 回以上)
  */
-export function sourceBudget(systems: number, screens: number): { calls: number; chars: number } {
-  const L = REVERSE_LIMITS;
+export function sourceBudget(systems: number, screens: number, sources = 1): { calls: number; chars: number } {
+  const l = sourceLimits(sources);
   return {
-    calls: L.sourceCallsSurvey + L.sourceCallsModel + L.sourceCallsData * systems + L.sourceCallsScreen * screens,
-    chars: L.sourceCharsSurvey + L.sourceCharsModel + L.sourceCharsData * systems + L.sourceCharsScreen * screens,
+    calls: l.survey.calls + l.model.calls + l.data.calls * systems + l.screen.calls * screens,
+    chars: l.survey.chars + l.model.chars + l.data.chars * systems + l.screen.chars * screens,
   };
 }
 
@@ -121,13 +143,14 @@ export function sourceBudget(systems: number, screens: number): { calls: number;
  * 会話ごとに、ソースを読む上限まで読んだあとに必要な往復の数 (まとめ・提出・出し直し・終わりの返答)。
  * どれも chat.ts の MAX_STEPS (1 回の send の往復の上限) より小さくなければならない
  */
-export function conversationSteps(): Record<"survey" | "model" | "data" | "screen", number> {
+export function conversationSteps(sources = 1): Record<"survey" | "model" | "data" | "screen", number> {
   const L = REVERSE_LIMITS;
+  const l = sourceLimits(sources);
   return {
-    survey: L.sourceCallsSurvey + 1,
-    model: L.sourceCallsModel + L.strictModelAttempts + 2,
-    data: L.sourceCallsData + L.dataRetries + 1 + 2,
-    screen: L.sourceCallsScreen + L.screenRetries + 1 + 1,
+    survey: l.survey.calls + 1,
+    model: l.model.calls + L.strictModelAttempts + 2,
+    data: l.data.calls + L.dataRetries + 1 + 2,
+    screen: l.screen.calls + L.screenRetries + 1 + 1,
   };
 }
 
@@ -377,19 +400,47 @@ function stoppedWarning(stage: "データ" | "画面 UI", failure: StageFailure,
     : `画面 UI: 画面の会話が続けて ${streak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`;
 }
 
-export async function reverseEngineer(tree: SourceTree, request: string, o: ReverseOptions): Promise<ReverseResult> {
-  const ctx: Ctx = { tree, o, budget: { ...sourceBudget(0, 0), usedCalls: 0, usedChars: 0 } };
-  const system = reverseSystemPrompt();
+/** 画面の説明などの文章から、ラベル付きのパス (木にあるもの) を取り出す。ソースが複数のとき、画面 UI の会話の手がかりにする */
+export function sourcePathsIn(text: string, tree: SourceTree, max = 5): string[] {
+  if (!isMultiSourceTree(tree)) return [];
+  const known = new Set(visibleFiles(tree).map((f) => f.path));
+  const found: string[] = [];
+  for (const token of text.split(/[\s、。,;()（）「」『』"'`<>]+/)) {
+    // 末尾の句読点・行番号 (:12) を取る
+    const path = token.replace(/(?::\d+(?:-\d+)?)?[.:]*$/, "");
+    if (known.has(path) && !found.includes(path)) found.push(path);
+    if (found.length >= max) break;
+  }
+  return found;
+}
+
+/** 依頼文・履歴に出す、ソースの名前 (ソースが 1 つなら「フォルダ名」、複数なら「ラベル (フォルダ名)」の並び) */
+function sourceTitle(tree: SourceTree): string {
+  return isMultiSourceTree(tree) ? tree.sources!.map((s) => `${s.label} (${s.folder})`).join("、") : tree.name;
+}
+
+/**
+ * ソースコードを読んで、モデルを作る。source は 1 つの木か、ラベル付きの複数のソース (LabeledSource。1 つなら木と同じ扱いで、ラベルは AI への説明にだけ使う)。
+ * 複数のソースは combineSourceTrees で 1 つの木にまとめ、道具 (list_files・read_file・search_code) はそのまま、パスの先頭にラベルが付く。
+ * ラベルが使えない・重なるときは、読み始める前に Error
+ */
+export async function reverseEngineer(source: SourceTree | readonly LabeledSource[], request: string, o: ReverseOptions): Promise<ReverseResult> {
+  const tree: SourceTree = "files" in source ? source : combineSourceTrees(source);
+  const multi = isMultiSourceTree(tree);
+  const nSources = tree.sources?.length ?? 1;
+  const lim = sourceLimits(nSources);
+  const ctx: Ctx = { tree, o, budget: { ...sourceBudget(0, 0, nSources), usedCalls: 0, usedChars: 0 } };
+  const system = reverseSystemPrompt(multi);
 
   // ---- 1. 調査 ----
   throwIfAborted(o.signal);
   o.onStep?.("survey");
-  const surveyRequest = reverseSurveyRequest(request, tree.name, visibleFiles(tree).length);
+  const surveyRequest = reverseSurveyRequest(request, tree.name, visibleFiles(tree).length, tree.sources);
   const surveySession = openSession(
     ctx,
     system,
     [],
-    { calls: REVERSE_LIMITS.sourceCallsSurvey, chars: REVERSE_LIMITS.sourceCharsSurvey, finish: "survey" },
+    { ...lim.survey, finish: "survey" },
     {},
     [],
   );
@@ -471,12 +522,12 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     ctx,
     system,
     [SUBMIT_REVERSE_MODEL_TOOL],
-    { calls: REVERSE_LIMITS.sourceCallsModel, chars: REVERSE_LIMITS.sourceCharsModel, finish: "submit" },
+    { ...lim.model, finish: "submit" },
     { submit_model: submitModel },
     modelSeed,
   );
   try {
-    await modelSession.send(reverseModelRequest(request), {}, o.signal);
+    await modelSession.send(reverseModelRequest(request, multi), {}, o.signal);
     throwIfAborted(o.signal);
     if (!accepted) {
       // 提出せずに終わったら、もう一度だけ頼む
@@ -502,9 +553,13 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   const isUsecaseTarget = (systemId: string) => model.relations.some((r) => r.kind === "usecaseSystem" && r.targetId === systemId);
   const dataSystems = model.elements.filter((e) => e.kind === "system" && (hasScreens(e.id) || isUsecaseTarget(e.id)));
   const screenSystems = dataSystems.filter((e) => hasScreens(e.id));
-  ctx.budget.calls = sourceBudget(dataSystems.length, 0).calls;
-  ctx.budget.chars = sourceBudget(dataSystems.length, 0).chars;
+  ctx.budget.calls = sourceBudget(dataSystems.length, 0, nSources).calls;
+  ctx.budget.chars = sourceBudget(dataSystems.length, 0, nSources).chars;
   let databases = 0;
+  /** システムごとの、そのシステムのスキーマ定義から作ったデータベースの id (ソースが複数のとき、画面だけのシステムが結ぶ先) */
+  const ownedDbs = new Map<string, string>();
+  /** データベースを自分では作らなかった、画面のあるシステム (ソースが複数のとき、あとでほかのシステムのデータベースに結ぶ) */
+  const withoutOwnDb: { id: string; name: string; missed: boolean }[] = [];
   let dataStreak = 0;
   let dataStopped: StageFailure | null = null;
   let dataSkipped = 0;
@@ -517,6 +572,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     let dbAttempts = 0;
     /** 最初に受け付けた提出のデータベースの名前 (出し直しで名前が変わって、データベースが 2 つにならないように固定する) */
     let pinnedDbName: string | undefined;
+    let ownDbId: string | undefined;
     let sitemapDone = false;
     let dbWarnings: string[] = [];
     let sitemapWarnings: string[] = [];
@@ -554,6 +610,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
       if (!dbApplied) pinnedDbName = draft.database_name;
       model = r.model;
       dbApplied = true;
+      ownDbId = r.databaseId;
       dbWarnings = r.warnings;
       const message = `受け付けました: テーブル ${r.added.tables}、情報 ${r.added.informations}${r.dslErrors.length > 0 ? ` (DSL の解析エラー ${r.dslErrors.length} 件は残っています)` : ""}`;
       o.onSubmit?.(true, message);
@@ -582,14 +639,15 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
           ctx,
           system,
           withScreens ? [SUBMIT_DATABASE_DRAFT_TOOL, SUBMIT_SITEMAP_TOOL] : [SUBMIT_DATABASE_DRAFT_TOOL],
-          { calls: REVERSE_LIMITS.sourceCallsData, chars: REVERSE_LIMITS.sourceCharsData, finish: "submit" },
+          { ...lim.data, finish: "submit" },
           withScreens ? { submit_database: submitDatabase, submit_sitemap: submitSitemap } : { submit_database: submitDatabase },
           stageSeed,
         );
-        await dataSession.send(reverseDataRequest(model, sys.id), {}, o.signal);
+        await dataSession.send(reverseDataRequest(model, sys.id, multi), {}, o.signal);
         throwIfAborted(o.signal);
         // 画面を持たないシステムは、ソースにスキーマ定義が無ければ (社外のシステムなど) 提出しない答えが正しいので、頼み直さない
-        if (withScreens && !dbApplied && !dbGaveUp) {
+        // (ソースが複数で、データを持つシステムがほかにもあるとき、画面だけのシステムのデータベースは無くてよい。ほかのシステムのデータベースに結ぶ)
+        if (withScreens && !dbApplied && !dbGaveUp && !(multi && dataSystems.length > 1)) {
           await dataSession.send("submit_database でデータベースを提出してください。", {}, o.signal);
           throwIfAborted(o.signal);
         }
@@ -605,9 +663,15 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
         if (dataStreak >= REVERSE_LIMITS.screenErrorStreak) dataStopped = failure;
       } else dataStreak = 0;
     }
-    if (dbApplied) databases++;
+    if (dbApplied) {
+      databases++;
+      if (ownDbId) ownedDbs.set(sys.id, ownDbId);
+    }
     // 会話が失敗したときは、その警告だけ (同じことを 2 件に分けない)
-    else if (!dbGaveUp && !failure && !dataStopped && withScreens) warnings.push(`データ: システム「${sys.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした`);
+    else if (!dbGaveUp && !failure && !dataStopped && withScreens) {
+      if (multi && dataSystems.length > 1) withoutOwnDb.push({ id: sys.id, name: sys.name, missed: true });
+      else warnings.push(`データ: システム「${sys.name}」: AI がデータベースを提出しなかったので、データベースは作りませんでした`);
+    }
     warnings.push(...dbWarnings);
     // 画面を設計に足すため、AI が遷移を出さなくても、空の遷移で必ず足す
     if (withScreens && !sitemapDone) {
@@ -618,6 +682,21 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     warnings.push(...sitemapWarnings);
   }
   if (dataStopped) warnings.push(stoppedWarning("データ", dataStopped, dataSkipped));
+
+  // ---- 画面だけのシステムのデータ (ソースが複数のとき) ----
+  // 画面のソース (フロント) にはスキーマ定義が無く、データはバックエンドのシステムが持つ。画面の項目をバックエンドのテーブルの列に結べるよう、
+  // そのシステムの設計が使うデータベースに、ほかのシステムのデータベースを足す。使うデータベースを空のままにすると、設計の規則で
+  // 先頭のデータベース (どのシステムのものか分からない) が使われてしまうので、明示する。
+  // 結び先: 画面のシステムが使う情報を表すテーブルのあるデータベース。1 つも当たらなければ、ほかのシステムのデータベースすべて
+  for (const w of withoutOwnDb) {
+    const others = [...ownedDbs.entries()].filter(([systemId]) => systemId !== w.id).map(([, id]) => id);
+    const infoIds = new Set(systemInformationIds(model, w.id));
+    const matching = others.filter((id) => model.databases.find((d) => d.id === id)?.tables.some((t) => t.informationIds.some((i) => infoIds.has(i))));
+    const use = matching.length > 0 ? matching : others;
+    const r = use.length > 0 ? setDesignDatabases(model, { systemId: w.id, databaseIds: use }) : null;
+    if (r?.ok) model = r.model;
+    else warnings.push(`データ: システム「${w.name}」: データベースを作らず、結べるほかのシステムのデータベースもなかったので、画面の項目をテーブルの列に結べません`);
+  }
 
   // ---- ナビゲーション (メニュー) ----
   // サイトマップの業務の分け方から作る。作らないと、設計の検証に「メニューからも遷移からも辿れない画面」が残る
@@ -641,8 +720,8 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
   const primary = screensOfBusinesses(model, targetBusinesses);
   const targets = primary.size === 0 ? allTargets : [...allTargets.filter((t) => primary.has(t.analysisId)), ...allTargets.filter((t) => !primary.has(t.analysisId))];
   const todo = targets.slice(0, REVERSE_LIMITS.screens);
-  ctx.budget.calls = sourceBudget(dataSystems.length, todo.length).calls;
-  ctx.budget.chars = sourceBudget(dataSystems.length, todo.length).chars;
+  ctx.budget.calls = sourceBudget(dataSystems.length, todo.length, nSources).calls;
+  ctx.budget.chars = sourceBudget(dataSystems.length, todo.length, nSources).chars;
   if (targets.length > todo.length) {
     const rest = targets.slice(todo.length);
     warnings.push(`画面 UI: 画面が ${targets.length} 件あり、上限 ${REVERSE_LIMITS.screens} 件を超えたので、後ろの ${rest.length} 件は作りませんでした (${rest.slice(0, 5).map((t) => `「${t.name}」`).join("")}${rest.length > 5 ? " ほか" : ""})`);
@@ -700,13 +779,15 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
         ctx,
         system,
         [SUBMIT_SCREEN_DRAFT_TOOL],
-        { calls: REVERSE_LIMITS.sourceCallsScreen, chars: REVERSE_LIMITS.sourceCharsScreen, finish: "submit" },
+        { ...lim.screen, finish: "submit" },
         { submit_screen: submitScreen },
         stageSeed,
       );
       const design = model.designs.find((d) => d.systemId === t.systemId)!;
       const screen = design.screens.find((s) => s.id === t.id)!;
-      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen), t.name), {}, o.signal);
+      const description = model.elements.find((e) => e.id === t.analysisId)?.description ?? "";
+      const hint = multi ? { labels: tree.sources!.map((x) => x.label), paths: sourcePathsIn(description, tree) } : undefined;
+      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen), t.name, hint), {}, o.signal);
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {
@@ -734,7 +815,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     const prefix = checks.length > 1 ? `システム「${elementName(model, c.systemId)}」: ` : "";
     for (const line of designWarningLines(model, c.systemId, c.warnings)) warnings.push(`設計の検証: ${prefix}${line}`);
   }
-  const summary = `ソースコード「${tree.name}」からモデル「${model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。データベース ${databases}/${dataSystems.length} システム、画面 UI ${placed}/${allTargets.length} 画面。${
+  const summary = `ソースコード${multi ? ` ${nSources} か所 (${sourceTitle(tree)})` : `「${tree.name}」`}からモデル「${model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。データベース ${databases}/${dataSystems.length} システム、画面 UI ${placed}/${allTargets.length} 画面。${
     warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""
   }`;
   return {
@@ -743,7 +824,7 @@ export async function reverseEngineer(tree: SourceTree, request: string, o: Reve
     warnings,
     summary,
     seed: [
-      { role: "user", text: `次のソースコードから業務モデルを作ってください。\n\n<ソースコードのフォルダ>${tree.name}</ソースコードのフォルダ>\n<モデルに起こしたい業務>\n${request}\n</モデルに起こしたい業務>` },
+      { role: "user", text: `次のソースコードから業務モデルを作ってください。\n\n<ソースコードのフォルダ>${multi ? `\n${tree.sources!.map((x) => `${x.label}: ${x.folder}`).join("\n")}\n` : tree.name}</ソースコードのフォルダ>\n<モデルに起こしたい業務>\n${request}\n</モデルに起こしたい業務>` },
       { role: "assistant", text: `${stageSeed[1]!.text}\n\n${summary}` },
     ],
   };

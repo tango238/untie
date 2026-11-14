@@ -4,7 +4,7 @@ import { useAgentStore } from "../../ai/agentStore";
 import type { ReverseOptions, ReverseResult } from "../../ai/reverse";
 import { reverseEngineer } from "../../ai/reverse";
 import { PROVIDERS } from "../../ai/providers";
-import { memorySourceTree } from "../../ai/sourceTree";
+import { MAX_SOURCES, memorySourceTree, type LabeledSource, type SourceTree } from "../../ai/sourceTree";
 import { emptyModel } from "@untie/core";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
@@ -341,5 +341,253 @@ describe("CreateFromSourceDialog", () => {
       fireEvent.click(startButton());
     });
     expect(mocked).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------- 複数のソース
+
+const backTree = memorySourceTree("aozora-api", { "src/routes/orders.ts": "a", "prisma/schema.prisma": "b", ".env": "S=1" });
+const adminTree = memorySourceTree("aozora-admin", { "src/pages/Pending.tsx": "c" });
+const shopTree = memorySourceTree("aozora-shop", { "src/pages/OrderNew.tsx": "d", "src/pages/OrderStatus.tsx": "e", "README.md": "f" });
+
+/** n 番目 (1 始まり) の行でフォルダを選ぶ */
+async function pickRow(n: number, t: SourceTree) {
+  memory().sourceTree = t;
+  const buttons = screen.getAllByRole("button", { name: /^(フォルダを選ぶ|選び直す)…$/ });
+  await act(async () => {
+    fireEvent.click(buttons[n - 1]!);
+  });
+}
+const addRow = () => fireEvent.click(screen.getByRole("button", { name: "ソースコードの場所を足す" }));
+const labelBox = (n: number) => screen.getByLabelText(`ソース ${n} のラベル`) as HTMLInputElement;
+const setLabel = (n: number, value: string) => fireEvent.change(labelBox(n), { target: { value } });
+
+async function threeSources() {
+  render(<CreateFromSourceDialog onClose={() => {}} />);
+  await pickRow(1, backTree);
+  addRow();
+  await pickRow(2, adminTree);
+  addRow();
+  await pickRow(3, shopTree);
+}
+
+describe("CreateFromSourceDialog: 複数のソース", () => {
+  it("開いた直後は 1 行だけで、ラベルは任意。ソースを足す行がある", () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screen.getAllByRole("button", { name: "フォルダを選ぶ…" })).toHaveLength(1);
+    expect(screen.getByLabelText("ラベル (任意)")).toBeDefined();
+    expect(screen.getByRole("button", { name: "ソースコードの場所を足す" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /を外す/ })).toBeNull(); // 選んでいない 1 行は外せない
+    expect(screen.queryByText(/合計 読めるファイル/)).toBeNull();
+  });
+
+  it("行を足すと、使っていない候補がラベルに入り、フォーカスが新しい行のラベルへ移る。1 つ目が空なら 1 つ目にも入る", () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    addRow();
+    expect(labelBox(1).value).toBe("バックエンド");
+    expect(labelBox(2).value).toBe("管理画面");
+    expect(document.activeElement).toBe(labelBox(2));
+    addRow();
+    expect(labelBox(3).value).toBe("フロント画面");
+    expect(document.activeElement).toBe(labelBox(3));
+    // 候補は <datalist> で選べて、自由にも書ける
+    expect(document.querySelectorAll("datalist option")).toHaveLength(6);
+    expect(labelBox(3).getAttribute("list")).toBe(document.querySelector("datalist")!.id);
+    setLabel(3, "お客様サイト");
+    expect(labelBox(3).value).toBe("お客様サイト");
+  });
+
+  it("上限の数まで足せて、それ以上は足せない", () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    for (let i = 1; i < MAX_SOURCES; i++) addRow();
+    expect(screen.getAllByRole("listitem").filter((li) => li.classList.contains("source-row"))).toHaveLength(MAX_SOURCES);
+    expect((screen.getByRole("button", { name: "ソースコードの場所を足す" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(`${MAX_SOURCES} か所まで登録できます`)).toBeDefined();
+  });
+
+  it("フォルダを選んだとき、ラベルが空ならフォルダ名を入れる。入っていれば変えない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    expect((screen.getByLabelText("ラベル (任意)") as HTMLInputElement).value).toBe("aozora-api");
+    addRow();
+    await pickRow(2, adminTree);
+    expect(labelBox(2).value).toBe("管理画面");
+    setLabel(1, "");
+    await pickRow(1, shopTree); // 選び直し
+    expect(labelBox(1).value).toBe("aozora-shop");
+  });
+
+  it("3 つ登録すると、行ごとのフォルダ名と読めるファイル数、合計が出る。作成できる", async () => {
+    await threeSources();
+    const rows = Array.from(document.querySelectorAll(".source-row"));
+    expect(rows.map((r) => r.querySelector(".source-folder-name strong")!.textContent)).toEqual(["aozora-api", "aozora-admin", "aozora-shop"]);
+    expect(rows.map((r) => r.querySelector(".source-folder-count")!.textContent)).toEqual(["読めるファイル 2 件", "読めるファイル 1 件", "読めるファイル 3 件"]);
+    expect(screen.getByText("合計 読めるファイル 6 件")).toBeDefined();
+    expect(screen.getByText(/ラベルが、どのソースのファイルかを示すパスの先頭/)).toBeDefined();
+    expect(screen.getByText(/フォルダ名とラベル、ファイルの一覧/)).toBeDefined();
+    await fill();
+    expect(startButton().disabled).toBe(false);
+  });
+
+  it("行を外せる。外す名前に行の内容が入る。最後の 1 行を外すと空の行に戻る", async () => {
+    await threeSources();
+    expect(screen.getByRole("button", { name: "ソース 2「管理画面」を外す" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "ソース 2「管理画面」を外す" }));
+    expect(screen.queryByText("aozora-admin")).toBeNull();
+    expect(screen.getByText("合計 読めるファイル 5 件")).toBeDefined();
+    expect(screen.getByRole("button", { name: "ソース 2「フロント画面」を外す" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "ソース 2「フロント画面」を外す" }));
+    expect(screen.queryByText(/合計 読めるファイル/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "ソース 1「aozora-api」を外す" }));
+    expect(screen.getAllByRole("button", { name: "フォルダを選ぶ…" })).toHaveLength(1);
+    expect((screen.getByLabelText("ラベル (任意)") as HTMLInputElement).value).toBe("");
+  });
+
+  it("選び直しで、その行だけ替わる", async () => {
+    await threeSources();
+    await pickRow(2, shopTree);
+    expect(Array.from(document.querySelectorAll(".source-row")).map((r) => r.querySelector(".source-folder-name strong")!.textContent)).toEqual(["aozora-api", "aozora-shop", "aozora-shop"]);
+    expect(labelBox(2).value).toBe("管理画面"); // ラベルは変わらない
+  });
+
+  it("2 つ以上なら、ラベルは必須。空・使えない文字・重複はその場でエラーを出し、作成を押せない", async () => {
+    await threeSources();
+    await fill();
+    setLabel(2, "");
+    expect(screen.getByText("ラベルを入力してください")).toBeDefined();
+    expect(startButton().disabled).toBe(true);
+    expect(labelBox(2).getAttribute("aria-invalid")).toBe("true");
+    setLabel(2, "管理/画面");
+    expect(screen.getByText(/「\/」「\\」「:」は使えません/)).toBeDefined();
+    expect(startButton().disabled).toBe(true);
+    setLabel(2, "..");
+    expect(screen.getByText(/「.」「..」はラベルに使えません/)).toBeDefined();
+    setLabel(2, "aozora-api");
+    expect(screen.getByText(/1 番目のソースと重なっています/)).toBeDefined();
+    expect(startButton().disabled).toBe(true);
+    // 大文字小文字・全角半角の違いだけでも重複
+    setLabel(1, "API");
+    setLabel(2, "ａｐｉ");
+    expect(screen.getByText(/1 番目のソースと重なっています/)).toBeDefined();
+    setLabel(2, "管理画面");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(startButton().disabled).toBe(false);
+  });
+
+  it("ソースが 1 つのときは、ラベルが空でも作れる。使えないラベルは断る", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    setLabel1("");
+    await fill();
+    expect(startButton().disabled).toBe(false);
+    setLabel1("a/b");
+    expect(startButton().disabled).toBe(true);
+    function setLabel1(v: string) {
+      fireEvent.change(screen.getByLabelText("ラベル (任意)"), { target: { value: v } });
+    }
+  });
+
+  it("フォルダを選んでいない行があると作れない。読めるファイルが 0 件の行があっても作れない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    addRow();
+    await fill();
+    expect(startButton().disabled).toBe(true);
+    await pickRow(2, memorySourceTree("empty", { ".env": "x" }));
+    expect(screen.getByText(/AI が読めるファイルがありません/)).toBeDefined();
+    expect(startButton().disabled).toBe(true);
+    await pickRow(2, adminTree);
+    expect(startButton().disabled).toBe(false);
+  });
+
+  it("同じフォルダを重ねて登録したら、警告を出す (作成は止めない)。別のフォルダなら出さない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    addRow();
+    await pickRow(2, adminTree);
+    await waitFor(() => expect(screen.queryByText(/重ねて登録していませんか/)).toBeNull());
+    await pickRow(2, memorySourceTree("aozora-api", Object.fromEntries(backTree.files.map((f) => [f.path, "x".repeat(f.size)]))));
+    await waitFor(() => expect(screen.getByText(/同じフォルダを、ソース 1 と重ねて登録していませんか/)).toBeDefined());
+    await fill();
+    expect(startButton().disabled).toBe(false);
+    // isSameEntry で確かめられる木は、それを優先する (名前もファイルも同じでも、別のフォルダなら警告しない)
+    const other = { ...adminTree, sameFolderAs: async () => false } as SourceTree;
+    await pickRow(2, other);
+    await waitFor(() => expect(screen.queryByText(/重ねて登録していませんか/)).toBeNull());
+    const same = { ...shopTree, name: "x", sameFolderAs: async () => true } as SourceTree;
+    await pickRow(2, same);
+    await waitFor(() => expect(screen.getByText(/重ねて登録していませんか/)).toBeDefined());
+  });
+
+  it("複数のソースが、ラベル付きで reverseEngineer に渡り、会話の最初の発言が複数と分かる形になる", async () => {
+    mocked.mockResolvedValue(result());
+    const onClose = vi.fn();
+    render(<CreateFromSourceDialog onClose={onClose} />);
+    await pickRow(1, backTree);
+    addRow();
+    await pickRow(2, adminTree);
+    addRow();
+    await pickRow(3, shopTree);
+    setLabel(1, " バックエンド ");
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const sources = mocked.mock.calls[0]![0] as unknown as LabeledSource[];
+    expect(sources.map((s) => [s.label, s.tree.name])).toEqual([["バックエンド", "aozora-api"], ["管理画面", "aozora-admin"], ["フロント画面", "aozora-shop"]]);
+    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード 3 か所 (バックエンド: aozora-api、管理画面: aozora-admin、フロント画面: aozora-shop)から作成: 受注から出荷まで")).toBe(true);
+  });
+
+  it("ソースが 1 つのときの最初の発言は、これまでどおり", async () => {
+    mocked.mockResolvedValue(result());
+    const onClose = vi.fn();
+    render(<CreateFromSourceDialog onClose={onClose} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード「shop-app」から作成: 受注から出荷まで")).toBe(true);
+    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((s) => s.label)).toEqual(["shop-app"]);
+  });
+
+  it("実行中は行の操作ができず、二度押しでも 1 本だけ。中断できる", async () => {
+    let opts!: ReverseOptions;
+    mocked.mockImplementation((_t, _r, o) => {
+      opts = o;
+      return new Promise(() => {});
+    });
+    await threeSources();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    expect(mocked).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("button", { name: "ソースコードの場所を足す" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "ソース 2「管理画面」を外す" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(labelBox(1).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "中断" }));
+    expect(opts.signal?.aborted).toBe(true);
+  });
+
+  it("合計が上限を超えるとき、ソースごとに分け合うことを知らせる。打ち切られたソースにはその旨を出す", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, { ...backTree, truncated: true } as SourceTree);
+    expect(screen.getByText(/途中までしか数えていません/)).toBeDefined();
+    addRow();
+    await pickRow(2, { ...adminTree, depthTruncated: true } as SourceTree);
+    expect(screen.getByText(/深すぎるフォルダは読んでいません/)).toBeDefined();
+  });
+
+  it("行の操作の名前: ラベル欄は行の番号つき、フォルダを選ぶボタンは行の見出しに結ばれる", async () => {
+    await threeSources();
+    const buttons = screen.getAllByRole("button", { name: "選び直す…" });
+    expect(buttons).toHaveLength(3);
+    const titles = buttons.map((b) => document.getElementById(b.getAttribute("aria-describedby")!)!.textContent);
+    expect(titles).toEqual(["ソース 1", "ソース 2", "ソース 3"]);
   });
 });
