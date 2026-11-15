@@ -29,7 +29,7 @@ vi.mock("../chat", async (importOriginal) => {
   };
 });
 
-const { generateFromPrompt } = await import("../generate");
+const { generateFromPrompt, summarizeCounts } = await import("../generate");
 
 const good: ModelSpec = {
   system_name: "旅館",
@@ -40,6 +40,12 @@ const noPerformer: ModelSpec = {
   ...good,
   businesses: [{ name: "予約受付", main_actors: ["フロント係"], activities: [{ name: "予約を受け付ける", usecases: [] }] }],
 };
+
+describe("summarizeCounts", () => {
+  it("画面とイベントも、操作のあとに数える", () => {
+    expect(summarizeCounts({ business: 1, usecase: 3, screen: 2, event: 1, actor: 1 })).toBe("業務 1、操作 3、画面 2、イベント 1、アクター 1");
+  });
+});
 
 describe("generateFromPrompt", () => {
   it("担当の無い作業があれば理由を返して出し直してもらい、受け付けたらモデルと引き継ぐ会話を返す", async () => {

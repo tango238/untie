@@ -1387,7 +1387,7 @@ export function addRelation(model: UntieModel, payload: AddRelationPayload): Com
   if (payload.id !== undefined && usedIds(model).has(payload.id)) return fail(`id が重複しています: ${payload.id}`);
 
   const candidate = { kind, sourceId, targetId };
-  if (model.relations.some((r) => sameRelation(r, candidate))) return fail("同じ関係がすでにあります");
+  if (model.relations.some((r) => sameRelation(r, candidate))) return fail(DUPLICATE_RELATION_REASON);
   if (kind === "usecaseScreen") {
     const other = screenUser(model, targetId, sourceId);
     if (other) return fail(SCREEN_IN_USE_REASON(target.name, other.name));
@@ -1427,6 +1427,8 @@ export function setRelationAccess(model: UntieModel, payload: SetRelationAccessP
   return { ok: true, model: next };
 }
 
+/** すでに同じ関係があるときの addRelation の失敗の理由 (AI が同じつながりを 2 か所に書いたときに見分けるのに使う) */
+export const DUPLICATE_RELATION_REASON = "同じ関係がすでにあります";
 export const ALTERNATE_KIND_REASON = "代替パターンは、操作が判断する条件の関係にだけ付けられます";
 
 /** 代替パターンに、起きる出来事とエラーの両方は持てない */

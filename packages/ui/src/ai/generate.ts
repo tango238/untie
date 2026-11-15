@@ -35,7 +35,7 @@ export interface GenerationResult {
 const STRICT_ATTEMPTS = 2;
 
 export function summarizeCounts(counts: BuildResult["counts"]): string {
-  const order: ElementKind[] = ["business", "buc", "activity", "usecase", "actor", "externalActor", "system", "ledger", "context", "information", "state", "condition", "variation", "issue"];
+  const order: ElementKind[] = ["business", "buc", "activity", "usecase", "screen", "event", "actor", "externalActor", "system", "ledger", "context", "information", "state", "condition", "variation", "issue"];
   return order
     .filter((k) => counts[k])
     .map((k) => `${ELEMENT_KIND_LABELS[k]} ${counts[k]}`)
@@ -76,7 +76,8 @@ export async function generateFromPrompt(request: string, o: GenerationOptions):
     accepted = build;
     const message = `受け付けました: ${summarizeCounts(build.counts)}${issues.length > 0 ? ` (気づいたこと ${issues.length} 件は残っています)` : ""}`;
     o.onSubmit?.(true, message);
-    return { ok: true, content: JSON.stringify({ result: message }), changed: true };
+    // 受け付けたあとの出し直しは無い (気づいたことが残っていても、AI には返さない)。次のリクエストを送らず、往復を 1 回省く (会話の履歴には、提出と結果が対で残る)
+    return { ok: true, content: JSON.stringify({ result: message }), changed: true, finish: true };
   };
 
   const session = createChatSession(o.provider, {
@@ -100,7 +101,7 @@ export async function generateFromPrompt(request: string, o: GenerationOptions):
   o.onStep?.("done");
 
   const summary = `初期要望からモデル「${build.model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。${
-    build.warnings.length > 0 ? `組み立てで気づいたこと: ${build.warnings.slice(0, 5).join(" / ")}` : ""
+    build.warnings.length + build.notices.length > 0 ? `組み立てで気づいたこと: ${[...build.warnings, ...build.notices].slice(0, 5).join(" / ")}` : ""
   }`;
   return {
     build,

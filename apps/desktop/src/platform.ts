@@ -8,6 +8,7 @@ import {
   RECENT_LIMIT,
   baseName,
   type OpenedFile,
+  type OpenTextFileOptions,
   type LoginResult,
   type Platform,
   type RecentFile,
@@ -16,6 +17,7 @@ import {
   type SecretStore,
   parseServerOrigin,
 } from "@untie/ui/platform";
+import { pickSourceFolderInBrowser } from "@untie/ui/io/sourceFolder";
 
 const FILE_FILTERS = [{ name: "Untie モデル", extensions: [FILE_EXTENSION] }];
 
@@ -297,9 +299,10 @@ export function desktopPlatform(): Platform {
     // サーバーの URL を設定すれば、クラウド版のサーバーにつないでクラウドファイルを使える
     cloud: true,
 
-    async openTextFile(): Promise<OpenedFile | null> {
+    async openTextFile(options?: OpenTextFileOptions): Promise<OpenedFile | null> {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const path = await open({ multiple: false, directory: false, filters: FILE_FILTERS });
+      const filters = options ? [{ name: options.description, extensions: [...options.extensions] }] : FILE_FILTERS;
+      const path = await open({ multiple: false, directory: false, filters });
       if (typeof path !== "string") return null;
       const text = await invoke<string>("read_model_file", { path });
       return { path, name: baseName(path), text };
@@ -342,6 +345,8 @@ export function desktopPlatform(): Platform {
       }
       return { where: dir, count: files.length - kept.length, kept };
     },
+
+    pickSourceFolder: pickSourceFolderInBrowser,
 
     canReopenFiles: () => true,
 

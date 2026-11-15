@@ -6,6 +6,7 @@ import {
   FILE_EXTENSION,
   RECENT_LIMIT,
   type OpenedFile,
+  type OpenTextFileOptions,
   type Platform,
   type RecentFile,
   type RecentFileStore,
@@ -13,6 +14,7 @@ import {
   type SecretStore,
 } from "@untie/ui/platform";
 import { makeZip } from "@untie/ui/io/zip";
+import { pickSourceFolderInBrowser } from "@untie/ui/io/sourceFolder";
 
 // ---- ファイル ----
 
@@ -218,12 +220,13 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
     kind: "web",
     cloud,
 
-    async openTextFile(): Promise<OpenedFile | null> {
+    async openTextFile(options?: OpenTextFileOptions): Promise<OpenedFile | null> {
       // window から外して呼ぶと Illegal invocation になるので、window.showOpenFilePicker として呼ぶ
       const picker = pickerWindow();
       if (picker.showOpenFilePicker) {
         try {
-          const [handle] = await picker.showOpenFilePicker({ types: PICKER_TYPES, multiple: false });
+          const types = options ? [{ description: options.description, accept: { "text/plain": options.extensions.map((e) => `.${e}`) } }] : PICKER_TYPES;
+          const [handle] = await picker.showOpenFilePicker({ types, multiple: false });
           if (!handle) return null;
           const file = await handle.getFile();
           return { path: handles.remember(handle), name: file.name, text: await file.text() };
@@ -235,7 +238,7 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       return new Promise((resolve) => {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = `.${FILE_EXTENSION},application/json`;
+        input.accept = options ? options.extensions.map((e) => `.${e}`).join(",") : `.${FILE_EXTENSION},application/json`;
         input.addEventListener("change", async () => {
           const f = input.files?.[0];
           resolve(f ? { path: null, name: f.name, text: await f.text() } : null);
@@ -311,6 +314,8 @@ export function webPlatform({ cloud = false }: WebPlatformOptions = {}): Platfor
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       return { where: zipName, count: files.length, kept: [] };
     },
+
+    pickSourceFolder: pickSourceFolderInBrowser,
 
     canReopenFiles,
 

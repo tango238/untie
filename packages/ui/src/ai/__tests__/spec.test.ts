@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { traceToActors } from "@untie/core/model/trace";
 import { validateModel } from "@untie/core/model/validate";
-import { buildModelFromSpec, type ModelSpec } from "../spec";
+import { buildModelFromSpec, SPEC_LIMITS, type ModelSpec } from "../spec";
 
 const spec: ModelSpec = {
   system_name: "小さな旅館",
@@ -83,6 +83,199 @@ describe("buildModelFromSpec", () => {
   });
 });
 
+describe("buildModelFromSpec: 操作の targets に画面の名前を書いたとき", () => {
+  const base = (over: Partial<ModelSpec> = {}): ModelSpec => ({
+    system_name: "旅館",
+    actors: [{ name: "フロント係" }],
+    systems: [{ name: "予約サイト" }],
+    informations: [{ name: "予約" }],
+    businesses: [
+      {
+        name: "予約受付",
+        main_actors: ["フロント係"],
+        activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"], targets: ["予約入力画面"] }] }],
+      },
+    ],
+    screens: [{ name: "予約入力画面", system: "予約サイト" }],
+    ...over,
+  });
+  const screenOf = (r: ReturnType<typeof buildModelFromSpec>, usecase: string) => {
+    const uc = r.model.elements.find((e) => e.kind === "usecase" && e.name === usecase)!;
+    return r.model.relations.filter((x) => x.kind === "usecaseScreen" && x.sourceId === uc.id).map((x) => r.model.elements.find((e) => e.id === x.targetId)!.name);
+  };
+
+  it("targets に書かれた名前が画面なら、その画面をその操作の画面として結ぶ (screens の usecase と同じ。「対象が見つかりません」にならない)", () => {
+    const r = buildModelFromSpec(base());
+    expect(r.warnings).toEqual([]);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+    expect(traceToActors(r.model).problems.filter((p) => p.isBreak)).toEqual([]);
+    // screens の usecase に書いた場合と同じモデルになる
+    const viaScreen = buildModelFromSpec(
+      base({
+        businesses: [{ name: "予約受付", main_actors: ["フロント係"], activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"] }] }] }],
+        screens: [{ name: "予約入力画面", system: "予約サイト", usecase: "予約を入力する" }],
+      }),
+    );
+    const shape = (x: ReturnType<typeof buildModelFromSpec>) => x.model.relations.map((rel) => rel.kind).sort();
+    expect(shape(r)).toEqual(shape(viaScreen));
+  });
+
+  it("画面にシステムを書かなくても、システムが 1 つなら結べる。システムの名前と同じ名前の対象はこれまでどおりシステム", () => {
+    const r = buildModelFromSpec(base({ screens: [{ name: "予約入力画面" }] }));
+    expect(r.warnings).toEqual([]);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    const sys = buildModelFromSpec(
+      base({
+        businesses: [{ name: "予約受付", main_actors: ["フロント係"], activities: [{ name: "予約を受ける", performers: ["フロント係"], usecases: [{ name: "予約を入力する", writes: ["予約"], targets: ["予約サイト"] }] }] }],
+        screens: [{ name: "予約サイト", system: "予約サイト" }],
+      }),
+    );
+    expect(sys.warnings).toEqual([]); // 予約サイトという名前の画面があっても、操作の対象 (システム) を優先する
+  });
+
+  it("規則 (1 画面 = 1 操作) に反するときは、これまでどおり警告する", () => {
+    const r = buildModelFromSpec(
+      base({
+        businesses: [
+          {
+            name: "予約受付",
+            main_actors: ["フロント係"],
+            activities: [
+              {
+                name: "予約を受ける",
+                performers: ["フロント係"],
+                usecases: [
+                  { name: "予約を入力する", writes: ["予約"], targets: ["予約入力画面"] },
+                  { name: "予約を直す", writes: ["予約"], targets: ["予約入力画面"] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(r.warnings.some((w) => /画面「予約入力画面」はすでに別の操作が使っているので、操作「予約を直す」とは結びませんでした/.test(w))).toBe(true);
+    expect(screenOf(r, "予約を入力する")).toEqual(["予約入力画面"]);
+    // 別のシステムの画面なら、システムを合わせるよう警告する (対象のシステムは targets に書いたまま)
+    const other = buildModelFromSpec(base({ systems: [{ name: "予約サイト" }, { name: "管理サイト" }], screens: [{ name: "予約入力画面", system: "管理サイト" }] }));
+    expect(screenOf(other, "予約を入力する")).toEqual(["予約入力画面"]);
+  });
+
+  it("画面の名前が無い (screens に定義が無い) 対象は、これまでどおり「見つかりません」", () => {
+    const r = buildModelFromSpec(base({ screens: [] }));
+    expect(r.warnings.some((w) => /対象「予約入力画面」が見つかりません/.test(w))).toBe(true);
+  });
+
+  describe("同じ名前の画面が複数のシステムにあるとき", () => {
+    const two = (usecases: { name: string; targets?: string[]; usecase?: never }[], screens: ModelSpec["screens"]): ModelSpec => ({
+      system_name: "店",
+      actors: [{ name: "店員" }],
+      systems: [{ name: "管理" }, { name: "店" }],
+      informations: [{ name: "会員" }],
+      businesses: [{ name: "業務", main_actors: ["店員"], activities: [{ name: "作業", performers: ["店員"], usecases: usecases.map((u) => ({ ...u, reads: ["会員"] })) }] }],
+      screens,
+    });
+    const both = [{ name: "ログイン", system: "管理" }, { name: "ログイン", system: "店" }];
+    const screensNamed = (r: ReturnType<typeof buildModelFromSpec>, usecase: string) => {
+      const uc = r.model.elements.find((e) => e.kind === "usecase" && e.name === usecase)!;
+      return r.model.relations
+        .filter((x) => x.kind === "usecaseScreen" && x.sourceId === uc.id)
+        .map((x) => {
+          const sc = r.model.elements.find((e) => e.id === x.targetId)!;
+          return `${r.model.elements.find((e) => e.id === (sc as { systemId?: string }).systemId)?.name}/${sc.name}`;
+        });
+    };
+
+    it("targets の名前だけでは、別のシステムの画面に結ばない。操作の対象のシステムで 1 つに決まるなら、そのシステムの画面に結ぶ", () => {
+      const r = buildModelFromSpec(two([{ name: "店でログイン", targets: ["店", "ログイン"] }], both));
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "店でログイン")).toEqual(["店/ログイン"]);
+      // 管理の画面に結ばれ、店の画面で逆向きの警告が出る、ということが無い
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("操作の対象のシステムが書かれていないときは、結ばずに「screens[].usecase で書いてください」を 1 件だけ警告する (両方の操作が書いても 1 件)", () => {
+      const r = buildModelFromSpec(two([{ name: "店でログイン", targets: ["ログイン"] }, { name: "管理でログイン", targets: ["ログイン"] }], both));
+      expect(screensNamed(r, "店でログイン")).toEqual([]);
+      expect(screensNamed(r, "管理でログイン")).toEqual([]);
+      const lines = r.warnings.filter((w) => /同じ名前の画面が複数/.test(w));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/screens\[\]\.usecase で書いてください/);
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("screens[].usecase の宣言は、同じ名前の画面が複数のシステムにあっても、それぞれの操作に結ばれる。宣言した操作は targets 経由で別の画面には結ばない", () => {
+      const declared = [{ name: "ログイン", system: "管理", usecase: "管理でログイン" }, { name: "ログイン", system: "店", usecase: "店でログイン" }];
+      const r = buildModelFromSpec(two([{ name: "管理でログイン", targets: ["管理"] }, { name: "店でログイン", targets: ["店"] }], declared));
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "管理でログイン")).toEqual(["管理/ログイン"]);
+      expect(screensNamed(r, "店でログイン")).toEqual(["店/ログイン"]);
+      expect(r.model.elements.filter((e) => e.kind === "screen")).toHaveLength(2);
+      // 宣言した操作が、targets にも同じ名前を書いていても、別の画面 (管理) には結ばない
+      const withTargets = buildModelFromSpec(two([{ name: "管理でログイン", targets: ["ログイン"] }, { name: "店でログイン", targets: ["店"] }], declared));
+      expect(screensNamed(withTargets, "管理でログイン")).toEqual(["管理/ログイン"]);
+      expect(screensNamed(withTargets, "店でログイン")).toEqual(["店/ログイン"]);
+      expect(withTargets.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("宣言が勝つ: 別の画面が screens[].usecase で宣言した操作は、targets に別の画面の名前があっても、その画面には結ばない", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "ログイン", system: "店", usecase: "ログインする" }, { name: "会員一覧", system: "店" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      expect(r.warnings.some((w) => /とは結びませんでした/.test(w))).toBe(false);
+    });
+
+    it("作られなかった画面 (属するシステムが見つからない) の usecase の宣言は、宣言済みに数えない: 操作は targets の画面に結ばれる", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "会員一覧", system: "店" }, { name: "詳細", system: "存在しない", usecase: "ログインする" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/会員一覧"]);
+      expect(r.warnings).toContainEqual(expect.stringMatching(/画面「詳細」の属するシステム「存在しない」が見つかりません/));
+      expect(r.warnings.some((w) => /targets の画面/.test(w))).toBe(false);
+    });
+
+    it("宣言のある操作の targets がほかの画面を指していたら、結ばなかったことを (どの操作の・どの画面を・なぜ) 警告に出す", () => {
+      const r = buildModelFromSpec(
+        two([{ name: "ログインする", targets: ["店", "会員一覧"] }], [{ name: "ログイン", system: "店", usecase: "ログインする" }, { name: "会員一覧", system: "店" }]),
+      );
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      const lines = r.warnings.filter((w) => /targets の画面/.test(w));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/操作「ログインする」の targets の画面「会員一覧」は結びませんでした/);
+      expect(lines[0]).toMatch(/「ログイン」が screens\[\]\.usecase でこの操作を使うと宣言している/);
+    });
+
+    it("システムが 1 つのモデルで、同じ画面をシステムありとなしで 2 回書いても、同じ名前の画面が複数ある扱いにならず、targets から結べる", () => {
+      const one: ModelSpec = { ...two([{ name: "ログインする", targets: ["ログイン"] }], [{ name: "ログイン", system: "店" }, { name: "ログイン" }]), systems: [{ name: "店" }] };
+      const r = buildModelFromSpec(one);
+      expect(r.warnings).toEqual([]);
+      expect(screensNamed(r, "ログインする")).toEqual(["店/ログイン"]);
+      expect(r.model.elements.filter((e) => e.kind === "screen")).toHaveLength(1);
+    });
+
+    it("上限で切られた画面・作られなかった画面 (属するシステムが決まらない) を指した targets は、「対象が見つかりません」の警告になる", () => {
+      const many = Array.from({ length: SPEC_LIMITS.screens }, (_, i) => ({ name: `画面${i}`, system: "店" }));
+      const cut = buildModelFromSpec(two([{ name: "切られる操作", targets: ["後ろの画面"] }], [...many, { name: "後ろの画面", system: "店" }]));
+      expect(cut.warnings).toContainEqual(expect.stringMatching(/対象「後ろの画面」が見つかりません/));
+      expect(cut.warnings).toContainEqual(expect.stringMatching(/画面は先頭 300 件だけ使いました/));
+      expect(screensNamed(cut, "切られる操作")).toEqual([]);
+      // システムを書かず、システムが複数あるので作られない画面
+      const lost = buildModelFromSpec(two([{ name: "迷子の操作", targets: ["行き先不明"] }], [{ name: "行き先不明" }]));
+      expect(lost.warnings).toContainEqual(expect.stringMatching(/画面「行き先不明」は属するシステムが決まらない/));
+      expect(lost.warnings).toContainEqual(expect.stringMatching(/操作「迷子の操作」の対象「行き先不明」が見つかりません/));
+    });
+  });
+
+  it("道具の説明に、画面は targets に書いても screens の usecase に書いてもよいと書いてある", async () => {
+    const { SUBMIT_MODEL_TOOL } = await import("../spec");
+    const text = JSON.stringify(SUBMIT_MODEL_TOOL.parameters);
+    expect(text).toMatch(/画面を通す操作は、画面の名前を書いてもよい/);
+    expect(text).toMatch(/操作の targets に画面の名前を書いても同じ意味/);
+  });
+});
+
 describe("buildModelFromSpec: AI の出力が長くても要素が消えない", () => {
   it("名前・説明・グループ・値・課題・概要は上限に切り詰めて、スキーマに合うモデルにする", () => {
     const long = "あ".repeat(5000);
@@ -135,5 +328,128 @@ describe("buildModelFromSpec: 作業の起点", () => {
     const dup = buildModelFromSpec(base([act("先", { trigger_activities: ["同名"] }), act("同名")], [act("同名")]));
     expect(dup.warnings).toEqual(["起点の作業「同名」と同じ名前の作業が 2 つあるので、最初の 1 つを結びました"]);
     expect(triggers(dup)).toEqual([["同名", "先"]]);
+  });
+});
+
+describe("buildModelFromSpec: 巨大な下書き", () => {
+  const L = SPEC_LIMITS;
+  it("上限いっぱいの入力が数秒以内に終わり、超えた分は「先頭 N 件だけ使いました」と警告する", () => {
+    const n = 1500;
+    const big: ModelSpec = {
+      system_name: "大きな下書き",
+      actors: [{ name: "担当" }],
+      systems: [{ name: "基幹" }],
+      informations: Array.from({ length: n }, (_, i) => ({ name: `情報${i}` })),
+      businesses: [
+        {
+          name: "業務",
+          main_actors: ["担当"],
+          activities: Array.from({ length: n }, (_, i) => ({
+            name: `作業${i}`,
+            performers: ["担当"],
+            usecases: [{ name: `操作${i}`, reads: [`情報${i}`], targets: ["基幹"] }],
+          })),
+        },
+      ],
+      screens: Array.from({ length: n }, (_, i) => ({ name: `画面${i}`, system: "基幹", usecase: `操作${i}` })),
+    };
+    const start = performance.now();
+    const r = buildModelFromSpec(big);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(6000);
+    expect(r.counts.activity).toBe(L.activities);
+    expect(r.counts.usecase).toBe(L.usecases);
+    expect(r.counts.screen).toBe(L.screens);
+    expect(r.counts.information).toBe(L.informations);
+    expect(r.warnings).toEqual(
+      expect.arrayContaining([
+        `情報は先頭 ${L.informations} 件だけ使いました (${n} 件ありました)`,
+        `画面は先頭 ${L.screens} 件だけ使いました (${n} 件ありました)`,
+        `作業は先頭 ${L.activities} 件だけ使いました (${n - L.activities} 件を飛ばしました)`,
+      ]),
+    );
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
+  it("1 つの要素が参照する名前の数にも上限がある", () => {
+    const r = buildModelFromSpec({
+      system_name: "x",
+      actors: [{ name: "担当" }],
+      businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: Array.from({ length: L.refsPerItem + 5 }, () => "担当") }] }],
+    });
+    expect(r.warnings).toContain(`作業「作業」の担当は先頭 ${L.refsPerItem} 件だけ使いました (${L.refsPerItem + 5} 件ありました)`);
+  });
+});
+
+describe("buildModelFromSpec: 同じつながりを 2 か所に書かれても、黙って 1 つにする", () => {
+  // 実際の API の通し確認で、最初の提出が「関係を作れません: 同じ関係がすでにあります」で出し直しになった。
+  // 向きを持たない関係 (情報どうしの関連) を、両方の情報に書くと起きていた (向きを無視して重なる)
+  const dup = (over: Partial<ModelSpec>): ModelSpec => ({
+    system_name: "x",
+    actors: [{ name: "担当" }],
+    systems: [{ name: "基幹" }],
+    ledgers: [{ name: "伝票" }],
+    informations: [{ name: "注文", related: ["商品"] }, { name: "商品", related: ["注文"] }],
+    businesses: [
+      {
+        name: "業務",
+        main_actors: ["担当"],
+        activities: [
+          { name: "作業A", performers: ["担当"], usecases: [{ name: "操作", reads: ["注文"], writes: ["注文"], informations: ["商品"], conditions: [], targets: ["基幹"] }] },
+          { name: "作業B", performers: ["担当", "担当"], usecases: [{ name: "操作", reads: ["注文"], informations: ["商品"], targets: ["基幹"] }] },
+        ],
+      },
+    ],
+    events: [{ name: "出来事", raised_by: ["操作", "操作"] }],
+    ...over,
+  });
+
+  it("情報の関連を両方の情報に書いても、警告にせず関係は 1 つ", () => {
+    const r = buildModelFromSpec(dup({}));
+    expect(r.warnings).toEqual([]);
+    expect(r.model.relations.filter((x) => x.kind === "informationRelated")).toHaveLength(1);
+    expect(r.model.relations.filter((x) => x.kind === "activityUsecase")).toHaveLength(2);
+    expect(r.model.relations.filter((x) => x.kind === "usecaseSystem")).toHaveLength(1);
+    expect(validateModel(JSON.parse(JSON.stringify(r.model))).ok).toBe(true);
+  });
+
+  it("同じ情報を取得と保存の両方に書いたら、取得も保存もする 1 つの関係にする", () => {
+    const r = buildModelFromSpec(dup({}));
+    const rels = r.model.relations.filter((x) => x.kind === "usecaseInformation");
+    const order = r.model.elements.find((e) => e.name === "注文")!;
+    expect(rels.filter((x) => x.targetId === order.id)).toHaveLength(1);
+    expect(rels.find((x) => x.targetId === order.id)!.access).toBeUndefined();
+  });
+
+  it("取得を 2 回書いても取得のまま、情報 (区別なし) のあとに取得を書いても区別なしのまま", () => {
+    const base = (usecase: Record<string, unknown>): ModelSpec => ({
+      system_name: "x",
+      actors: [{ name: "担当" }],
+      systems: [{ name: "基幹" }],
+      informations: [{ name: "注文" }],
+      businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: ["担当"], usecases: [{ name: "操作", targets: ["基幹"], ...usecase }] }] }],
+    });
+    const accessOf = (spec: ModelSpec) => {
+      const r = buildModelFromSpec(spec);
+      expect(r.warnings).toEqual([]);
+      const rels = r.model.relations.filter((x) => x.kind === "usecaseInformation");
+      expect(rels).toHaveLength(1);
+      return rels[0]!.access;
+    };
+    expect(accessOf(base({ reads: ["注文", "注文"] }))).toBe("read");
+    expect(accessOf(base({ informations: ["注文"], reads: ["注文"] }))).toBeUndefined();
+    expect(accessOf(base({ writes: ["注文"], informations: ["注文"] }))).toBeUndefined();
+  });
+
+  it("同じバリエーション・状態を条件に 2 度書いても警告にならない", () => {
+    const r = buildModelFromSpec({
+      system_name: "x",
+      variations: [{ name: "経路", values: ["電話"] }],
+      state_groups: [{ name: "状態", states: [{ name: "確定" }] }],
+      informations: [{ name: "予約", variations: ["経路", "経路"] }],
+      conditions: [{ name: "確定である", variations: ["経路"], states: ["確定", "確定"] }],
+      businesses: [],
+    });
+    expect(r.warnings).toEqual([]);
   });
 });

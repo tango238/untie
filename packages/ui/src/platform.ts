@@ -3,6 +3,7 @@
 // 実装は apps/web (Web 版とクラウド版で共用) と apps/desktop にあり、起動時に createApp(platform) が setPlatform で差し込む。
 // packages/ui からは @tauri-apps/* を import しない。
 import type { ProviderId } from "@untie/api";
+import type { SourceTree } from "./ai/sourceTree";
 
 /** Untie のモデルファイルの拡張子 */
 export const FILE_EXTENSION = "json";
@@ -14,6 +15,13 @@ export interface OpenedFile {
   path: string | null;
   name: string;
   text: string;
+}
+
+/** openTextFile で選べるファイルの種類 (拡張子は . なし) */
+export interface OpenTextFileOptions {
+  /** 選ぶ窓に出す、種類の名前 (例: SQL) */
+  description: string;
+  extensions: readonly string[];
 }
 
 export interface SavedFile {
@@ -67,8 +75,11 @@ export interface Platform {
    * false なら、ホームにクラウドの欄を出さず、#/f・#/invite・#/link はホームに戻す
    */
   cloud: boolean;
-  /** ファイルを選んで中身を読む。取り消したら null */
-  openTextFile(): Promise<OpenedFile | null>;
+  /**
+   * ファイルを選んで中身を読む。取り消したら null。options を渡すと、選べるファイルの種類をそれに替える (省略は Untie のモデルのファイル。
+   * 「ソースコードから作成」のデータの段階が SQL を選ぶのに使う)
+   */
+  openTextFile(options?: OpenTextFileOptions): Promise<OpenedFile | null>;
   /**
    * 中身を書き出す。path があればそこへ上書きし、無ければ保存先を選ぶ。
    * 保存先を選ぶのを取り消したら null
@@ -81,6 +92,12 @@ export interface Platform {
    * where は書き出した先の名前 (フォルダか zip)、count は書いた数、kept は既にあって残した名前。取り消したら null
    */
   saveTextFiles(files: readonly TextFile[], options: { zipName: string; zipFolder: string; keep?: readonly string[] }): Promise<{ where: string; count: number; kept: string[] } | null>;
+  /**
+   * ソースコードのフォルダを選んで、読み取り専用の木にする (「ソースコードから作成」)。取り消したら null。
+   * 実装は io/sourceFolder.ts の pickSourceFolderInBrowser (Web もデスクトップの WebView も同じ)。
+   * 除外フォルダ (node_modules など) には降りず、秘密になりうるファイル・バイナリ・巨大ファイルは木に入れない
+   */
+  pickSourceFolder(): Promise<SourceTree | null>;
   /** 開く・保存する場所をあとから指し直せるか (最近開いたファイルを持てるか) */
   canReopenFiles(): boolean;
   /** 未保存の変更を捨ててよいかを聞く */

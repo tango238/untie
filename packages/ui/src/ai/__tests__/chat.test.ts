@@ -56,6 +56,9 @@ vi.mock("openai", async (importOriginal) => {
 });
 
 vi.mock("@google/genai", () => ({
+  ApiError: class ApiError extends Error {
+    status?: number;
+  },
   GoogleGenAI: class {
     models = {
       generateContent: async (params: Record<string, unknown>) => {
@@ -66,7 +69,7 @@ vi.mock("@google/genai", () => ({
   },
 }));
 
-const { createChatSession } = await import("../chat");
+const { createChatSession, createAnthropicClient, describeChatError } = await import("../chat");
 
 const tools = [{ name: "add_element", description: "d", parameters: { type: "object", properties: {} } }];
 const calls: [string, unknown][] = [];
@@ -97,10 +100,11 @@ describe("Claude", () => {
     expect(calls).toEqual([["add_element", { kind: "activity" }]]);
     expect(tooled).toEqual(["add_element"]);
     const second = script.claudeRequests[1]!;
-    expect(second).toMatchObject({ model: "claude-opus-5-5", system: "sys", fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] });
+    // system は、キャッシュの印つきのブロックの配列で送る (文は変わらない)
+    expect(second).toMatchObject({ model: "claude-opus-5-5", system: [{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }], fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] });
     const msgs = second.messages as { role: string; content: unknown }[];
     expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
-    expect(msgs[4]!.content).toEqual([{ type: "tool_result", tool_use_id: "tu_1", content: JSON.stringify({ id: "act_1" }) }]);
+    expect(msgs[4]!.content).toEqual([{ type: "tool_result", tool_use_id: "tu_1", content: JSON.stringify({ id: "act_1" }), cache_control: { type: "ephemeral" } }]);
   });
 
   it("Haiku にはフォールバックを付けない。断られたらエラーにする", async () => {
@@ -115,10 +119,13 @@ describe("Codex (OpenAI)", () => {
   it("function_call を実行して function_call_output を返し、最後の文章を返す", async () => {
     script.openai.push(
       { output_text: "", output: [{ type: "function_call", call_id: "c1", name: "add_element", arguments: '{"kind":"usecase"}' }] },
-      { output_text: "できました", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "できました" }] }] },
+      { output_text: "できました", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "できました" }] }], usage: { input_tokens: 1200, output_tokens: 30, input_tokens_details: { cached_tokens: 1000 } } },
     );
     const s = createChatSession("codex", opts("gpt-5-codex"));
-    expect(await s.send("操作を足して")).toBe("できました");
+    const usages: unknown[] = [];
+    expect(await s.send("操作を足して", { onUsage: (u) => usages.push(u) })).toBe("できました");
+    // 入力の合計 1200 のうちキャッシュから 1000 (OpenAI は自動でキャッシュする。使用量のない返答では通知しない)
+    expect(usages).toEqual([{ input: 200, output: 30, cacheWrite: 0, cacheRead: 1000 }]);
     expect(calls).toEqual([["add_element", { kind: "usecase" }]]);
     const second = script.openaiRequests[1]! as { input: Record<string, unknown>[]; instructions: string; tools: Record<string, unknown>[] };
     expect(second.instructions).toBe("sys");
@@ -141,13 +148,196 @@ describe("Gemini", () => {
   it("functionCalls を実行して functionResponse を返し、最後の文章を返す", async () => {
     script.gemini.push(
       { candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "f1", name: "add_element", args: { kind: "state" } } }] } }], functionCalls: [{ id: "f1", name: "add_element", args: { kind: "state" } }], text: "" },
-      { candidates: [{ content: { role: "model", parts: [{ text: "足しました" }] } }], functionCalls: undefined, text: "足しました" },
+      { candidates: [{ content: { role: "model", parts: [{ text: "足しました" }] } }], functionCalls: undefined, text: "足しました", usageMetadata: { promptTokenCount: 900, cachedContentTokenCount: 600, candidatesTokenCount: 20, thoughtsTokenCount: 5 } },
     );
     const s = createChatSession("gemini", opts("gemini-2.5-pro"));
-    expect(await s.send("状態を足して")).toBe("足しました");
+    const usages: unknown[] = [];
+    expect(await s.send("状態を足して", { onUsage: (u) => usages.push(u) })).toBe("足しました");
+    expect(usages).toEqual([{ input: 300, output: 25, cacheWrite: 0, cacheRead: 600 }]);
     expect(calls).toEqual([["add_element", { kind: "state" }]]);
     const second = script.geminiRequests[1]! as { contents: { role: string; parts: Record<string, unknown>[] }[]; config: Record<string, unknown> };
     expect(second.config.systemInstruction).toBe("sys");
     expect(second.contents.slice(-1)[0]).toEqual({ role: "user", parts: [{ functionResponse: { id: "f1", name: "add_element", response: { output: { id: "act_1" } } } }] });
+  });
+});
+
+describe("道具の結果が finish を示したとき: 次のリクエストを送らずに終える", () => {
+  /** finish を返す道具 (submit) と、ふつうの道具 (read) */
+  const finishing = (log: string[]) => (name: string): ToolOutcome => {
+    log.push(name);
+    return { ok: true, content: JSON.stringify({ result: name }), changed: false, ...(name === "submit" ? { finish: true } : {}) };
+  };
+  const finishTools = [{ name: "read", description: "d", parameters: { type: "object", properties: {} } }, { name: "submit", description: "d", parameters: { type: "object", properties: {} } }];
+
+  it("Claude: 同じ往復のほかの道具もすべて実行し、結果を履歴に積んで終える。そのあと同じ会話に send しても、呼び出しと結果は対のまま", async () => {
+    script.claude.push(
+      { stop_reason: "tool_use", content: [{ type: "text", text: "出します" }, { type: "tool_use", id: "tu_a", name: "submit", input: {} }, { type: "tool_use", id: "tu_b", name: "read", input: {} }] },
+      { stop_reason: "end_turn", content: [{ type: "text", text: "次の答え" }] },
+    );
+    const log: string[] = [];
+    const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: finishTools, runTool: finishing(log) });
+    expect(await s.send("提出して")).toBe("出します");
+    // リクエストは 1 回だけ。提出と同じ往復の read も実行している
+    expect(script.claudeRequests).toHaveLength(1);
+    expect(log).toEqual(["submit", "read"]);
+    expect(await s.send("続けて")).toBe("次の答え");
+    const msgs = script.claudeRequests[1]!.messages as { role: string; content: { type: string; tool_use_id?: string; text?: string }[] }[];
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    // 呼び出し (tu_a・tu_b) に、結果が対で付いている。そのあとの発言は、同じ user のメッセージの末尾
+    expect(msgs[2]!.content.map((b) => (b.type === "tool_result" ? b.tool_use_id : b.text))).toEqual(["tu_a", "tu_b", "続けて"]);
+  });
+
+  it("Claude: finish が無ければ今までどおり、結果を返して次のリクエストを送る", async () => {
+    script.claude.push({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "tu_a", name: "read", input: {} }] }, { stop_reason: "end_turn", content: [{ type: "text", text: "答え" }] });
+    const log: string[] = [];
+    const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: finishTools, runTool: finishing(log) });
+    expect(await s.send("読んで")).toBe("答え");
+    expect(script.claudeRequests).toHaveLength(2);
+  });
+
+  it("Codex (OpenAI): 次のリクエストを送らず、呼び出しと結果は履歴に対で残る", async () => {
+    script.openai.push(
+      { output_text: "出します", output: [{ type: "function_call", call_id: "c1", name: "submit", arguments: "{}" }, { type: "function_call", call_id: "c2", name: "read", arguments: "{}" }] },
+      { output_text: "次の答え", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "次の答え" }] }] },
+    );
+    const log: string[] = [];
+    const s = createChatSession("codex", { ...opts("gpt-5-codex"), tools: finishTools, runTool: finishing(log) });
+    expect(await s.send("提出して")).toBe("出します");
+    expect(script.openaiRequests).toHaveLength(1);
+    expect(log).toEqual(["submit", "read"]);
+    await s.send("続けて");
+    const input = (script.openaiRequests[1] as { input: { type?: string; call_id?: string }[] }).input;
+    expect(input.filter((x) => x.type === "function_call").map((x) => x.call_id)).toEqual(["c1", "c2"]);
+    expect(input.filter((x) => x.type === "function_call_output").map((x) => x.call_id)).toEqual(["c1", "c2"]);
+  });
+
+  it("Gemini: 次のリクエストを送らず、呼び出しと結果は履歴に対で残る (続きの発言は、結果と同じ user の末尾)", async () => {
+    script.gemini.push(
+      { candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "f1", name: "submit", args: {} } }, { functionCall: { id: "f2", name: "read", args: {} } }] } }], functionCalls: [{ id: "f1", name: "submit", args: {} }, { id: "f2", name: "read", args: {} }], text: "出します" },
+      { candidates: [{ content: { role: "model", parts: [{ text: "次の答え" }] } }], functionCalls: undefined, text: "次の答え" },
+    );
+    const log: string[] = [];
+    const s = createChatSession("gemini", { ...opts("gemini-2.5-pro"), tools: finishTools, runTool: finishing(log) });
+    expect(await s.send("提出して")).toBe("出します");
+    expect(script.geminiRequests).toHaveLength(1);
+    expect(log).toEqual(["submit", "read"]);
+    await s.send("続けて");
+    const contents = (script.geminiRequests[1] as { contents: { role: string; parts: Record<string, unknown>[] }[] }).contents;
+    expect(contents.map((c) => c.role)).toEqual(["user", "model", "user"]);
+    expect(contents[2]!.parts.map((p) => (p.functionResponse ? (p.functionResponse as { id: string }).id : p.text))).toEqual(["f1", "f2", "続けて"]);
+  });
+});
+
+describe("道具の結果が stop を示したとき: 同じ往復の道具をすべて実行してから、会話を打ち切る", () => {
+  const stopping = (log: string[]) => (name: string): ToolOutcome => {
+    log.push(name);
+    return { ok: name !== "bad", content: JSON.stringify({ result: name }), changed: false, ...(name === "bad" ? { stop: "打ち切りました" } : {}) };
+  };
+  const stopTools = [{ name: "bad", description: "d", parameters: { type: "object", properties: {} } }, { name: "good", description: "d", parameters: { type: "object", properties: {} } }];
+
+  it("Claude: stop を返す道具のあとに並んだ正しい道具も実行し、結果を履歴に積んでから ChatError (次のリクエストは送らない。道具の実行の中では投げない)", async () => {
+    script.claude.push(
+      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "tu_a", name: "bad", input: {} }, { type: "tool_use", id: "tu_b", name: "good", input: {} }] },
+      { stop_reason: "end_turn", content: [{ type: "text", text: "次の答え" }] },
+    );
+    const log: string[] = [];
+    const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: stopTools, runTool: stopping(log) });
+    await expect(s.send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    expect(script.claudeRequests).toHaveLength(1);
+    // 呼び出しと結果は対のまま残る
+    expect(await s.send("続けて")).toBe("次の答え");
+    const msgs = script.claudeRequests[1]!.messages as { role: string; content: { type: string; tool_use_id?: string; text?: string }[] }[];
+    expect(msgs[2]!.content.map((b) => (b.type === "tool_result" ? b.tool_use_id : b.text))).toEqual(["tu_a", "tu_b", "続けて"]);
+  });
+
+  it("Codex・Gemini も、往復の道具をすべて実行してから打ち切る", async () => {
+    script.openai.push({ output_text: "", output: [{ type: "function_call", call_id: "c1", name: "bad", arguments: "{}" }, { type: "function_call", call_id: "c2", name: "good", arguments: "{}" }] });
+    script.gemini.push({ candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "f1", name: "bad", args: {} } }, { functionCall: { id: "f2", name: "good", args: {} } }] } }], functionCalls: [{ id: "f1", name: "bad", args: {} }, { id: "f2", name: "good", args: {} }], text: "" });
+    const log: string[] = [];
+    await expect(createChatSession("codex", { ...opts("gpt-5-codex"), tools: stopTools, runTool: stopping(log) }).send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    log.length = 0;
+    await expect(createChatSession("gemini", { ...opts("gemini-2.5-pro"), tools: stopTools, runTool: stopping(log) }).send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    expect(script.openaiRequests).toHaveLength(1);
+    expect(script.geminiRequests).toHaveLength(1);
+  });
+});
+
+describe("空・空白だけの発言は、中身の空のメッセージにしない (Claude)", () => {
+  const readTools = [{ name: "read", description: "d", parameters: { type: "object", properties: {} } }];
+  const toolReply = { stop_reason: "tool_use", content: [{ type: "tool_use", id: "tu_a", name: "read", input: {} }] };
+  const finishRead = (): ToolOutcome => ({ ok: true, content: "{}", changed: false, finish: true });
+  type Msg = { role: string; content: string | { type: string; text?: string; tool_use_id?: string }[] };
+
+  it("部分がすべて空白だけで、直前が道具の結果でないときは、何も送らずにエラーにする", async () => {
+    const s = createChatSession("claude", opts("claude-opus-5-5"));
+    await expect(s.send([{ text: "  " }, { text: "\n", shared: true }])).rejects.toThrow(/送る内容がありません/);
+    await expect(s.send("   ")).rejects.toThrow(/送る内容がありません/);
+    expect(script.claudeRequests).toHaveLength(0);
+  });
+
+  it("直前が道具の結果のときは、空白だけの発言を足さず、結果だけを送る (空の text ブロックにしない)", async () => {
+    for (const blank of ["  ", [{ text: " " }, { text: "" }]] as const) {
+      script.claudeRequests.length = 0;
+      script.claude.push(toolReply, { stop_reason: "end_turn", content: [{ type: "text", text: "答え" }] });
+      const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: readTools, runTool: finishRead });
+      await s.send("読んで");
+      await s.send(blank);
+      // 2 回目のリクエストは、道具の結果だけの user で終わる (空の text ブロックも、空のメッセージも無い)
+      const msgs = script.claudeRequests[1]!.messages as Msg[];
+      expect(script.claudeRequests).toHaveLength(2);
+      expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+      expect((msgs[2]!.content as { type: string }[]).map((b) => b.type)).toEqual(["tool_result"]);
+    }
+  });
+
+  it("空白だけの部分は足さず、中身のある部分だけを text ブロックにする", async () => {
+    script.claude.push({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" }] });
+    await createChatSession("claude", opts("claude-opus-5-5")).send([{ text: " " }, { text: "中身", shared: true }, { text: "\n" }]);
+    const msgs = script.claudeRequests[0]!.messages as Msg[];
+    expect(msgs).toHaveLength(1);
+    expect((msgs[0]!.content as { text: string }[]).map((b) => b.text)).toEqual(["中身"]);
+  });
+});
+
+describe("発言の部分 (RequestPart)", () => {
+  it("OpenAI・Gemini は、部分をつないだ 1 つの文字列で送る", async () => {
+    script.openai.push({ output_text: "ok", output: [] });
+    script.gemini.push({ candidates: [{ content: { role: "model", parts: [{ text: "ok" }] } }], functionCalls: undefined, text: "ok" });
+    const parts = [{ text: "共通。", shared: true }, { text: "固有。" }];
+    await createChatSession("codex", opts("gpt-5-codex")).send(parts);
+    await createChatSession("gemini", opts("gemini-2.5-pro")).send(parts);
+    expect((script.openaiRequests[0] as { input: unknown[] }).input).toEqual([{ role: "user", content: "共通。固有。" }]);
+    expect((script.geminiRequests[0] as { contents: unknown[] }).contents).toEqual([{ role: "user", parts: [{ text: "共通。固有。" }] }]);
+  });
+});
+
+describe("Anthropic のクライアント", () => {
+  it("キーを x-api-key で送り、Authorization (Bearer) は付けない", async () => {
+    let sent: Headers | undefined;
+    const client = createAnthropicClient("sk-ant-test").withOptions({
+      maxRetries: 0,
+      fetch: (async (_url: unknown, init?: RequestInit) => {
+        sent = new Headers(init?.headers);
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+    await client.models.list();
+    expect(sent?.get("x-api-key")).toBe("sk-ant-test");
+    expect(sent?.has("authorization")).toBe(false);
+  });
+});
+
+describe("describeChatError", () => {
+  it("中断は、どのプロバイダーでも「中断しました。」", async () => {
+    const anthropic = (await import("@anthropic-ai/sdk")).default;
+    const openai = (await import("openai")).default;
+    const abort = Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
+    expect(describeChatError(new anthropic.APIUserAbortError())).toBe("中断しました。");
+    expect(describeChatError(new openai.APIUserAbortError())).toBe("中断しました。");
+    expect(describeChatError(abort)).toBe("中断しました。");
+    expect(describeChatError(new Error("boom"))).toBe("boom");
   });
 });

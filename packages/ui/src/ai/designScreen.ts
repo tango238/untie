@@ -76,8 +76,8 @@ view の形式 (要点):
 
 const nameOf = (e: { name: string } | undefined): string => e?.name || "(名前なし)";
 
-/** 画面の材料を渡す依頼の文章 */
-export function screenRequest(model: UntieModel, systemId: string, design: SystemDesign, screen: DesignScreen): string {
+/** 画面の材料を渡す依頼の文章。options.databases があれば、使うデータベースの部分をそれに置き換える (「ソースコードから作成」が、テーブルを絞って渡す) */
+export function screenRequest(model: UntieModel, systemId: string, design: SystemDesign, screen: DesignScreen, options: { databases?: { text: string; narrowed: boolean } } = {}): string {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
   const names = new Map(design.screens.map((s) => [s.id, designScreenName(model, s)]));
   const analysis = screen.source.kind === "screen" ? byId.get(screen.source.screenId) : undefined;
@@ -146,8 +146,8 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
 ${JSON.stringify(screenInfo, null, 2)}
 </画面>
 
-<使うデータベース (テーブルと列。informations はテーブルが表す情報)>
-${JSON.stringify(databases, null, 2)}
+<使うデータベース (テーブルと列。informations はテーブルが表す情報${options.databases?.narrowed ? "。この画面に関わるテーブルだけ列を書いた。otherTables は名前だけで、列は get_table で調べる" : ""})>
+${options.databases ? options.databases.text : JSON.stringify(databases, null, 2)}
 </使うデータベース>
 
 <この画面からの遷移 (to は遷移先の画面の id。via はきっかけ: button ボタン / row 一覧の行 / afterSubmit 送信のあと)>
@@ -177,24 +177,35 @@ export function readScreenProposal(raw: unknown): ScreenProposal | null {
  * 提案の対応から、存在しないデータベース・テーブル・列と、view に無い項目、重複を捨てる (使うデータベースだけが対象)。
  * databaseId が無いときは、使うデータベースが 1 つならそれにする。捨てた数も返す
  */
-export function sanitizeBindings(model: UntieModel, design: SystemDesign, view: unknown, proposed: ScreenProposal["bindings"]): { bindings: ScreenBindings; dropped: number } {
+export function sanitizeBindings(
+  model: UntieModel,
+  design: SystemDesign,
+  view: unknown,
+  proposed: ScreenProposal["bindings"],
+): { bindings: ScreenBindings; dropped: number; /** 捨てた対応の項目と理由 (捨てた順) */ reasons: { item: string; reason: string }[] } {
   const used = effectiveDatabaseIds(model, design);
   const slots = new Set(viewBindingSlots(view).map((s) => s.key));
   const seen = new Set<string>();
   const bindings: ScreenBindings = [];
-  let dropped = 0;
+  const reasons: { item: string; reason: string }[] = [];
   for (const b of proposed) {
     const databaseId = b.databaseId ?? (used.length === 1 ? used[0] : undefined);
     const db = databaseId !== undefined && used.includes(databaseId) ? model.databases.find((d) => d.id === databaseId) : undefined;
     const table = db ? parsePrismaDslCached(db.dsl).models.find((m) => m.name === b.table) : undefined;
-    if (!db || !table || !table.fields.some((f) => f.name === b.column) || !slots.has(b.item) || seen.has(b.item)) {
-      dropped++;
+    let reason: string | null = null;
+    if (!db) reason = databaseId === undefined ? "使うデータベースが複数あるのに、データベースが決まりません" : "使うデータベースにありません";
+    else if (!table) reason = `テーブル ${b.table} がありません`;
+    else if (!table.fields.some((f) => f.name === b.column)) reason = `テーブル ${b.table} に列 ${b.column} がありません`;
+    else if (!slots.has(b.item)) reason = "view に無い項目です";
+    else if (seen.has(b.item)) reason = "同じ項目の対応がすでにあります";
+    if (reason || !db) {
+      reasons.push({ item: b.item, reason: reason ?? "" });
       continue;
     }
     seen.add(b.item);
     bindings.push({ item: b.item, databaseId: db.id, table: b.table, column: b.column });
   }
-  return { bindings, dropped };
+  return { bindings, dropped: reasons.length, reasons };
 }
 
 export interface ScreenOptions {
@@ -236,7 +247,8 @@ export async function generateScreen(model: UntieModel, systemId: string, screen
     const { result, retry } = evaluate(proposal, attempts > 1);
     if (result) {
       box.value = result;
-      return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };
+      // 受け付けたら、AI に言うことは残っていない (次のリクエストを送らず、往復を 1 回省く)
+      return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false, finish: true };
     }
     return { ok: false, content: JSON.stringify({ error: retry ?? box.lastError }), changed: false };
   };
