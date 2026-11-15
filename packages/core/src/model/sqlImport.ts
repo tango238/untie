@@ -6,8 +6,8 @@
 import { DESCRIPTION_MAX_LENGTH, DSL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText } from "./limits";
 import { PRISMA_SCALAR_TYPES, parsePrismaDsl, type PrismaError } from "./prisma";
 import { detectDialect, scanStatements } from "./sqlLex";
-import { applyStatement, Catalog, finalizeCatalog, MAX_COLUMNS_PER_TABLE, MAX_DDL_STATEMENTS, MAX_ENUM_VALUES, MAX_ENUMS, MAX_NOTES, MAX_TABLES, type Col, type EnumDef, type Table } from "./sqlSchema";
-import { convertDefault, mapScalar, quoteDsl, type ScalarName } from "./sqlTypes";
+import { applyStatement, Catalog, finalizeCatalog, MAX_COLUMNS_PER_TABLE, MAX_DDL_STATEMENTS, MAX_ENUM_VALUES, MAX_ENUMS, MAX_FKS_PER_TABLE, MAX_KEYS_PER_TABLE, MAX_NOTES, MAX_TABLES, type Col, type EnumDef, type Table } from "./sqlSchema";
+import { convertDefault, hasUnwritable, mapScalar, quoteDsl, type ScalarName } from "./sqlTypes";
 
 /** 変換で気づいたこと (読み飛ばした文・変換できなかった型など)。file は複数のファイルを渡したときのパス */
 export interface SqlImportNote {
@@ -56,6 +56,11 @@ export const SQL_IMPORT_LIMITS = {
   maxEnumValues: MAX_ENUM_VALUES,
   /** CREATE・ALTER・DROP・COMMENT・RENAME の文の数 */
   maxStatements: MAX_DDL_STATEMENTS,
+  /** 1 つのテーブルの一意制約の数・外部キーの数 */
+  maxKeysPerTable: MAX_KEYS_PER_TABLE,
+  maxForeignKeysPerTable: MAX_FKS_PER_TABLE,
+  /** 関連にする外部キーの数 (全体) */
+  maxRelations: 200_000,
   /** notes の数 (超えたら 1 件にまとめる) */
   maxNotes: MAX_NOTES,
   /** 生成する DSL の文字数 (DSL_MAX_LENGTH。超えるぶんのテーブルは出さない) */
@@ -97,7 +102,8 @@ function run(files: readonly SqlFile[], withFile: boolean): SqlImportResult {
       if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
       const dialect = detectDialect(text);
       const ctx = { ...ctxFile, dialect, text };
-      scanStatements(text, dialect, (st) => applyStatement(cat, st, ctx));
+      const scanned = scanStatements(text, dialect, (st) => applyStatement(cat, st, ctx));
+      for (const line of scanned.rereads) cat.note(ctx, line, "文字列が閉じないままファイルの終わりまで (または極端に長く) 続いたため、バックスラッシュのエスケープの扱いを変えて、この文から読み直しました");
     }
   } catch {
     cat.note(undefined, undefined, "SQL を最後まで読めませんでした。読めたところまでを使います");
@@ -127,6 +133,10 @@ function summarize(cat: Catalog, tableCount: number): void {
   if (cat.dataSkipped.size > 0) {
     const parts = [...cat.dataSkipped].map(([label, n]) => `${label} ${n} 件`);
     cat.notes.push({ message: `データの文 (${parts.join("、")}) は読み飛ばしました。データは取り込みません` });
+  }
+  if (cat.partitionCount > 0) {
+    const names = cat.partitionNames.join("、");
+    cat.notes.push({ message: `パーティションの子のテーブル ${cat.partitionCount} 個 (${names}${cat.partitionCount > cat.partitionNames.length ? " など" : ""}) は、model にせず読み飛ばしました。親のテーブルに含まれるものとして扱います` });
   }
   if (tableCount === 0) cat.notes.push({ message: "テーブルの定義 (CREATE TABLE) が見つかりませんでした" });
   if (cat.omittedNotes > 0) cat.notes.push({ message: `ほかにも ${cat.omittedNotes} 件の注意がありましたが、省略しました` });
@@ -183,6 +193,9 @@ function commentLines(text: string): string[] {
     .filter((l) => l !== "")
     .slice(0, 30);
 }
+
+/** コメントに入れる 1 行の文字列にする (改行・制御文字は空白に。長さは上限まで) */
+const oneLine = (text: string): string => commentLines(text).join(" ");
 
 // ---------------------------------------------------------------------------------------------
 // 計画 (名前・型・属性を決める)
@@ -304,7 +317,7 @@ function planField(cat: Catalog, table: Table, model: string, col: Col, name: st
         type = m.prisma;
         native = m.native;
       } else {
-        typeNote = `元の型: ${spec.raw}`;
+        typeNote = `元の型: ${oneLine(spec.raw)}`;
         addNote(cat, table, col.line, `列 ${table.name}.${col.name} の型 ${spec.raw} は対応がないため、String にしました`);
       }
     }
@@ -331,6 +344,12 @@ function planField(cat: Catalog, table: Table, model: string, col: Col, name: st
   if (col.onUpdateNow && prisma === "DateTime") {
     updatedAt = true;
     if (defaultAttr === "@default(now())") defaultAttr = undefined;
+  }
+  if (col.def && defaultAttr !== undefined && col.def.toks.some((t) => t.k === "s" && hasUnwritable(t.v))) {
+    addNote(cat, table, col.line, `列 ${table.name}.${col.name} の DEFAULT に改行・制御文字が含まれるため、DSL には空白に置き換えて書きました (元の値とは一致しません)`);
+  }
+  if (col.generated) {
+    typeNote = typeNote ? `${typeNote}、生成列 (式は読み飛ばしました)` : "生成列 (式は読み飛ばしました)";
   }
   const optional = !list && !(col.notNull || inPk || auto);
   const comment = col.comment ? commentLines(col.comment) : [];
@@ -361,7 +380,11 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
     if (RESERVED_MODEL_NAMES.has(base)) base = `${base}Enum`;
     const name = uniqueName(base, usedTypeNames);
     const p = makeEnumPlan(name, def.values, def);
-    if (def.name !== name) p.mapName = truncateText(def.name, NAME_MAX_LENGTH);
+    if (def.name !== name) {
+      p.mapName = truncateText(def.name, NAME_MAX_LENGTH);
+      if (hasUnwritable(p.mapName)) cat.note(undefined, def.line, `enum ${oneLine(def.name)} の名前に改行・制御文字が含まれるため、@@map には空白に置き換えて書きました`);
+    }
+    for (const v of p.values) if (v.map !== undefined && hasUnwritable(v.map)) cat.note(undefined, def.line, `enum ${oneLine(def.name)} の値 ${oneLine(v.sql)} に改行・制御文字が含まれるため、@map には空白に置き換えて書きました`);
     enums.push(p);
     enumByDef.set(def, p);
   }
@@ -379,6 +402,7 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
     t.cols.forEach((col, pos) => {
       const fname = uniqueName(camelIdent(col.name) || `column${pos + 1}`, usedFields);
       const mapName = fname === col.name ? undefined : truncateText(col.name, NAME_MAX_LENGTH);
+      if (mapName !== undefined && hasUnwritable(mapName)) addNote(cat, t, col.line, `列 ${t.name}.${oneLine(col.name)} の名前に改行・制御文字が含まれるため、@map には空白に置き換えて書きました`);
       const f = planField(cat, t, model, col, fname, mapName, pkCols.has(col), enumFor, inlineEnums, usedTypeNames);
       fields.push(f);
       byCol.set(col, f);
@@ -398,16 +422,28 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
       if (u.cols.length === 1) byCol.get(u.cols[0]!)!.isUnique = true;
       else blockAttrs.push(`@@unique([${u.cols.map((c) => byCol.get(c)!.name).join(", ")}])`);
     }
-    if (t.name !== model) blockAttrs.push(`@@map(${quoteDsl(truncateText(t.name, NAME_MAX_LENGTH))})`);
+    if (t.name !== model) {
+      blockAttrs.push(`@@map(${quoteDsl(truncateText(t.name, NAME_MAX_LENGTH))})`);
+      if (hasUnwritable(truncateText(t.name, NAME_MAX_LENGTH))) addNote(cat, t, t.line, `テーブル ${oneLine(t.name)} の名前に改行・制御文字が含まれるため、@@map には空白に置き換えて書きました`);
+    }
     models.push({ table: t, index: i, name: model, fields, byCol, blockAttrs, comment: t.comment ? commentLines(t.comment) : [] });
   });
-  enums.push(...inlineEnums);
+  // 大きな配列を引数に展開すると (push(...)) スタックがあふれるので、ループで足す
+  for (const e of inlineEnums) enums.push(e);
   // 外部キー → 関連
   const rels: RelPlan[] = [];
   const modelOf = new Map<Table, ModelPlan>(models.map((m) => [m.table, m]));
   const seenFk = new Set<string>();
+  let relLimitHit = false;
   for (const child of models) {
     for (const fk of child.table.fks) {
+      if (rels.length >= SQL_IMPORT_LIMITS.maxRelations) {
+        if (!relLimitHit) {
+          relLimitHit = true;
+          addNote(cat, child.table, fk.line, `関連の数が上限 (${SQL_IMPORT_LIMITS.maxRelations}) を超えたため、以降の外部キーを関連にしませんでした`);
+        }
+        continue;
+      }
       const where = `${child.table.name} の外部キー${fk.name ? ` ${fk.name}` : ""}`;
       const parent = fk.target ? modelOf.get(fk.target) : undefined;
       const cols = fk.cols.map((c) => child.byCol.get(c)).filter((f): f is FieldPlan => !!f);
@@ -415,7 +451,9 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
       if (!fk.target || !parent) {
         const note = `参照先: ${fk.refName}${fk.refColNames ? `(${fk.refColNames.join(", ")})` : ""}`;
         addNote(cat, child.table, fk.line, `${where}の参照先のテーブル ${fk.refName} が SQL にないため、関連にしませんでした。列だけを残します`);
-        for (const f of cols) f.comment.push(note);
+        // 名前は SQL の中身そのもの (改行や } を含みうる) なので、コメントの行にする形を通す
+        const noteLines = commentLines(note);
+        for (const f of cols) f.comment.push(...noteLines);
         continue;
       }
       const refCols = fk.refCols ?? (fk.refColNames === null ? fk.target.pk?.cols : undefined);
@@ -535,8 +573,13 @@ function emit(plan: Plan, k: number, withUnusedEnums: boolean): { dsl: string; e
       const e = enumByName.get(f.type);
       if (e) usedEnums.add(e);
     }
-    const w1 = Math.max(0, ...lines.map((l) => l.name.length));
-    const w2 = Math.max(0, ...lines.map((l) => l.type.length));
+    // 大きな配列を引数に展開すると (Math.max(...)) スタックがあふれるので、ループで最大を取る
+    let w1 = 0;
+    let w2 = 0;
+    for (const l of lines) {
+      if (l.name.length > w1) w1 = l.name.length;
+      if (l.type.length > w2) w2 = l.type.length;
+    }
     const out: string[] = [];
     for (const c of m.comment) out.push(`// ${c}`);
     out.push(`model ${m.name} {`);

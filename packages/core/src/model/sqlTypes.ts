@@ -9,18 +9,27 @@ export interface ScalarMap {
   native?: string;
 }
 
-/** DSL の文字列リテラル ("…")。改行・制御文字・引用符を安全にする */
+/**
+ * DSL の文字列に、そのまま書けない文字か。DSL の解析器 (prisma.ts) は、文字列の中の `\x` を x の 1 文字に戻すだけで (`\n` は n になる)、
+ * 行ごとに読むので、改行・タブ・制御文字・行区切り・向きを変える文字は書き出せない (空白にする)
+ */
+// eslint-disable-next-line no-control-regex
+const UNWRITABLE = /[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/;
+
+/** quoteDsl が空白に置き換える文字を含むか */
+export const hasUnwritable = (text: string): boolean => UNWRITABLE.test(text);
+
+/**
+ * DSL の文字列リテラル ("…")。DSL の解析器が読み直して同じ文字列に戻る形だけを出す:
+ * `\` と `"` は `\\`・`\"` にし、改行・タブ・制御文字・行区切り・向きを変える文字は書き出せないので空白 1 つにする (hasUnwritable で知らせる)
+ */
 export function quoteDsl(text: string): string {
   let out = '"';
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!;
-    const code = text.charCodeAt(i);
     if (c === "\\") out += "\\\\";
     else if (c === '"') out += '\\"';
-    else if (c === "\n") out += "\\n";
-    else if (c === "\r") out += "\\r";
-    else if (c === "\t") out += "\\t";
-    else if (code < 32 || code === 127 || code === 0x85 || code === 0x2028 || code === 0x2029 || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069) || code === 0xfeff) out += `\\u${code.toString(16).padStart(4, "0")}`;
+    else if (UNWRITABLE.test(c)) out += " ";
     else out += c;
   }
   return `${out}"`;
@@ -82,15 +91,15 @@ export function mapScalar(base: string, nums: number[], unsigned: boolean, diale
       return n0 === undefined || n0 === 1 ? S("Boolean") : S("String", nativeOf("Bit", n0));
     case "char":
     case "character":
-    case "nchar":
     case "bpchar":
     case "national char":
     case "national character":
       return S("String", n0 !== undefined ? nativeOf("Char", n0) : undefined);
+    case "nchar":
+      return S("String", n0 !== undefined ? nativeOf("NChar", n0) : undefined);
     case "varchar":
     case "character varying":
     case "char varying":
-    case "nvarchar":
     case "varchar2":
     case "nvarchar2":
     case "national varchar":
@@ -105,7 +114,10 @@ export function mapScalar(base: string, nums: number[], unsigned: boolean, diale
       return S("String", nativeOf("MediumText"));
     case "longtext":
       return S("String", nativeOf("LongText"));
+    case "nvarchar":
+      return S("String", n0 !== undefined ? nativeOf("NVarChar", n0) : nativeOf("NVarChar"));
     case "ntext":
+      return S("String", nativeOf("NText"));
     case "clob":
     case "nclob":
     case "name":

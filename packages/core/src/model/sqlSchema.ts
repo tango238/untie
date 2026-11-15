@@ -12,6 +12,9 @@ export const MAX_ENUM_VALUES = 1000;
 export const MAX_NOTES = 300;
 /** 中身を読む文 (CREATE・ALTER・DROP・COMMENT・RENAME) の数の上限 */
 export const MAX_DDL_STATEMENTS = 200_000;
+/** 1 つのテーブルが持てる一意制約・外部キーの数の上限 (超えた分は読まずに notes に残す) */
+export const MAX_KEYS_PER_TABLE = 5000;
+export const MAX_FKS_PER_TABLE = 5000;
 
 export interface TypeSpec {
   /** 小文字・単語は空白 1 つでつなぐ (例: `character varying`・`timestamp with time zone`)。スキーマ名は含まない */
@@ -40,16 +43,23 @@ export interface Col {
   rowid: boolean;
   def?: DefaultExpr;
   onUpdateNow: boolean;
+  /** 生成列 (GENERATED ALWAYS AS (…)・AS (…))。式は読み飛ばす */
+  generated?: boolean;
   comment?: string;
   line: number;
   dialect: Dialect;
   dropped: boolean;
+  /** この列を含む一意制約・外部キー (列を消したときにまとめて外す) */
+  keys?: KeyDef[];
+  fks?: FkDef[];
 }
 
 export interface KeyDef {
   cols: Col[];
   name?: string;
   line: number;
+  /** 外した (配列から抜くのは、たまってからまとめて) */
+  removed?: boolean;
 }
 
 export interface FkDef {
@@ -58,9 +68,12 @@ export interface FkDef {
   line: number;
   refSchema: string;
   refName: string;
+  /** 参照先は、結べたときだけ持つ。名前 (refSchema・refName・refColNames) が本体で、参照先が消えたら名前に戻し、最後に名前から引き直す */
   target?: Table;
   refCols?: Col[];
   refColNames: string[] | null;
+  owner?: Table;
+  removed?: boolean;
 }
 
 export interface Table {
@@ -76,6 +89,17 @@ export interface Table {
   file?: string;
   dropped: boolean;
   dialect: Dialect;
+  /** 名前 (小文字) で引く、生きている一意制約・外部キー。同じ名前は置き換える */
+  uniqueIndex: Map<string, KeyDef>;
+  fkIndex: Map<string, FkDef>;
+  liveUniques: number;
+  removedUniques: number;
+  liveFks: number;
+  removedFks: number;
+  /** この表を参照している外部キー (表が消えたら名前の参照に戻す) */
+  referrers: Set<FkDef>;
+  keyLimitNoted?: boolean;
+  fkLimitNoted?: boolean;
 }
 
 export interface EnumDef {
@@ -106,12 +130,18 @@ const colKey = (name: string): string => name.toLowerCase();
 
 export class Catalog {
   tables = new Map<string, Table>();
-  /** 作った順 (消したものも含む。dropped で見分ける) */
-  created: Table[] = [];
+  /** 生きているテーブル (作った順。消したら抜く) */
+  created = new Set<Table>();
   enums = new Map<string, EnumDef>();
-  enumsCreated: EnumDef[] = [];
+  /** 生きている enum (作った順。消したら抜く) */
+  enumsCreated = new Set<EnumDef>();
   domains = new Map<string, TypeSpec>();
-  keyNames = new Map<string, { table: Table; key: KeyDef }[]>();
+  /** 一意制約の名前 (小文字) → テーブルごとの一意制約 */
+  keyNames = new Map<string, Map<Table, KeyDef>>();
+  /** パーティションの子として読み飛ばしたテーブル */
+  partitionCount = 0;
+  partitionNames: string[] = [];
+  enumLimitHit = false;
   notes: Note[] = [];
   omittedNotes = 0;
   skipped = new Map<string, number>();
@@ -142,25 +172,28 @@ export class Catalog {
   }
 
   /** 名前 (小文字) だけで引く表。スキーマ名なしの参照を、同じ名前が 1 つだけのときに結ぶため */
-  private bareTables = new Map<string, Table[]>();
-  private bareEnums = new Map<string, EnumDef[]>();
+  private bareTables = new Map<string, Set<Table>>();
+  private bareEnums = new Map<string, Set<EnumDef>>();
 
-  private static addBare<T>(m: Map<string, T[]>, k: string, v: T): void {
+  private static addBare<T>(m: Map<string, Set<T>>, k: string, v: T): void {
     const a = m.get(k);
-    if (a) a.push(v);
-    else m.set(k, [v]);
+    if (a) a.add(v);
+    else m.set(k, new Set([v]));
   }
 
-  private static delBare<T>(m: Map<string, T[]>, k: string, v: T): void {
+  private static delBare<T>(m: Map<string, Set<T>>, k: string, v: T): void {
     const a = m.get(k);
     if (!a) return;
-    const i = a.indexOf(v);
-    if (i >= 0) a.splice(i, 1);
-    if (a.length === 0) m.delete(k);
+    a.delete(v);
+    if (a.size === 0) m.delete(k);
+  }
+
+  private static onlyOne<T>(s: Set<T> | undefined): T | undefined {
+    return s && s.size === 1 ? s.values().next().value : undefined;
   }
 
   registerTable(t: Table): void {
-    this.created.push(t);
+    this.created.add(t);
     this.tables.set(tableKey(t.schema, t.name), t);
     Catalog.addBare(this.bareTables, t.name.toLowerCase(), t);
   }
@@ -172,8 +205,7 @@ export class Catalog {
       const same = fromSchema !== "" ? this.tables.get(tableKey(fromSchema, name)) : undefined;
       if (same) return same;
       // スキーマ名なしで書かれていて、同じ名前のテーブルが 1 つだけならそれ
-      const list = this.bareTables.get(name.toLowerCase());
-      return list && list.length === 1 ? list[0] : undefined;
+      return Catalog.onlyOne(this.bareTables.get(name.toLowerCase()));
     }
     return undefined;
   }
@@ -182,12 +214,13 @@ export class Catalog {
     const old = this.enums.get(tableKey(def.schema, def.name));
     if (old) this.removeEnum(old);
     this.enums.set(tableKey(def.schema, def.name), def);
-    this.enumsCreated.push(def);
+    this.enumsCreated.add(def);
     Catalog.addBare(this.bareEnums, def.name.toLowerCase(), def);
   }
 
   removeEnum(e: EnumDef): void {
     e.dropped = true;
+    this.enumsCreated.delete(e);
     const k = tableKey(e.schema, e.name);
     if (this.enums.get(k) === e) this.enums.delete(k);
     Catalog.delBare(this.bareEnums, e.name.toLowerCase(), e);
@@ -206,8 +239,7 @@ export class Catalog {
     const e = this.enums.get(tableKey(schema, name));
     if (e) return e;
     if (schema === "") {
-      const list = this.bareEnums.get(name.toLowerCase());
-      return list && list.length === 1 ? list[0] : undefined;
+      return Catalog.onlyOne(this.bareEnums.get(name.toLowerCase()));
     }
     return undefined;
   }
@@ -217,14 +249,31 @@ export class Catalog {
   }
 
   liveTables(): Table[] {
-    return this.created.filter((t) => !t.dropped);
+    return [...this.created];
   }
 
-  dropTable(t: Table): void {
+  liveCount(): number {
+    return this.created.size;
+  }
+
+  /** テーブルを消す。ほかのテーブルからの外部キーは、名前の参照に戻す (あとで同じ名前のテーブルができたら、最後に結ぶ)。cascade なら外す */
+  dropTable(t: Table, cascade = false): void {
     t.dropped = true;
+    this.created.delete(t);
     const k = tableKey(t.schema, t.name);
     if (this.tables.get(k) === t) this.tables.delete(k);
     Catalog.delBare(this.bareTables, t.name.toLowerCase(), t);
+    for (const fk of [...t.referrers]) {
+      if (fk.target !== t) continue;
+      if (cascade && fk.owner) {
+        removeFk(this, fk.owner, fk);
+        continue;
+      }
+      if (fk.refCols) fk.refColNames = fk.refCols.map((c) => c.name);
+      delete fk.target;
+      delete fk.refCols;
+    }
+    t.referrers.clear();
   }
 
   renameTable(t: Table, schema: string, name: string): void {
@@ -242,9 +291,116 @@ export class Catalog {
   registerKeyName(table: Table, key: KeyDef): void {
     if (!key.name) return;
     const k = key.name.toLowerCase();
-    const list = this.keyNames.get(k);
-    if (list) list.push({ table, key });
-    else this.keyNames.set(k, [{ table, key }]);
+    const per = this.keyNames.get(k);
+    if (per) per.set(table, key);
+    else this.keyNames.set(k, new Map([[table, key]]));
+  }
+
+  unregisterKeyName(table: Table, key: KeyDef): void {
+    if (!key.name) return;
+    const k = key.name.toLowerCase();
+    const per = this.keyNames.get(k);
+    if (!per) return;
+    if (per.get(table) === key) per.delete(table);
+    if (per.size === 0) this.keyNames.delete(k);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 一意制約・外部キーの付け外し (名前の表で引くので、付け外しを何度繰り返しても線形)
+
+/** 外したものが、生きているものよりこれだけ多くたまったら、配列から抜く */
+const COMPACT_SLACK = 256;
+
+const nameKey = (name: string | undefined): string => (name ?? "").toLowerCase();
+
+function addUnique(cat: Catalog, table: Table, key: KeyDef, ctx: Ctx): boolean {
+  // 同じ名前の一意制約は置き換える
+  if (key.name) {
+    const old = table.uniqueIndex.get(nameKey(key.name));
+    if (old) removeUnique(cat, table, old);
+  }
+  if (table.liveUniques >= MAX_KEYS_PER_TABLE) {
+    if (!table.keyLimitNoted) {
+      table.keyLimitNoted = true;
+      cat.note(ctx, key.line, `テーブル ${table.name} の一意制約が上限 (${MAX_KEYS_PER_TABLE}) を超えたため、以降を読みませんでした`);
+    }
+    return false;
+  }
+  table.uniques.push(key);
+  table.liveUniques++;
+  for (const c of key.cols) (c.keys ??= []).push(key);
+  if (key.name) {
+    table.uniqueIndex.set(nameKey(key.name), key);
+    cat.registerKeyName(table, key);
+  }
+  return true;
+}
+
+function removeUnique(cat: Catalog, table: Table, key: KeyDef): void {
+  if (key.removed) return;
+  key.removed = true;
+  table.liveUniques--;
+  table.removedUniques++;
+  if (key.name) {
+    if (table.uniqueIndex.get(nameKey(key.name)) === key) table.uniqueIndex.delete(nameKey(key.name));
+    cat.unregisterKeyName(table, key);
+  }
+  if (table.removedUniques > table.liveUniques + COMPACT_SLACK) {
+    table.uniques = table.uniques.filter((k) => !k.removed);
+    table.removedUniques = 0;
+  }
+}
+
+function renameUnique(cat: Catalog, table: Table, key: KeyDef, name: string): void {
+  if (nameKey(key.name) === nameKey(name)) {
+    key.name = name;
+    return;
+  }
+  const clash = table.uniqueIndex.get(nameKey(name));
+  if (clash && clash !== key) removeUnique(cat, table, clash);
+  if (table.uniqueIndex.get(nameKey(key.name)) === key) table.uniqueIndex.delete(nameKey(key.name));
+  cat.unregisterKeyName(table, key);
+  key.name = name;
+  table.uniqueIndex.set(nameKey(name), key);
+  cat.registerKeyName(table, key);
+}
+
+function addFk(cat: Catalog, table: Table, fk: FkDef, ctx: Ctx): void {
+  fk.owner = table;
+  if (fk.name) {
+    const old = table.fkIndex.get(nameKey(fk.name));
+    if (old) removeFk(cat, table, old);
+  }
+  if (table.liveFks >= MAX_FKS_PER_TABLE) {
+    if (!table.fkLimitNoted) {
+      table.fkLimitNoted = true;
+      cat.note(ctx, fk.line, `テーブル ${table.name} の外部キーが上限 (${MAX_FKS_PER_TABLE}) を超えたため、以降を読みませんでした`);
+    }
+    return;
+  }
+  const target = cat.findTable(fk.refSchema, fk.refName, table.schema);
+  if (target) {
+    fk.target = target;
+    target.referrers.add(fk);
+    resolveRefCols(fk);
+  }
+  table.fks.push(fk);
+  table.liveFks++;
+  for (const c of fk.cols) (c.fks ??= []).push(fk);
+  if (fk.name) table.fkIndex.set(nameKey(fk.name), fk);
+}
+
+function removeFk(_cat: Catalog, table: Table, fk: FkDef): void {
+  if (fk.removed) return;
+  fk.removed = true;
+  table.liveFks--;
+  table.removedFks++;
+  fk.target?.referrers.delete(fk);
+  if (fk.name && table.fkIndex.get(nameKey(fk.name)) === fk) table.fkIndex.delete(nameKey(fk.name));
+  if (table.removedFks > table.liveFks + COMPACT_SLACK) {
+    table.fks = table.fks.filter((f) => !f.removed);
+    table.removedFks = 0;
   }
 }
 
@@ -513,6 +669,35 @@ interface ColumnResult {
 
 const DEFAULT_STOP = new Set(["NOT", "NULL", "PRIMARY", "UNIQUE", "REFERENCES", "CHECK", "CONSTRAINT", "COLLATE", "GENERATED", "AUTO_INCREMENT", "AUTOINCREMENT", "COMMENT", "ON", "CHARACTER", "CHARSET", "KEY", "AS", "VISIBLE", "INVISIBLE", "FIRST", "AFTER", "STORAGE", "COLUMN_FORMAT", "IDENTITY"]);
 
+const REF_ACTION_START = new Set(["CASCADE", "RESTRICT", "NO", "SET"]);
+
+/** 外部キーの動作 (CASCADE・RESTRICT・NO ACTION・SET NULL [(列)]・SET DEFAULT [(列)]) だけを読む */
+function skipRefAction(c: Cur): void {
+  if (c.eat("NO", "ACTION")) return;
+  if (c.kw("SET") && (c.kw("NULL", 1) || c.kw("DEFAULT", 1))) {
+    c.i += 2;
+    if (c.sym("(")) skipGroup(c);
+    return;
+  }
+  if (c.kw("CASCADE") || c.kw("RESTRICT")) c.i++;
+}
+
+/** REFERENCES … のあとの ON DELETE / ON UPDATE <動作>・MATCH …・[NOT] DEFERRABLE・INITIALLY …・NOT VALID・[NOT] ENFORCED を、順不同で読む */
+function skipRefClauses(c: Cur): void {
+  for (;;) {
+    if (c.kw("ON") && (c.kw("DELETE", 1) || c.kw("UPDATE", 1))) {
+      c.i += 2;
+      skipRefAction(c);
+    } else if (c.kw("MATCH")) {
+      c.i++;
+      if (c.peek()?.k === "w") c.i++;
+    } else if (c.kw("NOT") && (c.kw("DEFERRABLE", 1) || c.kw("VALID", 1) || c.kw("ENFORCED", 1))) c.i += 2;
+    else if (c.kw("DEFERRABLE") || c.kw("ENFORCED")) c.i++;
+    else if (c.kw("INITIALLY") && (c.kw("DEFERRED", 1) || c.kw("IMMEDIATE", 1))) c.i += 2;
+    else break;
+  }
+}
+
 function parseColumn(cat: Catalog, c: Cur, ctx: Ctx, nameTok: Tok): ColumnResult {
   const startIdx = c.i;
   const type = readType(c);
@@ -585,6 +770,8 @@ function parseColumn(cat: Catalog, c: Cur, ctx: Ctx, nameTok: Tok): ColumnResult
         if (c.sym("(")) cols = readColList(c);
         res.inlineRef = { schema: ref.schema, name: ref.name, cols, line: t.line };
         if (pendingName) res.constraintName = pendingName;
+        // ON DELETE / ON UPDATE の動作・MATCH・DEFERRABLE などだけを読む (そのあとの NOT NULL・DEFAULT などは次の周で読む)
+        skipRefClauses(c);
       }
       pendingName = undefined;
     } else if (u === "CHECK") {
@@ -612,12 +799,14 @@ function parseColumn(cat: Catalog, c: Cur, ctx: Ctx, nameTok: Tok): ColumnResult
           if (c.sym("(")) skipGroup(c);
         } else if (c.kw("AS")) {
           c.i++;
+          col.generated = true;
           if (c.sym("(")) skipGroup(c);
           if (c.kw("STORED") || c.kw("VIRTUAL")) c.i++;
         }
       }
     } else if (u === "AS") {
       c.i++;
+      col.generated = true;
       if (c.sym("(")) skipGroup(c);
       if (c.kw("STORED") || c.kw("VIRTUAL") || c.kw("PERSISTENT")) c.i++;
     } else if (u === "IDENTITY") {
@@ -641,13 +830,20 @@ function parseColumn(cat: Catalog, c: Cur, ctx: Ctx, nameTok: Tok): ColumnResult
         c.i++;
         const f = c.peek();
         if (f && f.k === "w") {
-          if (/^(CURRENT_TIMESTAMP|NOW|LOCALTIME|LOCALTIMESTAMP)$/.test(f.u)) col.onUpdateNow = true;
-          c.i++;
-          if (c.sym("(")) skipGroup(c);
+          if (REF_ACTION_START.has(f.u)) skipRefAction(c);
+          else {
+            if (/^(CURRENT_TIMESTAMP|NOW|LOCALTIME|LOCALTIMESTAMP)$/.test(f.u)) col.onUpdateNow = true;
+            c.i++;
+            if (c.sym("(")) skipGroup(c);
+          }
         }
-      } else if (c.kw("DELETE") || c.kw("CONFLICT")) {
+      } else if (c.kw("DELETE")) {
         c.i++;
-        while (!c.done && c.peek()!.k === "w") c.i++;
+        skipRefAction(c);
+      } else if (c.kw("CONFLICT")) {
+        // SQLite: PRIMARY KEY ON CONFLICT ROLLBACK など。動作の 1 語だけを読む
+        c.i++;
+        if (c.kw("ROLLBACK") || c.kw("ABORT") || c.kw("FAIL") || c.kw("IGNORE") || c.kw("REPLACE")) c.i++;
       }
     } else if (u === "FIRST") {
       c.i++;
@@ -705,22 +901,12 @@ function attachInline(cat: Catalog, table: Table, res: ColumnResult, ctx: Ctx): 
   }
   if (res.inlineUnique) {
     const key: KeyDef = { cols: [col], line: col.line, ...(res.constraintName ? { name: res.constraintName } : {}) };
-    table.uniques.push(key);
-    cat.registerKeyName(table, key);
+    addUnique(cat, table, key, ctx);
   }
   if (res.inlineRef) {
     const r = res.inlineRef;
-    pushFk(cat, table, { cols: [col], line: r.line, ...(res.constraintName ? { name: res.constraintName } : {}), refSchema: r.schema, refName: r.name, refColNames: r.cols });
+    addFk(cat, table, { cols: [col], line: r.line, ...(res.constraintName ? { name: res.constraintName } : {}), refSchema: r.schema, refName: r.name, refColNames: r.cols }, ctx);
   }
-}
-
-function pushFk(cat: Catalog, table: Table, fk: FkDef): void {
-  const target = cat.findTable(fk.refSchema, fk.refName, table.schema);
-  if (target) {
-    fk.target = target;
-    resolveRefCols(fk);
-  }
-  table.fks.push(fk);
 }
 
 function resolveRefCols(fk: FkDef): void {
@@ -754,6 +940,8 @@ function resolveCols(cat: Catalog, table: Table, names: string[] | null, ctx: Ct
 }
 
 const CONSTRAINT_KW = new Set(["PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "EXCLUDE"]);
+/** 項目の先頭にあれば、列の名前ではなく制約の書き出し (引用符なしで列の名前にはできない語) */
+const CONSTRAINT_ONLY_KW = new Set(["PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT"]);
 
 /** CREATE TABLE の中の 1 項目 (列か制約)、または ALTER TABLE ADD の 1 項目 */
 function parseTableItem(cat: Catalog, table: Table, c: Cur, ctx: Ctx, forceColumn = false): void {
@@ -774,7 +962,10 @@ function parseTableItem(cat: Catalog, table: Table, c: Cur, ctx: Ctx, forceColum
   if (!forceColumn && k.k === "w") {
     if (k.u === "PRIMARY" && c.kw("KEY", 1)) {
       c.i += 2;
-      c.eat("CLUSTERED");
+      // SQL Server の CLUSTERED / NONCLUSTERED [HASH]、MySQL の USING BTREE
+      if (c.kw("CLUSTERED") || c.kw("NONCLUSTERED")) c.i++;
+      if (c.kw("HASH")) c.i++;
+      if (c.kw("USING") && c.peek(1)?.k === "w") c.i += 2;
       const names = readColList(c);
       const cols = resolveCols(cat, table, names, ctx, line, "主キー");
       if (cols) {
@@ -784,23 +975,28 @@ function parseTableItem(cat: Catalog, table: Table, c: Cur, ctx: Ctx, forceColum
       }
       return;
     }
-    if (k.u === "UNIQUE" || (cname !== undefined && k.u === "UNIQUE")) {
-      // UNIQUE [KEY|INDEX] [名前] ( … )
+    if (k.u === "UNIQUE") {
+      // UNIQUE [KEY|INDEX] [NULLS [NOT] DISTINCT] [CLUSTERED|NONCLUSTERED] [名前 [USING x]] ( … )
       let o = 1;
       if (c.kw("KEY", o) || c.kw("INDEX", o)) o++;
-      let name: string | undefined;
-      if (isIdentTok(c.peek(o)) && c.sym("(", o + 1)) {
-        name = c.peek(o)!.v;
+      if (c.kw("NULLS", o)) {
         o++;
+        if (c.kw("NOT", o)) o++;
+        if (c.kw("DISTINCT", o)) o++;
       }
+      if (c.kw("CLUSTERED", o) || c.kw("NONCLUSTERED", o)) o++;
+      let name: string | undefined;
+      if (isIdentTok(c.peek(o)) && (c.sym("(", o + 1) || (c.kw("USING", o + 1) && c.sym("(", o + 3)))) {
+        name = c.peek(o)!.v;
+        o += c.sym("(", o + 1) ? 1 : 3;
+      } else if (c.kw("USING", o) && c.sym("(", o + 2)) o += 2;
       if (c.sym("(", o)) {
         c.i += o;
         const names = readColList(c);
         const cols = resolveCols(cat, table, names, ctx, line, "一意制約");
         if (cols) {
-          const key: KeyDef = { cols, line, ...(cname ?? name ? { name: (cname ?? name)! } : {}) };
-          table.uniques.push(key);
-          cat.registerKeyName(table, key);
+          const key: KeyDef = { cols, line, ...((cname ?? name) ? { name: (cname ?? name)! } : {}) };
+          addUnique(cat, table, key, ctx);
         }
         return;
       }
@@ -833,22 +1029,50 @@ function parseTableItem(cat: Catalog, table: Table, c: Cur, ctx: Ctx, forceColum
           cat.note(ctx, line, `${table.name} の外部キーの列の数と参照先の列の数が合わないため読み飛ばしました`);
           return;
         }
-        pushFk(cat, table, { cols, line, ...(name ? { name } : {}), refSchema: ref.schema, refName: ref.name, refColNames: refNames });
+        addFk(cat, table, { cols, line, ...(name ? { name } : {}), refSchema: ref.schema, refName: ref.name, refColNames: refNames }, ctx);
       }
       return;
     }
-    if (k.u === "CHECK" || k.u === "EXCLUDE" || k.u === "PERIOD" || (k.u === "LIKE" && !forceColumn)) {
+    if ((k.u === "CHECK" && c.sym("(", 1)) || (k.u === "EXCLUDE" && (c.kw("USING", 1) || c.sym("(", 1))) || (k.u === "PERIOD" && c.kw("FOR", 1)) || (k.u === "LIKE" && isIdentTok(c.peek(1)))) {
       cat.skip(k.u === "CHECK" ? "CHECK 制約" : `${k.u} (制約)`);
       return;
     }
-    if (k.u === "FULLTEXT" || k.u === "SPATIAL" || ((k.u === "KEY" || k.u === "INDEX") && (c.sym("(", 1) || (isIdentTok(c.peek(1)) && c.sym("(", 2))))) {
+    // FULLTEXT / SPATIAL [KEY|INDEX] [名前] (…)・KEY / INDEX [名前] (…)。引用符なしの列 (key int) とは、型の語かどうかで見分ける
+    // かっこの中が列の名前なら索引 (KEY (a)・KEY date (date))、数字 (varchar(10))・文字列 (enum('a')) なら列の型
+    const identGroup = (o: number): boolean => c.sym("(", o) && isIdentTok(c.peek(o + 1));
+    const idxShape = (o: number): boolean => identGroup(o) || (isIdentTok(c.peek(o)) && (identGroup(o + 1) || c.kw("USING", o + 1)));
+    if (((k.u === "FULLTEXT" || k.u === "SPATIAL") && (c.kw("KEY", 1) || c.kw("INDEX", 1) || idxShape(1))) || ((k.u === "KEY" || k.u === "INDEX") && idxShape(1))) {
       cat.skip("KEY / INDEX (一意でないインデックス)");
       return;
     }
+    // DEFAULT (式) FOR 列 (SQL Server の ALTER TABLE … ADD [CONSTRAINT 名] DEFAULT … FOR 列)
+    if (k.u === "DEFAULT") {
+      c.i++;
+      const toks: Tok[] = [];
+      let depth = 0;
+      while (!c.done) {
+        const x = c.peek()!;
+        if (depth === 0 && x.k === "w" && x.u === "FOR") break;
+        if (x.k === "p" && x.v === "(") depth++;
+        else if (x.k === "p" && x.v === ")") depth = Math.max(0, depth - 1);
+        toks.push(x);
+        c.i++;
+      }
+      const target = c.eat("FOR") ? c.peek() : undefined;
+      const col = target && isIdentTok(target) ? table.colMap.get(colKey(target.v)) : undefined;
+      if (col && toks.length > 0) col.def = { toks, text: c.text };
+      else cat.note(ctx, line, `${table.name} の DEFAULT … FOR が読めない・対象の列がないため読み飛ばしました`);
+      return;
+    }
   }
-  if (cname !== undefined) {
+  if (!forceColumn && cname !== undefined) {
     // CONSTRAINT 名 のあとが制約ではない
     cat.skip("読めない制約");
+    return;
+  }
+  // 制約の書き出しの語 (引用符なし) で始まるのに読めなかったものは、列にせず読み飛ばす
+  if (!forceColumn && k.k === "w" && CONSTRAINT_ONLY_KW.has(k.u)) {
+    cat.note(ctx, line, `テーブル ${table.name} の ${k.v} で始まる項目を読めなかったため、列にせず読み飛ばしました`);
     return;
   }
   // 列
@@ -962,6 +1186,10 @@ function applyCreate(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
 
 function createTable(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
   const ifNotExists = c.eat("IF", "NOT", "EXISTS");
+  if (c.sym("#")) {
+    cat.skip("SQL Server の一時テーブル (#名前)");
+    return;
+  }
   const nm = readTableName(c);
   if (!nm) {
     cat.note(ctx, st.line, "CREATE TABLE の名前を読めませんでした");
@@ -972,22 +1200,46 @@ function createTable(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
     return;
   }
   const existing = cat.findTable(nm.schema, nm.name);
-  if (existing && tableKey(existing.schema, existing.name) === tableKey(nm.schema, nm.name)) {
-    if (ifNotExists) {
-      cat.skip("CREATE TABLE IF NOT EXISTS (すでにあるテーブル)");
-      return;
-    }
-    cat.note(ctx, nm.line, `テーブル ${nm.name} をもう一度作っています。あとの定義に置き換えました`);
-    cat.dropTable(existing);
+  const same = existing !== undefined && tableKey(existing.schema, existing.name) === tableKey(nm.schema, nm.name);
+  if (same && ifNotExists) {
+    cat.skip("CREATE TABLE IF NOT EXISTS (すでにあるテーブル)");
+    return;
   }
-  if (cat.created.length >= MAX_TABLES) {
+  // 上限は生きているテーブルの数で見る (置き換えるテーブルは数えない。消したテーブルも数えない)。上限なら、置き換えもしない
+  if (cat.liveCount() - (same ? 1 : 0) >= MAX_TABLES) {
     if (!cat.tableLimitHit) {
       cat.tableLimitHit = true;
       cat.note(ctx, nm.line, `テーブルの数が上限 (${MAX_TABLES}) を超えたため、以降の CREATE TABLE を読みませんでした`);
     }
     return;
   }
-  const table: Table = { schema: nm.schema, name: nm.name, cols: [], colMap: new Map(), uniques: [], fks: [], line: nm.line, dropped: false, dialect: ctx.dialect };
+  if (!c.sym("(") && c.kw("PARTITION") && c.kw("OF", 1)) {
+    cat.partitionCount++;
+    if (cat.partitionNames.length < 5) cat.partitionNames.push(nm.name);
+    return;
+  }
+  if (same && existing) {
+    cat.note(ctx, nm.line, `テーブル ${nm.name} をもう一度作っています。あとの定義に置き換えました`);
+    cat.dropTable(existing);
+  }
+  const table: Table = {
+    schema: nm.schema,
+    name: nm.name,
+    cols: [],
+    colMap: new Map(),
+    uniques: [],
+    fks: [],
+    line: nm.line,
+    dropped: false,
+    dialect: ctx.dialect,
+    uniqueIndex: new Map(),
+    fkIndex: new Map(),
+    liveUniques: 0,
+    removedUniques: 0,
+    liveFks: 0,
+    removedFks: 0,
+    referrers: new Set(),
+  };
   if (ctx.file) table.file = ctx.file;
   if (c.sym("(")) {
     const open = c.i;
@@ -1000,6 +1252,8 @@ function createTable(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
       if (from) {
         for (const col of from.cols) {
           const copy: Col = { ...col };
+          delete copy.keys;
+          delete copy.fks;
           table.cols.push(copy);
           table.colMap.set(colKey(copy.name), copy);
         }
@@ -1012,11 +1266,8 @@ function createTable(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
     // 閉じたあとのオプション (ENGINE=… COMMENT='…' など)
     if (close >= 0) {
       const tc = new Cur(st.tokens, close + 1, st.tokens.length, st.text);
-      readTableOptions(tc, table);
+      readTableOptions(tc, table, cat, ctx, nm.line);
     }
-  } else if (c.kw("PARTITION") && c.kw("OF", 1)) {
-    cat.note(ctx, nm.line, `テーブル ${nm.name} はパーティションの子 (PARTITION OF) のため読み飛ばしました`);
-    return;
   } else if (c.kw("AS") || c.kw("SELECT") || c.kw("LIKE")) {
     cat.note(ctx, nm.line, `テーブル ${nm.name} は CREATE TABLE … AS (または LIKE) で作られていて、列を読めないため読み飛ばしました`);
     return;
@@ -1027,7 +1278,48 @@ function createTable(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
   cat.registerTable(table);
 }
 
-function readTableOptions(c: Cur, table: Table): void {
+/** INHERITS ( a, b.c ) の親の名前 */
+function parseNameList(inner: readonly Tok[]): { schema: string; name: string }[] {
+  const out: { schema: string; name: string }[] = [];
+  const c = new Cur(inner, 0, inner.length, "");
+  while (!c.done) {
+    const n = readTableName(c);
+    if (!n) break;
+    out.push({ schema: n.schema, name: n.name });
+    if (!c.eatSym(",")) break;
+  }
+  return out;
+}
+
+/** INHERITS (親) の列を、子の列の前に写す。親が先に定義されていなければ写せないので、notes に残す */
+function inheritColumns(cat: Catalog, table: Table, parents: { schema: string; name: string }[], ctx: Ctx, line: number): void {
+  const own = table.cols;
+  const copies: Col[] = [];
+  const names: string[] = [];
+  const missing: string[] = [];
+  for (const p of parents) {
+    const from = cat.findTable(p.schema, p.name, table.schema);
+    if (!from) {
+      missing.push(p.name);
+      continue;
+    }
+    names.push(from.name);
+    for (const col of from.cols) {
+      if (table.colMap.has(colKey(col.name)) || copies.length + own.length >= MAX_COLUMNS_PER_TABLE) continue;
+      const copy: Col = { ...col };
+      delete copy.keys;
+      delete copy.fks;
+      copies.push(copy);
+      table.colMap.set(colKey(copy.name), copy);
+    }
+  }
+  table.cols = [...copies, ...own];
+  if (names.length > 0) cat.note(ctx, line, `テーブル ${table.name} は INHERITS (${names.join(", ")}) です。親の列を先頭に写しました (親の主キー・一意・外部キーは写していません)`);
+  if (missing.length > 0) cat.note(ctx, line, `テーブル ${table.name} は INHERITS (${missing.join(", ")}) ですが、親のテーブルが先に定義されていないため、親の列を写せませんでした`);
+}
+
+function readTableOptions(c: Cur, table: Table, cat: Catalog, ctx: Ctx, line: number): void {
+  let parents: { schema: string; name: string }[] | undefined;
   while (!c.done) {
     const t = c.next()!;
     if (t.k === "w" && t.u === "COMMENT") {
@@ -1037,11 +1329,14 @@ function readTableOptions(c: Cur, table: Table): void {
         table.comment = s.v;
         c.i++;
       }
+    } else if (t.k === "w" && t.u === "INHERITS" && c.sym("(")) {
+      parents = parseNameList(readGroup(c));
     } else if (t.k === "p" && t.v === "(") {
       c.i--;
       skipGroup(c);
     }
   }
+  if (parents && parents.length > 0) inheritColumns(cat, table, parents, ctx, line);
 }
 
 function createUniqueIndex(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
@@ -1077,8 +1372,7 @@ function createUniqueIndex(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void 
   const cols = resolveCols(cat, table, names, ctx, line, `一意インデックス${name ? ` ${name}` : ""}`);
   if (!cols) return;
   const key: KeyDef = { cols, line, ...(name ? { name } : {}) };
-  table.uniques.push(key);
-  cat.registerKeyName(table, key);
+  addUnique(cat, table, key, ctx);
 }
 
 function createType(cat: Catalog, ctx: Ctx, c: Cur): void {
@@ -1093,8 +1387,12 @@ function createType(cat: Catalog, ctx: Ctx, c: Cur): void {
   }
   c.i++;
   const inner = readGroup(c);
-  if (cat.enumsCreated.length >= MAX_ENUMS) {
-    cat.note(ctx, nm.line, `enum の数が上限 (${MAX_ENUMS}) を超えたため、以降の CREATE TYPE を読みませんでした`);
+  // 上限は生きている enum の数で見る (同じ名前の置き換えは数えない)。注記は 1 回だけ
+  if (cat.enums.size >= MAX_ENUMS && !cat.enums.has(tableKey(nm.schema, nm.name))) {
+    if (!cat.enumLimitHit) {
+      cat.enumLimitHit = true;
+      cat.note(ctx, nm.line, `enum の数が上限 (${MAX_ENUMS}) を超えたため、以降の CREATE TYPE を読みませんでした`);
+    }
     return;
   }
   const values = inner.filter((x) => x.k === "s").map((x) => x.v);
@@ -1108,13 +1406,17 @@ function applyDrop(cat: Catalog, c: Cur): void {
   if (kind === "TABLE" && !c.t.slice(1, index).some((x) => x.k === "w" && (x.u === "TEMP" || x.u === "TEMPORARY"))) {
     c.i = index + 1;
     c.eat("IF", "EXISTS");
+    const found: Table[] = [];
     for (;;) {
       const n = readTableName(c);
       if (!n) break;
       const t = cat.findTable(n.schema, n.name);
-      if (t) cat.dropTable(t);
+      if (t) found.push(t);
       if (!c.eatSym(",")) break;
     }
+    // CASCADE なら、ほかのテーブルからの外部キーも消える
+    const cascade = c.kw("CASCADE");
+    for (const t of found) cat.dropTable(t, cascade);
     return;
   }
   if (kind === "TYPE" || kind === "DOMAIN") {
@@ -1134,22 +1436,48 @@ function applyDrop(cat: Catalog, c: Cur): void {
     c.i = index + 1;
     c.eat("CONCURRENTLY");
     c.eat("IF", "EXISTS");
-    const n = readNameParts(c);
-    const nm = n?.parts[n.parts.length - 1];
-    if (nm) {
-      const list = cat.keyNames.get(nm.toLowerCase());
-      if (list) {
-        for (const { table, key } of list) {
-          const at = table.uniques.indexOf(key);
-          if (!table.dropped && at >= 0) table.uniques.splice(at, 1);
-        }
-        cat.keyNames.delete(nm.toLowerCase());
+    // DROP INDEX 名前 [ON テーブル] (MySQL・SQL Server)、DROP INDEX [スキーマ.]名前 (PostgreSQL・SQLite)。複数も
+    for (;;) {
+      const n = readNameParts(c);
+      if (!n) break;
+      const nm = n.parts[n.parts.length - 1]!;
+      let on: Table | undefined;
+      let hasOn = false;
+      if (c.eat("ON")) {
+        hasOn = true;
+        const tn = readTableName(c);
+        on = tn ? cat.findTable(tn.schema, tn.name) : undefined;
       }
+      const schema = n.parts.length >= 2 ? n.parts[n.parts.length - 2]! : undefined;
+      dropIndexNamed(cat, nm, schema, hasOn, on);
+      if (!c.eatSym(",")) break;
     }
     cat.skip("DROP INDEX");
     return;
   }
   cat.skip(kind === "" ? "DROP" : `DROP ${kind}`);
+}
+
+/**
+ * 名前の一意制約 (インデックス) を外す。ON テーブルがあれば、そのテーブルだけ (MySQL ではインデックスの名前はテーブルごと)。
+ * 無ければ PostgreSQL の書き方で、インデックスの名前はスキーマで一意: スキーマ名つきならそのスキーマのテーブルだけ、
+ * なしなら標準のスキーマ (public など) のテーブルを先に探し、無ければどのスキーマのものも
+ */
+function dropIndexNamed(cat: Catalog, name: string, schema: string | undefined, hasOn: boolean, on: Table | undefined): void {
+  const per = cat.keyNames.get(name.toLowerCase());
+  if (!per) return;
+  if (hasOn) {
+    const k = on ? per.get(on) : undefined;
+    if (on && k) removeUnique(cat, on, k);
+    return;
+  }
+  let targets = [...per];
+  if (schema !== undefined) targets = targets.filter(([t]) => normSchema(t.schema).toLowerCase() === normSchema(schema).toLowerCase());
+  else {
+    const std = targets.filter(([t]) => normSchema(t.schema) === "");
+    if (std.length > 0) targets = std;
+  }
+  for (const [t, k] of targets) removeUnique(cat, t, k);
 }
 
 function applyComment(cat: Catalog, c: Cur): void {
@@ -1237,6 +1565,8 @@ function applyAlter(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
     c.eat("ONLY");
     const nm = readTableName(c);
     c.eatSym("*");
+    // SQL Server: ALTER TABLE t WITH [NO]CHECK ADD CONSTRAINT …
+    if (c.kw("WITH") && (c.kw("CHECK", 1) || c.kw("NOCHECK", 1))) c.i += 2;
     if (!nm) {
       cat.skip("ALTER TABLE (読めないもの)");
       return;
@@ -1297,12 +1627,17 @@ function applyAlter(cat: Catalog, st: Statement, ctx: Ctx, c: Cur): void {
   cat.skip(hasOwnerTo(st) ? "ALTER … OWNER TO" : kind === "" ? "ALTER" : `ALTER ${kind}`);
 }
 
-function dropColumn(table: Table, name: string): void {
+function dropColumn(cat: Catalog, table: Table, name: string): void {
   const col = table.colMap.get(colKey(name));
   if (!col) return;
   col.dropped = true;
   table.colMap.delete(colKey(name));
-  table.cols = table.cols.filter((x) => x !== col);
+  const at = table.cols.indexOf(col);
+  if (at >= 0) table.cols.splice(at, 1);
+  // その列を使う一意制約・外部キーも外す (数を空ける)
+  for (const k of col.keys ?? []) removeUnique(cat, table, k);
+  for (const f of col.fks ?? []) removeFk(cat, table, f);
+  if (table.pk?.cols.includes(col)) delete table.pk;
 }
 
 function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
@@ -1315,10 +1650,10 @@ function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
     case "ADD": {
       c.i++;
       if (c.sym("(")) {
+        const open = c.i;
         const inner = readGroup(c);
-        const base = c.t.indexOf(inner[0] ?? f);
-        if (inner.length > 0 && base >= 0) {
-          for (const [s, e] of splitTop(c.t, base, base + inner.length)) parseTableItem(cat, table, new Cur(c.t, s, e, c.text), ctx);
+        if (inner.length > 0) {
+          for (const [s, e] of splitTop(c.t, open + 1, open + 1 + inner.length)) parseTableItem(cat, table, new Cur(c.t, s, e, c.text), ctx);
         }
         return;
       }
@@ -1337,25 +1672,34 @@ function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
       }
       if (c.eat("FOREIGN", "KEY")) {
         const n = c.peek();
-        if (isIdentTok(n)) table.fks = table.fks.filter((x) => (x.name ?? "").toLowerCase() !== n.v.toLowerCase());
+        if (isIdentTok(n)) {
+          const fk = table.fkIndex.get(nameKey(n.v));
+          if (fk) removeFk(cat, table, fk);
+        }
         return;
       }
       if (c.kw("CONSTRAINT") || c.kw("INDEX") || c.kw("KEY") || c.kw("CHECK")) {
         const isCheck = c.kw("CHECK");
+        const isConstraint = c.kw("CONSTRAINT");
         c.i++;
         c.eat("IF", "EXISTS");
         const n = c.peek();
         if (isCheck || !isIdentTok(n)) return;
         const lower = n.v.toLowerCase();
-        if ((table.pk?.name ?? "").toLowerCase() === lower) delete table.pk;
-        table.uniques = table.uniques.filter((x) => (x.name ?? "").toLowerCase() !== lower);
-        table.fks = table.fks.filter((x) => (x.name ?? "").toLowerCase() !== lower);
+        // このテーブルの中だけで外す。INDEX・KEY は一意制約だけ (MySQL の PRIMARY は主キー)。CONSTRAINT は主キー・一意制約・外部キー
+        if ((table.pk?.name ?? "").toLowerCase() === lower || (!isConstraint && lower === "primary")) delete table.pk;
+        const u = table.uniqueIndex.get(lower);
+        if (u) removeUnique(cat, table, u);
+        if (isConstraint) {
+          const fk = table.fkIndex.get(lower);
+          if (fk) removeFk(cat, table, fk);
+        }
         return;
       }
       c.eat("COLUMN");
       c.eat("IF", "EXISTS");
       const n = c.peek();
-      if (isIdentTok(n)) dropColumn(table, n.v);
+      if (isIdentTok(n)) dropColumn(cat, table, n.v);
       return;
     }
     case "RENAME": {
@@ -1382,11 +1726,19 @@ function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
           if (b && isIdentTok(b)) {
             const lower = a.v.toLowerCase();
             if ((table.pk?.name ?? "").toLowerCase() === lower) table.pk!.name = b.v;
-            for (const k of table.uniques) if ((k.name ?? "").toLowerCase() === lower) {
-              k.name = b.v;
-              cat.registerKeyName(table, k);
+            // 改名は、表の登録を付け替える (同じ名前への改名は何もしない。足し直さない)
+            const u = table.uniqueIndex.get(lower);
+            if (u) renameUnique(cat, table, u, b.v);
+            const fk = table.fkIndex.get(lower);
+            if (fk) {
+              if (lower !== b.v.toLowerCase()) {
+                const clash = table.fkIndex.get(nameKey(b.v));
+                if (clash && clash !== fk) removeFk(cat, table, clash);
+                table.fkIndex.delete(lower);
+                table.fkIndex.set(nameKey(b.v), fk);
+              }
+              fk.name = b.v;
             }
-            for (const k of table.fks) if ((k.name ?? "").toLowerCase() === lower) k.name = b.v;
           }
         }
         return;
@@ -1428,6 +1780,10 @@ function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
       }
       table.colMap.delete(colKey(existing.name));
       const keep = existing;
+      // MODIFY・CHANGE は列の定義をまるごと置き換える (COMMENT・DEFAULT・生成列を書かなければ、それらは消える)
+      delete keep.comment;
+      delete keep.def;
+      delete keep.generated;
       Object.assign(keep, res.col, { dropped: false });
       table.colMap.set(colKey(keep.name), keep);
       attachInline(cat, table, { ...res, col: keep }, ctx);
@@ -1440,6 +1796,26 @@ function alterAction(cat: Catalog, table: Table, c: Cur, ctx: Ctx): void {
       if (s && s.k === "s") table.comment = s.v;
       return;
     }
+    case "ATTACH": {
+      // ATTACH PARTITION 子 FOR VALUES …: 子は model にせず、読み飛ばしたものとして数える
+      c.i++;
+      if (c.eat("PARTITION")) {
+        const child = readTableName(c);
+        const t = child ? cat.findTable(child.schema, child.name) : undefined;
+        if (t && t !== table) {
+          cat.dropTable(t);
+          cat.partitionCount++;
+          if (cat.partitionNames.length < 5) cat.partitionNames.push(t.name);
+          return;
+        }
+      }
+      cat.skip("ALTER TABLE (そのほかの変更)");
+      return;
+    }
+    case "CHECK":
+    case "NOCHECK":
+      cat.skip("制約の有効・無効 (CHECK / NOCHECK CONSTRAINT)");
+      return;
     default:
       cat.skip(f.u === "OWNER" ? "ALTER … OWNER TO" : "ALTER TABLE (そのほかの変更)");
   }
@@ -1492,19 +1868,27 @@ function alterColumn(cat: Catalog, table: Table, col: Col, c: Cur, ctx: Ctx): vo
 // ---------------------------------------------------------------------------------------------
 // 最後に: カタログを確定する
 
-/** 消えた列を使う制約を落とし、外部キーの参照先を (まだなら) 名前から結ぶ。生きているテーブルの一覧を返す */
+/**
+ * 消えた列を使う制約を落とし、外部キーの参照先を名前から結ぶ。生きているテーブルの一覧を返す。
+ * 外部キーの参照先は名前が本体なので、途中でテーブルが消えて作り直されていても (SQLite の作り直し: 新しい表を作る → 古い表を DROP → 改名)、
+ * ここで、いまある同じ名前のテーブルに結び直す
+ */
 export function finalizeCatalog(cat: Catalog, ctx?: { file?: string }): Table[] {
   const live = cat.liveTables();
   void ctx;
   for (const t of live) {
     if (t.pk && t.pk.cols.some((c) => c.dropped)) delete t.pk;
-    t.uniques = t.uniques.filter((k) => k.cols.every((c) => !c.dropped));
+    t.uniques = t.uniques.filter((k) => !k.removed && k.cols.every((c) => !c.dropped));
     if (t.pk) for (const c of t.pk.cols) c.notNull = true;
   }
   for (const t of live) {
     t.fks = t.fks.filter((fk) => {
+      if (fk.removed) return false;
       if (fk.cols.some((c) => c.dropped)) return false;
-      if (fk.target && fk.target.dropped) return false;
+      if (fk.target && fk.target.dropped) {
+        delete fk.target;
+        delete fk.refCols;
+      }
       if (!fk.target) {
         const target = cat.findTable(fk.refSchema, fk.refName, t.schema);
         if (target) fk.target = target;
