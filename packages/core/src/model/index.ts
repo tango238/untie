@@ -20,6 +20,7 @@ export * from "./design";
 export * from "./sitemap";
 export * from "./prisma";
 export * from "./prismaCache";
+export * from "./sqlImport";
 export * from "./designData";
 export * from "./designCheck";
 export * from "./designView";
