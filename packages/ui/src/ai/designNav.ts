@@ -182,7 +182,8 @@ export async function generateNavigation(model: UntieModel, systemId: string, de
     const result = sanitizeNavigation(design, proposal);
     if (result.groups.length === 0) return { ok: false, content: JSON.stringify({ error: "使える画面が 1 つもありません。画面の一覧の id を使ってください" }), changed: false };
     box.value = result;
-    return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };
+    // 受け付けたら、AI に言うことは残っていない (次のリクエストを送らず、往復を 1 回省く)
+    return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false, finish: true };
   };
 
   const session = createChatSession(o.provider, { apiKey: o.apiKey, model: o.model, system: navSystemPrompt(), tools: [SUBMIT_NAVIGATION_TOOL], runTool });

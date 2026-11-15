@@ -8,10 +8,10 @@ import { PROVIDERS } from "../../ai/providers";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { AGENT_BUSY_REASON, commitStageModel } from "../../ai/reverseCommit";
 import { applyMappingSuggestions, mappingGap, reverseLogic, reverseMapping, suggestMappings } from "../../ai/reverseLogic";
-import { usageLine } from "../../ai/reverse";
+import { trackUsage, usageLine } from "../../ai/reverse";
 import { reverseScreens } from "../../ai/reverseScreens";
 import { recallSources, rememberSources } from "../../ai/sourceRegistry";
-import { recallScreenSurvey, rememberScreenSurvey } from "../../ai/surveyMemory";
+import { forgetScreenSurvey, recallScreenSurvey, rememberScreenSurvey } from "../../ai/surveyMemory";
 import {
   MAX_SOURCES,
   MAX_SOURCE_LABEL_CHARS,
@@ -391,7 +391,10 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
       controller.current = ctl;
       setRunning(stage);
       setStep("survey");
-      const common = {
+      // 画面の段階を始めたら、前の調査結果は忘れる (やり直しが失敗・中断したとき、前の範囲の調査結果が残って、業務の段階に渡らないように)
+      if (stage === "screens") forgetScreenSurvey();
+      // 使用量は、失敗・中断した段階でも、使った分があれば出す (段階の本体は、失敗すると結果を返さないので、ここでも数える)
+      const tracked = trackUsage({
         provider: settings.provider,
         model: aiModel,
         apiKey,
@@ -403,6 +406,12 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           setReads((r) => [...r, `${name} ${detail}`].slice(-RECENT_READS));
         },
         onSubmit: (accepted: boolean, message: string) => setLog((l) => [...l, `${accepted ? "✓" : "↻"} ${message}`]),
+      });
+      const common = tracked.options;
+      /** 失敗・中断・反映できなかったときの文。この段階で使った分があれば、使用量を添える */
+      const failure = (message: string): string => {
+        const used = usageLine(tracked.summary());
+        return used === "" ? message : `${message} (${used})`;
       };
       try {
         const res =
@@ -423,14 +432,14 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
         // 中断された・ダイアログが外れたあとに届いた結果は、モデルに反映しない
         if (!mounted.current) return;
         if (ctl.signal.aborted) {
-          setError("中断しました。");
+          setError(failure("中断しました。"));
           setRunning(null);
           setStep(null);
           return;
         }
         const committed = commitStageModel(base, res.model, seq);
         if (!committed.ok) {
-          setError(committed.reason);
+          setError(failure(committed.reason));
           setRunning(null);
           setStep(null);
           return;
@@ -439,12 +448,13 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           setRebuild(new Set());
           // 画面の段階の調査結果は、このアプリを開いている間は覚える (業務の段階が、同じソースを読み直さないように。保存はしない)
           const done = res as Awaited<ReturnType<typeof reverseScreens>>;
-          rememberScreenSurvey(seq, sources, { survey: done.survey, files: done.readFiles, scope: done.scope });
+          // 調査の会話が途中で終わっていたら、そのことも覚える (業務の段階が、足りないところを読み直す)
+          rememberScreenSurvey(seq, sources, { survey: done.survey, files: done.readFiles, scope: done.scope, ...(done.surveyIncomplete ? { incomplete: true } : {}) });
         }
         finish({ stage, summary: res.summary, headline: res.headline, usage: usageLine(res.usage), warnings: res.warnings, seed: res.seed }, res.seed);
       } catch (e) {
         if (!mounted.current) return;
-        setError(ctl.signal.aborted || isAbortError(e) ? "中断しました。" : describeChatError(e));
+        setError(failure(ctl.signal.aborted || isAbortError(e) ? "中断しました。" : describeChatError(e)));
         setRunning(null);
         setStep(null);
       } finally {

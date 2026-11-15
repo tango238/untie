@@ -76,7 +76,8 @@ export async function generateFromPrompt(request: string, o: GenerationOptions):
     accepted = build;
     const message = `受け付けました: ${summarizeCounts(build.counts)}${issues.length > 0 ? ` (気づいたこと ${issues.length} 件は残っています)` : ""}`;
     o.onSubmit?.(true, message);
-    return { ok: true, content: JSON.stringify({ result: message }), changed: true };
+    // 受け付けたあとの出し直しは無い (気づいたことが残っていても、AI には返さない)。次のリクエストを送らず、往復を 1 回省く (会話の履歴には、提出と結果が対で残る)
+    return { ok: true, content: JSON.stringify({ result: message }), changed: true, finish: true };
   };
 
   const session = createChatSession(o.provider, {

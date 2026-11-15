@@ -2,7 +2,8 @@
 // 調査の文章・提出・失敗・上限・指示を、台本どおりに確かめる (旧 reverse.test.ts・reverseMulti.test.ts・reverseDataShare.test.ts の性質を、段階式の関数で確かめ直す)。
 import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { emptyModel } from "@untie/core/model/types";
+import { addElement, setTableInformation } from "@untie/core/model/commands";
+import { emptyModel, type UntieModel } from "@untie/core/model/types";
 import { applyDataImport } from "../reverseData";
 import type { ChatEvents, ChatOptions } from "../chat";
 import type { ToolOutcome } from "../tools";
@@ -44,7 +45,9 @@ vi.mock("../chat", async (importOriginal) => {
         seed: (turns: { role: string; text: string }[]) => {
           seed = turns;
         },
-        send: async (text: string, events?: ChatEvents) => {
+        send: async (input: string | readonly { text: string }[], events?: ChatEvents) => {
+          // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
+          const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
           // 本物の send と同じく、道具を呼ぶたびに往復を 1 つ使う。上限まで使うと、返答を書く往復が残らず ChatError
           let steps = 0;
           const runTool: ChatOptions["runTool"] = async (name, input) => {
@@ -66,7 +69,7 @@ vi.mock("../chat", async (importOriginal) => {
 
 const { reverseScreens } = await import("../reverseScreens");
 const { reverseLogic, reverseMapping } = await import("../reverseLogic");
-const { REVERSE_LIMITS, sourceLimits, sourceRunner, sourcePathsIn } = await import("../reverse");
+const { REVERSE_LIMITS, mappingLimits, sourceLimits, sourceRunner, sourcePathsIn } = await import("../reverse");
 const { ChatError, MAX_STEPS } = await import("../chat");
 const { combineSourceTrees, memorySourceTree } = await import("../sourceTree");
 
@@ -135,6 +138,7 @@ describe("調査: 届いた文章を全部使う", () => {
     });
     const res = await runScreens();
     expect(res.survey).toBe("## 調査結果\n- 集まった分");
+    expect(res.surveyIncomplete).toBe(true);
     expect(res.warnings.some((w) => /調査: 会話が途中で終わりました/.test(w))).toBe(true);
     // 文が 1 つも届いていないときの ChatError は、そのまま失敗
     useScripts({
@@ -506,3 +510,241 @@ describe("sourcePathsIn", () => {
 });
 
 void MULTI_SHOP;
+
+// ---------------------------------------------------------------- 受け付けた提出で会話を終える (finish)
+
+describe("受け付けた提出は、会話を終えてよいと示す (これ以上の出し直しが要らないときだけ)", () => {
+  it("画面の構成・業務のモデルの提出: 受け付けたら finish。受け付けなかった (出し直しを求めた) ときは、示さない", async () => {
+    const structure: ToolOutcome[] = [];
+    const model: ToolOutcome[] = [];
+    useScripts({
+      structure: async (c) => {
+        structure.push(await c.runTool("submit_screens", { systems: [] }));
+        structure.push(await c.runTool("submit_screens", { systems: [{ name: "画面の無いシステム", screens: [] }] }));
+        structure.push(await c.runTool("submit_screens", MULTI_SCREENS_STRUCTURE));
+        return "提出しました";
+      },
+      model: async (c) => {
+        model.push(await c.runTool("submit_model", {}));
+        model.push(await c.runTool("submit_model", MULTI_SPEC));
+        return "提出しました";
+      },
+    });
+    const s = await runScreens();
+    await reverseLogic(s.model, multiFixtureSources(), "お客様の注文から", baseOptions);
+    // 断った提出 (空・直してほしい点がある): 続ける
+    expect(structure.slice(0, 2).every((o) => !o.ok && o.finish === undefined)).toBe(true);
+    expect(structure[2]!.ok).toBe(true);
+    expect(structure[2]!.finish).toBe(true);
+    expect(model[0]!.finish).toBeUndefined();
+    expect(model.some((o) => o.ok && o.finish === true)).toBe(true);
+  });
+
+  it("画面 UI の提出: 出し直しの案内 (気づいたこと) が無いか、出し直しの回数が尽きたときだけ finish。案内があるときは、今までどおり AI に返して続ける", async () => {
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      screen: async (c) => {
+        const draft = MULTI_SCREENS.find((d) => d.screen === screenNameOf(c.text));
+        if (draft) outcomes.push(await c.runTool("submit_screen", draft));
+        return "提出しました";
+      },
+    });
+    await runScreens();
+    const accepted = outcomes.filter((o) => o.ok && o.changed);
+    expect(accepted.length).toBeGreaterThan(0);
+    for (const o of accepted) {
+      const text = (parse(o).result as string) ?? "";
+      // 「出し直してよい (あと N 回まで)」と案内したものは続ける。それ以外 (案内なし・回数が尽きた) は終える
+      expect(o.finish === true).toBe(!/出し直してよい/.test(text));
+    }
+    expect(accepted.some((o) => o.finish === true)).toBe(true);
+  });
+
+  it("画面 UI の提出に、直せる気づいたことがあるとき (出し直しの案内つき) は、finish を示さず、AI に返して続ける", async () => {
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      screen: async (c) => {
+        const draft = MULTI_SCREENS.find((d) => d.screen === screenNameOf(c.text));
+        // 存在しない列に結んだ項目 (落とされて、気づいたことになる) を足して出す
+        if (draft) outcomes.push(await c.runTool("submit_screen", { ...draft, bindings: [...(draft.bindings ?? []), { item: "存在しない項目", table: "NoSuchTable", column: "x" }] }));
+        return "提出しました";
+      },
+    });
+    await runScreens();
+    const withNote = outcomes.filter((o) => o.ok && /出し直してよい/.test((parse(o).result as string) ?? ""));
+    expect(withNote.length).toBeGreaterThan(0);
+    for (const o of withNote) expect(o.finish).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------- 使えない道具が呼ばれ続けたとき
+
+describe("使えない道具が呼ばれ続けたとき", () => {
+  it("2 回までは案内を返し、2 回を超えたら「道具を使わずに答えてください」と返し、それでも続いたら会話を打ち切る (会話ごとに数える)", async () => {
+    const seen: { ok: boolean; text: string }[] = [];
+    let caught: unknown;
+    useScripts({
+      screen: async (c) => {
+        if (c.session !== 0) return "なし";
+        for (let i = 0; i < 6; i++) {
+          try {
+            const o = await c.runTool("submit_screens", MULTI_SCREENS_STRUCTURE);
+            seen.push({ ok: o.ok, text: parse(o).error as string });
+          } catch (e) {
+            caught = e;
+            break;
+          }
+        }
+        return "なし";
+      },
+    });
+    await runScreens();
+    expect(seen).toHaveLength(3);
+    expect(seen[0]!.text).toMatch(/この会話では submit_screens は使えません/);
+    expect(seen[1]!.text).toMatch(/この会話では submit_screens は使えません/);
+    expect(seen[2]!.text).toBe("この会話では道具を使わずに答えてください。");
+    // 4 回目は、会話を打ち切る (ChatError)
+    expect(caught).toBeInstanceOf(ChatError);
+  });
+
+  it("打ち切られた画面 UI の会話は、その画面だけ飛ばして気づいたことに残し、ほかの会話は数え直し (別の会話は、また 2 回まで案内される)", async () => {
+    const perSession = new Map<number, number>();
+    useScripts({
+      screen: async (c) => {
+        // 最初の会話だけ、使えない道具を呼び続ける。ほかの会話は、使えない道具を 1 回だけ呼んで、正しく提出する
+        if (c.session === 0) {
+          for (;;) await c.runTool("submit_model", {});
+        }
+        const o = await c.runTool("submit_model", {});
+        perSession.set(c.session, o.ok ? 1 : 0);
+        return screenOk(c);
+      },
+    });
+    const res = await runScreens();
+    expect(res.warnings.some((w) => /使えない道具が続けて呼ばれたので、会話を打ち切りました/.test(w))).toBe(true);
+    // 2 つ目以降の会話は、1 回目の案内 (ok でない) だけで、打ち切られない
+    expect([...perSession.values()].every((v) => v === 0)).toBe(true);
+    expect(perSession.size).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------- テーブルと情報の対応
+
+describe("テーブルと情報の対応 (use_database)", () => {
+  /** 画面と業務の段階を済ませ、対応をいったん空にして、使われていないテーブルだけの別のデータベース (別のDB・テーブル Other) を足したモデル */
+  async function withOtherDb(mutate: (m: UntieModel) => UntieModel = (m) => m): Promise<UntieModel> {
+    useScripts({ tables: () => "なし" });
+    let m = (await runScreens()).model;
+    m = (await reverseLogic(m, multiFixtureSources(), "お客様の注文から", baseOptions)).model;
+    const cleared = { ...m, databases: m.databases.map((d) => ({ ...d, tables: [] })) };
+    return mutate(applyDataImport(cleared, { name: "別のDB", dsl: "model Other {\n  id String @id\n}\n" }).model);
+  }
+  const infoId = (m: UntieModel, name: string) => m.elements.find((e) => e.kind === "information" && e.name === name)!.id;
+  const tableInfos = (m: UntieModel, db: string, table: string) => m.databases.find((d) => d.name === db)!.tables.find((t) => t.table === table)?.informationIds ?? [];
+
+  it("system を省いて結べるのは、どのシステムにも使われていない情報だけ。システムが使う情報は結ばず、system を書くよう返す (使わないデータベースに結べない)", async () => {
+    const m = await withOtherDb();
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        outcomes.push(await c.runTool("use_database", { database: "別のDB", tables: [{ table: "Other", informations: ["注文", "商品"] }] }));
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+    expect(outcomes[0]!.ok).toBe(false);
+    const error = parse(outcomes[0]!).error as string;
+    expect(error).toMatch(/情報「注文」はシステム「.+」が使っています。system を書いて、そのシステムが使うデータベースに結んでください/);
+    expect(error).toMatch(/情報「商品」はシステム「.+」が使っています。system を書いて、そのシステムが使うデータベースに結んでください/);
+    // 結ばれていない。「対応づいた」とも数えない。気づいたことは、そのシステムの情報が未対応のまま
+    expect(tableInfos(res.model, "別のDB", "Other")).toEqual([]);
+    expect(res.mappedInformations).toBe(0);
+    expect(res.headline).toContain("対応づいた情報 0 件");
+    expect(res.warnings.some((w) => /^データ: システム「ネットショップ」の情報 \d+ 件がどのテーブルにも対応していません/.test(w))).toBe(true);
+  });
+
+  it("どのシステムにも使われていない情報と、システムが使う情報がまじっていたら、使われていない情報だけ結び、使う情報は結ばない (まだ続ける)", async () => {
+    const m = await withOtherDb((x) => {
+      const r = addElement(x, { kind: "information", name: "未使用の情報" });
+      return r.ok ? r.model : x;
+    });
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        outcomes.push(await c.runTool("use_database", { database: "別のDB", tables: [{ table: "Other", informations: ["未使用の情報", "注文"] }] }));
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+    expect(outcomes[0]!.ok).toBe(true);
+    expect(outcomes[0]!.finish).toBeUndefined();
+    expect(parse(outcomes[0]!).result).toMatch(/情報「注文」はシステム「.+」が使っています。system を書いて/);
+    expect(tableInfos(res.model, "別のDB", "Other")).toEqual([infoId(res.model, "未使用の情報")]);
+    expect(res.mappedInformations).toBe(1);
+  });
+
+  it("「対応づいた情報」は、実際に未対応が減った数。別のデータベースにすでに結ばれていた情報も、そのシステムが使うデータベースに結べば数える", async () => {
+    // 注文は、別のDB の Other にすでに結ばれている。ネットショップが使うデータベースには、まだ結ばれていない
+    const m = await withOtherDb((x) => {
+      const r = setTableInformation(x, { id: x.databases.find((d) => d.name === "別のDB")!.id, table: "Other", informationIds: [infoId(x, "注文")] });
+      return r.ok ? r.model : x;
+    });
+    useScripts({
+      tables: async (c) => {
+        await c.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [{ table: "Order", informations: ["注文"] }] });
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+    expect(tableInfos(res.model, "バックエンドのデータベース", "Order")).toEqual([infoId(res.model, "注文")]);
+    expect(res.mappedInformations).toBe(1);
+  });
+
+  it("出し直しの案内は、同じ内容 (対応のない情報とテーブルの一覧) で 2 回まで。減っていないのに促し続けない。そのあとは受け付けて終える", async () => {
+    const m = await withOtherDb();
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        for (let i = 0; i < 4; i++) outcomes.push(await c.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [] }));
+        return "提出しました";
+      },
+    });
+    await reverseMapping(m, multiFixtureSources(), baseOptions);
+    const texts = outcomes.map((o) => parse(o).result as string);
+    expect(texts[0]).toMatch(/use_database を出し直してください/);
+    expect(texts[1]).toMatch(/use_database を出し直してください/);
+    expect(texts[2]).not.toMatch(/use_database を出し直してください/);
+    expect(texts[3]).not.toMatch(/use_database を出し直してください/);
+    expect(outcomes.map((o) => o.finish === true)).toEqual([false, false, true, true]);
+  });
+
+  it("ソースの道具・get_table の上限は、対応を付けるシステムの数に合わせて増える (全体の上限と往復の上限の中で)", async () => {
+    const structure = { systems: ["A", "B", "C", "D"].map((n) => ({ name: `システム${n}`, screens: [{ name: `画面${n}` }], databases: [] as string[] })) };
+    const results: ToolOutcome[] = [];
+    useScripts({
+      structure: async (c) => (await c.runTool("submit_screens", structure), "ok"),
+      screen: () => "なし",
+      model: async (c) => {
+        await c.runTool("submit_model", {
+          system_name: "x",
+          actors: [{ name: "担当" }],
+          informations: structure.systems.map((s) => ({ name: `${s.name}の記録` })),
+          businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: ["担当"], usecases: structure.systems.map((s) => ({ name: `${s.name}で記録する`, writes: [`${s.name}の記録`], targets: [s.screens[0]!.name] })) }] }],
+          screens: structure.systems.map((s) => ({ name: s.screens[0]!.name, system: s.name, usecase: `${s.name}で記録する` })),
+        });
+        return "ok";
+      },
+      tables: async (c) => {
+        for (let i = 0; i < 60; i++) results.push(await c.runTool("get_table", { table: "Order" }));
+        return "なし";
+      },
+    });
+    const s = await runScreens({}, withDb());
+    await reverseLogic(s.model, multiFixtureSources(), "x", baseOptions);
+    const ok = results.filter((r) => r.ok).length;
+    // ソースが 3 つ・システムが 4 つ: システム 1 つ分の上限より増えている。往復の上限の中に収まる
+    expect(ok).toBe(mappingLimits(3, 4).calls);
+    expect(ok).toBeGreaterThan(sourceLimits(3).data.calls);
+    expect(ok + REVERSE_LIMITS.mappingCalls + 3).toBeLessThan(MAX_STEPS);
+  });
+});

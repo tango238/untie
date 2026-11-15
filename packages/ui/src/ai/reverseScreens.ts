@@ -16,6 +16,7 @@ import { usedDesignIds } from "@untie/core/model/design";
 import type { UntieModel } from "@untie/core/model/types";
 import { ChatError, type SeedTurn } from "./chat";
 import {
+  acceptedOutcome,
   elementName,
   errorOutcome,
   designWarningLines,
@@ -48,7 +49,7 @@ import { describeTablesForRequest, executeGetTable, GET_TABLE_TOOL, screenHint }
 import {
   clipSurvey,
   FINISH_NOTE,
-  reverseScreenRequest,
+  reverseScreenRequestParts,
   reverseScreensStructureRequest,
   reverseScreensSurveyRequest,
   reverseSystemPrompt,
@@ -93,6 +94,8 @@ export interface ScreensResult {
   readFiles: string[];
   /** 調査のときの、対象の画面の範囲 */
   scope: string;
+  /** 調査の会話が途中で終わり、集まった分で進めたか (業務の段階へ、途中で終わった調査結果として引き継ぐ) */
+  surveyIncomplete: boolean;
   /** 段階の AI の使用量の合計 (API が使用量を返さなかったときは null) */
   usage: StageUsageSummary | null;
 }
@@ -423,6 +426,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   });
   const collector = surveyCollector(o.onText);
   let lastReply = "";
+  let surveyIncomplete = false;
   // 調査で読んだファイルを控える (業務の段階へ調査結果を引き継ぐとき、読んだファイルの一覧も渡す)
   const readFiles: string[] = [];
   ctx.readLog = readFiles;
@@ -432,6 +436,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     throwIfAborted(o.signal);
     if (!(e instanceof ChatError) || o.signal?.aborted || collector.text() === "") throw e;
     warnings.push(`調査: 会話が途中で終わりました (${e.message})。集まった調査結果で進めました`);
+    surveyIncomplete = true;
   } finally {
     ctx.readLog = undefined;
   }
@@ -477,7 +482,8 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     accepted = r;
     const message = `受け付けました: システム ${r.added.systems}、画面 ${r.added.screens}、遷移 ${r.added.transitions}${r.issues.length > 0 ? ` (気づいたこと ${r.issues.length} 件は残っています)` : ""}`;
     o.onSubmit?.(true, message);
-    return okOutcome(`${message}。${FINISH_NOTE}`, true);
+    // 受け付けたあとの出し直しは無い (気づいたことが残っていても、AI には返さない) ので、会話を終えてよい
+    return acceptedOutcome(`${message}。${FINISH_NOTE}`, true);
   };
   const structureSession = openSession(ctx, {
     label: "画面の構成",
@@ -560,7 +566,9 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
         o.onSubmit?.(true, message);
         const retriesLeft = screenMaxAttempts - attempt;
         const note = revisionNote(r.warnings, retriesLeft, "submit_screen", "ソースに無い項目やボタンは、足さなくてかまいません。");
-        return okOutcome(`${message}${note}${note === "" || retriesLeft <= 0 ? `\n${FINISH_NOTE}` : ""}`, true);
+        // 出し直しを案内していない (気づいたことが無い・出し直しの回数が尽きた) ときだけ、会話を終えてよい
+        const text = `${message}${note}${note === "" || retriesLeft <= 0 ? `\n${FINISH_NOTE}` : ""}`;
+        return note === "" || retriesLeft <= 0 ? acceptedOutcome(text, true) : okOutcome(text, true);
       }
       if (applied) return okOutcome(`出し直しは通らなかったので、前の提出のままにします。${FINISH_NOTE}`, false);
       if (r.viewError && attempt <= REVERSE_LIMITS.screenRetries) {
@@ -590,7 +598,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
         counted: ["get_table"],
         unavailable: `いまは画面「${t.name}」の画面 UI を作る会話です (submit_screen)。画面の構成は、すでに提出済みです。`,
       });
-      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen, { databases }), t.name, hint, statesOfScreen(model, t.analysisId), databases.narrowed), {}, o.signal);
+      await screenSession.send(reverseScreenRequestParts(screenRequest(model, t.systemId, design, screen, { databases }), t.name, hint, statesOfScreen(model, t.analysisId), databases.narrowed), {}, o.signal);
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {
@@ -631,6 +639,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     headline,
     readFiles,
     scope,
+    surveyIncomplete,
     usage: usage.summary(),
     seed: [
       { role: "user", text: `次のソースコードから、画面の構成を作ってください。\n\n<ソースコードのフォルダ>${multi ? `\n${tree.sources!.map((x) => `${x.label}: ${x.folder}`).join("\n")}\n` : tree.name}</ソースコードのフォルダ>${scope !== "" ? `\n<対象の画面の範囲>\n${scope}\n</対象の画面の範囲>` : ""}` },

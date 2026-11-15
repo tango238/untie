@@ -194,7 +194,8 @@ export async function generateDatabaseDesign(model: UntieModel, systemId: string
     const { result, retry } = evaluate(design, attempts > 1);
     if (retry) return { ok: false, content: JSON.stringify({ error: retry }), changed: false };
     box.value = result!;
-    return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };
+    // 受け付けたら、AI に言うことは残っていない (次のリクエストを送らず、往復を 1 回省く)
+    return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false, finish: true };
   };
 
   const session = createChatSession(o.provider, { apiKey: o.apiKey, model: o.model, system: dataDesignSystemPrompt(), tools: [SUBMIT_DATABASE_TOOL], runTool });

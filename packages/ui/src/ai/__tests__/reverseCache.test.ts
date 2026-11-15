@@ -15,6 +15,8 @@ interface Rec {
   tools: string;
   system: string;
   seed: { role: string; text: string }[];
+  /** 発言が部分の並びで渡されたときの、その部分 (文字列で渡されたときは null) */
+  parts: { text: string; shared?: boolean }[] | null;
   runTool: ChatOptions["runTool"];
 }
 const fake = vi.hoisted(() => ({
@@ -34,8 +36,10 @@ vi.mock("../chat", async (importOriginal) => {
         seed: (turns: { role: string; text: string }[]) => {
           seed = turns;
         },
-        send: async (text: string, events?: ChatEvents) => {
-          const rec: Rec = { label: o.label ?? "", text, tools: JSON.stringify(o.tools), system: o.system, seed, runTool: o.runTool };
+        send: async (input: string | readonly { text: string }[], events?: ChatEvents) => {
+          // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
+          const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
+          const rec: Rec = { label: o.label ?? "", text, tools: JSON.stringify(o.tools), system: o.system, seed, parts: typeof input === "string" ? null : input.map((p) => ({ ...p })), runTool: o.runTool };
           fake.recs.push(rec);
           for (const u of fake.usage[rec.label] ?? []) events?.onUsage?.(u);
           return await fake.scripts[rec.label]!(rec, events);
@@ -51,7 +55,7 @@ const { usageLine, trackUsage } = await import("../reverse");
 const { rememberScreenSurvey, recallScreenSurvey, forgetScreenSurvey } = await import("../surveyMemory");
 const { forgetSources, rememberSources } = await import("../sourceRegistry");
 const { memorySourceTree } = await import("../sourceTree");
-const { reverseLogicSurveyRequest, reverseScreenRequest, reverseScreensSurveyRequest } = await import("../reversePrompts");
+const { reverseLogicSurveyRequest, reverseScreenRequest, reverseScreenRequestParts, reverseScreensSurveyRequest } = await import("../reversePrompts");
 
 const baseOptions = { provider: "claude" as const, model: "claude-opus-5-5", apiKey: "k" };
 const recs = () => fake.recs;
@@ -369,10 +373,83 @@ describe("調査を質問で終わらせない・例の値の状態", () => {
     expect(withStates).toContain("この状態の名前だけを使う。ここに無い状態を作らない");
     const none = reverseScreenRequest("材料", "注文一覧", undefined, [], false);
     expect(none).toContain("状態は、まだ決まっていません");
-    expect(none).toContain("ソースにある値 (enum・定数) から取る");
+    expect(none).toContain("ソースの値 (enum・定数の名前) から取る");
     expect(none).toContain("例の値は空にする");
     expect(none).not.toContain("この状態の名前だけを使う");
     // 例の値の検査 (状態らしい値を落とす処理) は無い: 指示だけ
+  });
+});
+
+describe("画面 UI の依頼: 共通の部分と画面ごとの部分に分けて渡す", () => {
+  it("どの画面でも、1 つ目の部分 (shared) が同じ文で、2 つ目が画面ごとの部分。つないだ文は、今までの 1 つの文字列と同じ", async () => {
+    useScripts();
+    await reverseScreens(withDb(), multiFixtureSources(), baseOptions);
+    const uis = of("画面 UI");
+    expect(uis.length).toBeGreaterThanOrEqual(4);
+    for (const r of uis) {
+      expect(r.parts).toHaveLength(2);
+      expect(r.parts![0]!.shared).toBe(true);
+      expect(r.parts![1]!.shared).toBeUndefined();
+      expect(r.parts![0]!.text).toBe(uis[0]!.parts![0]!.text);
+      // 画面の名前・材料は、2 つ目の部分だけにある
+      expect(r.parts![0]!.text).not.toContain(screenNameOf(r.text));
+      expect(r.parts![1]!.text).toContain(screenNameOf(r.text));
+      expect(r.parts![1]!.text.startsWith("======== ここから、この画面の依頼 ========")).toBe(true);
+    }
+    expect(new Set(uis.map((r) => r.parts![1]!.text)).size).toBe(uis.length);
+    // 共通の部分は、画面 UI の決まりを含む十分な長さ (約 1,750 トークンの目安: 数千文字)
+    expect(uis[0]!.parts![0]!.text.length).toBeGreaterThan(2500);
+    // 調査・構成の依頼は、今までどおり 1 つの文字列
+    for (const r of [...of("調査"), ...of("画面の構成")]) expect(r.parts).toBeNull();
+    // reverseScreenRequest (1 つの文字列) は、部分をつないだもの
+    const p = reverseScreenRequestParts("材料", "注文一覧", undefined, ["承認待ち"], true);
+    expect(reverseScreenRequest("材料", "注文一覧", undefined, ["承認待ち"], true)).toBe(p.map((x) => x.text).join(""));
+  });
+});
+
+describe("道具の渡し方: Claude のときだけ、段階の中のどの会話にも全部の道具を渡す", () => {
+  const names = (r: Rec) => (JSON.parse(r.tools) as { name: string }[]).map((t) => t.name);
+  const SOURCE = ["list_files", "read_file", "search_code"];
+
+  it("Claude: 画面の段階の調査・構成・画面 UI の会話が、どれも同じ道具の定義 (ソースの道具 + 段階の道具) を持つ", async () => {
+    useScripts();
+    await reverseScreens(withDb(), multiFixtureSources(), baseOptions);
+    const all = recs().map(names);
+    expect(all.every((n) => JSON.stringify(n) === JSON.stringify(all[0]))).toBe(true);
+    expect(all[0]).toEqual([...SOURCE, "submit_screens", "submit_screen", "get_table"]);
+  });
+
+  it("Codex・Gemini: その会話で使う道具だけを渡す (使わない道具の定義で、毎回の入力を増やさない)", async () => {
+    for (const provider of ["codex", "gemini"] as const) {
+      useScripts();
+      const screens = await reverseScreens(withDb(), multiFixtureSources(), { ...baseOptions, provider });
+      expect(names(of("調査")[0]!)).toEqual(SOURCE);
+      expect(names(of("画面の構成")[0]!)).toEqual([...SOURCE, "submit_screens"]);
+      expect(names(of("画面 UI")[0]!)).toEqual([...SOURCE, "submit_screen", "get_table"]);
+      fake.recs = [];
+      await reverseLogic(screens.model, multiFixtureSources(), "お客様の注文から", { ...baseOptions, provider });
+      expect(names(of("調査")[0]!)).toEqual(SOURCE);
+      expect(names(of("業務のモデル")[0]!)).toEqual([...SOURCE, "submit_model"]);
+      expect(names(of("テーブルの対応")[0]!)).toEqual([...SOURCE, "use_database", "get_table"]);
+    }
+  });
+});
+
+describe("調査結果の引き継ぎ: 途中で終わった調査結果", () => {
+  it("途中で終わった画面の段階の調査結果には、途中で終わったことを添え、足りないところを読み直すよう伝える。終わった調査結果には添えない", () => {
+    const base = { survey: "## 画面\n- 注文入力", files: ["src/a.ts"], scope: "" };
+    const done = reverseLogicSurveyRequest("x", emptyModel("m"), "t", 3, undefined, base);
+    const cut = reverseLogicSurveyRequest("x", emptyModel("m"), "t", 3, undefined, { ...base, incomplete: true });
+    expect(done).not.toContain("途中で打ち切られた");
+    expect(done).not.toContain("上の調査結果は途中で終わっています");
+    expect(cut).toContain("調査の会話が途中で打ち切られたもの");
+    expect(cut).toContain("上の調査結果は途中で終わっています");
+    expect(cut).toContain("書かれていないものは、未確認として、自分で読んで確かめる");
+  });
+
+  it("画面の段階が、調査が途中で終わったかを結果に残す (業務の段階へ渡すため)", async () => {
+    useScripts();
+    expect((await reverseScreens(withDb(), multiFixtureSources(), baseOptions)).surveyIncomplete).toBe(false);
   });
 });
 
@@ -396,16 +473,19 @@ describe("使用量", () => {
       cacheWrite: 4000,
       cacheRead: 5000 + uiCount * 9000,
     });
-    expect(usageLine(res.usage)).toBe(`AI の利用: ${2 + uiCount} 回、入力 ${res.usage!.input.toLocaleString("en-US")} トークン (うちキャッシュから ${res.usage!.cacheRead.toLocaleString("en-US")})、出力 ${res.usage!.output.toLocaleString("en-US")} トークン`);
+    expect(usageLine(res.usage)).toBe(`AI の利用: ${2 + uiCount} 回、入力 ${res.usage!.input.toLocaleString("en-US")} トークン (うちキャッシュから ${res.usage!.cacheRead.toLocaleString("en-US")}、キャッシュへ ${res.usage!.cacheWrite.toLocaleString("en-US")})、出力 ${res.usage!.output.toLocaleString("en-US")} トークン`);
   });
 
-  it("使用量が届かなければ null (画面に出さない)。キャッシュの読み取りが無ければ「うちキャッシュから」を付けない", async () => {
+  it("使用量が届かなければ null (画面に出さない)。読み取り・書き込みが無ければ「うちキャッシュ…」を付けない", async () => {
     useScripts();
     const res = await reverseScreens(withDb(), multiFixtureSources(), baseOptions);
     expect(res.usage).toBeNull();
     expect(usageLine(null)).toBe("");
     expect(usageLine({ requests: 18, input: 201163, output: 6627, cacheWrite: 0, cacheRead: 0 })).toBe("AI の利用: 18 回、入力 201,163 トークン、出力 6,627 トークン");
-    expect(usageLine({ requests: 18, input: 201163, output: 6627, cacheWrite: 1, cacheRead: 132000 })).toBe("AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン");
+    expect(usageLine({ requests: 18, input: 201163, output: 6627, cacheWrite: 0, cacheRead: 132000 })).toBe("AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン");
+    // キャッシュへの書き込みも出す。読み取りが無くても、書き込みがあれば出す
+    expect(usageLine({ requests: 18, input: 227716, output: 6627, cacheWrite: 33909, cacheRead: 193759 })).toBe("AI の利用: 18 回、入力 227,716 トークン (うちキャッシュから 193,759、キャッシュへ 33,909)、出力 6,627 トークン");
+    expect(usageLine({ requests: 1, input: 5000, output: 10, cacheWrite: 4000, cacheRead: 0 })).toBe("AI の利用: 1 回、入力 5,000 トークン (うちキャッシュへ 4,000)、出力 10 トークン");
   });
 
   it("trackUsage は、元の onUsage も呼ぶ", () => {

@@ -320,7 +320,8 @@ export async function generateDomainDraft(model: UntieModel, systemId: string, o
     if (attempts >= DOMAIN_DRAFT_MAX_ATTEMPTS || box.value) return { ok: false, content: JSON.stringify({ error: "これ以上は受け付けません" }), changed: false };
     attempts++;
     const reason = evaluate(draft);
-    if (reason === null) return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };
+    // 受け付けたら、AI に言うことは残っていない (次のリクエストを送らず、往復を 1 回省く)
+    if (reason === null) return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false, finish: true };
     box.lastReason = reason;
     const again = attempts < DOMAIN_DRAFT_MAX_ATTEMPTS ? "直して、全体を submit_domain_model で出し直してください" : "これ以上は受け付けません";
     return { ok: false, content: JSON.stringify({ error: `当てられないところがあります。${again}:\n${reason}` }), changed: false };

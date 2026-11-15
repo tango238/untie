@@ -3,7 +3,7 @@
 import { DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
 import { designScreenName } from "@untie/core/model/sitemap";
 import type { UntieModel } from "@untie/core/model/types";
-import { ChatError, createChatSession, describeChatError, isTransientApiError, totalInputTokens, type ChatEvents, type ChatSession, type ChatUsage, type SeedTurn } from "./chat";
+import { ChatError, createChatSession, describeChatError, isTransientApiError, MAX_STEPS, totalInputTokens, type ChatEvents, type ChatSession, type ChatUsage, type SeedTurn } from "./chat";
 import type { ProviderId } from "./providers";
 import { executeSourceTool, isSourceTool, SOURCE_TOOLS } from "./sourceTools";
 import { isMultiSourceTree, visibleFiles, type SourceTree } from "./sourceTree";
@@ -62,11 +62,15 @@ export function trackUsage<T extends StageOptions>(o: T): { options: T; summary:
   return { options, summary: () => (sum.requests > 0 ? { ...sum } : null) };
 }
 
-/** 段階の使用量を 1 行にする (金額は出さない。単価が変わるため)。例: 「AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン」 */
+/**
+ * 段階の使用量を 1 行にする (金額は出さない。単価が変わるため)。キャッシュから読んだ分と、キャッシュへ書いた分があれば添える。
+ * 例: 「AI の利用: 18 回、入力 227,716 トークン (うちキャッシュから 193,759、キャッシュへ 33,909)、出力 6,627 トークン」
+ */
 export function usageLine(u: StageUsageSummary | null | undefined): string {
   if (!u) return "";
   const n = (v: number) => v.toLocaleString("en-US");
-  return `AI の利用: ${u.requests} 回、入力 ${n(u.input)} トークン${u.cacheRead > 0 ? ` (うちキャッシュから ${n(u.cacheRead)})` : ""}、出力 ${n(u.output)} トークン`;
+  const cached = [u.cacheRead > 0 ? `キャッシュから ${n(u.cacheRead)}` : "", u.cacheWrite > 0 ? `キャッシュへ ${n(u.cacheWrite)}` : ""].filter((x) => x !== "");
+  return `AI の利用: ${u.requests} 回、入力 ${n(u.input)} トークン${cached.length > 0 ? ` (うち${cached.join("、")})` : ""}、出力 ${n(u.output)} トークン`;
 }
 
 // ---------------------------------------------------------------- 上限
@@ -105,6 +109,10 @@ export const REVERSE_LIMITS = {
   screenErrorStreak: 3,
   /** テーブルと情報の対応を答える use_database を、1 つの会話で呼べる回数 (システム・データベースごとの答えと、出し直しの合計) */
   mappingCalls: 12,
+  /** テーブルと情報の対応の会話で、同じ内容の出し直しの案内 (対応のない情報が減っていないのに促す) を返す回数の上限 */
+  mappingNudges: 2,
+  /** 使えない道具が呼ばれたとき、会話ごとに、案内を返す回数 (これを超えたら「道具を使わずに答えてください」と返し、それでも続いたら会話を打ち切る) */
+  unavailableCalls: 2,
   /** 業務の段階の調査の依頼に入れる、前の段階 (画面) の調査結果の長さ (文字) */
   previousSurveyChars: 20000,
   /** 提出が、空・形の違い・必須の中身が無いなどで断られ続けたとき、これを超えたら打ち切る回数 (出し直しの回数とは別。往復の上限まで続けさせない) */
@@ -138,6 +146,20 @@ export function sourceLimits(sources: number): Record<"survey" | "model" | "data
 }
 
 /**
+ * テーブルと情報の対応の会話 (段階の中で 1 つ。モデルのすべてのシステムをまとめて扱う) の、ソースの道具 (get_table を含む) の上限。
+ * 対応を付けるシステムが増えるほど、調べる列も増えるので、システムが 1 つのときの上限 (sourceLimits の data) に、システムごとに足す。
+ * 回数は、往復の上限 (MAX_STEPS) から、use_database の回数 (mappingCalls)・答える往復・終わりの返答を引いた残りまで。文字数は、文脈の窓から決めた SOURCE_CHARS_CAP.data まで
+ */
+export const MAPPING_CALLS_PER_SYSTEM = 3;
+export const MAPPING_CHARS_PER_SYSTEM = 10_000;
+export const MAPPING_CALLS_CAP = MAX_STEPS - REVERSE_LIMITS.mappingCalls - 4;
+export function mappingLimits(sources = 1, systems = 1): { calls: number; chars: number } {
+  const d = sourceLimits(sources).data;
+  const extra = Math.max(0, Math.floor(systems) - 1);
+  return { calls: Math.min(MAPPING_CALLS_CAP, d.calls + MAPPING_CALLS_PER_SYSTEM * extra), chars: Math.min(SOURCE_CHARS_CAP.data, d.chars + MAPPING_CHARS_PER_SYSTEM * extra) };
+}
+
+/**
  * 画面の段階 (調査 1 + 画面の構成 1 + 画面ごとの画面 UI) の 1 回の実行で、ソースの道具を呼べる回数と、道具が返す文字数の合計の上限。
  * 段階ごとの上限の合計から決める。固定の数にすると、画面が多いとき、後ろの画面の分が残らない
  */
@@ -146,10 +168,15 @@ export function screensBudget(screens: number, sources = 1): { calls: number; ch
   return { calls: l.survey.calls + l.model.calls + l.screen.calls * screens, chars: l.survey.chars + l.model.chars + l.screen.chars * screens };
 }
 
-/** 業務の段階 (調査 1 + 業務のモデル 1 + テーブルと情報の対応 1。対応の会話は全体で 1 つなので、data は 1 つ分) の、ソースの道具の合計の上限 */
-export function logicBudget(mappings: number, sources = 1): { calls: number; chars: number } {
+/**
+ * 業務の段階 (調査 1 + 業務のモデル 1 + テーブルと情報の対応 1。対応の会話は全体で 1 つなので、data は 1 つ分) の、ソースの道具の合計の上限。
+ * mappings は、対応の会話の数 (0 か 1)。対応を付けるシステムの数 (mappingSystems) が多いときは、その会話の上限が増える (mappingLimits)
+ */
+export function logicBudget(mappings: number, sources = 1, mappingSystems = 1): { calls: number; chars: number } {
   const l = sourceLimits(sources);
-  return { calls: l.survey.calls + l.model.calls + l.data.calls * mappings, chars: l.survey.chars + l.model.chars + l.data.chars * mappings };
+  const m = mappingLimits(sources, mappingSystems);
+  const d = mappings > 0 ? { calls: m.calls + l.data.calls * (mappings - 1), chars: m.chars + l.data.chars * (mappings - 1) } : { calls: 0, chars: 0 };
+  return { calls: l.survey.calls + l.model.calls + d.calls, chars: l.survey.chars + l.model.chars + d.chars };
 }
 
 /**
@@ -162,7 +189,8 @@ export function conversationSteps(sources = 1): Record<"survey" | "model" | "dat
   return {
     survey: l.survey.calls + 1,
     model: l.model.calls + L.strictModelAttempts + 2,
-    data: l.data.calls + L.mappingCalls + 1 + 2,
+    // テーブルと情報の対応の会話: システムが多いときの上限 (mappingLimits の頭打ち) まで読んだあとに、答える往復 (mappingCalls) と、答え直し・終わりの返答が残る
+    data: MAPPING_CALLS_CAP + L.mappingCalls + 1 + 2,
     screen: l.screen.calls + L.screenRetries + 1 + 1,
   };
 }
@@ -175,9 +203,11 @@ export function conversationSteps(sources = 1): Record<"survey" | "model" | "dat
 // 検査の理由が会話に残るほうがよいので、1 つの会話の中で続ける。
 //
 // プロンプトキャッシュ (chat.ts): 会話は、リクエストの先頭 (道具の定義 → system → 履歴) が前のリクエストと同じところまでが安く読まれる。
-// そこで、同じ段階の会話は、道具の定義 (stageTools) と system を、どの会話でも同じにする。使えない道具が呼ばれたら、実行せずに案内を返す
-// (調査の途中の提出など)。会話の最初のメッセージは、調査の依頼のまま (調査の会話の最初のメッセージと同じなので、調査の会話が書いたキャッシュを読める)。
-// 会話ごとに違う部分 (画面ごとの依頼など) は、いつも最後に置く。
+// そこで、同じ段階の会話は、道具の定義 (stageTools) と system を、どの会話でも同じにする (Claude のときだけ。OpenAI・Gemini は印を付けられず、
+// 使わない道具の定義が入力に増えるだけなので、その会話で使う道具だけを渡す)。使えない道具が呼ばれたら、実行せずに案内を返し、続いたら打ち切る
+// (調査の途中の提出など)。会話の最初のメッセージは、調査の依頼のまま (調査の会話の最初のメッセージと同じなので、5 分以内なら、調査の会話が書いたキャッシュを読める)。
+// 会話ごとに違う部分 (画面ごとの依頼など) は、いつも最後に置く。画面 UI の依頼は、共通の部分と画面ごとの部分に分けて渡し、共通の部分の終わりに印を置く
+// (reversePrompts.ts の reverseScreenRequestParts)。受け付けた提出は、会話を終えてよいと示し (acceptedOutcome)、提出の結果を返して AI が短い返事を書くだけの往復を省く。
 const ABORT_MESSAGE = "中断しました。";
 /** 中断されていたら例外を投げる (どの段階でも、道具の呼び出しと会話の切れ目で見る) */
 export function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -186,6 +216,11 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
 
 export const errorOutcome = (message: string): ToolOutcome => ({ ok: false, content: JSON.stringify({ error: message }), changed: false });
 export const okOutcome = (message: string, changed: boolean): ToolOutcome => ({ ok: true, content: JSON.stringify({ result: message }), changed });
+/**
+ * 受け付けて、これ以上の出し直しが要らない提出の結果。AI に言うことが残っていないので、会話を終えてよいと示す (次のリクエストを送らない。chat.ts の finish)。
+ * AI に返す気づいたこと (直せるなら出し直してよいという案内) があるとき、受け付けなかったときは使わない (okOutcome・errorOutcome で、会話を続ける)
+ */
+export const acceptedOutcome = (message: string, changed: boolean): ToolOutcome => ({ ...okOutcome(message, changed), finish: true });
 
 /** 通知に出す、道具の名前 (画面に「name detail」と出るので、短い日本語にする) */
 const SOURCE_TOOL_LABELS: Record<string, string> = { list_files: "一覧", read_file: "読む", search_code: "探す", get_table: "テーブル" };
@@ -262,15 +297,29 @@ export interface SessionSpec {
   unavailable: string;
 }
 
+/** 使えない道具が呼ばれ続けて、会話を打ち切るときの文 */
+const UNAVAILABLE_ABORT = "この会話で使えない道具が続けて呼ばれたので、会話を打ち切りました。";
+
 /** 新しい会話。道具の呼び出しは、ソースの道具ならソースへ、それ以外は handlers へ振り分ける */
 export function openSession(ctx: Ctx, spec: SessionSpec): ChatSession {
   const runSource = sourceRunner(ctx, spec.cap);
   const counted = spec.counted ?? [];
+  // 使えない道具 (この会話の handlers に無いもの) が呼ばれた回数。上限を超えたら「道具を使わずに答えてください」と返し、それでも続いたら会話を打ち切る
+  let unavailableCalls = 0;
+  const unavailable = (message: string): ToolOutcome => {
+    unavailableCalls++;
+    if (unavailableCalls > REVERSE_LIMITS.unavailableCalls + 1) throw new ChatError(UNAVAILABLE_ABORT);
+    if (unavailableCalls > REVERSE_LIMITS.unavailableCalls) return errorOutcome("この会話では道具を使わずに答えてください。");
+    return errorOutcome(message);
+  };
+  // 渡す道具: Claude は、段階の中のどの会話にも同じ定義を渡す (先頭が同じになり、キャッシュを分け合える)。
+  // OpenAI・Gemini はこちらで印を付けられず、使わない道具の定義が毎回の入力に増えるだけなので、この会話で使う道具だけを渡す
+  const stageTools = ctx.o.provider === "claude" ? spec.stageTools : spec.stageTools.filter((t) => t.name in spec.handlers);
   const inner = createChatSession(ctx.o.provider, {
     apiKey: ctx.o.apiKey,
     model: ctx.o.model,
     system: spec.system,
-    tools: [...SOURCE_TOOLS, ...spec.stageTools],
+    tools: [...SOURCE_TOOLS, ...stageTools],
     label: spec.label,
     runTool: (name, input) => {
       if (isSourceTool(name)) return runSource(name, input);
@@ -278,8 +327,8 @@ export function openSession(ctx: Ctx, spec: SessionSpec): ChatSession {
       const h = spec.handlers[name];
       if (h && counted.includes(name)) return runSource(name, input, () => h(input));
       if (h) return h(input);
-      if (spec.stageTools.some((t) => t.name === name)) return errorOutcome(`この会話では ${name} は使えません。${spec.unavailable}`);
-      return errorOutcome(`不明な道具です: ${name}`);
+      if (spec.stageTools.some((t) => t.name === name)) return unavailable(`この会話では ${name} は使えません。${spec.unavailable}`);
+      return unavailable(`不明な道具です: ${name}`);
     },
   });
   if (spec.seed.length > 0) inner.seed(spec.seed);

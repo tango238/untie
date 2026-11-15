@@ -9,6 +9,7 @@ import { applyDataImport } from "../../ai/reverseData";
 import { buildModelFromSpec } from "../../ai/spec";
 import { reverseScreens, type ScreensResult } from "../../ai/reverseScreens";
 import { forgetSources } from "../../ai/sourceRegistry";
+import { forgetScreenSurvey } from "../../ai/surveyMemory";
 import { MAX_SOURCES, memorySourceTree, type SourceTree } from "../../ai/sourceTree";
 import { getPlatform } from "../../platform";
 import { memory } from "../../test/platform";
@@ -78,6 +79,7 @@ function screensResult(over: Partial<ScreensResult> = {}): ScreensResult {
     headline: "画面を足しました",
     readFiles: ["src/orders.ts"],
     scope: "",
+    surveyIncomplete: false,
     usage: null,
     ...over,
   };
@@ -104,6 +106,7 @@ const progressOf = (c: ReturnType<typeof card>) => c.getByText(/^進み具合: /
 beforeEach(() => {
   resetStore(emptyModel("テスト"));
   forgetSources();
+  forgetScreenSurvey();
   useAgentStore.setState({ items: [], running: false, mode: { kind: "edit" } });
   mockedScreens.mockReset();
   mockedLogic.mockReset();
@@ -795,7 +798,7 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     // 同じ文は 1 か所だけ (一覧の項目)。結果の文には含まれない
     expect(screen.getAllByText(/画面 UI: 画面「注文入力」は置けませんでした/)).toHaveLength(1);
     expect(screen.getByText(/画面の段階が終わりました。画面を足しました。 気づいたことが 1 件あります。/)).toBeDefined();
-    expect(screen.getByText("AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン")).toBeDefined();
+    expect(screen.getByText("AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000、キャッシュへ 20,000)、出力 6,627 トークン")).toBeDefined();
     expect(document.querySelector(".stage-usage")!.textContent).not.toMatch(/円|ドル|\$|¥/);
   });
 
@@ -810,7 +813,7 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     expect(document.querySelector(".stage-usage")).toBeNull();
   });
 
-  it("画面の段階の調査結果は、業務の段階の調査に渡される。画面の段階を実行していない・ソースを登録し直した・別のモデルを開いたときは渡さない", async () => {
+  it("画面の段階の調査結果は、業務の段階の調査に渡される。画面の段階を実行していない・ソースを登録し直した・別のモデルを開いた (docSeq が変わった) ときは渡さない", async () => {
     mockedScreens.mockImplementation(async () => screensResult({ survey: "## 画面の調査\n- 注文入力 (src/orders.ts)", readFiles: ["src/orders.ts", "src/ship.ts"], scope: "注文まわり" }));
     const previousOf = () => mockedLogic.mock.calls[mockedLogic.mock.calls.length - 1]![3].previousSurvey;
     mockedLogic.mockImplementation(async () => logicResult());
@@ -840,6 +843,87 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     });
     await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(3));
     expect(previousOf() ?? null).toBeNull();
+    // 画面の段階をやり直して覚え直したあと、別のモデルを開いた (docSeq が変わった) ときも、渡さない
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(4));
+    expect(previousOf()).not.toBeNull();
+    act(() => useUntieStore.setState({ docSeq: useUntieStore.getState().docSeq + 1 }));
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(5));
+    expect(previousOf() ?? null).toBeNull();
+  });
+
+  it("調査が途中で終わった画面の段階の調査結果は、途中で終わったことを添えて業務の段階へ渡す", async () => {
+    mockedScreens.mockImplementation(async () => screensResult({ survey: "## 途中まで", surveyIncomplete: true }));
+    mockedLogic.mockImplementation(async () => logicResult());
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(1));
+    expect(mockedLogic.mock.calls[0]![3].previousSurvey).toMatchObject({ survey: "## 途中まで", incomplete: true });
+  });
+
+  it("画面の段階をやり直して失敗・中断したとき、前の範囲の調査結果は業務の段階に渡さない (画面の段階を始めた時点で忘れる)", async () => {
+    mockedScreens.mockImplementationOnce(async () => screensResult({ survey: "## 前の範囲の調査", scope: "前の範囲" }));
+    mockedLogic.mockImplementation(async () => logicResult());
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    // やり直しが失敗する
+    mockedScreens.mockImplementationOnce(async () => {
+      throw new Error("失敗");
+    });
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("失敗"));
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(1));
+    expect(mockedLogic.mock.calls[0]![3].previousSurvey ?? null).toBeNull();
+  });
+
+  it("失敗・中断した段階でも、使った分があれば、使用量をエラーに添える (キャッシュへの書き込みも出す)", async () => {
+    mockedScreens.mockImplementationOnce(async (_b, _s, o) => {
+      o.onUsage?.({ conversation: "調査", input: 1000, output: 50, cacheWrite: 400, cacheRead: 600 });
+      o.onUsage?.({ conversation: "調査", input: 100, output: 20, cacheWrite: 0, cacheRead: 1900 });
+      throw new Error("API が落ちました");
+    });
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
+    expect(screen.getByRole("alert").textContent).toBe("API が落ちました (AI の利用: 2 回、入力 4,000 トークン (うちキャッシュから 2,500、キャッシュへ 400)、出力 70 トークン)");
+    // 使用量が無いときは、エラーのままの文
+    mockedScreens.mockImplementationOnce(async () => {
+      throw new Error("別の失敗");
+    });
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("別の失敗"));
   });
 
   it("実行中は、その段階の進み具合 (手順・読んだ場所・調査結果・提出と画面ごとの結果) を出し、登録欄とほかの段階は畳む。中断できる", async () => {

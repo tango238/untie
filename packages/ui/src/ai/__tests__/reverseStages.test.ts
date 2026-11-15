@@ -65,7 +65,9 @@ vi.mock("../chat", async (importOriginal) => {
       const kind = ({ 調査: "survey", 画面の構成: "structure", "画面 UI": "screen", 業務のモデル: "model", テーブルの対応: "tables" } as Record<string, string>)[o.label ?? ""]!;
       return {
         seed: () => {},
-        send: async (text: string, events?: ChatEvents) => {
+        send: async (input: string | readonly { text: string }[], events?: ChatEvents) => {
+          // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
+          const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
           const runTool: ChatOptions["runTool"] = async (name, input) => {
             const outcome = await o.runTool(name, input);
             events?.onTool?.(name, outcome);

@@ -50,6 +50,11 @@ export interface ToolOutcome {
   content: string;
   /** モデルを変えたか */
   changed: boolean;
+  /**
+   * この結果を返したら、会話を終えてよいか (任意)。真なら、同じ往復のほかの道具の呼び出しをすべて実行し、結果を履歴に積んだうえで、
+   * 次のリクエストを送らずに send を終える (受け付けた提出に、AI がもう言うことのないとき。往復を 1 回省く)。付けなければ、今までどおり続ける
+   */
+  finish?: boolean;
 }
 
 const str = (description: string) => ({ type: "string", description });

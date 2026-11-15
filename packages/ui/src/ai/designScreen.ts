@@ -247,7 +247,8 @@ export async function generateScreen(model: UntieModel, systemId: string, screen
     const { result, retry } = evaluate(proposal, attempts > 1);
     if (result) {
       box.value = result;
-      return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false };
+      // 受け付けたら、AI に言うことは残っていない (次のリクエストを送らず、往復を 1 回省く)
+      return { ok: true, content: JSON.stringify({ result: "受け付けました" }), changed: false, finish: true };
     }
     return { ok: false, content: JSON.stringify({ error: retry ?? box.lastError }), changed: false };
   };
