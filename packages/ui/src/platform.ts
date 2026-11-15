@@ -17,6 +17,13 @@ export interface OpenedFile {
   text: string;
 }
 
+/** openTextFile で選べるファイルの種類 (拡張子は . なし) */
+export interface OpenTextFileOptions {
+  /** 選ぶ窓に出す、種類の名前 (例: SQL) */
+  description: string;
+  extensions: readonly string[];
+}
+
 export interface SavedFile {
   path: string | null;
   name: string;
@@ -68,8 +75,11 @@ export interface Platform {
    * false なら、ホームにクラウドの欄を出さず、#/f・#/invite・#/link はホームに戻す
    */
   cloud: boolean;
-  /** ファイルを選んで中身を読む。取り消したら null */
-  openTextFile(): Promise<OpenedFile | null>;
+  /**
+   * ファイルを選んで中身を読む。取り消したら null。options を渡すと、選べるファイルの種類をそれに替える (省略は Untie のモデルのファイル。
+   * 「ソースコードから作成」のデータの段階が SQL を選ぶのに使う)
+   */
+  openTextFile(options?: OpenTextFileOptions): Promise<OpenedFile | null>;
   /**
    * 中身を書き出す。path があればそこへ上書きし、無ければ保存先を選ぶ。
    * 保存先を選ぶのを取り消したら null

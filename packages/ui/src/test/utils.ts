@@ -1,6 +1,7 @@
 import { placeOnBoard } from "@untie/core/model/commands";
 import type { UntieModel } from "@untie/core/model/types";
 import { createHotelSample } from "@untie/core/sample";
+import { forgetSources } from "../ai/sourceRegistry";
 import { useUntieStore } from "../store";
 
 /**
@@ -19,6 +20,8 @@ export function sampleWithActorCards(): UntieModel {
 
 /** グローバルストアをサンプル (アクターのカード付き) の初期状態に戻す */
 export function resetStore(model = sampleWithActorCards()) {
+  // 「ソースコードから作成」で覚えた登録は、テストをまたがない
+  forgetSources();
   useUntieStore.setState({
     model,
     file: null,

@@ -638,6 +638,32 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .source-reads { margin-bottom: 6px; }
 /* 失敗の文は、本文のスクロールの外 (見出しの下) に出す。長い文 (API の JSON など) は折り返し、高さに上限を付けてスクロールできるようにする */
 .source-error { max-height: 96px; overflow-y: auto; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; line-height: 1.5; padding: 6px 10px; border: 1px solid var(--danger); border-radius: 6px; background: #fdf3f1; }
+/* 段階のカード (データ・画面・業務) */
+.stage-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.stage-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.stage-card-head h3 { margin: 0; font-size: 14px; }
+.stage-progress { font-size: 12px; font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
+.stage-sub { font-size: 12px; font-weight: 600; margin-top: 2px; }
+.stage-advice { color: #8a5a12; }
+.stage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.candidate-row { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; font-size: 12px; }
+.candidate-row input[type="checkbox"] { flex: none; align-self: center; }
+.candidate-text { display: flex; flex-direction: column; min-width: 0; }
+.candidate-path { overflow-wrap: anywhere; min-width: 0; }
+.candidate-meta { font-size: 11px; color: var(--muted); }
+.stage-field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.stage-field > span { flex: none; min-width: 8em; }
+.stage-field input { flex: 1; min-width: 0; font: inherit; color: var(--text, inherit); }
+.stage-field-top { flex-direction: column; align-items: stretch; gap: 4px; }
+.stage-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stage-preview { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+.stage-tables { margin: 0; padding-left: 18px; columns: 2 12em; column-gap: 16px; }
+.stage-notes { margin: 0; padding-left: 18px; max-height: 120px; overflow-y: auto; overflow-wrap: anywhere; }
+.stage-confirm { border: 1px solid #c9a24a; background: #fdf8ea; border-radius: 6px; padding: 8px 10px; }
+.stage-confirm p { margin: 0 0 6px; }
+.stage-rebuild summary { cursor: pointer; font-size: 12px; }
+.stage-next { margin: 6px 0 0; }
+.stage-result { max-height: none; }
 .source-warnings-heading:focus { outline: none; }
 .source-warnings-heading:focus-visible { outline: 2px solid var(--accent, #3a6ea5); outline-offset: 2px; }
 .source-warnings { background: #f6f4ef; border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 200px; overflow-y: auto; }
@@ -1077,6 +1103,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .source-label-field { flex-direction: column; align-items: stretch; gap: 2px; }
   .source-label-field > span { min-width: 0; }
   .source-total { margin-left: 0; width: 100%; }
+  .stage-field { flex-direction: column; align-items: stretch; gap: 2px; }
+  .stage-field > span { min-width: 0; }
+  .stage-tables { columns: 1; }
   .about-icon { width: 64px; height: 64px; border-radius: 14px; }
   .toast-host { left: 12px; right: 12px; transform: none; align-items: stretch; }
   .share-inline input[type="email"], .share-inline input[readonly] { min-width: 0; }

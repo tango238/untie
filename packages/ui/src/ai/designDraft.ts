@@ -329,7 +329,7 @@ const DETAIL_MAX = 3;
  * データベースの DSL を置き直したあと、そのデータベースを指す画面の対応 (bindings) のうち、テーブルや列が無くなったものを外す。
  * 外した画面ごとに、何を外したかを warnings に残す
  */
-function dropInvalidBindings(model: UntieModel, databaseId: string, warnings: string[]): UntieModel {
+export function dropInvalidBindings(model: UntieModel, databaseId: string, warnings: string[]): UntieModel {
   const db = model.databases.find((d) => d.id === databaseId);
   if (!db) return model;
   const schema = parsePrismaDslCached(db.dsl);

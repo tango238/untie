@@ -273,13 +273,29 @@ export interface BuildResult {
   model: UntieModel;
   /** 名前が見つからなかったなど、組み立てで気づいたこと */
   warnings: string[];
+  /** できあがったモデルにある要素の数 (土台があれば、土台の分も含む) */
   counts: Partial<Record<ElementKind, number>>;
+  /** このとき新しく足した要素の数 (土台が無ければ counts と同じ) */
+  added: Partial<Record<ElementKind, number>>;
 }
 
-/** 下書きをモデルに組み立てる。参照先の名前が無ければ、その参照を飛ばして warnings に残す */
-export function buildModelFromSpec(spec: ModelSpec): BuildResult {
-  let model = emptyModel(nameOf(spec.system_name || "") || "新しいモデル");
-  if (spec.overview) model = { ...model, meta: { ...model.meta, description: truncateText(spec.overview, DESCRIPTION_MAX_LENGTH) } };
+export interface BuildOptions {
+  /**
+   * 土台のモデル。あれば、空のモデルからではなく、これに足す (「ソースコードから作成」の業務の段階)。
+   * 下書きの名前が土台の要素 (同じ種類・同じ名前。画面は同じシステムの同じ名前、作業は同じ活動の同じ名前、活動は同じ業務の同じ名前) を指すなら、
+   * 作り直さずにそれを使い、無いものだけ足す。土台の要素の名前・説明・ペルソナ・起点の書き込み・主担当は書き換えない。
+   * モデルの名前と、課題の同じ名前 (すでにあるもの) も変えない
+   */
+  base?: UntieModel;
+}
+
+/** 下書きをモデルに組み立てる。参照先の名前が無ければ、その参照を飛ばして warnings に残す。options.base があれば、それに足す */
+export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}): BuildResult {
+  const base = options.base;
+  let model = base ?? emptyModel(nameOf(spec.system_name || "") || "新しいモデル");
+  if (spec.overview && (!base || !base.meta.description?.trim())) model = { ...model, meta: { ...model.meta, description: truncateText(spec.overview, DESCRIPTION_MAX_LENGTH) } };
+  /** 土台にあった要素の id (土台が無ければ空) */
+  const baseIds = new Set<string>(base ? base.elements.map((e) => e.id) : []);
   const warnings: string[] = [];
   /** 名前が無くて飛ばした要素の数 (種類ごと) */
   const nameless = new Map<ElementKind, number>();
@@ -344,6 +360,47 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   const kindById = new Map<string, ElementKind>();
   const relationByKey = new Map<string, string>();
   const relationKey = (kind: string, a: string, b: string) => (isUndirected(kind as never) && a > b ? `${kind}:${b}:${a}` : `${kind}:${a}:${b}`);
+  // 土台の要素と関係を、名前の突き合わせと重複の検査に使えるようにする (同じ名前が複数あれば最初のもの)
+  if (base) {
+    const put = (group: string, name: string, id: string) => {
+      const m = ids.get(group) ?? new Map<string, string>();
+      ids.set(group, m);
+      if (!m.has(name)) m.set(name, id);
+    };
+    for (const e of base.elements) {
+      kindById.set(e.id, e.kind);
+      switch (e.kind) {
+        case "actor":
+        case "externalActor":
+        case "system":
+          put("actor", e.name, e.id);
+          break;
+        case "activity":
+          put(`activity:${e.bucId}`, e.name, e.id);
+          break;
+        case "buc":
+          if (!e.isDefault) put(`buc:${e.businessId}`, e.name, e.id);
+          break;
+        case "screen":
+          put(`screen:${e.systemId}`, e.name, e.id);
+          break;
+        case "ledger":
+        case "business":
+        case "usecase":
+        case "event":
+        case "context":
+        case "variation":
+        case "state":
+        case "information":
+        case "condition":
+          put(e.kind, e.name, e.id);
+          break;
+        default:
+          break;
+      }
+    }
+    for (const r of base.relations) relationByKey.set(relationKey(r.kind, r.sourceId, r.targetId), r.id);
+  }
   const relate = (sourceId: string | null | undefined, targetId: string | null | undefined, access?: "read" | "write") => {
     if (!sourceId || !targetId) return;
     const sourceKind = kindById.get(sourceId);
@@ -379,6 +436,8 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   const addActor = (kind: "actor" | "externalActor", a: SpecActor) => {
     const id = add(kind, "actor", a);
     if (!id || !a.persona || typeof a.persona !== "object") return;
+    // 土台にいる人のペルソナは、すでにあれば書き換えない
+    if (baseIds.has(id) && (model.elements.find((e) => e.id === id) as { persona?: unknown } | undefined)?.persona) return;
     // 不正な習熟はその項目だけ外して警告する (ペルソナは捨てない)。項目が無いペルソナは黙って飛ばす
     const input = { ...(a.persona as Record<string, unknown>) };
     if (input.it_skill !== undefined && input.it_skill !== "" && !isPersonaItSkill(input.it_skill)) {
@@ -493,7 +552,9 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   for (const b of clip(spec.businesses, L.businesses, "業務")) {
     const bizId = add("business", "business", b);
     if (!bizId) continue;
-    for (const n of clip(b.main_actors, L.refsPerItem, `業務「${b.name}」の主担当`)) {
+    // 土台にある業務で、主担当がもういるなら、足さない (1 つの業務に結ぶアクターは主担当の 1 人)
+    const keepMainActors = baseIds.has(bizId) && model.relations.some((r) => r.kind === "actorBusiness" && r.targetId === bizId);
+    for (const n of keepMainActors ? [] : clip(b.main_actors, L.refsPerItem, `業務「${b.name}」の主担当`)) {
       const actorId = ref(["actor"], n, "主担当");
       if (actorId && model.elements.find((e) => e.id === actorId)?.kind === "actor") relate(actorId, bizId);
       else if (actorId) warnings.push(`主担当「${n}」はアクターではないので結べません`);
@@ -590,6 +651,16 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   /** 画面 (分析の要素の id) → 使う操作の id と、操作 → 画面。結んだものだけを覚える (画面はこの段階で初めて結ぶ) */
   const usecaseOfScreen = new Map<string, string>();
   const screenOfUsecase = new Map<string, string>();
+  // 土台で、すでに画面を使っている操作 (画面 → 操作と操作 → 画面。同じ組を結び直さず、別の組は断る)
+  if (base) {
+    const kindOf = new Map(base.elements.map((e) => [e.id, e.kind]));
+    for (const r of base.relations) {
+      if (r.kind === "usecaseScreen" && kindOf.get(r.targetId) === "screen") {
+        usecaseOfScreen.set(r.targetId, r.sourceId);
+        screenOfUsecase.set(r.sourceId, r.targetId);
+      }
+    }
+  }
   for (const sc of clip(spec.screens, L.screens, "画面")) {
     const name = typeof sc.name === "string" ? nameOf(sc.name) : "";
     if (!name) {
@@ -696,11 +767,14 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
       else warnings.push(`起点のイベント「${n}」が見つかりません`);
     }
     const note = a.trigger_note?.trim();
-    if (note) apply(updateElement(model, { id, patch: { triggerNote: truncateText(note, TRIGGER_NOTE_MAX_LENGTH) } }), `作業「${a.name}」の起点を書けません`);
+    const hasNote = baseIds.has(id) && !!(model.elements.find((e) => e.id === id) as { triggerNote?: string } | undefined)?.triggerNote;
+    if (note && !hasNote) apply(updateElement(model, { id, patch: { triggerNote: truncateText(note, TRIGGER_NOTE_MAX_LENGTH) } }), `作業「${a.name}」の起点を書けません`);
   }
 
   // 課題
   for (const issue of clip(spec.issues, L.issues, "課題")) {
+    // 土台にある課題と同じ名前は、足さない (同じ業務をやり直したとき、課題が二重にならないように)
+    if (base && base.elements.some((e) => e.kind === "issue" && e.name === nameOf(issue.name ?? ""))) continue;
     const found = clip(issue.targets, L.refsPerItem, `課題「${issue.name}」の対象`)
       .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === nameOf(n)))
       .filter((e): e is Element => !!e);
@@ -726,9 +800,11 @@ export function buildModelFromSpec(spec: ModelSpec): BuildResult {
   for (const [kind, n] of nameless) warnings.push(`名前の無い${ELEMENT_KIND_LABELS[kind]}を ${n} 件飛ばしました`);
 
   const counts: BuildResult["counts"] = {};
+  const added: BuildResult["added"] = {};
   for (const e of model.elements) {
     if (e.kind === "buc" && e.isDefault) continue;
     counts[e.kind] = (counts[e.kind] ?? 0) + 1;
+    if (!baseIds.has(e.id)) added[e.kind] = (added[e.kind] ?? 0) + 1;
   }
-  return { model, warnings: [...new Set(warnings)], counts };
+  return { model, warnings: [...new Set(warnings)], counts, added };
 }

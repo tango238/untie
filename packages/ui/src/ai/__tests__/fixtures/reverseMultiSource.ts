@@ -17,6 +17,29 @@ export const MULTI_SECRETS = {
 export const MULTI_LABELS = ["バックエンド", "管理画面", "フロント画面"] as const;
 export const MULTI_FOLDERS = { バックエンド: "aozora-api", 管理画面: "aozora-admin", フロント画面: "aozora-shop" } as const;
 
+/** バックエンドのスキーマ (SQL。CREATE TABLE と外部キー)。テーブルは Order・OrderItem・Product で、MULTI_DATABASE の DSL と同じ中身 */
+export const MULTI_SCHEMA_SQL = `-- あおぞら雑貨店 API のスキーマ
+CREATE TABLE "Product" (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  price INTEGER NOT NULL
+);
+
+CREATE TABLE "Order" (
+  id VARCHAR(36) PRIMARY KEY,
+  customer VARCHAR(200) NOT NULL,
+  "orderedAt" TIMESTAMP NOT NULL,
+  status VARCHAR(20) NOT NULL
+);
+
+CREATE TABLE "OrderItem" (
+  id VARCHAR(36) PRIMARY KEY,
+  "orderId" VARCHAR(36) NOT NULL REFERENCES "Order" (id),
+  "productId" VARCHAR(36) NOT NULL REFERENCES "Product" (id),
+  quantity INTEGER NOT NULL
+);
+`;
+
 export const MULTI_SOURCE_FILES: Record<(typeof MULTI_LABELS)[number], Record<string, string>> = {
   バックエンド: {
     "README.md": `# あおぞら雑貨店 API
@@ -25,11 +48,11 @@ export const MULTI_SOURCE_FILES: Record<(typeof MULTI_LABELS)[number], Record<st
 
 - API: src/routes/orders.ts (お客様向け)・src/routes/adminOrders.ts (管理画面向け)
 - 夜間の集計: src/jobs/nightly.ts
-- スキーマ: prisma/schema.prisma
+- スキーマ: db/schema.sql
 `,
     ".env": `DATABASE_URL=postgres://api:${MULTI_SECRETS.バックエンド}@localhost/aozora\n`,
     "build/bundle.js": "const compiled = true; // build の成果物\n",
-    "prisma/schema.prisma": FIXTURE_DSL,
+    "db/schema.sql": MULTI_SCHEMA_SQL,
     "src/routes/orders.ts": `import { Router } from "express";
 
 export const orders = Router();
@@ -300,3 +323,57 @@ export const MULTI_SCREENS: ScreenDraft[] = [
     bindings: [{ item: "customer", table: "Order", column: "customer" }],
   },
 ];
+
+// ---------------------------------------------------------------- 段階式 (データ → 画面 → 業務) の台本
+
+/** 画面の段階の構成の下書き (submit_screens の入力)。ネットショップと注文管理画面の 2 つのシステム。画面を持たないサーバーはシステムにしない */
+export const MULTI_SCREENS_STRUCTURE = {
+  systems: [
+    {
+      name: MULTI_SHOP,
+      description: "お客様が注文する公開サイト (フロント画面)",
+      screens: [
+        { name: "注文入力", description: "お客様が注文を入力して送る (フロント画面/src/pages/OrderNew.tsx)" },
+        { name: "注文の状況", description: "お客様が注文の状況を見る (フロント画面/src/pages/OrderStatus.tsx)" },
+      ],
+      transitions: MULTI_SITEMAPS[MULTI_SHOP]!.transitions,
+    },
+    {
+      name: MULTI_ADMIN,
+      description: "店のスタッフが注文を承認する社内向けの画面 (管理画面)",
+      screens: [
+        { name: "承認待ち一覧", description: "スタッフが承認待ちの注文を探す (管理画面/src/pages/PendingList.tsx)" },
+        { name: "注文承認", description: "スタッフが注文を承認する (管理画面/src/pages/ApproveOrder.tsx)" },
+      ],
+      transitions: MULTI_SITEMAPS[MULTI_ADMIN]!.transitions,
+      navigation: [{ group: "注文の承認", screens: ["承認待ち一覧", "注文承認"] }],
+    },
+  ],
+};
+
+/** 2 つ目の業務 (返品の受付)。登場人物・システム・情報の「注文」は、1 つ目の業務と共有し、画面「返品入力」だけが新しい */
+export const MULTI_SPEC_RETURN: ModelSpec = {
+  system_name: "あおぞら雑貨店の返品",
+  actors: [{ name: "店のスタッフ" }],
+  external_actors: [{ name: "お客様" }],
+  systems: [{ name: MULTI_SHOP }, { name: MULTI_ADMIN }],
+  informations: [{ name: "注文", description: "二重にならないはずの説明" }, { name: "返品", description: "お客様からの返品の申し出" }],
+  businesses: [
+    {
+      name: "返品の受付",
+      main_actors: ["店のスタッフ"],
+      activities: [
+        {
+          name: "返品を申し出る",
+          performers: ["お客様"],
+          usecases: [{ name: "返品を送る", reads: ["注文"], writes: ["返品"] }],
+        },
+      ],
+    },
+  ],
+  screens: [
+    { name: "返品入力", description: "お客様が返品を申し出る (フロント画面/src/pages/ReturnNew.tsx)", system: MULTI_SHOP, usecase: "返品を送る" },
+    // すでにある画面 (1 つ目の業務で結んだもの)。同じ名前で書いても、作り直されない
+    { name: "注文入力", system: MULTI_SHOP, usecase: "注文を送る" },
+  ],
+};

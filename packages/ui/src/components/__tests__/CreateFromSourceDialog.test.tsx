@@ -1,64 +1,160 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { addElement, emptyModel } from "@untie/core";
 import { useAgentStore } from "../../ai/agentStore";
-import type { ReverseOptions, ReverseResult } from "../../ai/reverse";
-import { reverseEngineer } from "../../ai/reverse";
 import { PROVIDERS } from "../../ai/providers";
-import { MAX_SOURCES, memorySourceTree, type LabeledSource, type SourceTree } from "../../ai/sourceTree";
-import { emptyModel } from "@untie/core";
+import { getApiKey } from "../../ai/keys";
+import { reverseLogic, type LogicResult } from "../../ai/reverseLogic";
+import { reverseScreens, type ScreensResult } from "../../ai/reverseScreens";
+import { forgetSources } from "../../ai/sourceRegistry";
+import { MAX_SOURCES, memorySourceTree, type SourceTree } from "../../ai/sourceTree";
 import { getPlatform } from "../../platform";
 import { memory } from "../../test/platform";
 import { resetStore } from "../../test/utils";
 import { useUntieStore } from "../../store";
-import { CreateFromSourceDialog } from "../ai/CreateFromSourceDialog";
+import { CreateFromSourceDialog, recommendNext, stageProgress } from "../ai/CreateFromSourceDialog";
+import { FIXTURE_DSL } from "../../ai/__tests__/fixtures/reverseDraft";
 
 vi.mock("../../ai/keys", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../ai/keys")>()),
   getApiKey: vi.fn().mockResolvedValue("sk-test"),
 }));
-vi.mock("../../ai/reverse", () => ({ reverseEngineer: vi.fn() }));
+vi.mock("../../ai/reverseScreens", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../ai/reverseScreens")>()), reverseScreens: vi.fn() }));
+vi.mock("../../ai/reverseLogic", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../ai/reverseLogic")>()), reverseLogic: vi.fn() }));
+// sqlImport は別の担当が実装している。SQL に CREATE TABLE があれば、FIXTURE_DSL (Order・OrderItem・Product) を返す偽物にする
+vi.mock("@untie/core/model/sqlImport", () => ({
+  sqlFilesToPrismaDsl: (files: { path: string; text: string }[]) => {
+    const has = files.some((f) => /CREATE TABLE/i.test(f.text));
+    return { dsl: has ? FIXTURE_DSL : "", tables: [], enums: [], notes: has ? [{ file: files[0]!.path, line: 2, message: "COMMENT ON の文を読み飛ばしました" }] : [], dslErrors: [] };
+  },
+}));
 
-const mocked = vi.mocked(reverseEngineer);
+const mockedScreens = vi.mocked(reverseScreens);
+const mockedLogic = vi.mocked(reverseLogic);
 const tree = memorySourceTree("shop-app", {
   "src/orders.ts": "export const a = 1;",
   "src/ship.ts": "export const b = 2;",
   ".env": "SECRET=1",
   "node_modules/x/index.js": "x",
 });
+const treeWithSql = memorySourceTree("aozora-api", {
+  "src/orders.ts": "a",
+  "db/schema.sql": "CREATE TABLE a (id INT);\n",
+  "db/migrations/001_init.sql": "CREATE TABLE a (id INT);\n",
+  ".env": "S=1",
+});
 
-function result(warnings: string[] = []): ReverseResult {
+/** 画面・業務の段階の、偽の結果 (今のモデルに名前の違う業務を足したモデルを返す) */
+function logicResult(over: Partial<LogicResult> = {}): LogicResult {
+  const base = useUntieStore.getState().model;
+  const added = addElement(base, { kind: "business", name: "受注" });
   return {
-    build: { model: emptyModel("受注"), counts: {} } as unknown as ReverseResult["build"],
+    model: added.ok ? added.model : base,
+    added: { business: 1 },
+    mappedInformations: 0,
     survey: "調査結果",
-    warnings,
-    seed: [{ role: "user", content: "seed" }] as unknown as ReverseResult["seed"],
-    summary: "作りました",
+    warnings: [],
+    seed: [{ role: "user", text: "seed" }],
+    summary: "業務を足しました",
+    ...over,
+  };
+}
+function screensResult(over: Partial<ScreensResult> = {}): ScreensResult {
+  const base = useUntieStore.getState().model;
+  const sys = addElement(base, { kind: "system", name: "ネットショップ" });
+  const m = sys.ok ? sys.model : base;
+  const scr = sys.ok ? addElement(m, { kind: "screen", name: "注文入力", init: { systemId: sys.id } }) : { ok: false as const };
+  return {
+    model: scr.ok ? scr.model : m,
+    added: { systems: 1, screens: 1, transitions: 0, ui: 0 },
+    survey: "調査結果",
+    warnings: [],
+    seed: [{ role: "user", text: "seed" }],
+    summary: "画面を足しました",
+    ...over,
   };
 }
 
 async function fill(request = "受注から出荷まで") {
   fireEvent.change(screen.getByLabelText("モデルに起こしたい業務"), { target: { value: request } });
 }
-async function pickFolder() {
-  memory().sourceTree = tree;
+async function pickFolder(t: SourceTree = tree) {
+  memory().sourceTree = t;
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "フォルダを選ぶ…" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(フォルダを選ぶ|選び直す)…$/ }));
   });
 }
-const startButton = () => screen.getByRole("button", { name: /^(作成|やり直す)$|生成中/ }) as HTMLButtonElement;
+const card = (heading: RegExp) => within(screen.getByRole("heading", { name: heading }).closest("section")!);
+const dataCard = () => card(/^1\. データ/);
+const screensCard = () => card(/^2\. 画面/);
+const logicCard = () => card(/^3\. 業務/);
+const goButton = (c: ReturnType<typeof card>) => c.getByRole("button", { name: /^(進める|もう一度)$/ }) as HTMLButtonElement;
+/** 業務の段階の「進める」 */
+const startButton = () => goButton(logicCard());
+const progressOf = (c: ReturnType<typeof card>) => c.getByText(/^進み具合: /).textContent!.replace("進み具合: ", "");
 
 beforeEach(() => {
-  resetStore();
-  mocked.mockReset();
+  resetStore(emptyModel("テスト"));
+  forgetSources();
+  mockedScreens.mockReset();
+  mockedLogic.mockReset();
+  vi.mocked(getApiKey).mockResolvedValue("sk-test");
+  memory().sourceTree = null;
+  memory().opened = null;
+  memory().openedQueue = [];
 });
 
-describe("CreateFromSourceDialog", () => {
-  it("フォルダ未選択・業務未入力では始められない", async () => {
+describe("CreateFromSourceDialog: 段階のカード", () => {
+  it("データ・画面・業務の 3 つのカードが並び、まだ何も無いときの進み具合は「まだ」。ソースの登録欄が上にある", () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
-    expect(startButton().disabled).toBe(true);
-    await fill();
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual(["1. データ", "2. 画面", "3. 業務"]);
+    expect([dataCard(), screensCard(), logicCard()].map(progressOf)).toEqual(["まだ", "まだ", "まだ"]);
+    expect(screen.getByRole("list", { name: "ソースコードの場所" })).toBeDefined();
+    expect(screen.getByText(/置き換えません/)).toBeDefined();
+    expect(screen.getByText(/おすすめはこの順/)).toBeDefined();
+  });
+
+  it("進み具合は、いまのモデルの状態から導く (データベースとテーブル・画面と画面 UI・業務)", () => {
+    const db = useUntieStore.getState().model;
+    const withDb = { ...db, databases: [{ id: "db1", name: "DB", dsl: FIXTURE_DSL, tables: [] }] };
+    expect(stageProgress(withDb).data).toEqual({ text: "データベース 1 つ・テーブル 3", done: true });
+    expect(stageProgress(db).data).toEqual({ text: "まだ", done: false });
+    resetStore(withDb);
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(progressOf(dataCard())).toBe("データベース 1 つ・テーブル 3");
+    expect(goButton(screensCard()).textContent).toBe("進める");
+  });
+
+  it("次に勧める段階: データのあとは画面、画面のあとは業務、業務のあとはデータが無ければデータ", () => {
+    const m = useUntieStore.getState().model;
+    expect(recommendNext(m, "data")?.stage).toBe("screens");
+    expect(recommendNext(m, "screens")?.stage).toBe("logic");
+    expect(recommendNext(m, "logic")?.stage).toBe("data");
+    const full = { ...m, databases: [{ id: "d", name: "D", dsl: FIXTURE_DSL, tables: [] }] };
+    expect(recommendNext(full, "logic")).toBeNull();
+  });
+
+  it("説明: データの段階は AI に何も送らないと明記し、画面・業務の段階は AI に送るものを段階ごとに書く", () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(dataCard().getByText(/AI には何も送りません/)).toBeDefined();
+    const label = PROVIDERS[useAgentStore.getState().settings.provider].label;
+    expect(screensCard().getByText(/の API に送られるのは/).textContent).toContain(label);
+    expect(screensCard().getByText(/対象の範囲の文/)).toBeDefined();
+    expect(logicCard().getByText(/起こしたい業務の文/)).toBeDefined();
+    expect(screen.getByText(/node_modules/)).toBeDefined();
+    expect(screensCard().getByText(/数分かかり、API の利用料がかかります/)).toBeDefined();
+    expect(logicCard().getByText(/数分かかり、API の利用料がかかります/)).toBeDefined();
+  });
+
+  it("画面・業務の段階は、ソース (全部) を登録するまで、業務はさらに入力するまで、始められない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(goButton(screensCard()).disabled).toBe(true);
     expect(startButton().disabled).toBe(true);
     await pickFolder();
+    expect(goButton(screensCard()).disabled).toBe(false);
+    expect(startButton().disabled).toBe(true);
+    await fill();
     expect(startButton().disabled).toBe(false);
     await fill("  ");
     expect(startButton().disabled).toBe(true);
@@ -86,109 +182,335 @@ describe("CreateFromSourceDialog", () => {
     expect(screen.getByText(/AI が読めるファイルがありません/)).toBeDefined();
     expect(screen.getByText(/途中までしか数えていません/)).toBeDefined();
     expect(startButton().disabled).toBe(true);
+    expect(goButton(screensCard()).disabled).toBe(true);
   });
 
-  it("送信前の説明に、API の送り先 (プロバイダー名) と読まないものが出る", () => {
+  it("前の段階が無いときの案内が出る (止めはしない)", async () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
-    const label = PROVIDERS[useAgentStore.getState().settings.provider].label;
-    expect(screen.getByText(/の API に送られるのは/).textContent).toContain(label);
-    expect(screen.getByText(/node_modules/)).toBeDefined();
+    expect(screensCard().getByText(/データの段階がまだです/)).toBeDefined();
+    expect(logicCard().getByText(/データと画面の段階がまだです/)).toBeDefined();
+    await pickFolder();
+    await fill();
+    expect(startButton().disabled).toBe(false);
+  });
+});
+
+describe("CreateFromSourceDialog: 段階 1 データ (AI を使わない)", () => {
+  async function open(t: SourceTree = treeWithSql) {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(t);
+    await waitFor(() => expect(dataCard().getByRole("list", { name: "スキーマ定義の候補" })).toBeDefined());
+  }
+  const convert = async () => {
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+  };
+  const importIt = async () => {
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "取り込む" }));
+    });
+  };
+
+  it("ソースから SQL の候補を探して一覧に出す (パス・大きさ・CREATE TABLE の有無)。既定は、マイグレーションではない CREATE TABLE のある SQL", async () => {
+    await open();
+    const list = dataCard().getByRole("list", { name: "スキーマ定義の候補" });
+    const rows = within(list).getAllByRole("checkbox");
+    expect(rows).toHaveLength(2);
+    const byName = (n: RegExp) => within(list).getByRole("checkbox", { name: n }) as HTMLInputElement;
+    expect(byName(/db\/schema\.sql/).checked).toBe(true);
+    expect(byName(/001_init\.sql/).checked).toBe(false);
+    expect(within(list).getAllByText(/CREATE TABLE あり/)).toHaveLength(2);
+    expect(within(list).getByText(/マイグレーション/)).toBeDefined();
   });
 
-  it("進み具合のコールバックが画面に出て、中断で signal が abort される", async () => {
-    let opts!: ReverseOptions;
-    mocked.mockImplementation((_t, _r, o) => {
+  it("候補が無いときはその旨を出す。ソースを登録していなければ、登録を促す", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(dataCard().getByText(/ソースを登録すると/)).toBeDefined();
+    await pickFolder(tree);
+    await waitFor(() => expect(dataCard().getByText(/SQL と schema.prisma は見つかりませんでした/)).toBeDefined());
+    expect(dataCard().getByText(/ORM のモデル定義だけ/)).toBeDefined();
+  });
+
+  it("変換して確かめる: テーブルの数・列の数・名前・気づいたこと (どのファイルのどの行か) を見せる。変換するまで取り込めない", async () => {
+    await open();
+    expect(dataCard().queryByRole("button", { name: "取り込む" })).toBeNull();
+    await convert();
+    expect(dataCard().getByText("変換の結果: テーブル 3 (列 11)")).toBeDefined();
+    const tables = dataCard().getByRole("list", { name: "変換したテーブル" });
+    expect(within(tables).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Order 列 4", "OrderItem 列 4", "Product 列 3"]);
+    expect(dataCard().getByText("db/schema.sql:2: COMMENT ON の文を読み飛ばしました")).toBeDefined();
+    expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("取り込む: データベースの名前の既定は「ソースのフォルダ名のデータベース」。モデルに足され、1 件の履歴になり、AI のキーも要らない。次の段階を勧める", async () => {
+    vi.mocked(getApiKey).mockResolvedValue(null);
+    await open();
+    expect((dataCard().getByLabelText("データベースの名前") as HTMLInputElement).value).toBe("aozora-apiのデータベース");
+    fireEvent.change(dataCard().getByLabelText("データベースの名前"), { target: { value: "注文DB" } });
+    await convert();
+    await importIt();
+    const m = useUntieStore.getState().model;
+    expect(m.databases.map((d) => d.name)).toEqual(["注文DB"]);
+    expect(m.designs).toEqual([]);
+    expect(progressOf(dataCard())).toBe("データベース 1 つ・テーブル 3");
+    expect(screen.getByText(/データの段階が終わりました。データベース「注文DB」に、テーブル 3 \(列 11\) を取り込みました。/)).toBeDefined();
+    expect(screen.getByText(/次に勧める段階:/).textContent).toContain("画面");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(mockedScreens).not.toHaveBeenCalled();
+    expect(useUntieStore.getState().history.past).toHaveLength(1);
+    useUntieStore.getState().undo();
+    expect(useUntieStore.getState().model.databases).toEqual([]);
+    expect(useAgentStore.getState().items.some((i) => i.text.includes("取り込みました"))).toBe(true);
+  });
+
+  it("同じ名前のデータベースがあれば、置き換えるかを確かめる (外れる対応の件数つき)。やめれば何も変わらない", async () => {
+    const seeded = { ...useUntieStore.getState().model, databases: [{ id: "db1", name: "aozora-apiのデータベース", dsl: FIXTURE_DSL.replace("  status     String\n", ""), tables: [] }] };
+    resetStore(seeded);
+    await open();
+    await convert();
+    await importIt();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/データベース「aozora-apiのデータベース」はすでにあります/);
+    expect(alert.textContent).toMatch(/外れる対応はありません/);
+    fireEvent.click(screen.getByRole("button", { name: "やめる" }));
+    expect(useUntieStore.getState().model.databases[0]!.dsl).not.toContain("status");
+    await importIt();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "置き換える" }));
+    });
+    expect(useUntieStore.getState().model.databases).toHaveLength(1);
+    expect(useUntieStore.getState().model.databases[0]!.id).toBe("db1");
+    expect(useUntieStore.getState().model.databases[0]!.dsl).toContain("status");
+  });
+
+  it("置き換えで外れる画面の対応の件数を、確認に出す", async () => {
+    const base = useUntieStore.getState().model;
+    const sys = addElement(base, { kind: "system", name: "S" });
+    if (!sys.ok) throw new Error(sys.reason);
+    const withDesign = {
+      ...sys.model,
+      databases: [{ id: "db1", name: "aozora-apiのデータベース", dsl: FIXTURE_DSL + "\nmodel Extra {\n  id String @id\n  note String\n}\n", tables: [{ table: "Extra", informationIds: [] }] }],
+      designs: [
+        {
+          systemId: sys.id,
+          databaseIds: ["db1"],
+          screens: [{ id: "ds1", source: { kind: "builtin" as const, builtin: "home" as const }, view: { title: "x" }, bindings: [{ item: "a", databaseId: "db1", table: "Extra", column: "note" }, { item: "b", databaseId: "db1", table: "Order", column: "customer" }] }],
+          transitions: [],
+          layout: { shell: "shell" as const, navigation: [] },
+        },
+      ],
+    };
+    resetStore(withDesign as never);
+    await open();
+    await convert();
+    await importIt();
+    expect(screen.getByRole("alert").textContent).toMatch(/画面の項目と列の対応 1 件/);
+  });
+
+  it("SQL のファイルを直接選べる (何度でも足せる・外せる)。選べる種類を SQL・Prisma に絞って渡す", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    memory().openedQueue = [
+      { path: null, name: "dump1.sql", text: "CREATE TABLE a (id INT);" },
+      { path: null, name: "dump2.sql", text: "-- 2" },
+    ];
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        fireEvent.click(dataCard().getByRole("button", { name: "SQL のファイルを選ぶ…" }));
+      });
+    }
+    expect(memory().openOptions).toEqual([{ description: "SQL・Prisma のスキーマ", extensions: ["sql", "prisma"] }, { description: "SQL・Prisma のスキーマ", extensions: ["sql", "prisma"] }]);
+    const picked = dataCard().getByRole("list", { name: "直接選んだファイル" });
+    expect(within(picked).getAllByRole("listitem")).toHaveLength(2);
+    expect((dataCard().getByLabelText("データベースの名前") as HTMLInputElement).value).toBe("データベース");
+    await convert();
+    fireEvent.click(dataCard().getByRole("button", { name: "dump2.sql を外す" }));
+    expect(within(dataCard().getByRole("list", { name: "直接選んだファイル" })).getAllByRole("listitem")).toHaveLength(1);
+    // 選ぶ組が替わったら、変換の結果は古いので消える
+    expect(dataCard().queryByText(/^変換の結果/)).toBeNull();
+    await convert();
+    await importIt();
+    expect(useUntieStore.getState().model.databases.map((d) => d.name)).toEqual(["データベース"]);
+  });
+
+  it("テーブルが見つからない変換の結果は、取り込めない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    memory().opened = { path: null, name: "empty.sql", text: "SELECT 1;" };
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "SQL のファイルを選ぶ…" }));
+    });
+    await convert().catch(() => {});
+    await waitFor(() => expect(dataCard().getByText("テーブルが 1 つも見つかりませんでした。")).toBeDefined());
+    expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("DSL に解析エラーがあるときは、エラーを出して取り込めない", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    memory().opened = { path: null, name: "bad.prisma", text: "model {" };
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "SQL のファイルを選ぶ…" }));
+    });
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/DSL のエラー/)).toBeDefined());
+    expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("クラウドのファイルには取り込まず、理由を出す", async () => {
+    await open();
+    await convert();
+    useUntieStore.setState({ cloud: { fileId: "f", role: "owner", status: "connected" } as never });
+    await importIt();
+    expect(screen.getByRole("alert").textContent).toMatch(/クラウドのファイル/);
+    useUntieStore.setState({ cloud: null });
+  });
+});
+
+describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () => {
+  it("画面の段階: 今のモデルを土台に reverseScreens が呼ばれ、範囲が渡る。進み具合が出て、終わると結果と次の段階を出して閉じない", async () => {
+    let opts!: Parameters<typeof reverseScreens>[2];
+    mockedScreens.mockImplementation(async (base, _s, o) => {
+      opts = o;
+      expect(base).toBe(useUntieStore.getState().model);
+      return screensResult({ warnings: ["画面 UI: 画面「注文入力」は置けませんでした"] });
+    });
+    const onClose = vi.fn();
+    render(<CreateFromSourceDialog onClose={onClose} />);
+    await pickFolder();
+    fireEvent.change(screen.getByLabelText("対象の画面の範囲 (任意)"), { target: { value: "注文まわりだけ" } });
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    expect(opts.scope).toBe("注文まわりだけ");
+    expect(opts.rebuild).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(/気づいたことが 1 件あります/)).toBeDefined();
+    expect(screen.getByText("画面 UI: 画面「注文入力」は置けませんでした")).toBeDefined();
+    expect(screen.getByText(/次に勧める段階:/).textContent).toContain("業務");
+    expect(progressOf(screensCard())).toBe("画面 1 (画面 UI 0)");
+    expect(goButton(screensCard()).textContent).toBe("もう一度");
+    // 登録欄と、ほかの段階は、また使える
+    expect(screen.getByRole("list", { name: "ソースコードの場所" })).toBeDefined();
+    expect(useUntieStore.getState().model.elements.some((e) => e.kind === "system" && e.name === "ネットショップ")).toBe(true);
+    expect(useUntieStore.getState().history.past).toHaveLength(1);
+  });
+
+  it("実行中は、その段階の進み具合 (手順・読んだ場所・調査結果・提出と画面ごとの結果) を出し、登録欄とほかの段階は畳む。中断できる", async () => {
+    let opts!: Parameters<typeof reverseScreens>[2];
+    mockedScreens.mockImplementation((_b, _s, o) => {
       opts = o;
       return new Promise(() => {});
     });
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
-    await fill();
     await act(async () => {
-      fireEvent.click(startButton());
+      fireEvent.click(goButton(screensCard()));
     });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    await waitFor(() => expect(mockedScreens).toHaveBeenCalled());
     act(() => {
       opts.onStep?.("survey");
       opts.onSourceTool?.("読む", "src/orders.ts");
-      opts.onText?.("受注は orders.ts にある");
+      opts.onText?.("注文は orders.ts にある");
     });
-    expect(screen.getAllByText(/1\/4 ソースコードを調べる/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1\/3 ソースコードを調べる/).length).toBeGreaterThan(0);
     expect(screen.getByText("読んだ場所 (1 件)")).toBeDefined();
     expect(screen.getByText("読む src/orders.ts")).toBeDefined();
-    expect(screen.getByText("受注は orders.ts にある")).toBeDefined();
+    expect(screen.getByText("注文は orders.ts にある")).toBeDefined();
     act(() => {
-      opts.onStep?.("screens");
-      opts.onSubmit?.(true, "業務を提出しました");
-      opts.onScreen?.(2, 5, "受注一覧", true);
+      opts.onStep?.("ui");
+      opts.onSubmit?.(true, "受け付けました: システム 1");
+      opts.onScreen?.(2, 5, "注文一覧", true);
     });
-    expect(screen.getAllByText(/4\/4 画面を作る/).length).toBeGreaterThan(0);
-    expect(screen.getByText("✓ 業務を提出しました")).toBeDefined();
+    expect(screen.getAllByText(/3\/3 画面 UI を作る/).length).toBeGreaterThan(0);
+    expect(screen.getByText("✓ 受け付けました: システム 1")).toBeDefined();
     expect(screen.getByText("画面 2/5")).toBeDefined();
-    expect(startButton().textContent).toBe("生成中…");
+    // 畳む: 登録欄・カード・入力欄は無く、要約と段階の進み具合
+    expect(screen.queryByRole("list", { name: "ソースコードの場所" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^1\. データ/ })).toBeNull();
+    expect(screen.queryByLabelText("モデルに起こしたい業務")).toBeNull();
+    expect(document.querySelector(".source-summary-sources")!.textContent).toBe("ソースコード「shop-app」");
+    expect(document.querySelector(".source-summary-request")!.textContent).toBe("画面の段階");
     fireEvent.click(screen.getByRole("button", { name: "中断" }));
     expect(opts.signal?.aborted).toBe(true);
   });
 
-  it("成功すると新しいモデルとして開き、会話を引き継いで閉じる", async () => {
-    mocked.mockResolvedValue(result());
-    const onClose = vi.fn();
-    render(<CreateFromSourceDialog onClose={onClose} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
+  it("業務の段階: 起こしたい業務が reverseLogic に渡り、結果が今のモデルに足され、AI のペインへ要約を引き継ぐ。次は、データが無ければデータ", async () => {
+    mockedLogic.mockImplementation(async (_b, _s, req) => {
+      expect(req).toBe("受注から出荷まで");
+      return logicResult();
     });
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(useUntieStore.getState().model.meta.name).toBe("受注");
-    expect(mocked.mock.calls[0]![1]).toBe("受注から出荷まで");
-    const messages = useAgentStore.getState().items;
-    expect(messages.some((m) => m.text === "作りました")).toBe(true);
-  });
-
-  it("気づいたことがあれば、閉じる前に件数と中身を見せる", async () => {
-    mocked.mockResolvedValue(result(["画面「在庫」は置けませんでした"]));
-    const onClose = vi.fn();
-    render(<CreateFromSourceDialog onClose={onClose} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(screen.getByText(/気づいたことが 1 件/)).toBeDefined());
-    expect(screen.getByText("画面「在庫」は置けませんでした")).toBeDefined();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(useUntieStore.getState().model.meta.name).toBe("受注");
-    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("失敗するとエラーを出し、やり直せる", async () => {
-    mocked.mockRejectedValueOnce(new Error("boom"));
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    expect(screen.getByText(/気づいたことはありません/)).toBeDefined();
+    expect(screen.getByText(/次に勧める段階:/).textContent).toContain("データ");
+    expect(progressOf(logicCard())).toBe("業務 1");
+    expect(useAgentStore.getState().items.some((m) => m.text === "業務を足しました")).toBe(true);
+    expect(useAgentStore.getState().open).toBe(true);
+  });
+
+  it("段階をまたいで引き継ぐ会話に、前の段階の要約が残る", async () => {
+    mockedScreens.mockImplementation(async () => screensResult());
+    mockedLogic.mockImplementation(async () => logicResult({ seed: [{ role: "user", text: "業務の seed" }] }));
+    const spy = vi.spyOn(useAgentStore.getState(), "continueFrom");
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    const seeds = spy.mock.calls.map((c) => c[0].map((t) => t.text));
+    expect(seeds[seeds.length - 1]).toEqual(["ソースコードから「画面」の段階を実行しました。", "画面を足しました", "業務の seed"]);
+    spy.mockRestore();
+  });
+
+  it("API キーが無ければ、画面・業務の段階では理由を出して始めない (データの段階は使える)", async () => {
+    vi.mocked(getApiKey).mockResolvedValue(null);
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    expect(screen.getByRole("alert").textContent).toMatch(/API キーが設定されていません/);
+    expect(mockedScreens).not.toHaveBeenCalled();
+    expect(screen.getByRole("list", { name: "ソースコードの場所" })).toBeDefined();
+  });
+
+  it("失敗するとエラーを出し、モデルは変わらず、もう一度できる", async () => {
+    mockedLogic.mockRejectedValueOnce(new Error("boom"));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    const before = useUntieStore.getState().model;
     await act(async () => {
       fireEvent.click(startButton());
     });
     await waitFor(() => expect(document.querySelector(".prompt-error")).not.toBeNull());
-    expect(startButton().textContent).toBe("やり直す");
-    mocked.mockResolvedValueOnce(result());
+    expect(useUntieStore.getState().model).toBe(before);
+    expect(useUntieStore.getState().history.past).toHaveLength(0);
+    expect((screen.getByLabelText("モデルに起こしたい業務") as HTMLTextAreaElement).value).toBe("受注から出荷まで");
+    mockedLogic.mockImplementationOnce(async () => logicResult());
     await act(async () => {
       fireEvent.click(startButton());
     });
-    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
   });
 
-  it("説明に、AI に送るものと、時間・利用料がかかることが出る", () => {
-    render(<CreateFromSourceDialog onClose={() => {}} />);
-    expect(screen.getByText(/ファイルの一覧 \(名前と大きさ\)、AI が開いたファイルの中身、検索で見つかった行/)).toBeDefined();
-    expect(screen.getByText(/直接書かれたキーや個人情報は送られる/)).toBeDefined();
-    expect(screen.getByText(/数分かかり、API の利用料がかかります/)).toBeDefined();
-  });
-
-  it("「作成」を続けて押しても、生成は 1 本だけ", async () => {
-    mocked.mockImplementation(() => new Promise(() => {}));
+  it("「進める」を続けて押しても、実行は 1 本だけ", async () => {
+    mockedLogic.mockImplementation(() => new Promise(() => {}));
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
@@ -196,221 +518,165 @@ describe("CreateFromSourceDialog", () => {
       fireEvent.click(startButton());
       fireEvent.click(startButton());
     });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
-    expect(mocked).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
+    expect(mockedLogic).toHaveBeenCalledTimes(1);
   });
 
-  it("中断すると「中断しました。」を出し、結果が届いてもモデルを置き換えない", async () => {
-    let opts!: ReverseOptions;
-    let finish!: (r: ReverseResult) => void;
-    mocked.mockImplementation((_t, _r, o) => {
+  it("中断すると「中断しました。」を出し、結果が届いてもモデルに反映しない", async () => {
+    let opts!: Parameters<typeof reverseLogic>[3];
+    let resolve!: (r: LogicResult) => void;
+    mockedLogic.mockImplementation((_b, _s, _r, o) => {
       opts = o;
-      return new Promise((resolve) => (finish = resolve));
+      return new Promise((r) => (resolve = r));
     });
-    const onClose = vi.fn();
-    render(<CreateFromSourceDialog onClose={onClose} />);
+    render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
+    const before = useUntieStore.getState().model;
     await act(async () => {
       fireEvent.click(startButton());
     });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "中断" }));
-    await act(async () => {
-      finish(result());
-    });
     expect(opts.signal?.aborted).toBe(true);
-    expect(screen.getByText("中断しました。")).toBeDefined();
-    expect(useUntieStore.getState().model.meta.name).not.toBe("受注");
-    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => {
+      resolve(logicResult());
+    });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("中断しました。"));
+    expect(useUntieStore.getState().model).toBe(before);
+    expect(screen.getByRole("list", { name: "ソースコードの場所" })).toBeDefined();
   });
 
   it("実行中にダイアログが外れたら中断し、あとで結果が届いてもモデルも会話も変えない", async () => {
-    let opts!: ReverseOptions;
-    let finish!: (r: ReverseResult) => void;
-    mocked.mockImplementation((_t, _r, o) => {
+    let opts!: Parameters<typeof reverseLogic>[3];
+    let resolve!: (r: LogicResult) => void;
+    mockedLogic.mockImplementation((_b, _s, _r, o) => {
       opts = o;
-      return new Promise((resolve) => (finish = resolve));
+      return new Promise((r) => (resolve = r));
     });
-    const before = useUntieStore.getState().model.meta.name;
-    const items = useAgentStore.getState().items;
-    const onClose = vi.fn();
-    const { unmount } = render(<CreateFromSourceDialog onClose={onClose} />);
+    const view = render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
+    const before = useUntieStore.getState().model;
+    const itemsBefore = useAgentStore.getState().items.length;
     await act(async () => {
       fireEvent.click(startButton());
     });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
-    unmount();
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
+    view.unmount();
     expect(opts.signal?.aborted).toBe(true);
     await act(async () => {
-      finish(result());
+      resolve(logicResult());
     });
-    expect(useUntieStore.getState().model.meta.name).toBe(before);
-    expect(useAgentStore.getState().items).toBe(items);
-    expect(onClose).not.toHaveBeenCalled();
+    expect(useUntieStore.getState().model).toBe(before);
+    expect(useAgentStore.getState().items).toHaveLength(itemsBefore);
   });
 
-  it("進み具合の live region は段階の行だけ (調査結果の文章は含まない)", async () => {
-    mocked.mockImplementation((_t, _r, o) => {
-      o.onStep?.("data");
-      o.onText?.("調査結果の文章");
-      return new Promise(() => {});
-    });
+  it("実行している間にモデルが替わったら、結果は反映せず、理由を出す", async () => {
+    let resolve!: (r: LogicResult) => void;
+    mockedLogic.mockImplementation(() => new Promise((r) => (resolve = r)));
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
     await act(async () => {
       fireEvent.click(startButton());
     });
-    await waitFor(() => expect(screen.getAllByRole("status").length).toBeGreaterThan(0));
-    const live = screen.getAllByRole("status");
-    expect(live.map((n) => n.textContent)).toEqual(["3/4 データを作る"]);
-  });
-
-  it("読めるファイルの数は、木が替わったときだけ数える (入力や調査中の再描画では数え直さない)", async () => {
-    let reads = 0;
-    const counted = { ...tree, get files() { reads++; return tree.files; } } as typeof tree;
-    memory().sourceTree = counted;
-    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
+    const result = logicResult();
+    useUntieStore.setState({ model: { ...useUntieStore.getState().model, meta: { ...useUntieStore.getState().model.meta, name: "手で直した" } } });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "フォルダを選ぶ…" }));
+      resolve(result);
     });
-    expect(screen.getByText(/読めるファイル 2 件/)).toBeDefined();
-    const after = reads;
-    expect(after).toBeGreaterThan(0);
-    for (const v of ["a", "ab", "abc"]) fireEvent.change(screen.getByLabelText("モデルに起こしたい業務"), { target: { value: v } });
-    expect(reads).toBe(after);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/モデルが変わったので/));
+    expect(useUntieStore.getState().model.meta.name).toBe("手で直した");
+    expect(useUntieStore.getState().model.elements.some((e) => e.kind === "business")).toBe(false);
   });
 
-  it("調査結果の文章は届くたびに末尾までスクロールし、利用者が上へスクロールしているときは戻さない", async () => {
-    let opts: ReverseOptions | undefined;
-    mocked.mockImplementation((_t, _r, o) => {
-      opts = o;
-      o.onStep?.("survey");
-      o.onText?.("最初の文\n");
-      return new Promise(() => {});
-    });
-    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    const box = container.querySelector<HTMLElement>(".prompt-analysis")!;
-    // jsdom は寸法を持たないので、枠の寸法とスクロール位置を差し込む
-    let top = 0;
-    Object.defineProperty(box, "scrollHeight", { configurable: true, get: () => 500 });
-    Object.defineProperty(box, "clientHeight", { configurable: true, get: () => 100 });
-    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
-    act(() => opts!.onText?.("次の文\n"));
-    expect(top).toBe(500);
-    // 上へスクロールした (末尾から離れた) ら、文章が届いても戻さない
-    top = 50;
-    fireEvent.scroll(box);
-    act(() => opts!.onText?.("さらに次の文\n"));
-    expect(top).toBe(50);
-    // 末尾まで戻したら、また追う
-    top = 400;
-    fireEvent.scroll(box);
-    act(() => opts!.onText?.("最後の文\n"));
-    expect(top).toBe(500);
-  });
-
-  it("完了時の気づいたことの一覧は、全体ではなく件数の行だけが status (live region)", async () => {
-    mocked.mockResolvedValue(result(["一つ目", "二つ目"]));
+  it("AI のペインが作業中は、画面・業務の段階を始められない", async () => {
+    useAgentStore.setState({ running: true });
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(screen.getByText(/気づいたことが 2 件/)).toBeDefined());
-    const live = screen.getAllByRole("status");
-    expect(live.map((n) => n.textContent)).toContain("モデルを作りました。気づいたことが 2 件あります。");
-    expect(live.every((n) => !n.textContent!.includes("一つ目"))).toBe(true);
+    expect(startButton().disabled).toBe(true);
+    expect(goButton(screensCard()).disabled).toBe(true);
+    expect(screen.getAllByText(/AI のペインが作業中です/).length).toBeGreaterThan(0);
+    useAgentStore.setState({ running: false });
   });
 
-  it("失敗の文は、スクロールする本文の外に role=alert で出る (本文の末尾で切れない)。長い文は折り返して、高さに上限を付ける class を持つ", async () => {
-    const long = `API のエラー (400): ${"x".repeat(300)} {"type":"error","error":{"message":"long"}}`;
-    mocked.mockRejectedValueOnce(new Error(long));
-    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe(long);
-    expect(alert.className).toContain("source-error");
-    expect(container.querySelector(".source-dialog-body")!.contains(alert)).toBe(false);
-    expect(container.querySelector(".source-dialog")!.contains(alert)).toBe(true);
-    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
-    // 見出しの直後 (本文より前) に出る
-    const dialog = container.querySelector(".source-dialog")!;
-    const order = [...dialog.children].map((c) => c.className || c.tagName);
-    expect(order.indexOf(alert.className)).toBeLessThan(order.indexOf("source-dialog-body"));
-  });
-
-  it("気づいたことがあって終わったとき、フォーカスは気づいたことの見出しへ移る (主ボタンが外れて body に落ちない)", async () => {
-    mocked.mockResolvedValue(result(["画面「在庫」は置けませんでした"]));
-    render(<CreateFromSourceDialog onClose={() => {}} />);
-    await pickFolder();
-    await fill();
-    startButton().focus();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    const heading = await screen.findByText(/気づいたことが 1 件/);
-    await waitFor(() => expect(document.activeElement).toBe(heading));
-    expect(document.activeElement).not.toBe(document.body);
-    expect(heading.getAttribute("tabindex")).toBe("-1");
-  });
-
-  it("提出と画面ごとの結果の行は、届くたびに本文の末尾までスクロールし、利用者が上へスクロールしているときは戻さない", async () => {
-    let opts: ReverseOptions | undefined;
-    mocked.mockImplementation((_t, _r, o) => {
-      opts = o;
-      o.onStep?.("screens");
-      return new Promise(() => {});
-    });
-    const { container } = render(<CreateFromSourceDialog onClose={() => {}} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    const body = container.querySelector<HTMLElement>(".source-dialog-body")!;
-    let top = 0;
-    Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => 900 });
-    Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(body, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
-    act(() => opts!.onScreen?.(1, 12, "画面 1", true));
-    expect(top).toBe(900);
-    // 上へスクロールした (末尾から離れた) ら、行が増えても戻さない
-    top = 100;
-    fireEvent.scroll(body);
-    act(() => opts!.onScreen?.(2, 12, "画面 2", true));
-    act(() => opts!.onSubmit?.(true, "受け付けました: 対応 3 件"));
-    expect(top).toBe(100);
-    // 末尾まで戻したら、また追う
-    top = 590;
-    fireEvent.scroll(body);
-    act(() => opts!.onScreen?.(3, 12, "画面 3", false));
-    expect(top).toBe(900);
-  });
-
-  it("保存していない変更があって破棄しないなら、始めない", async () => {
-    useUntieStore.setState((s) => ({ savedModel: { ...s.model } }));
+  it("今のモデルに足すので、「保存していない変更」の確認は出さない", async () => {
+    useUntieStore.setState((s) => ({ savedModel: { ...s.model, meta: { ...s.model.meta, name: "別" } } }));
     memory().discard = false;
+    mockedLogic.mockImplementation(async () => logicResult());
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
     await act(async () => {
       fireEvent.click(startButton());
     });
-    expect(mocked).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    memory().discard = true;
+  });
+
+  it("画面 UI を作り直す画面は、画面 UI がすでにある画面から選べる。選んだ画面が rebuild に渡る", async () => {
+    const base = useUntieStore.getState().model;
+    const sys = addElement(base, { kind: "system", name: "ネットショップ" });
+    if (!sys.ok) throw new Error(sys.reason);
+    const scr = addElement(sys.model, { kind: "screen", name: "注文入力", init: { systemId: sys.id } });
+    if (!scr.ok) throw new Error(scr.reason);
+    const seeded = {
+      ...scr.model,
+      designs: [{ systemId: sys.id, databaseIds: [], screens: [{ id: "ds1", source: { kind: "screen" as const, screenId: scr.id }, view: { title: "注文入力" } }], transitions: [], layout: { shell: "shell" as const, navigation: [] } }],
+    };
+    resetStore(seeded as never);
+    mockedScreens.mockImplementation(async () => screensResult());
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    fireEvent.click(screen.getByText("画面 UI を作り直す画面を選ぶ (任意)"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /ネットショップ \/ 注文入力/ }));
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(mockedScreens).toHaveBeenCalled());
+    expect(mockedScreens.mock.calls[0]![2].rebuild).toEqual([{ system: "ネットショップ", screen: "注文入力" }]);
+  });
+});
+
+describe("CreateFromSourceDialog: 登録したソースを覚える", () => {
+  it("ダイアログを閉じて開き直しても、登録したソース (ラベル・フォルダ) が残り、段階ごとに選び直さなくてよい", async () => {
+    const first = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    fireEvent.change(screen.getByLabelText("ラベル (任意)"), { target: { value: "バックエンド" } });
+    first.unmount();
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screen.getByText("shop-app")).toBeDefined();
+    expect(screen.getByText("読めるファイル 2 件")).toBeDefined();
+    expect((screen.getByLabelText("ラベル (任意)") as HTMLInputElement).value).toBe("バックエンド");
+    await fill();
+    expect(startButton().disabled).toBe(false);
+  });
+
+  it("複数のソースも覚える", async () => {
+    const first = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickRow(1, backTree);
+    addRow();
+    await pickRow(2, adminTree);
+    first.unmount();
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screen.getAllByRole("button", { name: "選び直す…" })).toHaveLength(2);
+    expect(labelBox(1).value).toBe("aozora-api");
+    expect(labelBox(2).value).toBe("管理画面");
+  });
+
+  it("別のモデルを開いたら (docSeq が替わったら) 忘れる。ファイルやモデルには保存しない", async () => {
+    const first = render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    first.unmount();
+    useUntieStore.getState().newDocument(emptyModel("別のモデル"));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screen.queryByText("shop-app")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "フォルダを選ぶ…" })).toHaveLength(1);
+    expect(JSON.stringify(useUntieStore.getState().model)).not.toContain("shop-app");
   });
 });
 
@@ -441,7 +707,7 @@ async function threeSources() {
   await pickRow(3, shopTree);
 }
 
-describe("CreateFromSourceDialog: 複数のソース", () => {
+describe("CreateFromSourceDialog: ソースの登録 (複数のソース)", () => {
   it("開いた直後は 1 行だけで、ラベルは任意。ソースを足す行がある", () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
     expect(screen.getAllByRole("button", { name: "フォルダを選ぶ…" })).toHaveLength(1);
@@ -488,23 +754,6 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     expect(labelBox(1).value).toBe("aozora-shop");
   });
 
-  it("フォルダ名がラベルの規則に当たっても (41 文字以上・~ で始まる)、1 行だけなら作成できる。2 行目を足すと整えた名前が入る", async () => {
-    mocked.mockResolvedValue(result());
-    const long = memorySourceTree("x".repeat(60), { "a.ts": "a" });
-    render(<CreateFromSourceDialog onClose={() => {}} />);
-    await pickRow(1, long);
-    await fill();
-    expect(startButton().disabled).toBe(false);
-    await pickRow(1, memorySourceTree("~home-app", { "a.ts": "a" }));
-    expect(startButton().disabled).toBe(false);
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
-    // ラベルは空のまま渡る (調査の依頼にフォルダ名を重ねて入れない)
-    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((x) => x.label)).toEqual([""]);
-  });
-
   it("2 行目を足したとき、規則に当たるフォルダ名は整えて入る (40 文字まで・~ を取る)", async () => {
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickRow(1, memorySourceTree(`~${"y".repeat(60)}`, { "a.ts": "a" }));
@@ -522,7 +771,7 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     expect(rows.map((r) => r.querySelector(".source-folder-count")!.textContent)).toEqual(["読めるファイル 2 件", "読めるファイル 1 件", "読めるファイル 3 件"]);
     expect(screen.getByText("合計 読めるファイル 6 件")).toBeDefined();
     expect(screen.getByText(/ラベルが、どのソースのファイルかを示すパスの先頭/)).toBeDefined();
-    expect(screen.getByText(/フォルダ名とラベル、ファイルの一覧/)).toBeDefined();
+    expect(screen.getAllByText(/フォルダ名とラベル、ファイルの一覧/).length).toBeGreaterThan(0);
     await fill();
     expect(startButton().disabled).toBe(false);
   });
@@ -641,87 +890,6 @@ describe("CreateFromSourceDialog: 複数のソース", () => {
     const same = { ...shopTree, name: "x", sameFolderAs: async () => true } as SourceTree;
     await pickRow(2, same);
     await waitFor(() => expect(screen.getByText(/重ねて登録していませんか/)).toBeDefined());
-  });
-
-  it("複数のソースが、ラベル付きで reverseEngineer に渡り、会話の最初の発言が複数と分かる形になる", async () => {
-    mocked.mockResolvedValue(result());
-    const onClose = vi.fn();
-    render(<CreateFromSourceDialog onClose={onClose} />);
-    await pickRow(1, backTree);
-    addRow();
-    await pickRow(2, adminTree);
-    addRow();
-    await pickRow(3, shopTree);
-    setLabel(1, " バックエンド ");
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    const sources = mocked.mock.calls[0]![0] as unknown as LabeledSource[];
-    expect(sources.map((s) => [s.label, s.tree.name])).toEqual([["バックエンド", "aozora-api"], ["管理画面", "aozora-admin"], ["フロント画面", "aozora-shop"]]);
-    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード 3 か所 (バックエンド (aozora-api)、管理画面 (aozora-admin)、フロント画面 (aozora-shop))から作成: 受注から出荷まで")).toBe(true);
-  });
-
-  it("ソースが 1 つのときの最初の発言は、これまでどおり", async () => {
-    mocked.mockResolvedValue(result());
-    const onClose = vi.fn();
-    render(<CreateFromSourceDialog onClose={onClose} />);
-    await pickFolder();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(useAgentStore.getState().items.some((m) => m.text === "ソースコード「shop-app」から作成: 受注から出荷まで")).toBe(true);
-    expect((mocked.mock.calls[0]![0] as unknown as LabeledSource[]).map((s) => s.label)).toEqual([""]);
-  });
-
-  it("実行中は行の操作ができず、二度押しでも 1 本だけ。中断できる", async () => {
-    let opts!: ReverseOptions;
-    mocked.mockImplementation((_t, _r, o) => {
-      opts = o;
-      return new Promise(() => {});
-    });
-    await threeSources();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(mocked).toHaveBeenCalled());
-    expect(mocked).toHaveBeenCalledTimes(1);
-    // 生成が始まったら、登録欄・説明・入力欄は畳んで要約になる (行の操作はできない)
-    expect(screen.queryByRole("button", { name: "ソースコードの場所を足す" })).toBeNull();
-    expect(screen.queryByLabelText("モデルに起こしたい業務")).toBeNull();
-    expect(document.querySelector(".source-summary-sources")!.textContent).toBe("ソースコード 3 か所 (aozora-api・管理画面・フロント画面)");
-    expect(document.querySelector(".source-summary-request")!.textContent).toBe("業務: 受注から出荷まで");
-    expect(document.querySelector(".source-rows")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "中断" }));
-    expect(opts.signal?.aborted).toBe(true);
-  });
-
-  it("生成中も、進み具合は登録欄の下ではなく本文の先頭に近い位置に出る。失敗したら登録欄に戻って、やり直せる。終わって気づいたことを出すときも畳んだまま", async () => {
-    mocked.mockRejectedValueOnce(new Error("boom"));
-    await threeSources();
-    await fill();
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(document.querySelector(".prompt-error")).not.toBeNull());
-    // 失敗: 登録欄・入力欄が戻り、入力は残っている
-    expect(document.querySelector(".source-summary")).toBeNull();
-    expect(document.querySelectorAll(".source-row")).toHaveLength(3);
-    expect((screen.getByLabelText("モデルに起こしたい業務") as HTMLTextAreaElement).value).toBe("受注から出荷まで");
-    expect(startButton().textContent).toBe("やり直す");
-    mocked.mockResolvedValueOnce(result(["気づいたこと 1"]));
-    await act(async () => {
-      fireEvent.click(startButton());
-    });
-    await waitFor(() => expect(screen.getByText(/気づいたことが 1 件/)).toBeDefined());
-    expect(document.querySelector(".source-summary")).not.toBeNull();
-    expect(document.querySelector(".source-rows")).toBeNull();
-    expect(document.querySelector(".source-dialog-body")!.contains(screen.getByText("気づいたこと 1"))).toBe(true);
   });
 
   it("フォルダをたどっている間 (選び直し中) は作成を押せない", async () => {

@@ -6,6 +6,7 @@ import {
   baseName,
   getPlatform,
   type OpenedFile,
+  type OpenTextFileOptions,
   type LoginResult,
   type Platform,
   type RecentFile,
@@ -15,6 +16,10 @@ import {
 export interface MemoryPlatform extends Platform {
   /** openTextFile が返す内容 (null なら取り消し) */
   opened: OpenedFile | null;
+  /** openTextFile が返す内容を、続けて 1 つずつ返す列 (あれば opened より先。何度も選ぶテスト用) */
+  openedQueue: OpenedFile[];
+  /** openTextFile に渡された、選べる種類 */
+  openOptions: (OpenTextFileOptions | undefined)[];
   /** saveTextFile で書いた内容 (新しい順ではなく書いた順) */
   saved: { text: string; path: string | null; name: string }[];
   /** saveTextFiles で選ぶフォルダ (null なら取り消し) */
@@ -57,6 +62,8 @@ export function memoryPlatform(): MemoryPlatform {
     kind: "web",
     cloud: true,
     opened: null,
+    openedQueue: [],
+    openOptions: [],
     saved: [],
     folder: "/repo/docs/domain",
     savedFolders: [],
@@ -77,8 +84,9 @@ export function memoryPlatform(): MemoryPlatform {
       p.loginListeners.forEach((l) => l(result));
     },
 
-    async openTextFile() {
-      return p.opened;
+    async openTextFile(options) {
+      p.openOptions.push(options);
+      return p.openedQueue.shift() ?? p.opened;
     },
     async saveTextFile(text, path, suggestedName): Promise<SavedFile | null> {
       p.saved.push({ text, path, name: suggestedName });
