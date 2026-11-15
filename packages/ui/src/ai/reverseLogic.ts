@@ -87,12 +87,15 @@ export function mappingGap(model: UntieModel): { informations: number; tables: n
   return { informations: infos.size, tables, systems };
 }
 
-/** テーブルの DSL の中の、テーブルの前の `///` の説明の行 (テーブルの名前 → 行の並び) */
+/**
+ * テーブルの DSL の中の、model の直前に続くコメントの行 (テーブルの名前 → 行の並び)。`///` の説明も、SQL の変換が書き出す `// 顧客`
+ * (COMMENT ON TABLE・MySQL の COMMENT='…') も読む。空行をはさんだ、もっと前のコメントは読まない
+ */
 function tableDocComments(dsl: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   let docs: string[] = [];
   for (const line of dsl.split("\n")) {
-    const doc = /^\s*\/\/\/\s?(.*)$/.exec(line);
+    const doc = /^\s*\/\/\/?\s?(.*)$/.exec(line);
     if (doc) {
       docs.push(doc[1]!.trim());
       continue;
@@ -116,7 +119,7 @@ export interface MappingSuggestion {
 
 /**
  * 名前が明らかに合う、テーブルと情報の組 (AI を使わずに結ぶ候補)。まだどの情報にも結ばれていないテーブルだけが対象で、
- * 突き合わせの鍵 (NFKC・小文字・空白の削除) で、テーブルの名前・`@@map` のもとの名前・テーブルの説明 (`///` の行) のどれかと、情報の名前が一致するもの。
+ * 突き合わせの鍵 (NFKC・小文字・空白の削除) で、テーブルの名前・`@@map` のもとの名前・テーブルの説明 (model の直前の `//`・`///` の行) のどれかと、情報の名前が一致するもの。
  * 1 つの情報に複数のテーブルが合うとき、1 つのテーブルに複数の情報が合うときも、全部を候補にする (利用者が見て決める)
  */
 export function suggestMappings(model: UntieModel): MappingSuggestion[] {
@@ -374,7 +377,7 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
   const build = accepted as BuildResult | null;
   if (!build) throw new ChatError("AI がモデルを提出しませんでした。起こしたい業務を具体的にして、もう一度試してください。");
   let model = build.model;
-  warnings.push(...build.warnings.map((w) => `業務: ${w}`));
+  warnings.push(...build.warnings.map((w) => `業務: ${w}`), ...build.notices.map((w) => `業務: ${w}`));
 
   // 新しい画面は、画面の段階で作った設計 (サイトマップ・メニュー) に載せる (設計がまだ無いシステムには何もしない)
   const newScreens = model.elements.filter((e) => e.kind === "screen" && !baseIds.has(e.id));

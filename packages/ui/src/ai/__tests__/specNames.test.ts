@@ -248,3 +248,90 @@ describe("土台の画面を、下書きから指す", () => {
     expect(r.warnings.some((w) => /同じ名前の画面が複数/.test(w))).toBe(true);
   });
 });
+
+describe("綴りの違うだけの名前: 定義する側は別の要素、参照する側は完全に同じ名前 → 鍵 (レビューの指摘の再現)", () => {
+  const spread = (s: Partial<ModelSpec>): ModelSpec => ({ system_name: "x", businesses: [], ...s });
+
+  it("定義する側: 綴りだけが違う名前 (Order・order、工程①・工程1、㈱取引先・(株)取引先、店長・店 長、在庫管理・在庫 管理) は、別の要素として作り、説明も捨てない。警告も出さない", () => {
+    const r = buildModelFromSpec(
+      spread({
+        informations: [{ name: "Order", description: "受注" }, { name: "order", description: "発注" }],
+        external_actors: [{ name: "㈱取引先", description: "A" }, { name: "(株)取引先", description: "B" }],
+        actors: [{ name: "店長", description: "C" }, { name: "店 長", description: "D" }],
+        systems: [{ name: "在庫管理", description: "E" }, { name: "在庫 管理", description: "F" }],
+        businesses: [{ name: "業務", activities: [{ name: "工程①", description: "G" }, { name: "工程1", description: "H" }] }],
+      }),
+    );
+    expect(r.warnings).toEqual([]);
+    for (const [kind, names] of [["information", ["Order", "order"]], ["externalActor", ["㈱取引先", "(株)取引先"]], ["actor", ["店長", "店 長"]], ["system", ["在庫管理", "在庫 管理"]], ["activity", ["工程①", "工程1"]]] as const) {
+      for (const n of names) expect(byName(r.model, kind, n), `${kind}「${n}」`).toHaveLength(1);
+    }
+    expect((one(r.model, "information", "order") as { description?: string }).description).toBe("発注");
+    // もとの名前が完全に同じ (前後の空白だけ違う) ときは、同じ要素
+    const same = buildModelFromSpec(spread({ informations: [{ name: "Order" }, { name: " Order " }] }));
+    expect(byName(same.model, "information", "Order")).toHaveLength(1);
+  });
+
+  it("参照する側: 完全に同じ名前を先に探し、無ければ鍵で 1 つに決まるときだけ結び、「『Ａさん』は『Aさん』として扱いました」を notices に残す (warnings にはしない)", () => {
+    const r = buildModelFromSpec(
+      spread({
+        actors: [{ name: "Aさん" }],
+        informations: [{ name: "Order" }, { name: "order" }, { name: "請求" }],
+        businesses: [{ name: "業務", main_actors: ["Aさん"], activities: [{ name: "作業", performers: ["Ａさん"], usecases: [{ name: "操作", informations: ["order", "ＯＲＤＥＲ", "請求"] }] }] }],
+      }),
+    );
+    const act = one(r.model, "activity", "作業");
+    const uc = one(r.model, "usecase", "操作");
+    // 担当は鍵で結ぶ
+    expect(relations(r.model, "actorActivity", one(r.model, "actor", "Aさん").id).map((x) => x.targetId)).toEqual([act.id]);
+    expect(r.notices).toEqual(["『Ａさん』は『Aさん』として扱いました"]);
+    // 情報: 「order」は完全に同じ名前の order に、「ＯＲＤＥＲ」は Order・order の 2 つに当たるので結ばず、警告する。「請求」はそのまま
+    expect(relations(r.model, "usecaseInformation", uc.id).map((x) => x.targetId).sort()).toEqual([one(r.model, "information", "order").id, one(r.model, "information", "請求").id].sort());
+    expect(r.warnings).toEqual(["『ＯＲＤＥＲ』に当たる候補が複数あります (Order・order)。名前を揃えてください"]);
+  });
+
+  it("土台ありの突き合わせ: 完全に同じ名前 → 鍵 (1 つに決まるときだけ。結んだら notices に残す)。土台の要素は書き換えず、新しい要素は作らない", () => {
+    const base = buildModelFromSpec(spread({ actors: [{ name: "Aさん", description: "もとの説明" }], systems: [{ name: "在庫管理" }], informations: [{ name: "Order" }, { name: "order" }] })).model;
+    const r = buildModelFromSpec(
+      spread({ actors: [{ name: "Ａさん", description: "新しい説明" }], systems: [{ name: "在庫 管理" }], informations: [{ name: "Order" }, { name: "ORDER" }] }),
+      { base },
+    );
+    expect(r.model.elements.filter((e) => e.kind === "actor")).toHaveLength(1);
+    expect(r.model.elements.filter((e) => e.kind === "system")).toHaveLength(1);
+    expect((one(r.model, "actor", "Aさん") as { description?: string }).description).toBe("もとの説明");
+    expect(r.notices).toEqual(expect.arrayContaining(["『Ａさん』は『Aさん』として扱いました", "『在庫 管理』は『在庫管理』として扱いました"]));
+    // 「Order」は完全に同じ名前なので notices には残らない。「ORDER」は土台の 2 つに当たるので、結ばず警告する (別の要素として作る)
+    expect(r.notices.some((n) => n.includes("『Order』"))).toBe(false);
+    expect(r.warnings).toEqual(["『ORDER』に当たる候補が複数あります (Order・order)。名前を揃えてください"]);
+    valid(r.model);
+  });
+});
+
+describe("状態のまとまり (グループ) の名前が変わったとき", () => {
+  const states = [{ name: "仮予約" }, { name: "確定" }];
+  const withGroup = (name: string): ModelSpec => ({ system_name: "x", businesses: [], state_groups: [{ name, states }] });
+
+  it("1 回目「予約の状態」、2 回目「予約ステータス」: 状態は 4 つになるが、「すでにある『予約の状態』と同じ名前です」と警告する (出し直しを求める warnings)", () => {
+    const base = buildModelFromSpec(withGroup("予約の状態")).model;
+    const r = buildModelFromSpec(withGroup("予約ステータス"), { base });
+    expect(r.model.elements.filter((e) => e.kind === "state")).toHaveLength(4);
+    expect(r.warnings).toEqual(["状態『仮予約』『確定』は、すでにある『予約の状態』と同じ名前です。同じものなら、まとまりの名前を揃えてください"]);
+  });
+
+  it("同じまとまりの名前なら、二重にならず、警告もない。綴りの揺れだけのまとまりの名前は、土台のまとまりとして扱い、notices に残す", () => {
+    const base = buildModelFromSpec(withGroup("予約の状態")).model;
+    const same = buildModelFromSpec(withGroup("予約の状態"), { base });
+    expect(same.model.elements.filter((e) => e.kind === "state")).toHaveLength(2);
+    expect(same.warnings).toEqual([]);
+    const fuzzy = buildModelFromSpec(withGroup("予約の 状態"), { base });
+    expect(fuzzy.model.elements.filter((e) => e.kind === "state")).toHaveLength(2);
+    expect(fuzzy.warnings).toEqual([]);
+    expect(fuzzy.notices).toEqual(["『予約の 状態』は『予約の状態』として扱いました"]);
+  });
+
+  it("名前が重ならない別のまとまり (「請求の状態/請求済み」) は警告しない。1 つだけ重なる程度でも警告しない", () => {
+    const base = buildModelFromSpec(withGroup("予約の状態")).model;
+    const other = buildModelFromSpec({ system_name: "x", businesses: [], state_groups: [{ name: "請求の状態", states: [{ name: "未請求" }, { name: "確定" }] }] }, { base });
+    expect(other.warnings).toEqual([]);
+  });
+});

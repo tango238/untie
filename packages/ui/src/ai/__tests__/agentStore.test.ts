@@ -194,6 +194,33 @@ describe("AI エージェント", () => {
     ]);
   });
 
+  it("深掘り・ヒアリング・ドメインの対話の会話が続いているときは、段階の要約を会話に足さない (表示にも会話にも。通常の会話に戻ったあとにも渡さない)。通常の会話には足せる", async () => {
+    const brief = [{ role: "user" as const, text: "段階を実行しました" }, { role: "assistant" as const, text: "段階の要約" }];
+    const shown = [{ role: "info" as const, text: "段階の要約を足しました" }];
+    const kinds: [string, () => Promise<void>][] = [
+      ["grill", () => useAgentStore.getState().startGrill("issue_checkin_queue")],
+      ["hearing", () => useAgentStore.getState().startHearing("actor_front", "persona")],
+      ["domain", () => useAgentStore.getState().startDomainTalk("sys_pms")],
+    ];
+    for (const [kind, start] of kinds) {
+      useAgentStore.getState().newConversation();
+      await start();
+      expect(useAgentStore.getState().mode.kind).toBe(kind);
+      const before = useAgentStore.getState().items.map((i) => i.text);
+      const seeds = fake.seeds.length;
+      expect(useAgentStore.getState().appendContext(brief, shown)).toBe(false);
+      expect(useAgentStore.getState().items.map((i) => i.text)).toEqual(before);
+      expect(fake.seeds.length).toBe(seeds);
+      // 通常の会話に戻っても、段階の要約は渡されない (会話は、戻る前の続きのまま)
+      useAgentStore.getState().newConversation();
+      expect(useAgentStore.getState().items).toEqual([]);
+    }
+    // 通常の会話 (edit) には、これまでどおり足せる
+    await useAgentStore.getState().send("作業を足して");
+    expect(useAgentStore.getState().appendContext(brief, shown)).toBe(true);
+    expect(useAgentStore.getState().items.slice(-1)[0]!.text).toBe("段階の要約を足しました");
+  });
+
   it("最初の発言が届かなければ深掘りをやめて通常に戻す", async () => {
     fake.key = null;
     await useAgentStore.getState().startGrill("issue_checkin_queue");

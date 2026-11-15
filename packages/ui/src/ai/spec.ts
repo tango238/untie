@@ -277,8 +277,10 @@ export const SPEC_LIMITS = {
 
 export interface BuildResult {
   model: UntieModel;
-  /** 名前が見つからなかったなど、組み立てで気づいたこと */
+  /** 名前が見つからなかったなど、組み立てで気づいたこと (直せるなら、AI に出し直してもらうもの) */
   warnings: string[];
+  /** 名前の揺れ (全角半角・大文字小文字・空白) を吸収して結んだことの知らせ。出し直しを求めない (利用者に見せるだけ) */
+  notices: string[];
   /** できあがったモデルにある要素の数 (土台があれば、土台の分も含む) */
   counts: Partial<Record<ElementKind, number>>;
   /** このとき新しく足した要素の数 (土台が無ければ counts と同じ) */
@@ -332,9 +334,47 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   };
   const activityBudget = budget(L.activities, "作業");
   const usecaseBudget = budget(L.usecases, "操作");
-  // 種類ごとの名前 → id
-  const ids = new Map<string, Map<string, string>>();
-  const idOf = (group: string, name: string) => ids.get(group)?.get(nameKey(nameOf(name)));
+  /** 名前の揺れを吸収して結んだ知らせ (出し直しを求めない) */
+  const notices: string[] = [];
+  // 種類ごとの名前の索引。exact: もとの名前 (前後の空白を除いたもの) → id、byKey: 突き合わせの鍵 → id の並び。
+  // 要素を定義する側は、もとの名前が完全に同じときだけ同じ要素にする (鍵だけが同じ別の名前は別の要素)。参照する側は、完全に同じ名前 → 鍵の順で探す
+  const ids = new Map<string, { exact: Map<string, string>; byKey: Map<string, string[]> }>();
+  const putName = (group: string, name: string, id: string) => {
+    let g = ids.get(group);
+    if (!g) {
+      g = { exact: new Map(), byKey: new Map() };
+      ids.set(group, g);
+    }
+    if (!g.exact.has(name)) g.exact.set(name, id);
+    const key = nameKey(name);
+    const list = g.byKey.get(key) ?? [];
+    if (!list.includes(id)) list.push(id);
+    g.byKey.set(key, list);
+  };
+  const exactId = (group: string, name: string): string | undefined => ids.get(group)?.exact.get(nameOf(name));
+  const keyIds = (group: string, name: string): string[] => ids.get(group)?.byKey.get(nameKey(nameOf(name))) ?? [];
+  const nameById = (id: string): string => model.elements.find((e) => e.id === id)?.name ?? "";
+  const ambiguousMessage = (name: string, candidates: readonly string[]) => `『${nameOf(name)}』に当たる候補が複数あります (${[...new Set(candidates)].join("・")})。名前を揃えてください`;
+  /** 揺れを吸収して結んだ知らせ (書かれた名前と、結んだ要素の名前が違うときだけ) */
+  const noticeBound = (written: string, actual: string) => {
+    if (nameOf(written) !== actual) notices.push(`『${nameOf(written)}』は『${actual}』として扱いました`);
+  };
+  /** 名前だけで探す (警告を出さない)。完全に同じ名前、無ければ鍵で 1 つに決まるもの */
+  const idOf = (group: string, name: string): string | undefined => {
+    const exact = exactId(group, name);
+    if (exact) return exact;
+    const byKey = keyIds(group, name);
+    return byKey.length === 1 ? byKey[0] : undefined;
+  };
+  /** 定義する側の突き合わせ: この名前の要素がもうあるか。完全に同じ名前、無ければ土台の要素で鍵が 1 つに決まるもの (この下書きで足した、綴りの違う別の名前の要素とは結ばない) */
+  const matchDefined = (group: string, name: string): { kind: "exact" | "key"; id: string } | { kind: "ambiguous"; ids: string[] } | null => {
+    const exact = exactId(group, name);
+    if (exact) return { kind: "exact", id: exact };
+    const fromBase = keyIds(group, name).filter((id) => baseIds.has(id));
+    if (fromBase.length === 1) return { kind: "key", id: fromBase[0]! };
+    if (fromBase.length > 1) return { kind: "ambiguous", ids: fromBase };
+    return null;
+  };
 
   const apply = <T>(r: CommandResult<T>, what: string): (T & { model: UntieModel }) | null => {
     if (!r.ok) {
@@ -350,15 +390,20 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
       nameless.set(kind, (nameless.get(kind) ?? 0) + 1);
       return null;
     }
-    const existing = idOf(group, name);
-    if (existing) return existing;
+    const found = matchDefined(group, name);
+    if (found?.kind === "exact") return found.id;
+    if (found?.kind === "key") {
+      putName(group, name, found.id);
+      noticeBound(name, nameById(found.id));
+      return found.id;
+    }
+    if (found?.kind === "ambiguous") warnings.push(ambiguousMessage(name, found.ids.map(nameById)));
     const r = apply(
       addElement(model, { kind, name, init: { ...(item.description ? { description: truncateText(item.description, DESCRIPTION_MAX_LENGTH) } : {}), ...clipInit(init) } as ElementInit }),
       `${name} を作れません`,
     );
     if (!r) return null;
-    if (!ids.has(group)) ids.set(group, new Map());
-    ids.get(group)!.set(nameKey(name), r.id);
+    putName(group, name, r.id);
     kindById.set(r.id, kind);
     return r.id;
   };
@@ -372,12 +417,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   /** 土台の画面 (名前の鍵 → 画面)。下書きの画面・操作の対象の名前が、土台の画面を指せるように */
   const baseScreensByKey = new Map<string, Extract<Element, { kind: "screen" }>[]>();
   if (base) {
-    const put = (group: string, name: string, id: string) => {
-      const m = ids.get(group) ?? new Map<string, string>();
-      ids.set(group, m);
-      const key = nameKey(name);
-      if (!m.has(key)) m.set(key, id);
-    };
+    const put = putName;
     for (const e of base.elements) {
       kindById.set(e.id, e.kind);
       switch (e.kind) {
@@ -404,7 +444,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
           break;
         case "state":
           // 状態は、状態のまとまり (グループ) と名前の組で突き合わせる。名前だけで引くときの控えは、別の一覧に置く
-          put(`state:${nameKey(e.group ?? "")}`, e.name, e.id);
+          put(`state:${e.group ?? ""}`, e.name, e.id);
           put("stateAny", e.name, e.id);
           break;
         case "ledger":
@@ -443,10 +483,20 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
       if (kind) relationByKey.set(relationKey(kind, sourceId, targetId), r.id);
     } else if (r.reason !== DUPLICATE_RELATION_REASON) /* AI が同じつながりを 2 か所に書いただけなので、警告にしない */ warnings.push(`関係を作れません: ${r.reason}`);
   };
+  /** 参照する側の突き合わせ: 完全に同じ名前 → 鍵 (1 つに決まるときだけ。結んだら知らせに残す。2 つ以上あれば、結ばずに警告) */
   const ref = (groups: string[], name: string, what: string): string | null => {
     for (const g of groups) {
-      const id = idOf(g, name);
+      const id = exactId(g, name);
       if (id) return id;
+    }
+    const byKey = [...new Set(groups.flatMap((g) => keyIds(g, name)))];
+    if (byKey.length === 1) {
+      noticeBound(name, nameById(byKey[0]!));
+      return byKey[0]!;
+    }
+    if (byKey.length > 1) {
+      warnings.push(ambiguousMessage(name, byKey.map(nameById)));
+      return null;
     }
     warnings.push(`${what}「${name}」が見つかりません`);
     return null;
@@ -488,14 +538,35 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   for (const v of clip(spec.variations, L.variations, "バリエーション")) {
     add("variation", "variation", v, { values: clip(v.values, L.valuesPerItem, `バリエーション「${v.name}」の値`), contextId: ctx(v.context) });
   }
+  /** 土台にある状態のまとまり (グループ) の名前 → 状態の名前の鍵 */
+  const baseStateGroups = new Map<string, Set<string>>();
+  if (base) for (const e of base.elements) if (e.kind === "state" && e.group) baseStateGroups.set(e.group, (baseStateGroups.get(e.group) ?? new Set()).add(nameKey(e.name)));
   for (const g of clip(spec.state_groups, L.stateGroups, "状態グループ")) {
-    for (const st of clip(g.states, L.valuesPerItem, `状態グループ「${g.name}」の状態`)) {
+    // まとまりの名前は、土台のまとまりと突き合わせる (完全に同じ名前 → 鍵で 1 つに決まるもの)。新しいまとまりを足すなら、同じ名前の状態が別のまとまりにすでにないかを確かめる
+    let groupName = typeof g.name === "string" ? nameOf(g.name) : "";
+    if (groupName && base && !baseStateGroups.has(groupName)) {
+      const sameKey = [...baseStateGroups.keys()].filter((n) => nameKey(n) === nameKey(groupName));
+      if (sameKey.length === 1) {
+        noticeBound(groupName, sameKey[0]!);
+        groupName = sameKey[0]!;
+      } else if (sameKey.length > 1) warnings.push(ambiguousMessage(groupName, sameKey));
+    }
+    const states = clip(g.states, L.valuesPerItem, `状態グループ「${g.name}」の状態`);
+    if (groupName && base && !baseStateGroups.has(groupName)) {
+      const mine = [...new Set(states.flatMap((st) => (st && typeof st.name === "string" && nameOf(st.name) ? [nameOf(st.name)] : [])))];
+      for (const [other, theirs] of baseStateGroups) {
+        const common = mine.filter((n) => theirs.has(nameKey(n)));
+        if (common.length >= 2 && common.length * 2 > Math.min(mine.length, theirs.size)) {
+          warnings.push(`状態${common.slice(0, 5).map((n) => `『${n}』`).join("")}${common.length > 5 ? "ほか" : ""}は、すでにある『${other}』と同じ名前です。同じものなら、まとまりの名前を揃えてください`);
+        }
+      }
+    }
+    for (const st of states) {
       // 状態は、グループと名前の組で突き合わせる (別のグループの同じ名前の状態は、別の状態)。名前だけで引く参照 (from_states など) のために、最初の 1 つを控える
-      const id = add("state", `state:${nameKey(typeof g.name === "string" ? nameOf(g.name) : "")}`, st, { group: g.name, contextId: ctx(g.context) });
+      const id = add("state", `state:${groupName}`, st, { group: groupName || g.name, contextId: ctx(g.context) });
       if (id && typeof st.name === "string") {
-        const any = ids.get("state") ?? new Map<string, string>();
-        ids.set("state", any);
-        if (!any.has(nameKey(nameOf(st.name)))) any.set(nameKey(nameOf(st.name)), id);
+        const any = ids.get("state");
+        if (!any?.exact.has(nameOf(st.name))) putName("state", nameOf(st.name), id);
       }
     }
   }
@@ -504,12 +575,12 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   for (const i of informations) add("information", "information", i, { contextId: ctx(i.context) });
   for (const c of conditions) add("condition", "condition", c, { contextId: ctx(c.context) });
   for (const i of informations) {
-    const id = idOf("information", i.name);
+    const id = exactId("information", i.name);
     for (const n of clip(i.related, L.refsPerItem, `情報「${i.name}」の関連する情報`)) relate(id, ref(["information"], n, "関連する情報"));
     for (const n of clip(i.variations, L.refsPerItem, `情報「${i.name}」のバリエーション`)) relate(id, ref(["variation"], n, "バリエーション"));
   }
   for (const c of conditions) {
-    const id = idOf("condition", c.name);
+    const id = exactId("condition", c.name);
     for (const n of clip(c.variations, L.refsPerItem, `条件「${c.name}」のバリエーション`)) relate(id, ref(["variation"], n, "バリエーション"));
     for (const n of clip(c.states, L.refsPerItem, `条件「${c.name}」の状態`)) relate(id, ref(["state", "stateAny"], n, "状態"));
   }
@@ -549,15 +620,15 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   /** 操作を作り、対象・情報・条件・状態を結ぶ (作業から使う操作も、イベントをきっかけにする操作も同じ) */
   const addUsecase = (u: SpecUsecase, systemTargets: string[] = [], scope: { activityId?: string; eventId?: string } = {}): string | null => {
     // この下書きがすでに作った (または土台から引いた) 同じ名前の操作は、同じもの
-    let ucId: string | null = typeof u.name === "string" ? (idOf("usecase", u.name) ?? null) : null;
+    let ucId: string | null = typeof u.name === "string" ? (exactId("usecase", u.name) ?? null) : null;
     if (!ucId && typeof u.name === "string" && nameOf(u.name)) {
       const candidates = baseUsecasesByKey.get(nameKey(nameOf(u.name))) ?? [];
-      const same = candidates.find((id) => isSameUsecase(id, u, scope));
+      // 完全に同じ名前の操作を先に、無ければ綴りの揺れだけが違う操作
+      const same = candidates.filter((id) => nameById(id) === nameOf(u.name)).find((id) => isSameUsecase(id, u, scope)) ?? candidates.find((id) => isSameUsecase(id, u, scope));
       if (same) {
         // 土台の同じ操作を使う (上限には数えない)。この下書きの中で同じ名前が出たら、これに合流する
-        const m = ids.get("usecase") ?? new Map<string, string>();
-        ids.set("usecase", m);
-        m.set(nameKey(nameOf(u.name)), same);
+        putName("usecase", nameOf(u.name), same);
+        noticeBound(u.name, nameById(same));
         ucId = same;
       } else {
         if (!usecaseBudget.take()) return null;
@@ -605,7 +676,8 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   // 起点の作業は後ろの作業を指してもよいので、全部作ってから結ぶ
   const pendingTriggers: { id: string; spec: SpecActivity }[] = [];
   const addActivity = (a: SpecActivity, bucId: string) => {
-    if (!(typeof a.name === "string" && idOf(`activity:${bucId}`, a.name)) && !activityBudget.take()) return;
+    const known = typeof a.name === "string" ? matchDefined(`activity:${bucId}`, a.name) : null;
+    if (!(known?.kind === "exact" || known?.kind === "key") && !activityBudget.take()) return;
     const id = add("activity", `activity:${bucId}`, a, { bucId });
     if (!id) return;
     if (a.trigger_activities?.length || a.trigger_events?.length || a.trigger_note?.trim()) pendingTriggers.push({ id, spec: a });
@@ -649,20 +721,39 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     pendingEvents.push({ id, spec: ev });
     for (const u of Array.isArray(ev.usecases) ? ev.usecases : []) relate(id, addUsecase(u, [], { eventId: id }));
   }
-  // 名前 → 要素 (種類ごと。最初のもの)。要素を足し終えた段階で作り直す
-  // 名前の鍵 → 要素。この下書きで足した要素を先に探す (土台の同じ名前の要素より前)
-  const indexOf = (kind: ElementKind): Map<string, Element> => {
-    const m = new Map<string, Element>();
-    for (const fromBase of [false, true]) for (const e of model.elements) if (e.kind === kind && baseIds.has(e.id) === fromBase && !m.has(nameKey(e.name))) m.set(nameKey(e.name), e);
-    return m;
+  // 名前 → 要素 (種類ごと)。要素を足し終えた段階で作る。参照する側の突き合わせ: 完全に同じ名前 (この下書きで足した要素を先に。土台の同じ名前の要素より前) → 鍵で 1 つに決まるもの
+  const lookupOf = (kind: ElementKind) => {
+    const exact = new Map<string, Element>();
+    const byKey = new Map<string, Element[]>();
+    for (const fromBase of [false, true]) {
+      for (const e of model.elements) {
+        if (e.kind !== kind || baseIds.has(e.id) !== fromBase) continue;
+        if (!exact.has(e.name)) exact.set(e.name, e);
+        byKey.set(nameKey(e.name), [...(byKey.get(nameKey(e.name)) ?? []), e]);
+      }
+    }
+    return {
+      get: (name: string): Element | undefined => {
+        const n = nameOf(name);
+        const hit = exact.get(n);
+        if (hit) return hit;
+        const cands = byKey.get(nameKey(n)) ?? [];
+        if (cands.length === 1) {
+          noticeBound(n, cands[0]!.name);
+          return cands[0];
+        }
+        if (cands.length > 1) warnings.push(ambiguousMessage(n, cands.map((e) => e.name)));
+        return undefined;
+      },
+    };
   };
-  const findByName = (kind: ElementKind, name: string) => indexOf(kind).get(nameKey(nameOf(name)));
-  const systemIndex = indexOf("system");
-  const usecaseIndex = indexOf("usecase");
+  const systemIndex = lookupOf("system");
+  const usecaseIndex = lookupOf("usecase");
+  const eventIndex = lookupOf("event");
   for (const { id, spec: ev } of pendingEvents) {
     let origins = 0;
     for (const n of clip(ev.raised_by, L.refsPerItem, `イベント「${ev.name}」を起こすもの`)) {
-      const origin = systemIndex.get(nameKey(nameOf(n))) ?? usecaseIndex.get(nameKey(nameOf(n)));
+      const origin = systemIndex.get(n) ?? usecaseIndex.get(n);
       if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システムか操作の名前にしてください)`);
       else {
         relate(origin.id, id);
@@ -673,7 +764,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   }
 
   // 画面 (分析の画面)。1 つの画面を使う操作は 1 つだけ、1 つの操作の対象はシステム・帳票・画面のどれか 1 つ
-  const systems = [...systemIndex.values()];
+  const systems = model.elements.filter((e) => e.kind === "system");
   /** 操作 → 今の対象 (システム・帳票)。画面を結ぶと対象は画面に替わるので、この段階の最初の状態を覚えておく */
   const targetOfUsecase = new Map<string, Element>();
   {
@@ -713,8 +804,8 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   for (const sc of screenList) {
     const name = typeof sc?.name === "string" ? nameOf(sc.name) : "";
     if (!name) continue;
-    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(nameKey(nameOf(sc.usecase))) : undefined;
-    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(nameKey(nameOf(sc.system))) : undefined;
+    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(sc.usecase) : undefined;
+    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(sc.system) : undefined;
     // 書かれたシステムが見つからない画面は作られない
     if (typeof sc.system === "string" && sc.system && !explicit) continue;
     const declaredTarget = declaredUc ? targetOfUsecase.get(declaredUc.id) : undefined;
@@ -756,11 +847,11 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
       nameless.set("screen", (nameless.get("screen") ?? 0) + 1);
       continue;
     }
-    const declared = sc.usecase ? usecaseIndex.get(nameKey(nameOf(sc.usecase))) : undefined;
+    const declared = sc.usecase ? usecaseIndex.get(sc.usecase) : undefined;
     if (sc.usecase && !declared) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
     // 操作の targets に画面の名前を書いたものも、screens の usecase と同じ扱いで、その画面を使う操作にする
     // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム、それも無ければ土台にあるその名前の画面のシステム (1 つだけのとき)
-    let system = sc.system ? systemIndex.get(nameKey(nameOf(sc.system))) : (systems.length === 1 ? systems[0] : undefined) ?? baseOwnerOfScreen(name);
+    let system = sc.system ? systemIndex.get(sc.system) : (systems.length === 1 ? systems[0] : undefined) ?? baseOwnerOfScreen(name);
     if (!system && sc.system) warnings.push(`画面「${name}」の属するシステム「${sc.system}」が見つかりません`);
     // targets に名前を書いた操作: どこかの画面が screens[].usecase で宣言した操作には結ばない (宣言が勝つ)。同じ名前の画面が複数あるときは、
     // 操作の対象のシステムが、この画面のシステムと同じものだけ結ぶ (それで 1 つに決まる。決まらないものは、最後に 1 件だけ警告する)
@@ -844,19 +935,22 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   for (const { id, spec: a } of pendingTriggers) {
     for (const n of clip(a.trigger_activities, L.refsPerItem, `作業「${a.name}」の起点の作業`)) {
       // この下書きで足した作業を先に探す (土台の同じ名前の作業より前)
-      const same = model.elements
-        .filter((e) => e.kind === "activity" && nameKey(e.name) === nameKey(nameOf(n)))
-        .sort((a, b) => Number(baseIds.has(a.id)) - Number(baseIds.has(b.id)));
+      const all = model.elements.filter((e) => e.kind === "activity" && nameKey(e.name) === nameKey(nameOf(n))).sort((a, b) => Number(baseIds.has(a.id)) - Number(baseIds.has(b.id)));
+      // 完全に同じ名前を先に探し、無ければ綴りの揺れだけが違うもの (1 つに決まるときだけ)
+      const exact = all.filter((e) => e.name === nameOf(n));
+      const same = exact.length > 0 ? exact : all;
       const others = same.filter((e) => e.id !== id);
       if (same.length === 0) warnings.push(`起点の作業「${n}」が見つかりません`);
       else if (others.length === 0) warnings.push(`作業「${a.name}」は自分自身を起点にできないので、起点「${n}」は結びませんでした`);
+      else if (exact.length === 0 && others.length > 1) warnings.push(ambiguousMessage(n, others.map((e) => e.name)));
       else {
         if (others.length > 1) warnings.push(`起点の作業「${n}」と同じ名前の作業が ${others.length} つあるので、最初の 1 つを結びました`);
+        if (exact.length === 0) noticeBound(n, others[0]!.name);
         relate(others[0]!.id, id);
       }
     }
     for (const n of clip(a.trigger_events, L.refsPerItem, `作業「${a.name}」の起点のイベント`)) {
-      const ev = findByName("event", n);
+      const ev = eventIndex.get(n);
       if (ev) relate(ev.id, id);
       else warnings.push(`起点のイベント「${n}」が見つかりません`);
     }
@@ -868,12 +962,25 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   // 課題
   for (const issue of clip(spec.issues, L.issues, "課題")) {
     // 土台にある課題と同じ名前は、足さない (同じ業務をやり直したとき、課題が二重にならないように)
-    if (base && base.elements.some((e) => e.kind === "issue" && nameKey(e.name) === nameKey(nameOf(issue.name ?? "")))) continue;
+    const sameIssue = base?.elements.filter((e) => e.kind === "issue" && nameKey(e.name) === nameKey(nameOf(issue.name ?? "")));
+    if (sameIssue && sameIssue.length > 0) {
+      if (!sameIssue.some((e) => e.name === nameOf(issue.name ?? ""))) noticeBound(issue.name ?? "", sameIssue[0]!.name);
+      continue;
+    }
     const found = clip(issue.targets, L.refsPerItem, `課題「${issue.name}」の対象`)
       // 対象は、この下書きで足した要素を先に探す (土台の別の業務の同じ名前の作業に付かないように)
       .map((n) => {
-        const same = model.elements.filter((e) => isIssueTargetKind(e.kind) && nameKey(e.name) === nameKey(nameOf(n)));
-        return same.find((e) => !baseIds.has(e.id)) ?? same[0];
+        const all = model.elements.filter((e) => isIssueTargetKind(e.kind) && nameKey(e.name) === nameKey(nameOf(n)));
+        // 完全に同じ名前を先に。無ければ綴りの揺れだけが違うもので、1 つに決まるときだけ
+        const exact = all.filter((e) => e.name === nameOf(n));
+        const pick = (list: Element[]) => list.find((e) => !baseIds.has(e.id)) ?? list[0];
+        if (exact.length > 0) return pick(exact);
+        if (all.length === 1) {
+          noticeBound(n, all[0]!.name);
+          return all[0];
+        }
+        if (all.length > 1) warnings.push(ambiguousMessage(n, all.map((e) => e.name)));
+        return undefined;
       })
       .filter((e): e is Element => !!e);
     // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は混ぜられないので、最初の対象と同じ区分だけを残す
@@ -904,5 +1011,5 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     counts[e.kind] = (counts[e.kind] ?? 0) + 1;
     if (!baseIds.has(e.id)) added[e.kind] = (added[e.kind] ?? 0) + 1;
   }
-  return { model, warnings: [...new Set(warnings)], counts, added };
+  return { model, warnings: [...new Set(warnings)], notices: [...new Set(notices)], counts, added };
 }

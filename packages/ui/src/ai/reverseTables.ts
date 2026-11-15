@@ -29,8 +29,8 @@ export interface DatabaseView {
 const typeOf = (f: PrismaModel["fields"][number]): string => `${f.type}${f.isList ? "[]" : ""}${f.isOptional ? "?" : ""}`;
 
 /** 列 (ほかのテーブルへの関連の欄は除く) */
-function columnsOf(schema: PrismaSchema, m: PrismaModel): TableView["columns"] {
-  return m.fields.filter((f) => !f.relation && !schema.models.some((x) => x.name === f.type)).map((f) => ({ name: f.name, type: typeOf(f) }));
+function columnsOf(names: ReadonlySet<string>, m: PrismaModel): TableView["columns"] {
+  return m.fields.filter((f) => !f.relation && !names.has(f.type)).map((f) => ({ name: f.name, type: typeOf(f) }));
 }
 
 /** 手がかりの文章に、名前が出るか (短すぎる名前は、偶然の一致が多いので数えない) */
@@ -53,6 +53,7 @@ export function selectTablesForRequest(model: UntieModel, databaseIds: readonly 
     const db = model.databases.find((d) => d.id === id);
     if (!db) continue;
     const schema = parsePrismaDslCached(db.dsl);
+    const modelNames = new Set(schema.models.map((x) => x.name));
     const direct = new Set<string>();
     const infoNames = new Map<string, string[]>();
     for (const m of schema.models) {
@@ -63,13 +64,13 @@ export function selectTablesForRequest(model: UntieModel, databaseIds: readonly 
     const related = new Set<string>();
     for (const m of schema.models) {
       for (const f of m.fields) {
-        if (!schema.models.some((x) => x.name === f.type)) continue;
+        if (!modelNames.has(f.type)) continue;
         if (direct.has(m.name)) related.add(f.type);
         if (direct.has(f.type)) related.add(m.name);
       }
     }
     for (const m of schema.models) {
-      rows.push({ db, schema, m, rank: direct.has(m.name) ? 0 : related.has(m.name) ? 1 : 2, view: { table: m.name, informations: infoNames.get(m.name) ?? [], columns: columnsOf(schema, m) } });
+      rows.push({ db, schema, m, rank: direct.has(m.name) ? 0 : related.has(m.name) ? 1 : 2, view: { table: m.name, informations: infoNames.get(m.name) ?? [], columns: columnsOf(modelNames, m) } });
     }
   }
   const order = rows.map((r, i) => ({ r, i })).sort((a, b) => a.r.rank - b.r.rank || a.i - b.i);
@@ -154,6 +155,7 @@ export function executeGetTable(model: UntieModel, databaseIds: readonly string[
   const byId = new Map(model.elements.map((e) => [e.id, e]));
   const found = dbs.flatMap((db) => {
     const schema = parsePrismaDslCached(db.dsl);
+    const modelNames = new Set(schema.models.map((x) => x.name));
     return schema.models
       .filter((m) => nameKey(m.name) === key || (m.mapName !== undefined && nameKey(m.mapName) === key))
       .map((m) => ({
@@ -161,8 +163,8 @@ export function executeGetTable(model: UntieModel, databaseIds: readonly string[
         table: m.name,
         ...(m.mapName ? { dbName: m.mapName } : {}),
         informations: (db.tables.find((t) => t.table === m.name)?.informationIds ?? []).map((i) => byId.get(i)?.name ?? i),
-        columns: columnsOf(schema, m),
-        relations: m.fields.filter((f) => schema.models.some((x) => x.name === f.type)).map((f) => ({ field: f.name, table: f.type, list: f.isList })),
+        columns: columnsOf(modelNames, m),
+        relations: m.fields.filter((f) => modelNames.has(f.type)).map((f) => ({ field: f.name, table: f.type, list: f.isList })),
       }));
   });
   if (found.length === 0) return fail(`テーブル「${input.table}」は見つかりません`);

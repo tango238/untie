@@ -9,6 +9,7 @@ import {
   defaultDatabaseName,
   defaultSchemaLeftovers,
   defaultSchemaSelection,
+  describeReplacements,
   describeSchemaNotes,
   findSchemaCandidates,
   partialMigrationGroups,
@@ -99,7 +100,17 @@ export function SourceDataCard({
 
   // ソースのフォルダが選ばれた・選び直されたら、スキーマ定義の候補を探す
   const scanKey = rows.map((r) => (r.tree ? `${r.key}:${r.picks}` : "-")).join(",");
+  /** 行ごとに、前に見たフォルダを選んだ回数 (同じ行でフォルダを選び直したら、その行の「取り込み済み」の印を消す) */
+  const seenPicks = useRef(new Map<number, number>());
   useEffect(() => {
+    const repicked: number[] = [];
+    for (const r of rows) {
+      if (!r.tree) continue;
+      const before = seenPicks.current.get(r.key);
+      if (before !== undefined && before !== r.picks) repicked.push(r.key);
+      seenPicks.current.set(r.key, r.picks);
+    }
+    if (repicked.length > 0) setDoneRows((prev) => (repicked.some((k) => prev.has(k)) ? new Set([...prev].filter((k) => !repicked.includes(k))) : prev));
     let cancelled = false;
     convertSeq.current++;
     setScanning(true);
@@ -117,7 +128,7 @@ export function SourceDataCard({
     return () => {
       cancelled = true;
     };
-    // 木の組が替わったときだけ探し直す (ラベルの入力では探し直さない)
+    // 木の組が替わったとき (フォルダを選んだ・選び直したとき。同じフォルダの選び直しも、選んだ回数で数える) だけ探し直す (ラベルの入力では探し直さない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanKey]);
 
@@ -191,7 +202,7 @@ export function SourceDataCard({
     onError("");
     try {
       const inputs: SchemaInput[] = [];
-      for (const c of chosen) inputs.push({ path: c.display, kind: c.kind, text: await c.read() });
+      for (const c of chosen) inputs.push({ path: c.display, kind: c.kind, text: await c.read(), ...(c.group !== undefined ? { group: `${c.rowKey}:${c.group}` } : {}) });
       for (const p of picked) inputs.push({ path: p.name, kind: p.kind, text: p.text });
       // 読んでいる間に、選び直した・探し直した・名前を変えたなら、この結果は古いので捨てる
       if (mine !== convertSeq.current) return;
@@ -233,6 +244,7 @@ export function SourceDataCard({
     setConfirm(null);
     const summary = dataImportSummary(preview, importName, r);
     const warnings = [
+      ...(preview.replacements.length > 0 ? [`変換: ${describeReplacements(preview.replacements)}`] : []),
       ...describeSchemaNotes(preview.notes).map((n) => `変換: ${n}`),
       ...(r.droppedBindings > 0 ? [`画面の項目と列の対応 ${r.droppedBindings} 件を、無くなったテーブル・列のため外しました`] : []),
       ...(r.droppedMappings.length > 0 ? [`情報との対応を、無くなったテーブル (${r.droppedMappings.slice(0, 5).join("、")}${r.droppedMappings.length > 5 ? " ほか" : ""}) から外しました`] : []),
@@ -305,6 +317,8 @@ export function SourceDataCard({
                       {c.order !== undefined ? `当てる順 ${c.order}・` : ""}
                       {kb(c.size)}・{c.kind === "prisma" ? (c.hasTables ? "model あり" : "model なし") : c.hasTables ? "CREATE TABLE あり" : "CREATE TABLE なし"}
                       {c.down ? "・取り消し用 (既定では選びません)" : ""}
+                      {c.sample ? "・テスト用・見本のようなので、既定では選びません" : ""}
+                      {c.stripsDown ? "・取り消しの部分を除いて当てます" : ""}
                       {c.size > MAX_FILE_BYTES ? "・大きなファイル" : ""}
                       {doneRows.has(c.rowKey) ? "・取り込み済みのソース" : ""}
                     </span>
@@ -330,11 +344,16 @@ export function SourceDataCard({
           ほかのソースにもスキーマがあります。データベースは 1 つずつ取り込むので、いまはスキーマの見つかった先頭のソースだけを選んでいます。取り込むと、次のソースを選びます。
         </p>
       )}
+      {leftovers.files.length > 0 && (
+        <p className="source-note" role="status">
+          ほかにもスキーマらしいファイルがあります。どれを使うか確かめてください (いまは、{chosen.length > 0 ? `「${chosen[0]!.display}」` : "優先の高い 1 つ"}だけを選んでいます。優先の順は、schema.prisma → schema.sql・structure.sql → パスが浅いもの → テーブルの定義が多いもの)。
+        </p>
+      )}
       {leftovers.groups.length > 0 && (
         <p className="source-note">別のマイグレーションの組 ({leftovers.groups.map((g) => `「${g}」`).join("")}) もあります。ほかの道具のマイグレーションと混ぜると同じテーブルが二重になるので、いまはファイルの多い 1 つの組だけを選んでいます。</p>
       )}
       <p className="source-note">
-        既定では、schema.prisma があればそれだけ、無ければ CREATE TABLE を含む SQL (ダンプ)、それも無ければマイグレーションのフォルダ 1 つの、進む向きのファイルを全部 (ALTER だけ・DROP だけのファイルも。取り消し用の down などは選びません) 選びます。マイグレーションは、名前の番号の順 (V2 は V10 より前) に当てます。
+        既定では、schema.prisma があればそれ 1 つ、無ければ CREATE TABLE を含む SQL (ダンプ) の 1 つ、それも無ければマイグレーションのフォルダ 1 つの、進む向きのファイルを全部 (ALTER だけ・DROP だけのファイルも。取り消し用の down などは選びません) 選びます。test・fixtures・seed・backup・old などのテスト用・見本のようなものは選びません。1 つのファイルの中に取り消しの部分 (goose の Down など) があれば、それを除いて当てます。マイグレーションは、名前の番号の順 (V2 は V10 より前) に当てます。
       </p>
       <div className="source-folder">
         <button type="button" disabled={disabled || busy} onClick={() => void pickFile()}>
@@ -392,6 +411,11 @@ export function SourceDataCard({
               ))}
               {preview.tables.length > PREVIEW_TABLES && <li className="candidate-meta">ほか {preview.tables.length - PREVIEW_TABLES} テーブル</li>}
             </ul>
+          )}
+          {preview.replacements.length > 0 && (
+            <p className="source-note prompt-error" role="alert">
+              {describeReplacements(preview.replacements)}
+            </p>
           )}
           {preview.notes.length > 0 && (
             <>

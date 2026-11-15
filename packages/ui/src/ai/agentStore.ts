@@ -214,7 +214,8 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       set({ open: true, mode: { kind: "edit" }, items: items.map((i) => ({ id: ++seq, role: i.role, text: i.text })) });
     },
     appendContext: (seed, items) => {
-      if (get().running) return false;
+      // 作業中、または課題の深掘り・ヒアリング・ドメインの対話の会話が続いているときは足さない (段階の要約がその会話に混ざらないように。表示にも会話にも足さず、あとで渡し直しもしない)
+      if (get().running || get().mode.kind !== "edit") return false;
       if (session) session.seed(seed);
       else pendingSeed = [...(pendingSeed.length > 0 ? pendingSeed : recoverySeed()), ...seed];
       set((s) => ({ open: true, items: [...s.items, ...items.map((i) => ({ id: ++seq, role: i.role, text: i.text }))] }));

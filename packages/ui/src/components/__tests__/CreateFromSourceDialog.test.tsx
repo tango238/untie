@@ -98,7 +98,7 @@ const progressOf = (c: ReturnType<typeof card>) => c.getByText(/^進み具合: /
 beforeEach(() => {
   resetStore(emptyModel("テスト"));
   forgetSources();
-  useAgentStore.setState({ items: [], running: false });
+  useAgentStore.setState({ items: [], running: false, mode: { kind: "edit" } });
   mockedScreens.mockReset();
   mockedLogic.mockReset();
   vi.mocked(getApiKey).mockResolvedValue("sk-test");
@@ -533,6 +533,119 @@ describe("CreateFromSourceDialog: 段階 1 データ (マイグレーション�
       fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
     });
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/権限が切れた可能性/));
+  });
+});
+
+describe("CreateFromSourceDialog: 最終レビューの指摘 (候補の印・取り込み済みの印・フォーカス)", () => {
+  const list = () => dataCard().getByRole("list", { name: "スキーマ定義の候補" });
+
+  it("goose の 1 つのファイル (Up と Down): 既定で選ばれ、「取り消しの部分を除いて当てます」と出て、変換の気づいたことにも残る", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(memorySourceTree("api", { "db/migrations/00001_create_users.sql": "-- +goose Up\nCREATE TABLE users (id int PRIMARY KEY);\n-- +goose Down\nDROP TABLE users;" }));
+    await waitFor(() => expect(within(list()).getAllByRole("checkbox")).toHaveLength(1));
+    expect((within(list()).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    expect(within(list()).getByText(/取り消しの部分を除いて当てます/)).toBeDefined();
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    expect(dataCard().getByText(/取り消しの部分 \(Down・rollback\) を除いて当てました/)).toBeDefined();
+  });
+
+  it("テスト用・見本 (spec/fixtures) は候補に出て印が付き、既定では選ばれない。まとまったスキーマが 2 つあれば、1 つだけ選んで「ほかにも…確かめてください」と知らせる", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(
+      memorySourceTree("api", {
+        "db/schema.sql": "CREATE TABLE users (id int PRIMARY KEY, email text);",
+        "spec/fixtures/users.sql": "CREATE TABLE users (id int);",
+        "db/dev_dump.sql": "CREATE TABLE a (id int);",
+      }),
+    );
+    await waitFor(() => expect(within(list()).getAllByRole("checkbox")).toHaveLength(3));
+    const checked = () => Object.fromEntries(within(list()).getAllByRole("checkbox").map((c, i) => [i, (c as HTMLInputElement).checked]));
+    // 並びは名前順: db/dev_dump.sql, db/schema.sql, spec/fixtures/users.sql
+    expect(checked()).toEqual({ 0: false, 1: true, 2: false });
+    expect(within(list()).getByText(/テスト用・見本のようなので、既定では選びません/)).toBeDefined();
+    expect(dataCard().getByText(/ほかにもスキーマらしいファイルがあります。どれを使うか確かめてください/)).toBeDefined();
+  });
+
+  it("選んだファイルが同じテーブルを作り直しているとき、変換結果に目立つ警告 (どのテーブルが・どのファイルで) を出す。取り込みの結果にも残る", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(memorySourceTree("api", { "db/schema.sql": "CREATE TABLE users (id int PRIMARY KEY, email text);", "spec/fixtures/users.sql": "CREATE TABLE users (id int);" }));
+    await waitFor(() => expect(within(list()).getAllByRole("checkbox")).toHaveLength(2));
+    fireEvent.click(within(list()).getAllByRole("checkbox")[1]!);
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    const alert = dataCard().getByText(/別々のファイルが同じテーブルを作り直しています/);
+    expect(alert.textContent).toContain("「users」(db/schema.sql → spec/fixtures/users.sql)");
+    expect(alert.getAttribute("role")).toBe("alert");
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "取り込む" }));
+    });
+    await waitFor(() => expect(screen.getByText(/データの段階が終わりました/)).toBeDefined());
+    expect(screen.getAllByText(/別々のファイルが同じテーブルを作り直しています/).length).toBeGreaterThan(0);
+  });
+
+  it("同じ行でフォルダを選び直したら、その行の「取り込み済み」の印を消す", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(memorySourceTree("api", { "db/schema.sql": "CREATE TABLE a (id INT);" }));
+    await waitFor(() => expect(within(list()).getAllByRole("checkbox")).toHaveLength(1));
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "取り込む" }));
+    });
+    await waitFor(() => expect(within(list()).getByText(/取り込み済みのソース/)).toBeDefined());
+    // 同じ行でフォルダを選び直す
+    await pickFolder(memorySourceTree("api", { "db/schema.sql": "CREATE TABLE a (id INT);\nCREATE TABLE b (id INT);" }));
+    await waitFor(() => expect(within(list()).queryByText(/取り込み済みのソース/)).toBeNull());
+  });
+
+  it("段階を始めたら「中断」ボタンへ、終わったら結果の見出しへ、失敗したらエラーへフォーカスが移る (body に落ちない)", async () => {
+    let finishStage!: () => void;
+    mockedLogic.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishStage = () => resolve(logicResult());
+        }),
+    );
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "中断" })).toBeDefined());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "中断" }));
+    await act(async () => finishStage());
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    expect(document.activeElement).toBe(screen.getByText(/業務の段階が終わりました/));
+
+    mockedLogic.mockRejectedValueOnce(new Error("boom"));
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(document.querySelector(".source-error")).not.toBeNull());
+    expect(document.activeElement).toBe(document.querySelector(".source-error"));
+  });
+
+  it("深掘りなどの会話が続いているとき、段階が終わっても、その会話に要約を足さず、足さなかったことを結果に出す", async () => {
+    mockedLogic.mockImplementation(async () => logicResult());
+    useAgentStore.setState({ items: [{ id: 900, role: "user", text: "いまの会話" }], mode: { kind: "grill", issueId: "i" } });
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    expect(useAgentStore.getState().items.map((i) => i.text)).toEqual(["いまの会話"]);
+    expect(screen.getByText(/その会話には足していません/)).toBeDefined();
+    useAgentStore.setState({ mode: { kind: "edit" } });
   });
 });
 

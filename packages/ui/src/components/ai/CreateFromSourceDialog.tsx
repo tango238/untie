@@ -265,6 +265,15 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (hasResult) resultHeading.current?.focus();
   }, [hasResult, result]);
+  // 段階を始めたら、押したボタンは (畳んだ本文の中で) 見えなくなるので、「中断」ボタンへ。失敗したら、エラーへ (フォーカスが body に落ちないように)
+  const abortButton = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (running !== null) abortButton.current?.focus();
+  }, [running]);
+  const errorBox = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (error) errorBox.current?.focus();
+  }, [error]);
 
   const patchRow = (key: number, patch: Partial<SourceRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
@@ -322,16 +331,18 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
       { role: "assistant" as const, text: done.summary },
     ];
     const agent = useAgentStore.getState();
+    let added = true;
     if (agent.items.length > 0) {
       const brief = done.brief ?? [
         { role: "user" as const, text: `ソースコードから「${STAGE_LABELS[done.stage]}」の段階を実行しました。` },
         { role: "assistant" as const, text: done.summary },
       ];
-      agent.appendContext(brief, [...shown, { role: "info", text: "ここまでの会話は残しています。続けて、モデルを直せます。" }]);
+      // 深掘り・ヒアリング・ドメインの対話の会話が続いているとき (と作業中) は、その会話には足されない
+      added = agent.appendContext(brief, [...shown, { role: "info", text: "ここまでの会話は残しています。続けて、モデルを直せます。" }]);
     } else {
       agent.continueFrom(seedForAgent, [...shown, { role: "info", text: "このまま会話を続けて、モデルを直せます。" }]);
     }
-    setResult({ stage: done.stage, summary: `${note}${done.summary}`, warnings: done.warnings, next: recommendNext(latest, done.stage) });
+    setResult({ stage: done.stage, summary: `${note}${done.summary}${added ? "" : " (AI のペインは作業中か、別の会話 (深掘り・ヒアリング・ドメインの対話) の途中なので、その会話には足していません)"}`, warnings: done.warnings, next: recommendNext(latest, done.stage) });
     setRunning(null);
     setStep(null);
   };
@@ -472,7 +483,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
         <h2>ソースコードから作成</h2>
         {/* 失敗は、本文のスクロールの外 (見出しの下) に出す。本文の末尾に置くと、長い本文の下端で切れて読めない */}
         {error && (
-          <p className="prompt-error source-error" role="alert">
+          <p className="prompt-error source-error" role="alert" tabIndex={-1} ref={errorBox}>
             {error}
           </p>
         )}
@@ -822,7 +833,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
               <span className="source-folder-count">
                 中断すると、この段階でできた分も反映されません (結果は、全部できてから 1 回でモデルに反映します。画面 UI を途中まで作っていても同じです)。
               </span>
-              <button type="button" onClick={() => controller.current?.abort()}>
+              <button type="button" ref={abortButton} onClick={() => controller.current?.abort()}>
                 中断
               </button>
             </>

@@ -100,7 +100,7 @@ export async function generateFromPrompt(request: string, o: GenerationOptions):
   o.onStep?.("done");
 
   const summary = `初期要望からモデル「${build.model.meta.name}」を作成しました (${summarizeCounts(build.counts)})。${
-    build.warnings.length > 0 ? `組み立てで気づいたこと: ${build.warnings.slice(0, 5).join(" / ")}` : ""
+    build.warnings.length + build.notices.length > 0 ? `組み立てで気づいたこと: ${[...build.warnings, ...build.notices].slice(0, 5).join(" / ")}` : ""
   }`;
   return {
     build,

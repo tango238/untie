@@ -74,9 +74,9 @@ describe("マイグレーションの組: 進む向きを全部当てる (CREATE
     expect(tablesOf(r)).toEqual(["b"]);
   });
 
-  it("取り消し用の名前: down・rollback・revert・undo・Flyway の U 始まり。ふつうの名前は取り消し用にしない", () => {
-    for (const p of ["a.down.sql", "down.sql", "001_x_down.sql", "U3__undo.sql", "001_rollback.sql", "x_revert_users.sql", "undo.sql", "down/001.sql"]) expect(isDownMigration(p), p).toBe(true);
-    for (const p of ["V1__init.sql", "001_add_users.sql", "20240101_create_downloads.sql", "V3__add_countdown.sql", "up.sql"]) expect(isDownMigration(p), p).toBe(false);
+  it("取り消し用の名前: 最後の部分が向きを表すもの (down・rollback・undo・revert)・Flyway の U 始まり・down などのフォルダ。名前の途中に含むだけのものは取り消し用にしない", () => {
+    for (const p of ["a.down.sql", "down.sql", "001_x_down.sql", "001-x-down.sql", "U3__undo.sql", "001_rollback.sql", "001.rollback.sql", "x.revert.sql", "undo.sql", "001_x.undo.sql", "x_undo.sql", "down/001.sql", "rollback/001.sql", "revert/001.sql", "undo/001.sql"]) expect(isDownMigration(p), p).toBe(true);
+    for (const p of ["V1__init.sql", "001_add_users.sql", "20240101_create_downloads.sql", "V3__add_countdown.sql", "up.sql", "003_add_rollback_reason.sql", "002_revert_table.sql", "x_revert_users.sql", "004_undo_log.sql", "005_rollbacks.sql"]) expect(isDownMigration(p), p).toBe(false);
   });
 
   it("Prisma の migrations/<時刻>_<名前>/migration.sql は、フォルダ名の時刻の順に当てる", async () => {
@@ -158,7 +158,9 @@ describe("既定の選び方の優先と複数", () => {
     const cands = [c("a1", 1), c("b1", 2), c("b2", 2)];
     expect([...defaultSchemaSelection(cands)]).toEqual(["a1"]);
     expect(defaultSchemaLeftovers(cands).rows).toEqual([2]);
-    expect([...defaultSchemaSelection(cands, new Set([1]))]).toEqual(["b1", "b2"]);
+    // まとまったスキーマが同じソースに 2 つあるときは、1 つだけ (どれかは優先の順)
+    expect([...defaultSchemaSelection(cands, new Set([1]))]).toEqual(["b1"]);
+    expect(defaultSchemaLeftovers(cands, new Set([1])).files).toEqual(["b2"]);
     expect(defaultSchemaLeftovers(cands, new Set([1])).rows).toEqual([]);
     expect(defaultSchemaSelection(cands, new Set([1, 2])).size).toBe(0);
   });
