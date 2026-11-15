@@ -29,15 +29,26 @@ import {
   stageFailure,
   surveyCollector,
   throwIfAborted,
+  trackUsage,
   type Ctx,
   type StageOptions,
+  type StageUsageSummary,
 } from "./reverse";
 import { addScreensToDesign } from "./reverseScreens";
-import { clipSurvey, FINISH_NOTE, reverseLogicModelRequest, reverseLogicSurveyRequest, reverseSystemPrompt, reverseTableMapRequest, wrapSurvey } from "./reversePrompts";
+import { clipSurvey, FINISH_NOTE, reverseLogicModelRequest, reverseLogicSurveyRequest, reverseSystemPrompt, reverseTableMapRequest, wrapSurvey, type MappingPlan } from "./reversePrompts";
+import type { ScreenSurvey } from "./surveyMemory";
 import { combineSourceTrees, isMultiSourceTree, sourcesTitle, visibleFiles, type LabeledSource, type SourceTree } from "./sourceTree";
 import { executeGetTable, GET_TABLE_TOOL } from "./reverseTables";
 import { buildModelFromSpec, nameKey, SUBMIT_MODEL_TOOL, type BuildResult, type ModelSpec } from "./spec";
-import type { ToolOutcome } from "./tools";
+import type { ToolDef, ToolOutcome } from "./tools";
+
+/** 業務の段階の会話が、どれも同じ道具の定義を持つ (調査・業務のモデル・テーブルの対応。reverseScreens.ts の STAGE_TOOLS と同じ理由) */
+const STAGE_TOOLS: ToolDef[] = [SUBMIT_MODEL_TOOL, USE_DATABASE_TOOL, GET_TABLE_TOOL];
+
+export interface LogicOptions extends StageOptions {
+  /** 画面の段階の調査結果 (覚えているとき。無ければ、今までどおり、ソースを調べる) */
+  previousSurvey?: ScreenSurvey | null;
+}
 
 export interface LogicResult {
   /** 足したあとのモデル */
@@ -48,7 +59,12 @@ export interface LogicResult {
   survey: string;
   warnings: string[];
   seed: SeedTurn[];
+  /** 結果の文 (気づいたことを含む。エージェントへの引き継ぎに使う) */
   summary: string;
+  /** 結果の文から、気づいたことを除いたもの */
+  headline: string;
+  /** 段階の AI の使用量の合計 (API が使用量を返さなかったときは null) */
+  usage: StageUsageSummary | null;
 }
 
 /**
@@ -57,13 +73,24 @@ export interface LogicResult {
  * テーブルのあるデータベースすべて (AI が選ぶ。選んだデータベースが、設計の使うデータベースになる)
  */
 export function systemDatabaseIds(model: UntieModel, systemId: string): string[] {
-  const withTables = (id: string) => {
-    const db = model.databases.find((d) => d.id === id);
-    return !!db && tableNamesOf(db).length > 0;
-  };
+  return systemDatabaseChoice(model, systemId).ids;
+}
+
+/** systemDatabaseIds と、設計が使うデータベースをすでに決めているか (false なら、AI が選んだものが設計の使うデータベースになる) */
+function systemDatabaseChoice(model: UntieModel, systemId: string): { ids: string[]; chosen: boolean } {
   const design = model.designs.find((d) => d.systemId === systemId);
-  const used = design ? effectiveDatabaseIds(model, design).filter(withTables) : [];
-  return used.length > 0 ? used : model.databases.filter((d) => withTables(d.id)).map((d) => d.id);
+  const used = design ? effectiveDatabaseIds(model, design).filter((id) => hasTables(model, id)) : [];
+  return used.length > 0 ? { ids: used, chosen: true } : { ids: mappableDatabaseIds(model), chosen: false };
+}
+
+const hasTables = (model: UntieModel, id: string): boolean => {
+  const db = model.databases.find((d) => d.id === id);
+  return !!db && tableNamesOf(db).length > 0;
+};
+
+/** テーブルのあるデータベースすべての id */
+export function mappableDatabaseIds(model: UntieModel): string[] {
+  return model.databases.filter((d) => hasTables(model, d.id)).map((d) => d.id);
 }
 
 /** システムが使う情報のうち、対応付けの対象のデータベース (systemDatabaseIds) のどのテーブルにも対応していないものの id */
@@ -73,9 +100,30 @@ export function unmappedInSystem(model: UntieModel, systemId: string): string[] 
   return systemInformationIds(model, systemId).filter((id) => !mapped.has(id));
 }
 
-/** テーブルと情報の対応の、すきま: どのテーブルにも対応していない情報 (システムごとの重複を除く) と、どの情報にも対応していないテーブル (テーブルのあるデータベース) の数 */
+/** どのシステムにも使われていない (どの操作も扱っていない) 情報 (名前のあるもの) の id */
+function unusedInformationIds(model: UntieModel): string[] {
+  const used = new Set(model.elements.filter((e) => e.kind === "system").flatMap((e) => systemInformationIds(model, e.id)));
+  return model.elements.filter((e) => e.kind === "information" && e.name.trim() !== "" && !used.has(e.id)).map((e) => e.id);
+}
+
+/** テーブルのあるデータベースの、どこかのテーブルに対応している情報の id */
+function mappedInformationIds(model: UntieModel): Set<string> {
+  return new Set(mappableDatabaseIds(model).flatMap((id) => model.databases.find((d) => d.id === id)!.tables.flatMap((t) => t.informationIds)));
+}
+
+/** どのシステムにも使われていない情報のうち、どのテーブルにも対応していないもの (テーブルのあるデータベースが無ければ空)。システムごとの対応の対象から漏れるものを、対応の対象に入れるため */
+export function unusedUnmappedInformationIds(model: UntieModel): string[] {
+  if (mappableDatabaseIds(model).length === 0) return [];
+  const mapped = mappedInformationIds(model);
+  return unusedInformationIds(model).filter((id) => !mapped.has(id));
+}
+
+/**
+ * テーブルと情報の対応の、すきま: どのテーブルにも対応していない情報 (システムが使うもの (システムごとの重複を除く) と、どのシステムにも使われていないもの) と、
+ * どの情報にも対応していないテーブル (テーブルのあるデータベース) の数。systems は、対応していない情報を持つシステムの数
+ */
 export function mappingGap(model: UntieModel): { informations: number; tables: number; systems: number } {
-  const infos = new Set<string>();
+  const infos = new Set<string>(unusedUnmappedInformationIds(model));
   let systems = 0;
   for (const sys of model.elements.filter((e) => e.kind === "system")) {
     if (systemDatabaseIds(model, sys.id).length === 0) continue;
@@ -170,86 +218,119 @@ export interface TableMapResult {
 }
 
 /**
- * テーブルと情報の対応を、システムごとの会話で付ける (業務の段階の最後と、対応付けだけの入口で共通)。
- * 対象のデータベースは、システムの設計が実際に使うもの (systemDatabaseIds)。AI は use_database で答え、列を知りたいテーブルは get_table で調べる。
- * ctx.budget は呼ぶ側が決めておく
+ * テーブルと情報の対応を付ける対象 (無ければ null)。モデルのすべての情報のうち、システムが使うものでまだ対応のないもの (unmappedInSystem) と、
+ * どのシステムにも使われていないもの (unusedUnmappedInformationIds) を、テーブルのあるすべてのデータベースに対して、1 つの会話で扱う。
+ * 対応を付けられる情報か、テーブルのあるデータベースが無ければ null (会話を開かない)。名前が合うもの (suggestMappings) は、候補として添える
+ */
+export function planMapping(model: UntieModel): MappingPlan | null {
+  const databaseIds = mappableDatabaseIds(model);
+  if (databaseIds.length === 0) return null;
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const brief = (id: string) => ({ name: byId.get(id)?.name ?? "", ...(byId.get(id)?.description ? { description: byId.get(id)!.description } : {}) });
+  const systems = model.elements
+    .filter((e) => e.kind === "system")
+    .flatMap((e) => {
+      const left = unmappedInSystem(model, e.id);
+      if (left.length === 0) return [];
+      const choice = systemDatabaseChoice(model, e.id);
+      return [{ id: e.id, name: e.name, databases: choice.ids.map((id) => model.databases.find((d) => d.id === id)!.name), chosen: choice.chosen, informations: left.map(brief) }];
+    });
+  const unused = unusedUnmappedInformationIds(model).map(brief);
+  if (systems.length === 0 && unused.length === 0) return null;
+  const screens = model.elements.filter((e) => e.kind === "screen" && systems.some((s) => s.id === e.systemId));
+  const hint = [...systems.flatMap((s) => s.informations), ...unused].flatMap((i) => [i.name, i.description ?? ""]).concat(screens.flatMap((e) => [e.name, e.description ?? ""])).join("\n");
+  const unmappedTables = databaseIds.flatMap((id) => {
+    const db = model.databases.find((d) => d.id === id)!;
+    return unmappedTableNames(db).map((t) => (databaseIds.length > 1 ? `${db.name}.${t}` : t));
+  });
+  const suggestions = suggestMappings(model).map((x) => ({ database: x.databaseName, table: x.table, information: x.informationName, via: x.via }));
+  return { systems: systems.map((x) => ({ name: x.name, databases: x.databases, chosen: x.chosen, informations: x.informations })), unused, databaseIds, suggestions, hint, unmappedTables };
+}
+
+/**
+ * テーブルと情報の対応を、1 つの会話で付ける (業務の段階の最後と、対応付けだけの入口で共通)。対象は planMapping のとおり。
+ * AI は use_database でデータベースごとに答え (システムごとに、使うデータベースが決まる)、列を知りたいテーブルは get_table で調べる。
+ * システムが使うデータベースは、これまでの規則のまま (設計が実際に使うデータベースに絞る。決まっていないシステムは、選んだものが設計の使うデータベースになる)。
+ * 対象が無ければ会話を開かない。ctx.budget は呼ぶ側が決めておく
  */
 async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; system: string; seed: SeedTurn[]; nSources: number; warnings: string[] }): Promise<TableMapResult> {
   const { ctx, system, seed, nSources, warnings } = args;
   const o = ctx.o;
   let model = args.model;
+  const plan = planMapping(model);
+  if (!plan) return { model, mappedInformations: 0 };
   const lim = sourceLimits(nSources);
-  let mappedInformations = 0;
-  const targets = model.elements.filter((e) => e.kind === "system").filter((e) => systemDatabaseIds(model, e.id).length > 0 && unmappedInSystem(model, e.id).length > 0);
-  let streak = 0;
-  for (const sys of targets) {
+  const before = mappedInformationIds(model).size;
+  const dbIds = plan.databaseIds;
+  let calls = 0;
+  let used = false;
+  const dbNames = (ids: readonly string[]) => ids.map((id) => model.databases.find((d) => d.id === id)?.name ?? "").filter((n) => n !== "");
+  /** 出し直しの案内に添える、対応のすきま: どのテーブルにも結ばれていない情報 (システムが使うものと、どのシステムにも使われていないもの) と、どの情報にも結ばれていないテーブル */
+  const gap = (databaseId: string): { lines: string[]; any: boolean } => {
+    const ids = new Set([...model.elements.filter((e) => e.kind === "system").flatMap((e) => unmappedInSystem(model, e.id)), ...unusedUnmappedInformationIds(model)]);
+    const infos = [...ids].map((id) => elementName(model, id));
+    const db = model.databases.find((d) => d.id === databaseId);
+    const tables = db ? unmappedTableNames(db) : [];
+    const lines: string[] = [];
+    if (tables.length > 0) lines.push(`「${db!.name}」の DSL にあるテーブルのうち、どの情報にも結ばれていないもの: ${tables.slice(0, 20).join("、")}${tables.length > 20 ? " ほか" : ""}`);
+    if (infos.length > 0) lines.push(`どのテーブルにも結ばれていない情報: ${infos.slice(0, 20).join("、")}${infos.length > 20 ? " ほか" : ""}`);
+    return { lines, any: infos.length > 0 };
+  };
+  const useDatabase = (input: unknown): ToolOutcome => {
+    const draft = readDatabaseUse(input);
+    if (!draft) return errorOutcome("database・tables が必要です (system は省いてよい)");
+    if (calls >= REVERSE_LIMITS.mappingCalls) return okOutcome(`これ以上は答えられません (${REVERSE_LIMITS.mappingCalls} 回まで)。このまま受け付けています。${FINISH_NOTE}`, false);
+    // system を書いたときは、そのシステムが使えるデータベースの中から選ぶ。省いたときは、テーブルのあるデータベースすべて
+    const sys = draft.system !== undefined ? model.elements.find((e) => e.kind === "system" && nameKey(e.name) === nameKey(draft.system!)) : undefined;
+    if (draft.system !== undefined && !sys) return errorOutcome(`システム「${draft.system}」はモデルにありません。上の「システムと、対応のない情報」にあるシステムの名前を書くか、system を省いてください`);
+    const allowed = sys ? systemDatabaseChoice(model, sys.id).ids : dbIds;
+    const wanted = draft.database.trim();
+    const target = allowed.map((id) => model.databases.find((d) => d.id === id)).find((d) => d && (d.id === wanted || nameKey(d.name) === nameKey(wanted)));
+    if (!target) {
+      return errorOutcome(`データベース「${draft.database}」は、${sys ? `システム「${sys.name}」が使う` : "対象の"}データベースにありません。次のどれかの名前で指してください: ${dbNames(allowed).map((n) => `「${n}」`).join("")}`);
+    }
+    calls++;
+    const r = applyDatabaseUse(model, { ...draft, ...(sys ? { system: sys.name } : {}), database: target.id });
+    if (!r.applied) return errorOutcome(`${r.failure ?? "データベースを使えませんでした"}。直して出し直してください`);
+    model = r.model;
+    used = true;
+    const message = `受け付けました: データベース「${target.name}」${sys ? `をシステム「${sys.name}」が使います` : "の対応を足しました"} (対応を足したテーブル ${r.added.tables}、情報 ${r.added.informations})`;
+    o.onSubmit?.(true, message);
+    const retriesLeft = REVERSE_LIMITS.mappingCalls - calls;
+    const g = gap(target.id);
+    const others = r.warnings.filter((w) => !/がどのテーブルにも対応していません/.test(w));
+    const note = revisionNote(others, retriesLeft, "use_database", "");
+    if (g.any && retriesLeft > 0) {
+      return okOutcome(
+        `${message}${note}\n${g.lines.join("\n")}\nテーブルが DSL にあるのに対応が無い情報は、tables に足して use_database を出し直してください (足した対応は残ります)。ほかのシステム・データベースの分も続けて答えてください。対応するテーブルがソースに無い情報だけ、直さなくてかまいません (あと ${retriesLeft} 回まで)`,
+        true,
+      );
+    }
+    return okOutcome(`${message}${note}\n${FINISH_NOTE}`, true);
+  };
+  try {
+    const session = openSession(ctx, {
+      label: "テーブルの対応",
+      system,
+      stageTools: STAGE_TOOLS,
+      cap: { ...lim.data, finish: "submit" },
+      handlers: { use_database: useDatabase, get_table: (input) => executeGetTable(model, dbIds, input) },
+      seed,
+      counted: ["get_table"],
+      unavailable: "いまはテーブルと情報の対応を答える会話です (use_database)。業務のモデルは、すでに作ってあります。",
+    });
+    await session.send(reverseTableMapRequest(model, plan), {}, o.signal);
     throwIfAborted(o.signal);
-    if (streak >= REVERSE_LIMITS.screenErrorStreak) {
-      warnings.push(`データ: 会話が続けて ${REVERSE_LIMITS.screenErrorStreak} 回失敗したので、残りのシステムのテーブルと情報の対応は付けませんでした`);
-      break;
-    }
-    const before = unmappedInSystem(model, sys.id).length;
-    const dbIds = systemDatabaseIds(model, sys.id);
-    let useAttempts = 0;
-    let used = false;
-    const maxAttempts = 1 + REVERSE_LIMITS.dataRetries;
-    /** 出し直しの案内に添える、対応のすきま: どの情報にも結ばれていないテーブルと、どのテーブルにも結ばれていない情報 */
-    const gap = (databaseId: string): { lines: string[]; any: boolean } => {
-      const infos = unmappedInSystem(model, sys.id).map((id) => elementName(model, id));
-      const db = model.databases.find((d) => d.id === databaseId);
-      const tables = db ? unmappedTableNames(db) : [];
-      const lines: string[] = [];
-      if (tables.length > 0) lines.push(`DSL にあるテーブルのうち、どの情報にも結ばれていないもの: ${tables.slice(0, 20).join("、")}${tables.length > 20 ? " ほか" : ""}`);
-      if (infos.length > 0) lines.push(`どのテーブルにも結ばれていない情報: ${infos.slice(0, 20).join("、")}${infos.length > 20 ? " ほか" : ""}`);
-      return { lines, any: infos.length > 0 };
-    };
-    const useDatabase = (input: unknown): ToolOutcome => {
-      const draft = readDatabaseUse(input);
-      if (!draft) return errorOutcome("system・database・tables が必要です");
-      if (useAttempts >= maxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${FINISH_NOTE}`, false);
-      const wanted = draft.database.trim();
-      const target = dbIds.map((id) => model.databases.find((d) => d.id === id)).find((d) => d && (d.id === wanted || nameKey(d.name) === nameKey(wanted)));
-      if (!target) {
-        const names = dbIds.map((id) => model.databases.find((d) => d.id === id)?.name ?? "").filter((n) => n !== "");
-        return errorOutcome(`データベース「${draft.database}」は、このシステムが使うデータベースにありません。次のどれかの名前で指してください: ${names.map((n) => `「${n}」`).join("")}`);
-      }
-      useAttempts++;
-      const r = applyDatabaseUse(model, { ...draft, system: sys.name, database: target.id });
-      if (!r.applied) return errorOutcome(`${r.failure ?? "データベースを使えませんでした"}。直して出し直してください`);
-      model = r.model;
-      used = true;
-      const message = `受け付けました: データベース「${target.name}」を使います (対応を足したテーブル ${r.added.tables}、情報 ${r.added.informations})`;
-      o.onSubmit?.(true, message);
-      const retriesLeft = maxAttempts - useAttempts;
-      const g = gap(target.id);
-      const others = r.warnings.filter((w) => !/がどのテーブルにも対応していません/.test(w));
-      const note = revisionNote(others, retriesLeft, "use_database", "");
-      if (g.any && retriesLeft > 0) {
-        return okOutcome(
-          `${message}${note}\n${g.lines.join("\n")}\nこのシステムの情報で、テーブルが DSL にあるのに対応が無いものは、tables に足して use_database を出し直してください (あと ${retriesLeft} 回まで。足した対応は残ります)。対応するテーブルがソースに無い情報だけ、直さなくてかまいません`,
-          true,
-        );
-      }
-      return okOutcome(`${message}${note}\n${FINISH_NOTE}`, true);
-    };
-    try {
-      const session = openSession(ctx, system, [USE_DATABASE_TOOL, GET_TABLE_TOOL], { ...lim.data, finish: "submit" }, { use_database: useDatabase, get_table: (input) => executeGetTable(model, dbIds, input) }, seed, ["get_table"]);
-      await session.send(reverseTableMapRequest(model, sys.id, dbIds), {}, o.signal);
+    if (!used) {
+      await session.send("use_database で、テーブルと情報の対応を答えてください (対応するテーブルが無ければ、tables を空にして答えてください)。", {}, o.signal);
       throwIfAborted(o.signal);
-      if (!used) {
-        await session.send("use_database で、このシステムが使うデータベースのテーブルと、このシステムの情報の対応を答えてください (対応するテーブルが無ければ、tables を空にして答えてください)。", {}, o.signal);
-        throwIfAborted(o.signal);
-      }
-      streak = 0;
-    } catch (e) {
-      const failure = stageFailure(e, o.signal);
-      if (!failure) throw e;
-      streak++;
-      warnings.push(`データ: システム「${sys.name}」: ${failure.message}`);
     }
-    mappedInformations += Math.max(0, before - unmappedInSystem(model, sys.id).length);
+  } catch (e) {
+    const failure = stageFailure(e, o.signal);
+    if (!failure) throw e;
+    warnings.push(`データ: テーブルと情報の対応を付ける会話が失敗しました: ${failure.message}`);
   }
-  return { model, mappedInformations };
+  return { model, mappedInformations: Math.max(0, mappedInformationIds(model).size - before) };
 }
 
 /** テーブルと情報の対応の結果のあとの、残りの気づいたこと (対応していない情報) */
@@ -269,7 +350,9 @@ function leftoverMappingWarnings(model: UntieModel): string[] {
  * 業務の段階を実行する。base は今のモデル (これに足した新しいモデルを返す。base は変えない)。
  * 失敗・中断は例外で、そのとき足したものは返らない
  */
-export async function reverseLogic(base: UntieModel, source: SourceTree | readonly LabeledSource[], request: string, o: StageOptions): Promise<LogicResult> {
+export async function reverseLogic(base: UntieModel, source: SourceTree | readonly LabeledSource[], request: string, options: LogicOptions): Promise<LogicResult> {
+  const usage = trackUsage(options);
+  const o = usage.options;
   const tree: SourceTree = "files" in source ? source : combineSourceTrees(source);
   const multi = isMultiSourceTree(tree);
   const nSources = tree.sources?.length ?? 1;
@@ -282,8 +365,18 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
   // ---- 1. 調査 ----
   throwIfAborted(o.signal);
   o.onStep?.("survey");
-  const surveyRequest = reverseLogicSurveyRequest(request, base, tree.name, visibleFiles(tree).length, tree.sources);
-  const surveySession = openSession(ctx, system, [], { ...lim.survey, finish: "survey" }, {}, []);
+  // 画面の段階の調査結果を覚えているときは、それを渡して、そこに無いことだけを調べさせる (覚えていなければ、今までどおり調べる)
+  const previous = options.previousSurvey && options.previousSurvey.survey.trim() !== "" ? options.previousSurvey : null;
+  const surveyRequest = reverseLogicSurveyRequest(request, base, tree.name, visibleFiles(tree).length, tree.sources, previous, REVERSE_LIMITS.previousSurveyChars);
+  const surveySession = openSession(ctx, {
+    label: "調査",
+    system,
+    stageTools: STAGE_TOOLS,
+    cap: { ...lim.survey, finish: "survey" },
+    handlers: {},
+    seed: [],
+    unavailable: "いまは調査の会話です。ソースコードを読んで、調査結果を文章で書いてください (提出は、調査のあとの会話で求めます)。",
+  });
   const collector = surveyCollector(o.onText);
   let lastReply = "";
   try {
@@ -362,7 +455,15 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
     o.onSubmit?.(true, message);
     return okOutcome(`${message}。${FINISH_NOTE}`, true);
   };
-  const modelSession = openSession(ctx, system, [SUBMIT_MODEL_TOOL], { ...lim.model, finish: "submit" }, { submit_model: submitModel }, modelSeed);
+  const modelSession = openSession(ctx, {
+    label: "業務のモデル",
+    system,
+    stageTools: STAGE_TOOLS,
+    cap: { ...lim.model, finish: "submit" },
+    handlers: { submit_model: submitModel },
+    seed: modelSeed,
+    unavailable: "いまは業務のモデルを提出する会話です (submit_model)。テーブルと情報の対応は、このあと別の会話で答えます。",
+  });
   try {
     await modelSession.send(reverseLogicModelRequest(request, base, multi), {}, o.signal);
     throwIfAborted(o.signal);
@@ -385,19 +486,20 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
     model = addScreensToDesign(model, sysId, newScreens.filter((e) => e.kind === "screen" && e.systemId === sysId).map((e) => e.id), warnings);
   }
 
-  // ---- 3. テーブルと情報の対応 (システムごと) ----
+  // ---- 3. テーブルと情報の対応 (1 つの会話。モデルのすべての情報と、テーブルのあるすべてのデータベース) ----
   throwIfAborted(o.signal);
   o.onStep?.("tables");
-  const realDbs = model.databases.filter((d) => tableNamesOf(d).length > 0);
+  const realDbs = mappableDatabaseIds(model);
   const withInfo = model.elements.filter((e) => e.kind === "system" && systemInformationIds(model, e.id).length > 0);
-  const toMap = model.elements.filter((e) => e.kind === "system" && systemDatabaseIds(model, e.id).length > 0 && unmappedInSystem(model, e.id).length > 0);
-  ctx.budget.calls = logicBudget(toMap.length, nSources).calls;
-  ctx.budget.chars = logicBudget(toMap.length, nSources).chars;
+  const mapPlan = planMapping(model);
+  ctx.budget.calls = logicBudget(mapPlan ? 1 : 0, nSources).calls;
+  ctx.budget.chars = logicBudget(mapPlan ? 1 : 0, nSources).chars;
   let mappedInformations = 0;
   if (realDbs.length === 0) {
     if (withInfo.length > 0) warnings.push("データ: データベースがまだ無いので、テーブルと情報の対応は付けませんでした。データの段階で、先に SQL などからデータベースを取り込んでください");
   } else {
-    const mapped = await mapTablesAndInformations({ model, ctx, system, seed: stageSeed, nSources, warnings });
+    // 業務のモデルの会話と同じ履歴 (調査結果) で始める。先頭が同じなので、業務のモデルの会話が書いたキャッシュを読める
+    const mapped = await mapTablesAndInformations({ model, ctx, system, seed: modelSeed, nSources, warnings });
     model = mapped.model;
     mappedInformations = mapped.mappedInformations;
   }
@@ -422,9 +524,8 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
     warnings.push("画面: 画面の段階がまだなので、業務に関わる画面だけを足しました。画面の段階を進めると、画面 UI とメニューを作ります");
   }
 
-  const summary = `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}から業務「${request.trim()}」を足しました (${summarizeCounts(build.added)}、テーブルと対応づけた情報 ${mappedInformations})。${
-    warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""
-  }`;
+  const headline = `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}から業務「${request.trim()}」を足しました (${summarizeCounts(build.added)}、テーブルと対応づけた情報 ${mappedInformations})。`;
+  const summary = `${headline}${warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""}`;
   return {
     model,
     added: build.added,
@@ -432,6 +533,8 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
     survey,
     warnings,
     summary,
+    headline,
+    usage: usage.summary(),
     seed: [
       { role: "user", text: `次のソースコードから、業務をモデルに足してください。\n\n<ソースコードのフォルダ>${multi ? `\n${tree.sources!.map((x) => `${x.label}: ${x.folder}`).join("\n")}\n` : tree.name}</ソースコードのフォルダ>\n<モデルに起こしたい業務>\n${request}\n</モデルに起こしたい業務>` },
       { role: "assistant", text: `${stageSeed[1]!.text}\n\n${summary}` },
@@ -445,6 +548,9 @@ export interface MappingResult {
   mappedInformations: number;
   warnings: string[];
   summary: string;
+  headline: string;
+  /** 段階の AI の使用量の合計 (API が使用量を返さなかったときは null) */
+  usage: StageUsageSummary | null;
   /** このあとエージェントの会話に足す履歴 */
   seed: SeedTurn[];
 }
@@ -454,25 +560,29 @@ export interface MappingResult {
  * 対応を付けられる。調査はせず、すでにあるモデルの情報とデータベースのテーブルから、AI が use_database で答える。
  * 失敗・中断は例外で、そのとき足したものは返らない
  */
-export async function reverseMapping(base: UntieModel, source: SourceTree | readonly LabeledSource[], o: StageOptions): Promise<MappingResult> {
+export async function reverseMapping(base: UntieModel, source: SourceTree | readonly LabeledSource[], options: StageOptions): Promise<MappingResult> {
+  const usage = trackUsage(options);
+  const o = usage.options;
   const tree: SourceTree = "files" in source ? source : combineSourceTrees(source);
   const nSources = tree.sources?.length ?? 1;
   const multi = isMultiSourceTree(tree);
-  const toMap = base.elements.filter((e) => e.kind === "system" && systemDatabaseIds(base, e.id).length > 0 && unmappedInSystem(base, e.id).length > 0);
-  if (toMap.length === 0) throw new ChatError("対応を付けられる情報がありません (どのテーブルにも対応していない情報と、テーブルのあるデータベースの両方が要ります)。");
-  const ctx: Ctx = { tree, o, budget: { ...logicBudget(toMap.length, nSources), usedCalls: 0, usedChars: 0 } };
+  if (!planMapping(base)) throw new ChatError("対応を付けられる情報がありません (どのテーブルにも対応していない情報と、テーブルのあるデータベースの両方が要ります)。");
+  const ctx: Ctx = { tree, o, budget: { ...logicBudget(1, nSources), usedCalls: 0, usedChars: 0 } };
   const warnings: string[] = [];
   throwIfAborted(o.signal);
   o.onStep?.("tables");
   const mapped = await mapTablesAndInformations({ model: base, ctx, system: reverseSystemPrompt(multi, "logic"), seed: [], nSources, warnings });
   o.onStep?.("done");
   warnings.push(...leftoverMappingWarnings(mapped.model));
-  const summary = `テーブルと情報の対応を付けました (対応づいた情報 ${mapped.mappedInformations} 件)。${warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""}`;
+  const headline = `テーブルと情報の対応を付けました (対応づいた情報 ${mapped.mappedInformations} 件)。`;
+  const summary = `${headline}${warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""}`;
   return {
     model: mapped.model,
     mappedInformations: mapped.mappedInformations,
     warnings,
     summary,
+    headline,
+    usage: usage.summary(),
     seed: [
       { role: "user", text: `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}を参考に、テーブルと情報の対応を付けてください。` },
       { role: "assistant", text: summary },

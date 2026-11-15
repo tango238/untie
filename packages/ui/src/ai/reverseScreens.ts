@@ -31,9 +31,11 @@ import {
   stageFailure,
   surveyCollector,
   throwIfAborted,
+  trackUsage,
   type Ctx,
   type StageFailure,
   type StageOptions,
+  type StageUsageSummary,
 } from "./reverse";
 import {
   applyScreenDraft,
@@ -83,7 +85,16 @@ export interface ScreensResult {
   warnings: string[];
   /** このあとエージェントの会話に引き継ぐ履歴 */
   seed: SeedTurn[];
+  /** 結果の文 (気づいたことを含む。エージェントへの引き継ぎに使う) */
   summary: string;
+  /** 結果の文から、気づいたことを除いたもの (画面に、気づいたことの一覧と並べて出すとき) */
+  headline: string;
+  /** 調査で読んだファイルのパス (業務の段階へ調査結果を引き継ぐため) */
+  readFiles: string[];
+  /** 調査のときの、対象の画面の範囲 */
+  scope: string;
+  /** 段階の AI の使用量の合計 (API が使用量を返さなかったときは null) */
+  usage: StageUsageSummary | null;
 }
 
 // ---------------------------------------------------------------- 構成の下書き (名前で参照する)
@@ -166,6 +177,12 @@ const SUBMIT_SCREENS_TOOL: ToolDef = {
     additionalProperties: false,
   },
 };
+
+/**
+ * 画面の段階の会話が、どれも同じ道具の定義を持つ (調査・構成・画面 UI)。道具の定義は、リクエストの先頭に来るので、
+ * 会話ごとに違うと、同じ system でもキャッシュを分け合えない。その会話で使えない道具は、呼ばれても断る (openSession)
+ */
+const STAGE_TOOLS: ToolDef[] = [SUBMIT_SCREENS_TOOL, SUBMIT_SCREEN_DRAFT_TOOL, GET_TABLE_TOOL];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
@@ -379,7 +396,9 @@ function applyDatabases(model: UntieModel, systemId: string, sysName: string, sy
  * 失敗・中断は例外 (ChatError・AbortError・API のエラー) で、そのとき足したものは返らない。
  * 画面 UI の会話の失敗は、その画面だけ飛ばして warnings に残し、できた分を返す
  */
-export async function reverseScreens(base: UntieModel, source: SourceTree | readonly LabeledSource[], o: ScreensOptions): Promise<ScreensResult> {
+export async function reverseScreens(base: UntieModel, source: SourceTree | readonly LabeledSource[], options: ScreensOptions): Promise<ScreensResult> {
+  const usage = trackUsage(options);
+  const o = usage.options;
   const tree: SourceTree = "files" in source ? source : combineSourceTrees(source);
   const multi = isMultiSourceTree(tree);
   const nSources = tree.sources?.length ?? 1;
@@ -393,15 +412,28 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   throwIfAborted(o.signal);
   o.onStep?.("survey");
   const surveyRequest = reverseScreensSurveyRequest(scope, base, tree.name, visibleFiles(tree).length, tree.sources);
-  const surveySession = openSession(ctx, system, [], { ...lim.survey, finish: "survey" }, {}, []);
+  const surveySession = openSession(ctx, {
+    label: "調査",
+    system,
+    stageTools: STAGE_TOOLS,
+    cap: { ...lim.survey, finish: "survey" },
+    handlers: {},
+    seed: [],
+    unavailable: "いまは調査の会話です。ソースコードを読んで、調査結果を文章で書いてください (提出は、調査のあとの会話で求めます)。",
+  });
   const collector = surveyCollector(o.onText);
   let lastReply = "";
+  // 調査で読んだファイルを控える (業務の段階へ調査結果を引き継ぐとき、読んだファイルの一覧も渡す)
+  const readFiles: string[] = [];
+  ctx.readLog = readFiles;
   try {
     lastReply = (await surveySession.send(surveyRequest, collector.events, o.signal)).trim();
   } catch (e) {
     throwIfAborted(o.signal);
     if (!(e instanceof ChatError) || o.signal?.aborted || collector.text() === "") throw e;
     warnings.push(`調査: 会話が途中で終わりました (${e.message})。集まった調査結果で進めました`);
+  } finally {
+    ctx.readLog = undefined;
   }
   throwIfAborted(o.signal);
   const survey = collector.text() || lastReply;
@@ -447,7 +479,15 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     o.onSubmit?.(true, message);
     return okOutcome(`${message}。${FINISH_NOTE}`, true);
   };
-  const structureSession = openSession(ctx, system, [SUBMIT_SCREENS_TOOL], { ...lim.model, finish: "submit" }, { submit_screens: submitScreens }, modelSeed);
+  const structureSession = openSession(ctx, {
+    label: "画面の構成",
+    system,
+    stageTools: STAGE_TOOLS,
+    cap: { ...lim.model, finish: "submit" },
+    handlers: { submit_screens: submitScreens },
+    seed: modelSeed,
+    unavailable: "いまは画面の構成を提出する会話です (submit_screens)。画面ごとの画面 UI は、このあと画面ごとの会話で作ります。",
+  });
   try {
     await structureSession.send(reverseScreensStructureRequest(scope, multi), {}, o.signal);
     throwIfAborted(o.signal);
@@ -540,15 +580,16 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       // テーブルは、この画面の説明・調査結果のこの画面の行・使う操作と情報の名前に出るものと、その関連先だけを列つきで入れる。残りは名前だけで、get_table で調べさせる
       const dbIds = effectiveDatabaseIds(model, design);
       const databases = describeTablesForRequest(model, dbIds, screenHint(model, t.analysisId, t.name, description, survey));
-      const screenSession = openSession(
-        ctx,
+      const screenSession = openSession(ctx, {
+        label: "画面 UI",
         system,
-        [SUBMIT_SCREEN_DRAFT_TOOL, GET_TABLE_TOOL],
-        { ...lim.screen, finish: "submit" },
-        { submit_screen: submitScreen, get_table: (input) => executeGetTable(model, dbIds, input) },
-        stageSeed,
-        ["get_table"],
-      );
+        stageTools: STAGE_TOOLS,
+        cap: { ...lim.screen, finish: "submit" },
+        handlers: { submit_screen: submitScreen, get_table: (input) => executeGetTable(model, dbIds, input) },
+        seed: stageSeed,
+        counted: ["get_table"],
+        unavailable: `いまは画面「${t.name}」の画面 UI を作る会話です (submit_screen)。画面の構成は、すでに提出済みです。`,
+      });
       await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen, { databases }), t.name, hint, statesOfScreen(model, t.analysisId), databases.narrowed), {}, o.signal);
       throwIfAborted(o.signal);
       errorStreak = 0;
@@ -579,15 +620,18 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   if (unlinked.length > 0) warnings.push(`操作にまだ結ばれていない画面が ${unlinked.length} 件あります。業務の段階で、画面を使う操作を作って結びます`);
 
   const added: ScreensAdded = { systems: structure.added.systems, screens: structure.added.screens, transitions: structure.added.transitions, ui: placed };
-  const summary = `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}から画面を足しました (システム ${added.systems}、画面 ${added.screens}、遷移 ${added.transitions}、画面 UI ${added.ui})。${
-    warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""
-  }`;
+  const headline = `${sourcesTitle(tree.sources ?? [{ label: "", folder: tree.name }])}から画面を足しました (システム ${added.systems}、画面 ${added.screens}、遷移 ${added.transitions}、画面 UI ${added.ui})。`;
+  const summary = `${headline}${warnings.length > 0 ? `気づいたこと ${warnings.length} 件: ${warnings.slice(0, 5).join(" / ")}` : ""}`;
   return {
     model,
     added,
     survey,
     warnings,
     summary,
+    headline,
+    readFiles,
+    scope,
+    usage: usage.summary(),
     seed: [
       { role: "user", text: `次のソースコードから、画面の構成を作ってください。\n\n<ソースコードのフォルダ>${multi ? `\n${tree.sources!.map((x) => `${x.label}: ${x.folder}`).join("\n")}\n` : tree.name}</ソースコードのフォルダ>${scope !== "" ? `\n<対象の画面の範囲>\n${scope}\n</対象の画面の範囲>` : ""}` },
       { role: "assistant", text: `${stageSeed[1]!.text}\n\n${summary}` },

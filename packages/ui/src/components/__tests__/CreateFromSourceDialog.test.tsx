@@ -58,6 +58,8 @@ function logicResult(over: Partial<LogicResult> = {}): LogicResult {
     warnings: [],
     seed: [{ role: "user", text: "seed" }],
     summary: "業務を足しました",
+    headline: "業務を足しました",
+    usage: null,
     ...over,
   };
 }
@@ -73,6 +75,10 @@ function screensResult(over: Partial<ScreensResult> = {}): ScreensResult {
     warnings: [],
     seed: [{ role: "user", text: "seed" }],
     summary: "画面を足しました",
+    headline: "画面を足しました",
+    readFiles: ["src/orders.ts"],
+    scope: "",
+    usage: null,
     ...over,
   };
 }
@@ -708,6 +714,8 @@ describe("CreateFromSourceDialog: テーブルと情報の対応 (単独の入�
       mappedInformations: 1,
       warnings: [],
       summary: "テーブルと情報の対応を付けました (対応づいた情報 1 件)。",
+      headline: "テーブルと情報の対応を付けました (対応づいた情報 1 件)。",
+      usage: null,
       seed: [{ role: "user", text: "u" }, { role: "assistant", text: "a" }],
     }));
     render(<CreateFromSourceDialog onClose={() => {}} />);
@@ -767,6 +775,71 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     expect(screen.getByRole("list", { name: "ソースコードの場所" })).toBeDefined();
     expect(useUntieStore.getState().model.elements.some((e) => e.kind === "system" && e.name === "ネットショップ")).toBe(true);
     expect(useUntieStore.getState().history.past).toHaveLength(1);
+  });
+
+  it("結果の文と、気づいたことの一覧に、同じ文を重ねて出さない。AI の使用量は 1 行で出す (金額は出さない)", async () => {
+    mockedScreens.mockImplementation(async () =>
+      screensResult({
+        summary: "画面を足しました。気づいたこと 1 件: 画面 UI: 画面「注文入力」は置けませんでした",
+        headline: "画面を足しました。",
+        warnings: ["画面 UI: 画面「注文入力」は置けませんでした"],
+        usage: { requests: 18, input: 201163, output: 6627, cacheWrite: 20000, cacheRead: 132000 },
+      }),
+    );
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    // 同じ文は 1 か所だけ (一覧の項目)。結果の文には含まれない
+    expect(screen.getAllByText(/画面 UI: 画面「注文入力」は置けませんでした/)).toHaveLength(1);
+    expect(screen.getByText(/画面の段階が終わりました。画面を足しました。 気づいたことが 1 件あります。/)).toBeDefined();
+    expect(screen.getByText("AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン")).toBeDefined();
+    expect(document.querySelector(".stage-usage")!.textContent).not.toMatch(/円|ドル|\$|¥/);
+  });
+
+  it("使用量が無い (API が返さない) 段階では、使用量の行を出さない", async () => {
+    mockedScreens.mockImplementation(async () => screensResult({ usage: null }));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    expect(document.querySelector(".stage-usage")).toBeNull();
+  });
+
+  it("画面の段階の調査結果は、業務の段階の調査に渡される。画面の段階を実行していない・ソースを登録し直した・別のモデルを開いたときは渡さない", async () => {
+    mockedScreens.mockImplementation(async () => screensResult({ survey: "## 画面の調査\n- 注文入力 (src/orders.ts)", readFiles: ["src/orders.ts", "src/ship.ts"], scope: "注文まわり" }));
+    const previousOf = () => mockedLogic.mock.calls[mockedLogic.mock.calls.length - 1]![3].previousSurvey;
+    mockedLogic.mockImplementation(async () => logicResult());
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    // 画面の段階をまだ実行していない
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(1));
+    expect(previousOf() ?? null).toBeNull();
+    // 画面の段階のあとは、渡る
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(2));
+    expect(previousOf()).toEqual({ survey: "## 画面の調査\n- 注文入力 (src/orders.ts)", files: ["src/orders.ts", "src/ship.ts"], scope: "注文まわり" });
+    // ソースを選び直した (登録し直した) あとは、古い調査結果なので渡さない
+    await pickFolder(memorySourceTree("shop-app", { "src/orders.ts": "export const a = 1;" }));
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalledTimes(3));
+    expect(previousOf() ?? null).toBeNull();
   });
 
   it("実行中は、その段階の進み具合 (手順・読んだ場所・調査結果・提出と画面ごとの結果) を出し、登録欄とほかの段階は畳む。中断できる", async () => {

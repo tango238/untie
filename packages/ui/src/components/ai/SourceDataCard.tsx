@@ -35,7 +35,12 @@ export interface DataSourceRow {
 /** 段階が終わったことを、ダイアログへ知らせる内容 */
 export interface StageDone {
   stage: "data" | "screens" | "logic" | "mapping";
+  /** 結果の文 (AI のペインの会話に入る。気づいたことを含んでよい) */
   summary: string;
+  /** 画面に出す結果の文 (気づいたことを含まない。無ければ summary)。気づいたことは warnings の一覧に出すので、同じ文を重ねて出さない */
+  headline?: string;
+  /** AI の使用量の 1 行 (無ければ出さない) */
+  usage?: string;
   warnings: string[];
   /** AI のペインへ引き継ぐ会話 */
   seed: { role: "user" | "assistant"; text: string }[];

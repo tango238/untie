@@ -6,11 +6,29 @@ import OpenAI from "openai";
 import type { ProviderId } from "./providers";
 import type { ToolDef, ToolOutcome } from "./tools";
 
+/**
+ * 1 回のリクエストの使用量 (トークン)。会社ごとに数え方が違うので、次の 4 つに揃える (どれも重ならない。入力の合計 = input + cacheWrite + cacheRead)。
+ * - input: キャッシュを使わずに読ませた入力
+ * - cacheWrite: キャッシュに書いた入力 (Claude だけ。ほかの会社は自動でキャッシュするので、書き込みは分からず 0)
+ * - cacheRead: キャッシュから読んだ入力
+ */
+export interface ChatUsage {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+/** 入力の合計 (キャッシュの書き込み・読み取りを含む) */
+export const totalInputTokens = (u: ChatUsage): number => u.input + u.cacheWrite + u.cacheRead;
+
 export interface ChatEvents {
   /** 返答の文章 (少しずつ届くことがある) */
   onText?: (delta: string) => void;
   /** 道具を使った */
   onTool?: (name: string, outcome: ToolOutcome) => void;
+  /** リクエストが 1 つ終わるたびに、その使用量 (API が返さなかったときは呼ばない) */
+  onUsage?: (usage: ChatUsage) => void;
 }
 
 export interface ChatOptions {
@@ -19,6 +37,8 @@ export interface ChatOptions {
   system: string;
   tools: ToolDef[];
   runTool: (name: string, input: unknown) => ToolOutcome | Promise<ToolOutcome>;
+  /** 会話の名前 (調査・画面 UI など。使用量の記録の見分けに使う。API には送らない) */
+  label?: string;
 }
 
 /** これまでの会話 (文章だけ) を引き継ぐときの 1 件 */
@@ -68,37 +88,113 @@ export function createAnthropicClient(apiKey: string): Anthropic {
   });
 }
 
+// プロンプトキャッシュ: リクエストは tools → system → messages の順に、先頭から一致したところまでが読まれる (実際の API で確かめたもの。
+// 印 (cache_control) を置いた箇所までの先頭がキャッシュされ、次のリクエストで先頭が同じなら読み取りになる。短すぎる入力は、エラーにならず、キャッシュされないだけ)。
+// 1 回のリクエストに置ける印は 4 つまで (超えると 400)。置く場所:
+//   道具の定義の最後 / system の最後 / 引き継いだ履歴 (seed) の最後 / 会話のいちばん新しいメッセージ (往復のたびに置き直す。古い印は外す)
+// 印から前へさかのぼって前のキャッシュを探す範囲は 20 ブロックなので、1 つの往復で道具を何件も呼んで 20 ブロック近く増えたときは、道具の印の代わりに
+// 新しい返答の末尾にも印を置く (system の印が道具の定義も含めて先頭を覆うので、道具の印は無くても読める)。
+
+/** 1 回のリクエストに置ける印の数の上限 (API の決まり) */
+export const MAX_CACHE_BREAKPOINTS = 4;
+/** 印から前へさかのぼって、前の印のキャッシュを探す範囲 (内容のブロック数) */
+const CACHE_LOOKBACK_BLOCKS = 20;
+const EPHEMERAL = { type: "ephemeral" } as const;
+
+/** 会話の履歴の 1 件 (user か assistant) */
+type ClaudeMessage = Anthropic.Beta.BetaUserMessageParam | Anthropic.Beta.BetaAssistantMessageParam;
+
+const blocksOf = (m: ClaudeMessage): number => (typeof m.content === "string" ? 1 : m.content.length);
+
+/** メッセージの最後のブロックに印を付けたコピー (元は変えない)。印を付けられるブロックが無ければ null (空の文・thinking には付けられない) */
+function markedCopy(m: ClaudeMessage): ClaudeMessage | null {
+  if (typeof m.content === "string") return m.content === "" ? null : { ...m, content: [{ type: "text", text: m.content, cache_control: EPHEMERAL }] };
+  for (let i = m.content.length - 1; i >= 0; i--) {
+    const b = m.content[i]!;
+    if (b.type === "thinking" || b.type === "redacted_thinking" || (b.type === "text" && b.text === "")) continue;
+    const content = m.content.slice();
+    content[i] = { ...b, cache_control: EPHEMERAL } as (typeof content)[number];
+    return { ...m, content } as ClaudeMessage;
+  }
+  return null;
+}
+
+/**
+ * リクエストに置く印を決める。messages の中の印の位置 (メッセージの番号) と、道具の定義の最後に印を置くかを返す。
+ * 優先は、いちばん新しいメッセージ → 引き継いだ履歴の最後 → 前のリクエストから増えすぎたときの途中 (新しい返答の末尾)。
+ * 合計が上限を超えるときは、system の印があれば道具の印を外す (system の印が道具の定義も覆う)
+ */
+export function planCacheMarks(a: { messages: readonly ClaudeMessage[]; seedCount: number; previousTail: number; hasTools: boolean; hasSystem: boolean }): { messages: number[]; tools: boolean } {
+  const tail = a.messages.length - 1;
+  const wanted: number[] = [];
+  if (tail >= 0) wanted.push(tail);
+  if (a.seedCount > 0 && a.seedCount - 1 < tail) wanted.push(a.seedCount - 1);
+  if (a.previousTail >= 0 && tail - 1 > a.previousTail) {
+    let blocks = 0;
+    for (let i = a.previousTail + 1; i <= tail; i++) blocks += blocksOf(a.messages[i]!);
+    if (blocks >= CACHE_LOOKBACK_BLOCKS - 2) wanted.push(tail - 1);
+  }
+  let tools = a.hasTools;
+  let fixed = (a.hasTools ? 1 : 0) + (a.hasSystem ? 1 : 0);
+  while (fixed + wanted.length > MAX_CACHE_BREAKPOINTS) {
+    if (tools && a.hasSystem) {
+      tools = false;
+      fixed--;
+    } else wanted.pop();
+  }
+  return { messages: wanted, tools };
+}
+
+/** Anthropic の使用量を、会社をまたいだ形にする */
+function claudeUsage(u: Anthropic.Beta.BetaUsage | undefined): ChatUsage | null {
+  if (!u) return null;
+  return { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0 };
+}
+
 function claudeSession(o: ChatOptions): ChatSession {
   const client = createAnthropicClient(o.apiKey);
-  const messages: Anthropic.Beta.BetaMessageParam[] = [];
+  const messages: ClaudeMessage[] = [];
   const tools: Anthropic.Beta.BetaTool[] = o.tools.map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.parameters as Anthropic.Beta.BetaTool.InputSchema,
   }));
   const fallback = FALLBACK_MODELS.has(o.model);
+  /** 引き継いだ履歴の数 (この数までが、別の会話と先頭を分け合える部分) */
+  let seedCount = 0;
+  /** 前のリクエストで、いちばん新しいメッセージの番号 */
+  let previousTail = -1;
 
   return {
     seed(turns) {
       for (const t of turns) messages.push({ role: t.role, content: t.text });
+      seedCount = messages.length;
     },
     async send(text, events = {}, signal) {
       messages.push({ role: "user", content: text });
       let last = "";
       for (let step = 0; step < MAX_STEPS; step++) {
+        // 印は、リクエストごとに付け直す (保存している履歴には付けない。古い印は残らない)
+        const plan = planCacheMarks({ messages, seedCount, previousTail, hasTools: tools.length > 0, hasSystem: o.system !== "" });
+        const marked = new Set(plan.messages);
+        const sent = messages.map((m, i) => (marked.has(i) ? (markedCopy(m) ?? m) : m));
+        const sentTools = plan.tools ? tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: EPHEMERAL } : t)) : tools;
         const stream = client.beta.messages.stream(
           {
             model: o.model,
             max_tokens: 64000,
-            system: o.system,
-            tools,
-            messages,
+            ...(o.system !== "" ? { system: [{ type: "text" as const, text: o.system, cache_control: EPHEMERAL }] } : {}),
+            tools: sentTools,
+            messages: sent,
             ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
           },
           { signal },
         );
         stream.on("text", (delta) => events.onText?.(delta));
         const message = await stream.finalMessage();
+        previousTail = messages.length - 1;
+        const usage = claudeUsage(message.usage);
+        if (usage) events.onUsage?.(usage);
         messages.push({ role: "assistant", content: message.content });
         last = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
         if (message.stop_reason === "refusal") throw new ChatError("安全のための判定で、この依頼には答えられませんでした。言い方を変えて試してください。");
@@ -143,6 +239,11 @@ function openaiSession(o: ChatOptions): ChatSession {
         // 返ってきた出力 (推論・文章・道具の呼び出し) はそのまま次の入力に足す
         input.push(...(response.output as OpenAI.Responses.ResponseInputItem[]));
         if (response.output_text) events.onText?.(response.output_text);
+        const u = response.usage;
+        if (u) {
+          const cached = u.input_tokens_details?.cached_tokens ?? 0;
+          events.onUsage?.({ input: Math.max(0, (u.input_tokens ?? 0) - cached), output: u.output_tokens ?? 0, cacheWrite: 0, cacheRead: cached });
+        }
         const calls = response.output.filter((x): x is OpenAI.Responses.ResponseFunctionToolCall => x.type === "function_call");
         if (calls.length === 0) return response.output_text;
         for (const call of calls) {
@@ -184,6 +285,11 @@ function geminiSession(o: ChatOptions): ChatSession {
           contents,
           config: { systemInstruction: o.system, tools: [{ functionDeclarations }], ...(signal ? { abortSignal: signal } : {}) },
         });
+        const um = response.usageMetadata;
+        if (um) {
+          const cached = um.cachedContentTokenCount ?? 0;
+          events.onUsage?.({ input: Math.max(0, (um.promptTokenCount ?? 0) - cached), output: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0), cacheWrite: 0, cacheRead: cached });
+        }
         const reply = response.candidates?.[0]?.content;
         if (!reply) throw new ChatError("Gemini から返答がありませんでした。");
         contents.push(reply);

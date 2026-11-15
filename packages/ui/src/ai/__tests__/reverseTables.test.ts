@@ -148,10 +148,11 @@ describe("テーブルと情報の対応: 機械的な候補・対象のデー�
     void setDesignDatabases;
   });
 
-  it("すきま: どのテーブルにも対応していない情報 (システムが使うもの) と、どの情報にも対応していないテーブルの数。情報かテーブルが無ければ 0", () => {
+  it("すきま: どのテーブルにも対応していない情報 (システムが使うものと、どの操作も使っていないもの) と、どの情報にも対応していないテーブルの数。情報かテーブルが無ければ 0", () => {
     const { model } = shop();
-    // 操作が情報を扱っていないので、システムが使う情報は無い
-    expect(mappingGap(model).informations).toBe(0);
+    // 操作が情報を扱っていないので、システムが使う情報は無いが、どの操作も使っていない情報 (注文・商品・返品) も、対応の対象に数える
+    expect(mappingGap(model).informations).toBe(3);
+    expect(mappingGap(model).systems).toBe(0);
     expect(mappingGap(model).tables).toBe(3);
     expect(mappingGap(emptyModel("m"))).toEqual({ informations: 0, tables: 0, systems: 0 });
   });

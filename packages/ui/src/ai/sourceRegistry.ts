@@ -2,6 +2,7 @@
 // フォルダのハンドルはメモリに持つだけで、ファイルにもモデルにも保存しない (アプリを閉じる・再読み込みで消える)。
 // ダイアログを閉じて開き直しても、段階ごとに選び直さなくてよいようにするためのもの。
 // 取り違えを避けるため、別のモデルを開いた (ストアの docSeq が替わった) ら忘れる: 別のプロジェクトのソースが、前のモデルのものとして残らない。
+import { forgetScreenSurvey } from "./surveyMemory";
 import type { SourceTree } from "./sourceTree";
 
 export interface RememberedSource {
@@ -27,4 +28,6 @@ export function recallSources(docSeq: number): RememberedSource[] {
 /** 覚えているものを忘れる */
 export function forgetSources(): void {
   remembered = null;
+  // 画面の段階の調査結果 (surveyMemory.ts) は、同じ寿命
+  forgetScreenSurvey();
 }

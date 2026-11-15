@@ -20,6 +20,7 @@ import {
   MULTI_SCHEMA_SQL,
   MULTI_SCREENS,
   MULTI_SCREENS_STRUCTURE,
+  MULTI_ADMIN,
   MULTI_SHOP,
   MULTI_SPEC,
   MULTI_SPEC_RETURN,
@@ -61,8 +62,7 @@ vi.mock("../chat", async (importOriginal) => {
   return {
     ...actual,
     createChatSession: (_provider: string, o: ChatOptions) => {
-      const names = o.tools.map((t) => t.name);
-      const kind = names.includes("submit_screens") ? "structure" : names.includes("submit_model") ? "model" : names.includes("use_database") ? "tables" : names.includes("submit_screen") ? "screen" : "survey";
+      const kind = ({ 調査: "survey", 画面の構成: "structure", "画面 UI": "screen", 業務のモデル: "model", テーブルの対応: "tables" } as Record<string, string>)[o.label ?? ""]!;
       return {
         seed: () => {},
         send: async (text: string, events?: ChatEvents) => {
@@ -85,7 +85,6 @@ const { REVERSE_LIMITS } = await import("../reverse");
 
 const parse = (r: ToolOutcome) => JSON.parse(r.content) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const screenNameOf = (text: string) => /画面「(.+?)」の画面 UI を作ってください/.exec(text)?.[1] ?? "";
-const systemNameOf = (text: string) => /システム「(.+?)」が使う情報と/.exec(text)?.[1] ?? "";
 
 const results: Record<string, ToolOutcome[]> = {};
 const keep = (k: string, r: ToolOutcome) => {
@@ -115,7 +114,8 @@ const modelScript: Script = async (c) => {
   return r.ok ? "提出しました" : "直します";
 };
 const tablesScript: Script = async (c) => {
-  await c.runTool("use_database", { system: systemNameOf(c.text), database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables });
+  // テーブルと情報の対応は、1 つの会話で、システムごとに答える (システムが無い・使えないデータベースの答えは断られるので、結果は見ない)
+  for (const system of [MULTI_SHOP, MULTI_ADMIN]) await c.runTool("use_database", { system, database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables });
   return "提出しました";
 };
 

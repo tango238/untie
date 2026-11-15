@@ -667,6 +667,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .stage-confirm p { margin: 0 0 6px; }
 .stage-rebuild summary { cursor: pointer; font-size: 12px; }
 .stage-next { margin: 6px 0 0; }
+.stage-usage { margin: 4px 0 0; color: var(--muted); }
 .stage-result { max-height: none; }
 .source-warnings-heading:focus { outline: none; }
 .source-warnings-heading:focus-visible { outline: 2px solid var(--accent, #3a6ea5); outline-offset: 2px; }

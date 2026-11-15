@@ -3,7 +3,7 @@
 import { DESIGN_PROBLEM_ORDER, DESIGN_PROBLEM_TITLES, type DesignProblem, type DesignProblemType } from "@untie/core/model/designCheck";
 import { designScreenName } from "@untie/core/model/sitemap";
 import type { UntieModel } from "@untie/core/model/types";
-import { ChatError, createChatSession, describeChatError, isTransientApiError, type ChatEvents, type ChatSession, type SeedTurn } from "./chat";
+import { ChatError, createChatSession, describeChatError, isTransientApiError, totalInputTokens, type ChatEvents, type ChatSession, type ChatUsage, type SeedTurn } from "./chat";
 import type { ProviderId } from "./providers";
 import { executeSourceTool, isSourceTool, SOURCE_TOOLS } from "./sourceTools";
 import { isMultiSourceTree, visibleFiles, type SourceTree } from "./sourceTree";
@@ -23,6 +23,50 @@ export interface StageOptions {
   onSourceTool?: (name: string, detail: string) => void;
   /** 提出と検査の結果 (message は利用者に見せる短い文。AI に返す文とは別) */
   onSubmit?: (accepted: boolean, message: string) => void;
+  /** AI へのリクエストが 1 つ終わるたびに、その使用量 (どの会話か・入力・出力・キャッシュの書き込み・読み取り)。API が使用量を返さないときは呼ばない */
+  onUsage?: (usage: StageUsage) => void;
+}
+
+/** 1 回のリクエストの使用量と、それを送った会話 (conversation: 調査・画面の構成・画面 UI・業務のモデル・テーブルの対応) */
+export interface StageUsage extends ChatUsage {
+  conversation: string;
+}
+
+/** 段階の使用量の合計 (入力の合計 input は、キャッシュの書き込み・読み取りを含む) */
+export interface StageUsageSummary {
+  requests: number;
+  /** 入力の合計 (cacheWrite・cacheRead を含む) */
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+/**
+ * 段階の使用量を数える。返す options は、元の onUsage も呼ぶ。summary は、1 つもリクエストの使用量が届かなかったときは null
+ * (使用量を返さない会社・偽物の会話では、画面に出さない)
+ */
+export function trackUsage<T extends StageOptions>(o: T): { options: T; summary: () => StageUsageSummary | null } {
+  const sum: StageUsageSummary = { requests: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+  const options: T = {
+    ...o,
+    onUsage: (u) => {
+      sum.requests++;
+      sum.input += totalInputTokens(u);
+      sum.output += u.output;
+      sum.cacheWrite += u.cacheWrite;
+      sum.cacheRead += u.cacheRead;
+      o.onUsage?.(u);
+    },
+  };
+  return { options, summary: () => (sum.requests > 0 ? { ...sum } : null) };
+}
+
+/** 段階の使用量を 1 行にする (金額は出さない。単価が変わるため)。例: 「AI の利用: 18 回、入力 201,163 トークン (うちキャッシュから 132,000)、出力 6,627 トークン」 */
+export function usageLine(u: StageUsageSummary | null | undefined): string {
+  if (!u) return "";
+  const n = (v: number) => v.toLocaleString("en-US");
+  return `AI の利用: ${u.requests} 回、入力 ${n(u.input)} トークン${u.cacheRead > 0 ? ` (うちキャッシュから ${n(u.cacheRead)})` : ""}、出力 ${n(u.output)} トークン`;
 }
 
 // ---------------------------------------------------------------- 上限
@@ -59,6 +103,10 @@ export const REVERSE_LIMITS = {
   revisionWarnings: 10,
   /** データ・画面 UI の会話の失敗 (ChatError と、一時的な API のエラー) が続けて起きたら、残りは作らずに終える回数 */
   screenErrorStreak: 3,
+  /** テーブルと情報の対応を答える use_database を、1 つの会話で呼べる回数 (システム・データベースごとの答えと、出し直しの合計) */
+  mappingCalls: 12,
+  /** 業務の段階の調査の依頼に入れる、前の段階 (画面) の調査結果の長さ (文字) */
+  previousSurveyChars: 20000,
   /** 提出が、空・形の違い・必須の中身が無いなどで断られ続けたとき、これを超えたら打ち切る回数 (出し直しの回数とは別。往復の上限まで続けさせない) */
   submitRejections: 3,
 } as const;
@@ -98,10 +146,10 @@ export function screensBudget(screens: number, sources = 1): { calls: number; ch
   return { calls: l.survey.calls + l.model.calls + l.screen.calls * screens, chars: l.survey.chars + l.model.chars + l.screen.chars * screens };
 }
 
-/** 業務の段階 (調査 1 + 業務のモデル 1 + 対応を付けるシステムごとの会話) の、ソースの道具の合計の上限 */
-export function logicBudget(systems: number, sources = 1): { calls: number; chars: number } {
+/** 業務の段階 (調査 1 + 業務のモデル 1 + テーブルと情報の対応 1。対応の会話は全体で 1 つなので、data は 1 つ分) の、ソースの道具の合計の上限 */
+export function logicBudget(mappings: number, sources = 1): { calls: number; chars: number } {
   const l = sourceLimits(sources);
-  return { calls: l.survey.calls + l.model.calls + l.data.calls * systems, chars: l.survey.chars + l.model.chars + l.data.chars * systems };
+  return { calls: l.survey.calls + l.model.calls + l.data.calls * mappings, chars: l.survey.chars + l.model.chars + l.data.chars * mappings };
 }
 
 /**
@@ -114,18 +162,22 @@ export function conversationSteps(sources = 1): Record<"survey" | "model" | "dat
   return {
     survey: l.survey.calls + 1,
     model: l.model.calls + L.strictModelAttempts + 2,
-    data: l.data.calls + L.dataRetries + 1 + 2,
+    data: l.data.calls + L.mappingCalls + 1 + 2,
     screen: l.screen.calls + L.screenRetries + 1 + 1,
   };
 }
 
 // 会話の持ち方:
-// 調査と分析モデルは別の会話にし、データはシステムごと、画面 UI は画面ごとに、それぞれ新しい会話にする。
+// 調査と分析モデルは別の会話にし、画面 UI は画面ごとに、それぞれ新しい会話にする。テーブルと情報の対応は、段階の中で 1 つの会話にする。
 // 理由: ソースのファイルを読むたびに会話は膨らみ (1 回の読み取りで最大 3 万文字)、1 つの会話で続けると、画面 UI の段階には文脈の
 // 窓も 1 回の send の往復の上限 (MAX_STEPS) も残らない。そこで、読んだ中身は捨て、調査結果の文章 (と、
 // 画面・データの依頼に入れる、分析モデルから取り出した材料) だけを次の会話の履歴 (seed) に渡す。同じ段階の出し直しは、
 // 検査の理由が会話に残るほうがよいので、1 つの会話の中で続ける。
-
+//
+// プロンプトキャッシュ (chat.ts): 会話は、リクエストの先頭 (道具の定義 → system → 履歴) が前のリクエストと同じところまでが安く読まれる。
+// そこで、同じ段階の会話は、道具の定義 (stageTools) と system を、どの会話でも同じにする。使えない道具が呼ばれたら、実行せずに案内を返す
+// (調査の途中の提出など)。会話の最初のメッセージは、調査の依頼のまま (調査の会話の最初のメッセージと同じなので、調査の会話が書いたキャッシュを読める)。
+// 会話ごとに違う部分 (画面ごとの依頼など) は、いつも最後に置く。
 const ABORT_MESSAGE = "中断しました。";
 /** 中断されていたら例外を投げる (どの段階でも、道具の呼び出しと会話の切れ目で見る) */
 export function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -150,6 +202,8 @@ export interface Ctx {
   o: StageOptions;
   /** ソースの道具の全体の予算。上限は段階に入るたびに、その段階の分に決め直す (screensBudget・logicBudget) */
   budget: { calls: number; chars: number; usedCalls: number; usedChars: number };
+  /** 読んだファイルのパスを控える先 (調査の会話のあいだだけ入れる。画面の段階の調査結果を、業務の段階へ引き継ぐため) */
+  readLog?: string[];
 }
 
 /** 会話ごとのソースの道具の上限と、上限に達したときに AI へ伝えること (調査は「まとめる」、提出のある段階は「提出する」) */
@@ -178,39 +232,73 @@ export function sourceRunner(ctx: Ctx, cap: SourceCap): (name: string, input: un
     ctx.budget.usedCalls++;
     ctx.o.onSourceTool?.(SOURCE_TOOL_LABELS[name] ?? name, sourceToolDetail(name, input));
     const outcome = run ? await run() : await executeSourceTool(ctx.tree, name, input);
+    if (name === "read_file" && outcome.ok && ctx.readLog) {
+      const path = (input && typeof input === "object" ? (input as Record<string, unknown>).path : undefined) as unknown;
+      if (typeof path === "string" && !ctx.readLog.includes(path)) ctx.readLog.push(path);
+    }
     chars += outcome.content.length;
     ctx.budget.usedChars += outcome.content.length;
     return outcome;
   };
 }
 
-/** 新しい会話。道具の呼び出しは、ソースの道具ならソースへ、それ以外は handlers へ振り分ける */
-export function openSession(
-  ctx: Ctx,
-  system: string,
-  extraTools: ToolDef[],
-  cap: SourceCap,
-  handlers: Record<string, (input: unknown) => ToolOutcome>,
-  seed: SeedTurn[],
+/** 会話を開く設定 */
+export interface SessionSpec {
+  /** 会話の名前 (使用量の記録と、使えない道具の案内に出す) */
+  label: string;
+  system: string;
+  /**
+   * 段階で使う道具のすべて (ソースの道具を除く)。会話ごとに変えない (道具の定義が先頭に来るので、変わるとキャッシュを分け合えない)。
+   * この会話で使えない道具 (handlers に無いもの) は、呼ばれても実行せず、unavailable の案内を返す
+   */
+  stageTools: ToolDef[];
+  cap: SourceCap;
+  /** この会話で使える道具の実行 (ソースの道具以外) */
+  handlers: Record<string, (input: unknown) => ToolOutcome>;
+  seed: SeedTurn[];
   /** handlers のうち、ソースの道具と同じ回数・文字数の上限に数える道具の名前 (テーブルを調べる get_table など) */
-  counted: readonly string[] = [],
-): ChatSession {
-  const runSource = sourceRunner(ctx, cap);
-  const session = createChatSession(ctx.o.provider, {
+  counted?: readonly string[];
+  /** 使えない道具を呼ばれたときの案内 (この会話は何をする会話か) */
+  unavailable: string;
+}
+
+/** 新しい会話。道具の呼び出しは、ソースの道具ならソースへ、それ以外は handlers へ振り分ける */
+export function openSession(ctx: Ctx, spec: SessionSpec): ChatSession {
+  const runSource = sourceRunner(ctx, spec.cap);
+  const counted = spec.counted ?? [];
+  const inner = createChatSession(ctx.o.provider, {
     apiKey: ctx.o.apiKey,
     model: ctx.o.model,
-    system,
-    tools: [...SOURCE_TOOLS, ...extraTools],
+    system: spec.system,
+    tools: [...SOURCE_TOOLS, ...spec.stageTools],
+    label: spec.label,
     runTool: (name, input) => {
       if (isSourceTool(name)) return runSource(name, input);
       throwIfAborted(ctx.o.signal);
-      const h = handlers[name];
+      const h = spec.handlers[name];
       if (h && counted.includes(name)) return runSource(name, input, () => h(input));
-      return h ? h(input) : errorOutcome(`不明な道具です: ${name}`);
+      if (h) return h(input);
+      if (spec.stageTools.some((t) => t.name === name)) return errorOutcome(`この会話では ${name} は使えません。${spec.unavailable}`);
+      return errorOutcome(`不明な道具です: ${name}`);
     },
   });
-  if (seed.length > 0) session.seed(seed);
-  return session;
+  if (spec.seed.length > 0) inner.seed(spec.seed);
+  return {
+    seed: (turns) => inner.seed(turns),
+    // リクエストごとの使用量を、段階の通知へ (会話の名前を付けて) 流す
+    send: (text, events = {}, signal) =>
+      inner.send(
+        text,
+        {
+          ...events,
+          onUsage: (u) => {
+            events.onUsage?.(u);
+            ctx.o.onUsage?.({ ...u, conversation: spec.label });
+          },
+        },
+        signal,
+      ),
+  };
 }
 
 export const elementName = (model: UntieModel, id: string) => model.elements.find((e) => e.id === id)?.name ?? "";

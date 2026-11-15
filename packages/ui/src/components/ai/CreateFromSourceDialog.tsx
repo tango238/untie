@@ -8,8 +8,10 @@ import { PROVIDERS } from "../../ai/providers";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
 import { AGENT_BUSY_REASON, commitStageModel } from "../../ai/reverseCommit";
 import { applyMappingSuggestions, mappingGap, reverseLogic, reverseMapping, suggestMappings } from "../../ai/reverseLogic";
+import { usageLine } from "../../ai/reverse";
 import { reverseScreens } from "../../ai/reverseScreens";
 import { recallSources, rememberSources } from "../../ai/sourceRegistry";
+import { recallScreenSurvey, rememberScreenSurvey } from "../../ai/surveyMemory";
 import {
   MAX_SOURCES,
   MAX_SOURCE_LABEL_CHARS,
@@ -140,6 +142,8 @@ function rebuildCandidates(model: UntieModel): { key: string; system: string; sc
 interface StageResultView {
   stage: StageId;
   summary: string;
+  /** AI の使用量の 1 行 (段階が AI を使ったときだけ) */
+  usage: string;
   warnings: string[];
   next: { stage: StageId; reason: string } | null;
 }
@@ -342,7 +346,8 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     } else {
       agent.continueFrom(seedForAgent, [...shown, { role: "info", text: "このまま会話を続けて、モデルを直せます。" }]);
     }
-    setResult({ stage: done.stage, summary: `${note}${done.summary}${added ? "" : " (AI のペインは作業中か、別の会話 (深掘り・ヒアリング・ドメインの対話) の途中なので、その会話には足していません)"}`, warnings: done.warnings, next: recommendNext(latest, done.stage) });
+    // 画面に出す文には、気づいたことを含めない (下の一覧に出すので、同じ文が重なる)
+    setResult({ stage: done.stage, summary: `${note}${done.headline ?? done.summary}${added ? "" : " (AI のペインは作業中か、別の会話 (深掘り・ヒアリング・ドメインの対話) の途中なので、その会話には足していません)"}`, usage: done.usage ?? "", warnings: done.warnings, next: recommendNext(latest, done.stage) });
     setRunning(null);
     setStep(null);
   };
@@ -413,7 +418,8 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
               })
             : stage === "mapping"
               ? await reverseMapping(base, sources, common)
-              : await reverseLogic(base, sources, request, common);
+              : // 画面の段階の調査結果を覚えているとき (同じソースで、画面の段階を実行したあと) は、渡す。覚えていなければ (別のソース・開き直し)、今までどおり調べる
+                await reverseLogic(base, sources, request, { ...common, previousSurvey: recallScreenSurvey(seq, sources) });
         // 中断された・ダイアログが外れたあとに届いた結果は、モデルに反映しない
         if (!mounted.current) return;
         if (ctl.signal.aborted) {
@@ -429,8 +435,13 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           setStep(null);
           return;
         }
-        if (stage === "screens") setRebuild(new Set());
-        finish({ stage, summary: res.summary, warnings: res.warnings, seed: res.seed }, res.seed);
+        if (stage === "screens") {
+          setRebuild(new Set());
+          // 画面の段階の調査結果は、このアプリを開いている間は覚える (業務の段階が、同じソースを読み直さないように。保存はしない)
+          const done = res as Awaited<ReturnType<typeof reverseScreens>>;
+          rememberScreenSurvey(seq, sources, { survey: done.survey, files: done.readFiles, scope: done.scope });
+        }
+        finish({ stage, summary: res.summary, headline: res.headline, usage: usageLine(res.usage), warnings: res.warnings, seed: res.seed }, res.seed);
       } catch (e) {
         if (!mounted.current) return;
         setError(ctl.signal.aborted || isAbortError(e) ? "中断しました。" : describeChatError(e));
@@ -606,6 +617,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                     {result.summary}
                     {result.warnings.length > 0 ? ` 気づいたことが ${result.warnings.length} 件あります。` : " 気づいたことはありません。"}
                   </div>
+                  {result.usage !== "" && <p className="stage-usage">{result.usage}</p>}
                   {result.warnings.length > 0 && (
                     <ul>
                       {result.warnings.map((w, i) => (
@@ -726,7 +738,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                 />
                 <ul className="source-notes">
                   <li>
-                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、起こしたい業務の文、すでにモデルにあるシステム・画面 (名前と説明、使う操作の名前)・データベース (テーブルと列の名前)・業務・情報・登場人物の名前です。テーブルと情報の対応を付けるときは、さらに、システムが使う情報と画面の名前と説明、使うデータベースのテーブルと列の名前と型、いま結んである情報の名前、調査結果の文章が入ります。フォルダ全体は送りません。
+                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、起こしたい業務の文、すでにモデルにあるシステム・画面 (名前と説明、使う操作の名前)・データベース (テーブルと列の名前)・業務・情報・登場人物の名前です。テーブルと情報の対応を付けるときは、さらに、システムが使う情報と画面の名前と説明、使うデータベースのテーブルと列の名前と型、いま結んである情報の名前、調査結果の文章が入ります。業務の段階の調査の依頼には、画面の段階の調査結果の文章と読んだファイルのパス (このアプリを開いている間だけ覚えているもの) も入ります。フォルダ全体は送りません。
                   </li>
                   <li>対象の業務のほか、関係する業務も調べます。数分かかり、API の利用料がかかります。</li>
                 </ul>

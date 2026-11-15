@@ -100,10 +100,11 @@ describe("Claude", () => {
     expect(calls).toEqual([["add_element", { kind: "activity" }]]);
     expect(tooled).toEqual(["add_element"]);
     const second = script.claudeRequests[1]!;
-    expect(second).toMatchObject({ model: "claude-opus-5-5", system: "sys", fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] });
+    // system は、キャッシュの印つきのブロックの配列で送る (文は変わらない)
+    expect(second).toMatchObject({ model: "claude-opus-5-5", system: [{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }], fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] });
     const msgs = second.messages as { role: string; content: unknown }[];
     expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
-    expect(msgs[4]!.content).toEqual([{ type: "tool_result", tool_use_id: "tu_1", content: JSON.stringify({ id: "act_1" }) }]);
+    expect(msgs[4]!.content).toEqual([{ type: "tool_result", tool_use_id: "tu_1", content: JSON.stringify({ id: "act_1" }), cache_control: { type: "ephemeral" } }]);
   });
 
   it("Haiku にはフォールバックを付けない。断られたらエラーにする", async () => {
@@ -118,10 +119,13 @@ describe("Codex (OpenAI)", () => {
   it("function_call を実行して function_call_output を返し、最後の文章を返す", async () => {
     script.openai.push(
       { output_text: "", output: [{ type: "function_call", call_id: "c1", name: "add_element", arguments: '{"kind":"usecase"}' }] },
-      { output_text: "できました", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "できました" }] }] },
+      { output_text: "できました", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "できました" }] }], usage: { input_tokens: 1200, output_tokens: 30, input_tokens_details: { cached_tokens: 1000 } } },
     );
     const s = createChatSession("codex", opts("gpt-5-codex"));
-    expect(await s.send("操作を足して")).toBe("できました");
+    const usages: unknown[] = [];
+    expect(await s.send("操作を足して", { onUsage: (u) => usages.push(u) })).toBe("できました");
+    // 入力の合計 1200 のうちキャッシュから 1000 (OpenAI は自動でキャッシュする。使用量のない返答では通知しない)
+    expect(usages).toEqual([{ input: 200, output: 30, cacheWrite: 0, cacheRead: 1000 }]);
     expect(calls).toEqual([["add_element", { kind: "usecase" }]]);
     const second = script.openaiRequests[1]! as { input: Record<string, unknown>[]; instructions: string; tools: Record<string, unknown>[] };
     expect(second.instructions).toBe("sys");
@@ -144,10 +148,12 @@ describe("Gemini", () => {
   it("functionCalls を実行して functionResponse を返し、最後の文章を返す", async () => {
     script.gemini.push(
       { candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "f1", name: "add_element", args: { kind: "state" } } }] } }], functionCalls: [{ id: "f1", name: "add_element", args: { kind: "state" } }], text: "" },
-      { candidates: [{ content: { role: "model", parts: [{ text: "足しました" }] } }], functionCalls: undefined, text: "足しました" },
+      { candidates: [{ content: { role: "model", parts: [{ text: "足しました" }] } }], functionCalls: undefined, text: "足しました", usageMetadata: { promptTokenCount: 900, cachedContentTokenCount: 600, candidatesTokenCount: 20, thoughtsTokenCount: 5 } },
     );
     const s = createChatSession("gemini", opts("gemini-2.5-pro"));
-    expect(await s.send("状態を足して")).toBe("足しました");
+    const usages: unknown[] = [];
+    expect(await s.send("状態を足して", { onUsage: (u) => usages.push(u) })).toBe("足しました");
+    expect(usages).toEqual([{ input: 300, output: 25, cacheWrite: 0, cacheRead: 600 }]);
     expect(calls).toEqual([["add_element", { kind: "state" }]]);
     const second = script.geminiRequests[1]! as { contents: { role: string; parts: Record<string, unknown>[] }[]; config: Record<string, unknown> };
     expect(second.config.systemInstruction).toBe("sys");

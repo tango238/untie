@@ -364,8 +364,8 @@ export function dropInvalidBindings(model: UntieModel, databaseId: string, warni
 // ---------------------------------------------------------------- すでにあるデータベースを使う
 
 export interface DatabaseUseDraft {
-  /** 対象のシステムの名前 */
-  system: string;
+  /** 対象のシステムの名前。省くと、設計が使うデータベースは変えずに、テーブルと情報の対応だけを足す (どのシステムにも使われていない情報を結ぶとき) */
+  system?: string;
   /** 使うデータベースの名前 (すでにあるもの) */
   database: string;
   /** そのデータベースのテーブルと、このシステムの情報の対応 (足すだけ。すでにある対応は消えない) */
@@ -385,11 +385,11 @@ export interface DatabaseUseResult extends DraftResult {
 export const USE_DATABASE_TOOL: ToolDef = {
   name: "use_database",
   description:
-    "すでにあるデータベース (ほかのシステムが写したもの。依頼に一覧がある) を、このシステムが使うと答える。同じスキーマを submit_database で出し直さない。tables には、そのデータベースのテーブルと、このシステムの情報 (まだ対応が無いもの) の対応を書く。すでにある対応は消えず、足されるだけ。",
+    "すでにあるデータベース (ほかのシステムが写したもの。依頼に一覧がある) を、システムが使うと答え、テーブルと情報の対応を足す。同じスキーマを submit_database で出し直さない。tables には、そのデータベースのテーブルと、情報 (まだ対応が無いもの) の対応を書く。すでにある対応は消えず、足されるだけ。system を省くと、使うデータベースは変えず、対応だけを足す。",
   parameters: {
     type: "object",
     properties: {
-      system: { type: "string", description: "対象のシステムの名前 (モデルにあるもの)" },
+      system: { type: "string", description: "このデータベースを使うシステムの名前 (モデルにあるもの)。どのシステムにも使われていない情報だけを結ぶときは省いてよい" },
       database: { type: "string", description: "使うデータベースの名前 (依頼の「すでにあるデータベース」にあるもの)" },
       tables: {
         type: "array",
@@ -405,19 +405,19 @@ export const USE_DATABASE_TOOL: ToolDef = {
         },
       },
     },
-    required: ["system", "database", "tables"],
+    required: ["database", "tables"],
     additionalProperties: false,
   },
 };
 
-/** 提出された内容を取り出す。形が違えば null */
+/** 提出された内容を取り出す。形が違えば null (system は省いてよい) */
 export function readDatabaseUse(raw: unknown): DatabaseUseDraft | null {
-  if (!isObject(raw) || typeof raw.system !== "string" || typeof raw.database !== "string") return null;
+  if (!isObject(raw) || typeof raw.database !== "string" || (raw.system !== undefined && typeof raw.system !== "string")) return null;
   const tables = (Array.isArray(raw.tables) ? raw.tables : []).flatMap((t) => {
     if (!isObject(t) || typeof t.table !== "string" || t.table === "") return [];
     return [{ table: t.table, informations: strings(t.informations) }];
   });
-  return { system: raw.system, database: raw.database, tables };
+  return { ...(typeof raw.system === "string" && raw.system.trim() !== "" ? { system: raw.system } : {}), database: raw.database, tables };
 }
 
 /**
@@ -427,12 +427,12 @@ export function readDatabaseUse(raw: unknown): DatabaseUseDraft | null {
  */
 export function applyDatabaseUse(model: UntieModel, draft: DatabaseUseDraft): DatabaseUseResult {
   const none = (failure: string): DatabaseUseResult => ({ model, warnings: [failure], applied: false, failure, added: { tables: 0, informations: 0 } });
-  const system = findNamed(model, "system", draft.system);
-  if (!system) return none(`データ: システム「${draft.system}」が見つからないので、データベースを使えません`);
+  const system = draft.system === undefined ? undefined : findNamed(model, "system", draft.system);
+  if (draft.system !== undefined && !system) return none(`データ: システム「${draft.system}」が見つからないので、データベースを使えません`);
   const wanted = draft.database.trim();
   const candidates = model.databases.filter((d) => d.id === wanted || d.name === nameOf(wanted));
   if (candidates.length === 0) return none(`データ: データベース「${draft.database}」が見つかりません`);
-  const design0 = model.designs.find((d) => d.systemId === system.id);
+  const design0 = system ? model.designs.find((d) => d.systemId === system.id) : undefined;
   const db = candidates.find((d) => design0?.databaseIds.includes(d.id)) ?? candidates[0]!;
   const warnings: string[] = [];
   const modelNames = new Set(tableNamesOf(db));
@@ -464,11 +464,13 @@ export function applyDatabaseUse(model: UntieModel, draft: DatabaseUseDraft): Da
     addedTables++;
     for (const id of fresh) addedInfos.add(id);
   }
-  const explicit = next.designs.find((d) => d.systemId === system.id)?.databaseIds ?? [];
-  const used = setDesignDatabases(next, { systemId: system.id, databaseIds: [...new Set([...explicit, db.id])] });
-  if (!used.ok) return none(`データ: 設計が使うデータベースにできません: ${used.reason}`);
-  next = used.model;
-  warnings.push(...unmappedWarnings(next, system.id));
+  if (system) {
+    const explicit = next.designs.find((d) => d.systemId === system.id)?.databaseIds ?? [];
+    const used = setDesignDatabases(next, { systemId: system.id, databaseIds: [...new Set([...explicit, db.id])] });
+    if (!used.ok) return none(`データ: 設計が使うデータベースにできません: ${used.reason}`);
+    next = used.model;
+    warnings.push(...unmappedWarnings(next, system.id));
+  }
   return { model: next, warnings, applied: true, databaseId: db.id, added: { tables: addedTables, informations: addedInfos.size } };
 }
 
