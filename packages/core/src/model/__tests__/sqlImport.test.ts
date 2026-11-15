@@ -1297,7 +1297,7 @@ describe("上限と性能", () => {
     const out: string[] = [];
     for (let i = 0; i < n; i++) {
       const cs = ["id integer NOT NULL"];
-      for (let c = 0; c < cols; c++) cs.push(`col_${c} character varying(50)`);
+      for (let c = 0; c < cols; c++) cs.push(c === 0 ? "col_0 integer" : `col_${c} character varying(50)`);
       out.push(`CREATE TABLE public.table_${i} (\n  ${cs.join(",\n  ")}\n);\nALTER TABLE ONLY public.table_${i} ADD CONSTRAINT table_${i}_pkey PRIMARY KEY (id);`);
       if (i > 0) out.push(`ALTER TABLE ONLY public.table_${i} ADD CONSTRAINT table_${i}_fk FOREIGN KEY (col_0) REFERENCES public.table_${i - 1}(id);`);
     }
@@ -2110,7 +2110,7 @@ describe("PostgreSQL の引用符なしの名前は小文字にする", () => {
     const s = schemaOf(r);
     expect(s.models[0]!.mapName).toBe("users");
     expect(r.tables[0]).toMatchObject({ table: "users", model: "Users" });
-    expect(s.models[0]!.fields.map((f) => [f.name, f.mapName])).toEqual([["id", undefined], ["name", undefined], ["createdat", undefined]]);
+    expect(s.models[0]!.fields.map((f) => [f.name, f.mapName])).toEqual([["id", undefined], ["name", undefined], ["createdAt", "createdat"]]);
   });
 
   it("引用符つきの名前はそのまま。参照・ALTER・COMMENT も大文字小文字を区別せずに結ぶ", () => {
@@ -2120,8 +2120,9 @@ describe("PostgreSQL の引用符なしの名前は小文字にする", () => {
     expect(model(s, "Users").mapName).toBeUndefined();
     expect(field(model(s, "Users"), "id")).toMatchObject({ mapName: "Id" });
     expect(model(s, "Users").fields.map((f) => f.name)).toEqual(expect.arrayContaining(["email", "age", "posts"]));
-    // 小文字になった userid の列は xxxId の形ではないので、関連の field の名前は参照先の model の名前から付く
-    expect(field(model(s, "Posts"), "users").relation).toEqual({ fields: ["userid"], references: ["id"] });
+    // field の名前はもとの綴り (UserId) から作り、実際の名前 (小文字の userid) は @map に出す
+    expect(field(model(s, "Posts"), "userId")).toMatchObject({ mapName: "userid" });
+    expect(field(model(s, "Posts"), "user").relation).toEqual({ fields: ["userId"], references: ["id"] });
     expect(r.dsl).toMatch(/email\s+String\?\s+\/\/ メール/);
   });
 
@@ -2467,5 +2468,279 @@ describe("閉じない・繰り返しの入力が 2 乗にならない (レビ�
     // 交互に出ても、読み直しは入力全体で 50 回まで
     const alt = Array.from({ length: 400 }, (_, i) => (i % 2 ? "CREATE TABLE a (x text DEFAULT 'a\\');" : "CREATE TABLE b (x text DEFAULT 'it\\'s');")).join("\n");
     expect(timeOf(alt)).toBeLessThan(2000);
+  });
+});
+
+describe("最終レビューの指摘 (# の行コメント・外部キーの結び直し・型の違い・列の数の上限・名前の綴り・LIKE)", () => {
+  const rel = (s: PrismaSchema, m: string, f: string) => field(model(s, m), f).relation;
+  const fieldNames = (s: PrismaSchema, m: string) => model(s, m).fields.map((f) => f.name);
+
+  describe("1. 行頭の # は、方言が何でも行コメント", () => {
+    const HAND = "# users table - don't touch\nCREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(10) NOT NULL);\n# orders: it's the main one\nCREATE TABLE orders (id INT PRIMARY KEY, user_id INT);\nCREATE TABLE logs (id INT PRIMARY KEY);\n";
+
+    it("再現: 目印の少ない手書きの MySQL (SERIAL があっても) の 3 テーブルが消えない", () => {
+      expect(sqlToPrismaDsl(HAND).tables.map((t) => t.table)).toEqual(["users", "orders", "logs"]);
+      // SERIAL を抜いて、方言が決まらなくても
+      expect(sqlToPrismaDsl(HAND.replace("id SERIAL PRIMARY KEY", "id INT PRIMARY KEY")).tables.map((t) => t.table)).toEqual(["users", "orders", "logs"]);
+    });
+
+    it("PostgreSQL と分かっていても、文の外・かっこの外の行頭の # は行コメント", () => {
+      const r = sqlToPrismaDsl("-- PostgreSQL database dump\n# note: don't read this\nCREATE TABLE a (id int PRIMARY KEY);\n  # it's another\nCREATE TABLE b (id int PRIMARY KEY);\n");
+      expect(r.tables.map((t) => t.table)).toEqual(["a", "b"]);
+    });
+
+    it("PostgreSQL では、かっこの中の行頭の # は演算子のまま (#>> が行頭に来ても列が消えない)", () => {
+      const r = sqlToPrismaDsl("-- PostgreSQL database dump\nCREATE TABLE docs (\n id bigint NOT NULL,\n title text GENERATED ALWAYS AS ((data\n #>> '{a}'::text[])) STORED,\n owner_id bigint NOT NULL\n);\nCREATE TABLE b (id int);");
+      expect(r.tables.map((t) => t.table)).toEqual(["docs", "b"]);
+      expect(fieldNames(schemaOf(r), "Docs")).toEqual(["id", "title", "ownerId"]);
+    });
+
+    it("方言が決まらないときは、かっこの中の行頭の # もコメント", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE a (\n  # it's the id\n  id int PRIMARY KEY,\n  n int\n);\nCREATE TABLE b (id int);");
+      expect(r.tables.map((t) => t.table)).toEqual(["a", "b"]);
+      expect(fieldNames(schemaOf(r), "A")).toEqual(["id", "n"]);
+    });
+
+    it("行の途中の #>>・#tmp は、これまでどおり記号 (前回の再現)", () => {
+      const pg = "-- PostgreSQL database dump\nCREATE TABLE public.docs (\n id bigint NOT NULL,\n title text GENERATED ALWAYS AS ((data #>> '{a}'::text[])) STORED,\n owner_id bigint NOT NULL\n);\nCREATE TABLE b (id int);";
+      expect(fieldNames(schemaOf(sqlToPrismaDsl(pg)), "Docs")).toEqual(["id", "title", "ownerId"]);
+      expect(sqlToPrismaDsl("CREATE TABLE #tmp (id int);\nCREATE TABLE a (id int PRIMARY KEY);\nGO\n").tables.map((t) => t.table)).toEqual(["a"]);
+    });
+  });
+
+  describe("2. 消したテーブルを参照する外部キーは、あとから作った無関係の同名のテーブルに結ばない", () => {
+    it("再現 1 (SQLite): 改名して消したあとに作った users に結ばれない", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE users (id INTEGER PRIMARY KEY); CREATE TABLE orders(id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id)); ALTER TABLE users RENAME TO accounts; DROP TABLE accounts; CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(0);
+      expect(r.tables.map((t) => t.table)).toEqual(["orders", "users"]);
+      expect(notesText(r)).toContain("参照先のテーブル accounts が SQL にない");
+    });
+
+    it("再現 2: 別のスキーマの同名のテーブル (a.items) に結ばれない", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE a.items (id int PRIMARY KEY); CREATE TABLE b.items (id int PRIMARY KEY); CREATE TABLE b.x (id int PRIMARY KEY, item_id int REFERENCES items(id)); DROP TABLE b.items;");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(0);
+      expect(r.tables.map((t) => t.table)).toEqual(["items", "x"]);
+      expect(notesText(r)).toContain("参照先のテーブル items が SQL にない");
+    });
+
+    it("スキーマ名なしの参照は、書いたテーブルのスキーマ → 既定のスキーマの順で結ぶ (別のスキーマの同名には結ばない)", () => {
+      // 後から参照先ができる形 (CREATE の時点では参照先がない)
+      const r = sqlToPrismaDsl("CREATE TABLE b.x (id int PRIMARY KEY, item_id int REFERENCES items(id));\nCREATE TABLE a.items (id int PRIMARY KEY);\nCREATE TABLE b.items (id int PRIMARY KEY);");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(1);
+      expect(rel(s, "X", "item")).toEqual({ fields: ["itemId"], references: ["id"] });
+      expect(model(s, "Items2").fields.map((f) => f.type)).toContain("X");
+      expect(model(s, "Items").fields.map((f) => f.type)).not.toContain("X");
+    });
+
+    it("作り直し (新しい表 → 古い表を DROP → 改名) では、外部キーが残る (前回の修正)", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE users (id INTEGER PRIMARY KEY);\nCREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));\nCREATE TABLE new_users (id INTEGER PRIMARY KEY, email TEXT);\nDROP TABLE users;\nALTER TABLE new_users RENAME TO users;\n");
+      expect(rel(schemaOf(r), "Orders", "user")).toEqual({ fields: ["userId"], references: ["id"] });
+    });
+  });
+
+  describe("3. 関連にするときの型・一意の確認", () => {
+    it("再現 1: users を uid uuid PRIMARY KEY, id text で作り直すと、一意でない id は関連にしない (列だけ残して notes と行末のコメント)", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE users (id INTEGER PRIMARY KEY);\nCREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));\nDROP TABLE users;\nCREATE TABLE users (uid uuid PRIMARY KEY, id text);\n");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(0);
+      expect(fieldNames(s, "Orders")).toEqual(["id", "userId"]);
+      expect(notesText(r)).toMatch(/orders の外部キー.*users\(id\) は、主キーでも一意でもない/);
+      expect(r.notes.find((n) => n.message.includes("主キーでも一意でもない"))?.line).toBe(2);
+      expect(r.dsl).toMatch(/userId\s+Int\?\s+@map\("user_id"\) \/\/ 参照先: users\(id\) \(主キーでも一意でもない\)/);
+    });
+
+    it("結び直した参照先の列の型が違えば、関連にはするが notes に行つきで残す", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE users (id INTEGER PRIMARY KEY);\nCREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));\nDROP TABLE users;\nCREATE TABLE users (uid uuid, id text PRIMARY KEY);\n");
+      const s = schemaOf(r);
+      expect(rel(s, "Orders", "user")).toEqual({ fields: ["userId"], references: ["id"] });
+      const n = r.notes.find((x) => x.message.includes("型が違います"));
+      expect(n?.message).toContain("user_id (Int) → id (String)");
+      expect(n?.line).toBe(2);
+    });
+
+    it("再現 2: REFERENCES users (列の省略) のあとで作り直すと、新しい主キー code TEXT に結ばれるので、型の違いを notes に残す", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE users (id INTEGER PRIMARY KEY);\nCREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users);\nDROP TABLE users;\nCREATE TABLE users (code TEXT PRIMARY KEY);\n");
+      const s = schemaOf(r);
+      expect(rel(s, "Orders", "user")).toEqual({ fields: ["userId"], references: ["code"] });
+      expect(notesText(r)).toContain("user_id (Int) → code (String)");
+    });
+
+    it("型が同じなら notes は出ない。一意の列・複合の主キーへの外部キーは関連にする", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE a (id int PRIMARY KEY, code varchar(10) UNIQUE);\nCREATE TABLE c (x int, y int, PRIMARY KEY (x, y));\nCREATE TABLE b (id int PRIMARY KEY, a_code varchar(20) REFERENCES a(code), cx int, cy int, FOREIGN KEY (cx, cy) REFERENCES c(x, y));");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(2);
+      expect(notesText(r)).not.toContain("型が違います");
+      expect(notesText(r)).not.toContain("主キーでも一意でもない");
+    });
+
+    it("MySQL が許す一意でない列への外部キーも、関連にせず notes に残す (Prisma の references は一意の列でなければならないため)", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE a (id int PRIMARY KEY, code varchar(10), KEY (code)) ENGINE=InnoDB;\nCREATE TABLE b (id int PRIMARY KEY, a_code varchar(10), CONSTRAINT fk_b FOREIGN KEY (a_code) REFERENCES a(code)) ENGINE=InnoDB;");
+      const s = schemaOf(r);
+      expect(relationCount(s)).toBe(0);
+      expect(notesText(r)).toContain("b の外部キー fk_bの参照先の列 a(code) は、主キーでも一意でもない");
+      expect(r.dsl).toMatch(/aCode\s+String\?[^\n]*\/\/ 参照先: a\(code\)/);
+    });
+  });
+
+  describe("4. INHERITS・LIKE の列は、カタログ全体の上限で止まる", () => {
+    const parent = () => `CREATE TABLE t0 (${Array.from({ length: 1000 }, (_, i) => `c${i} int`).join(", ")});\n`;
+    const many = (make: (i: number) => string) => parent() + Array.from({ length: 5000 }, (_, i) => make(i + 1)).join("\n");
+
+    for (const [label, make] of [
+      ["INHERITS", (i: number) => `CREATE TABLE t${i} () INHERITS (t0);`],
+      ["LIKE (かっこの中)", (i: number) => `CREATE TABLE t${i} (LIKE t0);`],
+      ["LIKE (MySQL のかっこなし)", (i: number) => `CREATE TABLE t${i} LIKE t0;`],
+    ] as const) {
+      it(`${label}: 1000 列の親から 5000 テーブル (19 万文字) が数秒以内に終わり、上限を超えたテーブルは読み飛ばして notes に 1 件`, () => {
+        const sql = many(make);
+        expect(sql.length).toBeLessThan(200_000);
+        const t0 = Date.now();
+        const r = sqlToPrismaDsl(sql);
+        expect(Date.now() - t0).toBeLessThan(4000);
+        expect(r.dslErrors).toEqual([]);
+        const capped = r.notes.filter((n) => n.message.includes("全体の上限"));
+        expect(capped).toHaveLength(1);
+        expect(capped[0]!.message).toMatch(/テーブル 48\d\d 個/);
+        // 列なしのテーブルにはしない。上限まで (親 + 子 199 個 = 20 万列) のテーブルが先に決まる
+        expect(r.tables.every((t) => t.columns > 0)).toBe(true);
+        expect(r.tables[0]!.table).toBe("t0");
+        expect(SQL_IMPORT_LIMITS.maxTotalColumns).toBe(200_000);
+      });
+    }
+
+    it("上限に収まる小さな LIKE・INHERITS は、これまでどおり写す", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE p (id int PRIMARY KEY, a text);\nCREATE TABLE c1 (b int) INHERITS (p);\nCREATE TABLE c2 (LIKE p);");
+      const s = schemaOf(r);
+      expect(fieldNames(s, "C1")).toEqual(["id", "a", "b"]);
+      expect(fieldNames(s, "C2")).toEqual(["id", "a"]);
+      expect(notesText(r)).not.toContain("全体の上限");
+    });
+  });
+
+  describe("5. 名前はもとの綴りから作り、小文字にした名前は @map だけに出す", () => {
+    it("(a) PostgreSQL と強く言えるときは、小文字の @map / @@map。名前は OrderItems・orderItemId", () => {
+      const r = sqlToPrismaDsl("-- PostgreSQL database dump\nCREATE TABLE OrderItems (OrderItemId serial PRIMARY KEY, OrderId int NOT NULL);\n");
+      const s = schemaOf(r);
+      expect(r.tables[0]).toMatchObject({ table: "orderitems", model: "OrderItems" });
+      expect(model(s, "OrderItems").mapName).toBe("orderitems");
+      expect(fieldNames(s, "OrderItems")).toEqual(["orderItemId", "orderId"]);
+      expect(field(model(s, "OrderItems"), "orderItemId")).toMatchObject({ mapName: "orderitemid" });
+      expect(field(model(s, "OrderItems"), "orderId")).toMatchObject({ mapName: "orderid" });
+    });
+
+    it("(a) 目印が複数ある (ヘッダーなし) ときも強い", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE OrderItems (OrderItemId serial PRIMARY KEY, At timestamptz);\n");
+      expect(r.tables[0]).toMatchObject({ table: "orderitems", model: "OrderItems" });
+    });
+
+    it("(b) 方言の判定が外れた手書きの MySQL (SERIAL が 1 つだけ) は、もとの綴りのまま (@@map に小文字を付けない)", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE OrderItems (OrderId INT, Id SERIAL PRIMARY KEY);\nCREATE TABLE Users (Id INT PRIMARY KEY);");
+      const s = schemaOf(r);
+      expect(r.tables.map((t) => [t.table, t.model])).toEqual([["OrderItems", "OrderItems"], ["Users", "Users"]]);
+      expect(model(s, "OrderItems").mapName).toBeUndefined();
+      expect(field(model(s, "OrderItems"), "orderId")).toMatchObject({ mapName: "OrderId" });
+      expect(field(model(s, "OrderItems"), "id")).toMatchObject({ mapName: "Id" });
+    });
+
+    it("(c) マイグレーションの組は、ファイル全体で方言を 1 つに決めて揃える (001 だけが pg と判定されて 002 がそのままにならない)", () => {
+      const f1 = { path: "001.sql", text: "CREATE TABLE Users (Id SERIAL PRIMARY KEY);" };
+      const f2 = { path: "002.sql", text: "ALTER TABLE Users ADD COLUMN DisplayName text;" };
+      // 目印が弱い (SERIAL だけ): どちらももとの綴りのまま
+      const weak = sqlFilesToPrismaDsl([f1, f2]);
+      expect(weak.tables[0]).toMatchObject({ table: "Users" });
+      expect(field(model(schemaOf(weak), "Users"), "displayName")).toMatchObject({ mapName: "DisplayName" });
+      // 1 つのファイルにヘッダーがあれば、全部のファイルが PostgreSQL (小文字)
+      const strong = sqlFilesToPrismaDsl([{ path: "000.sql", text: "-- PostgreSQL database dump\n" }, f1, f2]);
+      expect(strong.tables[0]).toMatchObject({ table: "users", model: "Users" });
+      expect(field(model(schemaOf(strong), "Users"), "displayName")).toMatchObject({ mapName: "displayname" });
+      // 目印の点数はファイルの合計で見る (001 に SERIAL、002 に :: と timestamptz)
+      const sum = sqlFilesToPrismaDsl([f1, { path: "002.sql", text: "ALTER TABLE Users ADD COLUMN DisplayName timestamptz DEFAULT now()::timestamptz;" }]);
+      expect(sum.tables[0]).toMatchObject({ table: "users" });
+      expect(field(model(schemaOf(sum), "Users"), "displayName")).toMatchObject({ mapName: "displayname" });
+    });
+
+    it("違う方言のヘッダーが混ざるときだけ、ファイルごとに決める", () => {
+      const r = sqlFilesToPrismaDsl([
+        { path: "pg.sql", text: "-- PostgreSQL database dump\nCREATE TABLE PgTable (Id serial PRIMARY KEY);" },
+        { path: "my.sql", text: "-- MySQL dump 10.13\nCREATE TABLE `MyTable` (`Id` int PRIMARY KEY);\nCREATE TABLE MyOther (Id int PRIMARY KEY);" },
+      ]);
+      expect(r.tables.map((t) => t.table)).toEqual(["pgtable", "MyTable", "MyOther"]);
+      expect(r.tables.map((t) => t.model)).toEqual(["PgTable", "MyTable", "MyOther"]);
+    });
+  });
+
+  describe("6. LIKE", () => {
+    const S = "CREATE TABLE s (id int PRIMARY KEY, name text, code varchar(5) UNIQUE);\n";
+
+    it("再現: LIKE s INCLUDING ALL の後ろの項目も読み、主キー・一意も写す", () => {
+      const r = sqlToPrismaDsl(`${S}CREATE TABLE t (LIKE s INCLUDING ALL, extra int);`);
+      const s = schemaOf(r);
+      expect(fieldNames(s, "T")).toEqual(["id", "name", "code", "extra"]);
+      expect(field(model(s, "T"), "id").attributes.some((a) => a.name === "id")).toBe(true);
+      expect(attr(field(model(s, "T"), "code"), "unique")).toBeDefined();
+    });
+
+    it("再現: 項目の前にある LIKE (extra int, LIKE s) も、s の列を写す。INCLUDING なしは主キー・一意を写さない", () => {
+      const r = sqlToPrismaDsl(`${S}CREATE TABLE t (extra int, LIKE s);`);
+      const s = schemaOf(r);
+      expect(fieldNames(s, "T")).toEqual(["extra", "id", "name", "code"]);
+      expect(attr(field(model(s, "T"), "id"), "id")).toBeUndefined();
+      expect(notesText(r)).toContain("t に主キーがありません");
+    });
+
+    it("INCLUDING INDEXES / CONSTRAINTS で主キー・一意を写し、EXCLUDING で外せる。真ん中の LIKE の前後の列も残る", () => {
+      const inc = schemaOf(sqlToPrismaDsl(`${S}CREATE TABLE t (a int, LIKE s INCLUDING INDEXES, z int);`));
+      expect(fieldNames(inc, "T")).toEqual(["a", "id", "name", "code", "z"]);
+      expect(attr(field(model(inc, "T"), "id"), "id")).toBeDefined();
+      const ex = schemaOf(sqlToPrismaDsl(`${S}CREATE TABLE t (LIKE s INCLUDING ALL EXCLUDING INDEXES EXCLUDING CONSTRAINTS, z int);`));
+      expect(attr(field(model(ex, "T"), "id"), "id")).toBeUndefined();
+    });
+
+    it("元が見つからないときは notes に残し、残りの項目は読む", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE t (LIKE missing INCLUDING ALL, extra int);");
+      expect(fieldNames(schemaOf(r), "T")).toEqual(["extra"]);
+      expect(notesText(r)).toContain("LIKE の元 missing が見つからない");
+    });
+
+    it("SQLite の like という名前の列は、列として読む", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE t (id INTEGER PRIMARY KEY, like TEXT NOT NULL);\nCREATE TABLE u (like TEXT, id INTEGER PRIMARY KEY);\nCREATE TABLE v (id INTEGER PRIMARY KEY, like);");
+      const s = schemaOf(r);
+      expect(fieldNames(s, "T")).toEqual(["id", "like"]);
+      expect(field(model(s, "T"), "like")).toMatchObject({ isOptional: false });
+      expect(fieldNames(s, "U")).toEqual(["like", "id"]);
+      expect(fieldNames(s, "V")).toEqual(["id", "like"]);
+    });
+
+    it("MySQL の CREATE TABLE t LIKE s; (かっこなし) は、元の列・主キー・一意を写す", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE `s` (`id` int NOT NULL AUTO_INCREMENT, `name` text, PRIMARY KEY (`id`)) ENGINE=InnoDB;\nCREATE TABLE `t` LIKE `s`;\n");
+      const s = schemaOf(r);
+      expect(r.tables.map((t) => t.table)).toEqual(["s", "t"]);
+      expect(fieldNames(s, "T")).toEqual(["id", "name"]);
+      expect(attr(field(model(s, "T"), "id"), "id")).toBeDefined();
+    });
+  });
+
+  describe("7. そのほか", () => {
+    it("SQL Server の timestamp・rowversion は DateTime ではなく Bytes", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE [dbo].[t] (\n [id] int IDENTITY(1,1) NOT NULL PRIMARY KEY,\n [ver] timestamp NOT NULL,\n [rv] rowversion,\n [at] datetime2\n)\nGO\n");
+      const s = schemaOf(r);
+      expect(field(model(s, "T"), "ver").type).toBe("Bytes");
+      expect(field(model(s, "T"), "rv").type).toBe("Bytes");
+      expect(field(model(s, "T"), "at").type).toBe("DateTime");
+      // PostgreSQL・MySQL の timestamp は日時のまま
+      expect(typeOf("CREATE TABLE t (c timestamp);", "c").f.type).toBe("DateTime");
+    });
+
+    it("SQLite の WITHOUT ROWID の表の INTEGER PRIMARY KEY には autoincrement を付けない", () => {
+      const r = sqlToPrismaDsl("CREATE TABLE a (id INTEGER PRIMARY KEY, v TEXT);\nCREATE TABLE b (id INTEGER PRIMARY KEY, v TEXT) WITHOUT ROWID;\nCREATE TABLE c (k INTEGER, v TEXT, PRIMARY KEY (k)) WITHOUT ROWID;");
+      const s = schemaOf(r);
+      expect(attr(field(model(s, "A"), "id"), "default")?.args).toBe("autoincrement()");
+      expect(attr(field(model(s, "B"), "id"), "default")).toBeUndefined();
+      expect(attr(field(model(s, "B"), "id"), "id")).toBeDefined();
+      expect(attr(field(model(s, "C"), "k"), "default")).toBeUndefined();
+    });
   });
 });

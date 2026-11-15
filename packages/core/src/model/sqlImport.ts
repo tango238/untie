@@ -5,8 +5,8 @@
 // ここでカタログから名前を決め、型・DEFAULT・関連を写して DSL の文字列にする。同じ入力から必ず同じ文字列になる。
 import { DESCRIPTION_MAX_LENGTH, DSL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText } from "./limits";
 import { PRISMA_SCALAR_TYPES, parsePrismaDsl, type PrismaError } from "./prisma";
-import { detectDialect, scanStatements } from "./sqlLex";
-import { applyStatement, Catalog, finalizeCatalog, MAX_COLUMNS_PER_TABLE, MAX_DDL_STATEMENTS, MAX_ENUM_VALUES, MAX_ENUMS, MAX_FKS_PER_TABLE, MAX_KEYS_PER_TABLE, MAX_NOTES, MAX_TABLES, type Col, type EnumDef, type Table } from "./sqlSchema";
+import { type Dialect, type DialectScore, HEADER_SCORE, isStrongPg, pickDialect, scanStatements, scoreDialect } from "./sqlLex";
+import { applyStatement, Catalog, finalizeCatalog, MAX_COLUMNS_PER_TABLE, MAX_DDL_STATEMENTS, MAX_ENUM_VALUES, MAX_ENUMS, MAX_FKS_PER_TABLE, MAX_KEYS_PER_TABLE, MAX_NOTES, MAX_TABLES, MAX_TOTAL_COLUMNS, type Col, type EnumDef, type Table } from "./sqlSchema";
 import { convertDefault, hasUnwritable, mapScalar, quoteDsl, type ScalarName } from "./sqlTypes";
 
 /** 変換で気づいたこと (読み飛ばした文・変換できなかった型など)。file は複数のファイルを渡したときのパス */
@@ -51,6 +51,8 @@ export const SQL_IMPORT_LIMITS = {
   maxTables: MAX_TABLES,
   /** 1 つのテーブルの列の数 */
   maxColumnsPerTable: MAX_COLUMNS_PER_TABLE,
+  /** カタログ全体の列の数 (INHERITS・LIKE で列を写すとき。超えるテーブルは読み飛ばす) */
+  maxTotalColumns: MAX_TOTAL_COLUMNS,
   /** enum の数と、1 つの enum の値の数 */
   maxEnums: MAX_ENUMS,
   maxEnumValues: MAX_ENUM_VALUES,
@@ -80,12 +82,28 @@ export function sqlFilesToPrismaDsl(files: readonly SqlFile[]): SqlImportResult 
 // ---------------------------------------------------------------------------------------------
 // 全体
 
+/** 渡したファイル全体で方言を 1 つに決める (ファイルごとの点数を足す。ヘッダーのあるファイルが 1 つでもあればその方言)。違う方言のヘッダーが混ざるときだけ、ファイルごと */
+function decideDialects(texts: readonly string[]): { dialect: Dialect; fold: boolean }[] {
+  const scores = texts.map((t) => scoreDialect(t));
+  const keys = ["pg", "mysql", "sqlite", "mssql"] as const;
+  const headerKinds = new Set<(typeof keys)[number]>();
+  for (const sc of scores) for (const k of keys) if (sc[k] >= HEADER_SCORE) headerKinds.add(k);
+  if (headerKinds.size > 1) return scores.map((sc) => ({ dialect: pickDialect(sc), fold: isStrongPg(sc) }));
+  const total: DialectScore = { pg: 0, mysql: 0, sqlite: 0, mssql: 0 };
+  for (const sc of scores) for (const k of keys) total[k] += sc[k];
+  const only = headerKinds.size === 1 ? [...headerKinds][0]! : undefined;
+  const dialect = only ?? pickDialect(total);
+  const fold = dialect === "pg" && (only === "pg" || isStrongPg(total));
+  return texts.map(() => ({ dialect, fold }));
+}
+
 function run(files: readonly SqlFile[], withFile: boolean): SqlImportResult {
   const cat = new Catalog();
   try {
     let budget: number = SQL_IMPORT_LIMITS.maxChars;
     const list = files.length > SQL_IMPORT_LIMITS.maxFiles ? files.slice(0, SQL_IMPORT_LIMITS.maxFiles) : files;
     if (files.length > list.length) cat.note(undefined, undefined, `ファイルの数が上限 (${SQL_IMPORT_LIMITS.maxFiles}) を超えたため、${files.length - list.length} 個を読みませんでした`);
+    const prepared: { text: string; ctxFile: { file?: string } }[] = [];
     for (const f of list) {
       let text = typeof f?.text === "string" ? f.text : "";
       const file = withFile && typeof f?.path === "string" ? truncateText(f.path, NAME_MAX_LENGTH) : undefined;
@@ -100,11 +118,15 @@ function run(files: readonly SqlFile[], withFile: boolean): SqlImportResult {
       }
       budget -= text.length;
       if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-      const dialect = detectDialect(text);
-      const ctx = { ...ctxFile, dialect, text };
-      const scanned = scanStatements(text, dialect, (st) => applyStatement(cat, st, ctx));
-      for (const line of scanned.rereads) cat.note(ctx, line, "文字列が閉じないままファイルの終わりまで (または極端に長く) 続いたため、バックスラッシュのエスケープの扱いを変えて、この文から読み直しました");
+      prepared.push({ text, ctxFile });
     }
+    const decided = decideDialects(prepared.map((p) => p.text));
+    prepared.forEach(({ text, ctxFile }, i) => {
+      const { dialect, fold } = decided[i]!;
+      const ctx = { ...ctxFile, dialect, text };
+      const scanned = scanStatements(text, dialect, (st) => applyStatement(cat, st, ctx), fold);
+      for (const line of scanned.rereads) cat.note(ctx, line, "文字列が閉じないままファイルの終わりまで (または極端に長く) 続いたため、バックスラッシュのエスケープの扱いを変えて、この文から読み直しました");
+    });
   } catch {
     cat.note(undefined, undefined, "SQL を最後まで読めませんでした。読めたところまでを使います");
   }
@@ -137,6 +159,10 @@ function summarize(cat: Catalog, tableCount: number): void {
   if (cat.partitionCount > 0) {
     const names = cat.partitionNames.join("、");
     cat.notes.push({ message: `パーティションの子のテーブル ${cat.partitionCount} 個 (${names}${cat.partitionCount > cat.partitionNames.length ? " など" : ""}) は、model にせず読み飛ばしました。親のテーブルに含まれるものとして扱います` });
+  }
+  if (cat.cappedCount > 0) {
+    const names = cat.cappedNames.join("、");
+    cat.notes.push({ message: `列の数が全体の上限 (${MAX_TOTAL_COLUMNS}) を超えるため、INHERITS・LIKE で列を写せないテーブル ${cat.cappedCount} 個 (${names}${cat.cappedCount > cat.cappedNames.length ? " など" : ""}) は、読み飛ばしました` });
   }
   if (tableCount === 0) cat.notes.push({ message: "テーブルの定義 (CREATE TABLE) が見つかりませんでした" });
   if (cat.omittedNotes > 0) cat.notes.push({ message: `ほかにも ${cat.omittedNotes} 件の注意がありましたが、省略しました` });
@@ -367,7 +393,7 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
   const models: ModelPlan[] = [];
   const names: string[] = [];
   live.forEach((t, i) => {
-    let base = pascalIdent(t.name) || `Table${i + 1}`;
+    let base = pascalIdent(t.label) || `Table${i + 1}`;
     if (RESERVED_MODEL_NAMES.has(base)) base = `${base}Table`;
     names.push(uniqueName(base, usedTypeNames));
   });
@@ -376,7 +402,7 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
   const enumByDef = new Map<EnumDef, EnumPlan>();
   for (const def of cat.enumsCreated) {
     if (def.dropped) continue;
-    let base = pascalIdent(def.name) || `Enum${enums.length + 1}`;
+    let base = pascalIdent(def.label) || `Enum${enums.length + 1}`;
     if (RESERVED_MODEL_NAMES.has(base)) base = `${base}Enum`;
     const name = uniqueName(base, usedTypeNames);
     const p = makeEnumPlan(name, def.values, def);
@@ -400,7 +426,7 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
     const byCol = new Map<Col, FieldPlan>();
     const pkCols = new Set(t.pk?.cols ?? []);
     t.cols.forEach((col, pos) => {
-      const fname = uniqueName(camelIdent(col.name) || `column${pos + 1}`, usedFields);
+      const fname = uniqueName(camelIdent(col.label) || `column${pos + 1}`, usedFields);
       const mapName = fname === col.name ? undefined : truncateText(col.name, NAME_MAX_LENGTH);
       if (mapName !== undefined && hasUnwritable(mapName)) addNote(cat, t, col.line, `列 ${t.name}.${oneLine(col.name)} の名前に改行・制御文字が含まれるため、@map には空白に置き換えて書きました`);
       const f = planField(cat, t, model, col, fname, mapName, pkCols.has(col), enumFor, inlineEnums, usedTypeNames);
@@ -466,9 +492,21 @@ function buildPlan(cat: Catalog, live: Table[]): Plan {
         addNote(cat, child.table, fk.line, `${where}の列の数と参照先の列の数が合わないため、関連にしませんでした`);
         continue;
       }
+      // 参照先の列 (の組) が主キーでも一意でもなければ関連にしない (Prisma の @relation の references は、一意の列でなければならない。MySQL は一意でない列への外部キーも許すが、同じ扱い)
+      const covers = (key: readonly Col[]) => key.length > 0 && key.every((c) => refCols.includes(c));
+      if (!((fk.target.pk && covers(fk.target.pk.cols)) || fk.target.uniques.some((u) => covers(u.cols)))) {
+        const refText = `${fk.target.name}(${refCols.map((c) => c.name).join(", ")})`;
+        addNote(cat, child.table, fk.line, `${where}の参照先の列 ${oneLine(refText)} は、主キーでも一意でもないため、関連にしませんでした。列だけを残します`);
+        const noteLines = commentLines(`参照先: ${refText} (主キーでも一意でもない)`);
+        for (const f of cols) f.comment.push(...noteLines);
+        continue;
+      }
       const id = `${child.index}:${keyId(fk.cols)}:${parent.index}:${keyId(refCols)}`;
       if (seenFk.has(id)) continue;
       seenFk.add(id);
+      // 外部キーの列と参照先の列の型 (DSL の基本の型) が違えば、関連にはするが notes に残す
+      const mismatch = cols.flatMap((f, n) => (f.type !== refs[n]!.type ? [`${f.col.name} (${f.type}) → ${refs[n]!.col.name} (${refs[n]!.type})`] : []));
+      if (mismatch.length > 0) addNote(cat, child.table, fk.line, `${where}の列と参照先 ${fk.target.name} の列の型が違います: ${oneLine(mismatch.join("、"))}。関連にはしましたが、確かめてください`);
       const sameSet = (a: readonly Col[], b: readonly Col[]) => a.length === b.length && a.every((c) => b.includes(c));
       const oneToOne = (child.table.pk && sameSet(child.table.pk.cols, fk.cols)) || child.table.uniques.some((u) => sameSet(u.cols, fk.cols));
       rels.push({ child, parent, fields: cols, refs, optional: cols.some((f) => f.optional), oneToOne: !!oneToOne });

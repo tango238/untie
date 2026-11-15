@@ -164,8 +164,12 @@ export function mapScalar(base: string, nums: number[], unsigned: boolean, diale
     case "timetz":
     case "time with time zone":
       return S("DateTime", nativeOf("Timetz", n0));
+    case "rowversion":
+      return S("Bytes");
     case "timestamp":
     case "timestamp without time zone":
+      // SQL Server の timestamp は日時ではなく、行のバージョン (rowversion と同じ 8 バイト)
+      if (base === "timestamp" && dialect === "mssql") return S("Bytes");
       // PostgreSQL の既定 (Prisma の DateTime は timestamp(3)) と同じなら付けない
       return S("DateTime", mysql ? nativeOf("Timestamp", n0 ?? 0) : n0 !== undefined && n0 !== 3 ? nativeOf("Timestamp", n0) : undefined);
     case "datetime":

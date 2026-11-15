@@ -11,6 +11,8 @@ export interface Tok {
   v: string;
   /** 単語の大文字 (w のときだけ) */
   u: string;
+  /** 単語を小文字にして読んだとき (PostgreSQL と強く言えるとき) の、もとの綴り。変わらないときは持たない */
+  o?: string;
   /** 元の文字列での位置 */
   s: number;
   e: number;
@@ -67,6 +69,31 @@ interface DetectInput {
   backtick: boolean;
   mysqlConditional: boolean;
   dollar: boolean;
+  /** 文字列・コメントの外の、行頭 (前が空白だけ) で、かっこの外の # (MySQL の行コメント) があった */
+  hashLine: boolean;
+}
+
+/** 方言ごとの目印の点数 (ヘッダーは 100 点) */
+export interface DialectScore {
+  pg: number;
+  mysql: number;
+  sqlite: number;
+  mssql: number;
+}
+
+/** ダンプのヘッダーの点数 (これ以上なら、その方言のヘッダーがある) */
+export const HEADER_SCORE = 100;
+/** ヘッダーが無いとき、PostgreSQL と強く言える点数 (ほかの方言の目印が無いことも要る) */
+export const PG_STRONG_SCORE = 6;
+
+/** text[i] が行頭 (その行の前が空白だけ) か */
+function atLineStart(text: string, i: number): boolean {
+  for (let k = i - 1; k >= 0; k--) {
+    const ch = text.charCodeAt(k);
+    if (ch === 10) return true;
+    if (ch !== 32 && ch !== 9 && ch !== 13) return false;
+  }
+  return true;
 }
 
 /** 方言の推定のために、コメントと文字列を除く (標準の読み方で。1 回の走査) */
@@ -77,6 +104,8 @@ function stripForDetect(head: string): DetectInput {
   let backtick = false;
   let mysqlConditional = false;
   let dollar = false;
+  let hashLine = false;
+  let depth = 0;
   let seg = 0;
   let i = 0;
   const cut = (to: number, fill: string, next: number) => {
@@ -98,6 +127,13 @@ function stripForDetect(head: string): DetectInput {
       if (head.charCodeAt(i + 2) === 33 && isDigit(head.charCodeAt(i + 3))) mysqlConditional = true;
       if (comments.length < 20_000) comments += `${head.slice(i, Math.min(end, i + 300))}\n`;
       cut(i, " ", end);
+    } else if (c === 35 && atLineStart(head, i)) {
+      // 行頭の # は行コメント (MySQL)。かっこの外にあれば MySQL の目印
+      let e = head.indexOf("\n", i);
+      if (e < 0) e = n;
+      if (depth === 0) hashLine = true;
+      if (comments.length < 20_000) comments += `${head.slice(i, Math.min(e, i + 300))}\n`;
+      cut(i, " ", e);
     } else if (c === 39) {
       let j = i + 1;
       for (;;) {
@@ -132,17 +168,21 @@ function stripForDetect(head: string): DetectInput {
         }
       }
       i++;
-    } else i++;
+    } else {
+      if (c === 40) depth++;
+      else if (c === 41 && depth > 0) depth--;
+      i++;
+    }
   }
   if (seg < n) parts.push(head.slice(seg));
-  return { comments, body: parts.join(""), backtick, mysqlConditional, dollar };
+  return { comments, body: parts.join(""), backtick, mysqlConditional, dollar, hashLine };
 }
 
 /**
- * 方言を推定する。字句解析 (バックスラッシュ・" の扱い・ドル引用・# と入れ子のコメント) と、型の対応・引用符なしの名前の大文字小文字に使う。
- * コメントと文字列の中を除いた部分の目印と、ダンプのヘッダーに重みを付けて数え、いちばん点の高い方言にする (低すぎれば other)。
+ * 方言ごとの目印の点数を数える (コメントと文字列の中を除いた部分の目印と、ダンプのヘッダーに重みを付ける)。
+ * 複数のファイルをまとめて 1 つの方言に決めるときは、ファイルごとの点数を足す (pickDialect)
  */
-export function detectDialect(text: string): Dialect {
+export function scoreDialect(text: string): DialectScore {
   const head = text.length > 2_000_000 ? text.slice(0, 2_000_000) : text;
   const d = stripForDetect(head);
   const score = { pg: 0, mysql: 0, sqlite: 0, mssql: 0 };
@@ -158,6 +198,7 @@ export function detectDialect(text: string): Dialect {
   if (d.backtick) score.mysql += 5;
   if (d.mysqlConditional) score.mysql += 8;
   if (d.dollar) score.pg += 3;
+  if (d.hashLine) score.mysql += 6;
   hit(/\bAUTO_INCREMENT\b/i, b, "mysql", 5);
   hit(/\bENGINE\s*=/i, b, "mysql", 5);
   hit(/\bDELIMITER\s/i, b, "mysql", 5);
@@ -191,7 +232,13 @@ export function detectDialect(text: string): Dialect {
   hit(/\b(?:NON)?CLUSTERED\b/i, b, "mssql", 4);
   hit(/\b(?:N?VARCHAR|NCHAR)\s*\(\s*MAX\s*\)/i, b, "mssql", 3);
   hit(/\b(?:UNIQUEIDENTIFIER|DATETIME2)\b/i, b, "mssql", 2);
-  // 同点のときは sqlite > mysql > pg > mssql の順 (以前の判定の優先順)
+  return score;
+}
+
+/**
+ * 点数から方言を決める。いちばん点の高い方言 (低すぎれば other)。同点のときは sqlite > mysql > pg > mssql の順 (以前の判定の優先順)
+ */
+export function pickDialect(score: DialectScore): Dialect {
   const order: (keyof typeof score)[] = ["sqlite", "mysql", "pg", "mssql"];
   let best: keyof typeof score | "" = "";
   let bestScore = 1;
@@ -202,6 +249,21 @@ export function detectDialect(text: string): Dialect {
     }
   }
   return best === "" ? "other" : best;
+}
+
+/** PostgreSQL と強く言えるか (pg_dump のヘッダーがある、または PostgreSQL の目印の点が十分に高く、ほかの方言の目印が無い)。引用符なしの名前を小文字にしてよい根拠 */
+export function isStrongPg(score: DialectScore): boolean {
+  if (pickDialect(score) !== "pg") return false;
+  if (score.pg >= HEADER_SCORE) return true;
+  return score.pg >= PG_STRONG_SCORE && score.mysql === 0 && score.sqlite === 0 && score.mssql === 0;
+}
+
+/**
+ * 方言を推定する。字句解析 (バックスラッシュ・" の扱い・ドル引用・# と入れ子のコメント) と、型の対応に使う。
+ * コメントと文字列の中を除いた部分の目印と、ダンプのヘッダーに重みを付けて数え、いちばん点の高い方言にする (低すぎれば other)。
+ */
+export function detectDialect(text: string): Dialect {
+  return pickDialect(scoreDialect(text));
 }
 
 const isWordStart = (c: number): boolean => (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95 || c >= 128;
@@ -272,8 +334,11 @@ export interface ScanResult {
   rereads: number[];
 }
 
-/** 文を 1 つずつ切り出して onStatement に渡す */
-export function scanStatements(text: string, dialect: Dialect, onStatement: (s: Statement) => void): ScanResult {
+/**
+ * 文を 1 つずつ切り出して onStatement に渡す。
+ * fold: 引用符なしの名前を小文字にして読むか (既定は方言が pg のとき。PostgreSQL と強く言えるときだけ小文字にしたいので、呼ぶ側が決める)。小文字にした単語は、もとの綴りを o に持つ
+ */
+export function scanStatements(text: string, dialect: Dialect, onStatement: (s: Statement) => void, fold: boolean = dialect === "pg"): ScanResult {
   const n = text.length;
   const mysql = dialect === "mysql";
   // 方言で変わる字句: " を文字列にするか・# のコメント・入れ子のコメント・ドル引用・引用符なしの名前の小文字化
@@ -281,7 +346,7 @@ export function scanStatements(text: string, dialect: Dialect, onStatement: (s: 
   const hashComment = mysql;
   const nestedComments = dialect === "pg";
   const dollarQuote = !mysql;
-  const lowerWords = dialect === "pg";
+  const lowerWords = fold;
   /** 文字列のバックスラッシュをエスケープとして読むか (方言で決めるが、閉じない文字列があれば読み直して変える) */
   let backslash = mysql;
   let nestedBroken = false;
@@ -394,6 +459,10 @@ export function scanStatements(text: string, dialect: Dialect, onStatement: (s: 
       return;
     }
     const tok: Tok = { k, v, u: k === "w" ? v.toUpperCase() : "", s, e, line: lineOf(s) };
+    if (k === "w" && lowerWords) {
+      const o = text.slice(s, Math.min(e, s + 1000));
+      if (o !== v) tok.o = o;
+    }
     if (d !== undefined) tok.d = d;
     if (pre !== undefined) tok.pre = pre;
     toks.push(tok);
@@ -527,7 +596,9 @@ export function scanStatements(text: string, dialect: Dialect, onStatement: (s: 
       i = e < 0 ? n : e;
       continue;
     }
-    if (c === 35 && hashComment) {
+    // # の行コメント: MySQL では常に。ほかの方言でも、行頭 (前が空白だけ) の # は、文の外か、かっこの外ならコメント (PostgreSQL の # 演算子や SQL Server の #tmp は行の途中に来る)。
+    // かっこの中の行頭の # は、PostgreSQL だけ演算子として読む
+    if (c === 35 && (hashComment || ((parenDepth === 0 || dialect !== "pg") && atLineStart(text, i)))) {
       const e = text.indexOf("\n", i);
       i = e < 0 ? n : e;
       continue;
