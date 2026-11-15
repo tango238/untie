@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Node でも Cloudflare Workers でも動かすので、Web 標準の API (Request・crypto) だけを使う。Node の型は入れない
+    "lib": ["ES2022", "DOM"],
+    "types": []
+  },
+  "include": ["src"]
+}

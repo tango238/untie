@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/api" },
+    { "path": "./packages/appkit" },
     { "path": "./packages/collab" },
     { "path": "./packages/collab/src/room" },
     { "path": "./packages/ui" },

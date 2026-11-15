@@ -35,6 +35,7 @@ export * from "./domainExport";
 export * from "./sequence";
 export * from "./readiness";
 export * from "./southerExport";
+export * from "./accessPolicy";
 export * from "./acceptance";
 export * from "./designBrief";
 export * from "./buildPlan";

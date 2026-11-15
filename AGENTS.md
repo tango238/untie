@@ -11,6 +11,7 @@ pnpm ワークスペース (モノレポ) です。ビルドはせず、Vite・V
 | `schema/untie.schema.json` | モデル (保存する JSON) の JSON Schema。型と検証関数はここから生成する |
 | `packages/core` | モデル (型・コマンド・検証・マイグレーション)、サンプル。React にも DOM にも依存しない |
 | `packages/api` | サーバーと画面で共有する契約 |
+| `packages/appkit` | 生成したアプリケーションの共通の仕組み (SSO のトークンの確認・権限・監査の記録)。untie の本体からは使わず、依存は jose だけ (あとで別リポジトリへ切り出せるようにしておく) |
 | `packages/collab` | 同時編集 (Y.Doc とモデルの往復、ルームの Durable Object) |
 | `packages/ui` | React の画面とストア。Web 版・クラウド版・デスクトップで共通 |
 | `apps/web` | Web 版 (ローカル専用)。Cloudflare Pages で配る |

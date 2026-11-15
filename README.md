@@ -181,6 +181,7 @@ pnpm ワークスペース (モノレポ) です。ビルドはせず、Vite・V
 | --- | --- | --- |
 | `packages/core` | `@untie/core` | モデル (型・スキーマ・id・関係ルール・コマンド・検証・固定ボード・分析・トレース)、サンプル。React にも DOM にも依存しない |
 | `packages/api` | `@untie/api` | サーバーと画面で共有する契約 (DTO と zod スキーマ、役割と権限、fetch クライアント) |
+| `packages/appkit` | `@untie/appkit` | 生成したアプリケーションの共通の仕組み (SSO のトークンの確認・権限・監査の記録)。untie の本体からは使わない |
 | `packages/collab` | `@untie/collab` | 同時編集 (Y.Doc とモデルの往復、壊れた参照の修復、ルームの Durable Object) |
 | `packages/ui` | `@untie/ui` | React の画面とストア。Web 版・クラウド版・デスクトップで共通 |
 | `apps/web` | `@untie/web` | Web 版 (ローカル専用) の入り口 (Vite)。ブラウザの `Platform` の実装 (`src/platform.ts`) もここで、クラウド版も使う。Cloudflare Pages で配る |
