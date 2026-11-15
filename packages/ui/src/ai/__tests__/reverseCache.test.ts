@@ -18,6 +18,8 @@ interface Rec {
   /** 発言が部分の並びで渡されたときの、その部分 (文字列で渡されたときは null) */
   parts: { text: string; shared?: boolean }[] | null;
   runTool: ChatOptions["runTool"];
+  /** 1 回の返答で、複数の道具を並べて呼ぶ (同じ往復) */
+  round: (calls: { name: string; input: unknown }[]) => Promise<ToolOutcome[]>;
 }
 const fake = vi.hoisted(() => ({
   recs: [] as Rec[],
@@ -39,7 +41,18 @@ vi.mock("../chat", async (importOriginal) => {
         send: async (input: string | readonly { text: string }[], events?: ChatEvents) => {
           // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
           const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
-          const rec: Rec = { label: o.label ?? "", text, tools: JSON.stringify(o.tools), system: o.system, seed, parts: typeof input === "string" ? null : input.map((p) => ({ ...p })), runTool: o.runTool };
+          // 本物の send と同じく、finish のあとは道具をもう呼べない (同じ往復の呼び出しは round でまとめる)
+          let finished = false;
+          const round = async (calls: { name: string; input: unknown }[]): Promise<ToolOutcome[]> => {
+            if (finished) throw new Error("finish のあとに道具が呼ばれました (本物の send は、次のリクエストを送らずに会話を終えます)");
+            const outcomes: ToolOutcome[] = [];
+            for (const c of calls) outcomes.push(await o.runTool(c.name, c.input));
+            const stop = outcomes.find((x) => x.stop !== undefined)?.stop;
+            if (stop !== undefined) throw new (actual as { ChatError: new (m: string) => Error }).ChatError(stop);
+            if (outcomes.some((x) => x.finish)) finished = true;
+            return outcomes;
+          };
+          const rec: Rec = { label: o.label ?? "", text, tools: JSON.stringify(o.tools), system: o.system, seed, parts: typeof input === "string" ? null : input.map((p) => ({ ...p })), runTool: async (name, input) => (await round([{ name, input }]))[0]!, round };
           fake.recs.push(rec);
           for (const u of fake.usage[rec.label] ?? []) events?.onUsage?.(u);
           return await fake.scripts[rec.label]!(rec, events);
@@ -260,6 +273,8 @@ describe("テーブルと情報の対応は 1 つの会話", () => {
     const outcomes: ToolOutcome[] = [];
     useScripts({
       テーブルの対応: async (r) => {
+        // 注文管理画面・注文サーバーの設計は、まだ使うデータベースが決まっていない。ここで確かめるのはネットショップの分だけ (聞き直されたら、何も答えない)
+        if (outcomes.length > 0) return "ok";
         outcomes.push(await r.runTool("use_database", { system: MULTI_SHOP, database: "別のDB", tables: [] }));
         outcomes.push(await r.runTool("use_database", { system: "ない", database: "バックエンドのデータベース", tables: [] }));
         outcomes.push(await r.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables }));

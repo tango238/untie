@@ -228,6 +228,80 @@ describe("道具の結果が finish を示したとき: 次のリクエストを
   });
 });
 
+describe("道具の結果が stop を示したとき: 同じ往復の道具をすべて実行してから、会話を打ち切る", () => {
+  const stopping = (log: string[]) => (name: string): ToolOutcome => {
+    log.push(name);
+    return { ok: name !== "bad", content: JSON.stringify({ result: name }), changed: false, ...(name === "bad" ? { stop: "打ち切りました" } : {}) };
+  };
+  const stopTools = [{ name: "bad", description: "d", parameters: { type: "object", properties: {} } }, { name: "good", description: "d", parameters: { type: "object", properties: {} } }];
+
+  it("Claude: stop を返す道具のあとに並んだ正しい道具も実行し、結果を履歴に積んでから ChatError (次のリクエストは送らない。道具の実行の中では投げない)", async () => {
+    script.claude.push(
+      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "tu_a", name: "bad", input: {} }, { type: "tool_use", id: "tu_b", name: "good", input: {} }] },
+      { stop_reason: "end_turn", content: [{ type: "text", text: "次の答え" }] },
+    );
+    const log: string[] = [];
+    const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: stopTools, runTool: stopping(log) });
+    await expect(s.send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    expect(script.claudeRequests).toHaveLength(1);
+    // 呼び出しと結果は対のまま残る
+    expect(await s.send("続けて")).toBe("次の答え");
+    const msgs = script.claudeRequests[1]!.messages as { role: string; content: { type: string; tool_use_id?: string; text?: string }[] }[];
+    expect(msgs[2]!.content.map((b) => (b.type === "tool_result" ? b.tool_use_id : b.text))).toEqual(["tu_a", "tu_b", "続けて"]);
+  });
+
+  it("Codex・Gemini も、往復の道具をすべて実行してから打ち切る", async () => {
+    script.openai.push({ output_text: "", output: [{ type: "function_call", call_id: "c1", name: "bad", arguments: "{}" }, { type: "function_call", call_id: "c2", name: "good", arguments: "{}" }] });
+    script.gemini.push({ candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "f1", name: "bad", args: {} } }, { functionCall: { id: "f2", name: "good", args: {} } }] } }], functionCalls: [{ id: "f1", name: "bad", args: {} }, { id: "f2", name: "good", args: {} }], text: "" });
+    const log: string[] = [];
+    await expect(createChatSession("codex", { ...opts("gpt-5-codex"), tools: stopTools, runTool: stopping(log) }).send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    log.length = 0;
+    await expect(createChatSession("gemini", { ...opts("gemini-2.5-pro"), tools: stopTools, runTool: stopping(log) }).send("呼んで")).rejects.toThrow("打ち切りました");
+    expect(log).toEqual(["bad", "good"]);
+    expect(script.openaiRequests).toHaveLength(1);
+    expect(script.geminiRequests).toHaveLength(1);
+  });
+});
+
+describe("空・空白だけの発言は、中身の空のメッセージにしない (Claude)", () => {
+  const readTools = [{ name: "read", description: "d", parameters: { type: "object", properties: {} } }];
+  const toolReply = { stop_reason: "tool_use", content: [{ type: "tool_use", id: "tu_a", name: "read", input: {} }] };
+  const finishRead = (): ToolOutcome => ({ ok: true, content: "{}", changed: false, finish: true });
+  type Msg = { role: string; content: string | { type: string; text?: string; tool_use_id?: string }[] };
+
+  it("部分がすべて空白だけで、直前が道具の結果でないときは、何も送らずにエラーにする", async () => {
+    const s = createChatSession("claude", opts("claude-opus-5-5"));
+    await expect(s.send([{ text: "  " }, { text: "\n", shared: true }])).rejects.toThrow(/送る内容がありません/);
+    await expect(s.send("   ")).rejects.toThrow(/送る内容がありません/);
+    expect(script.claudeRequests).toHaveLength(0);
+  });
+
+  it("直前が道具の結果のときは、空白だけの発言を足さず、結果だけを送る (空の text ブロックにしない)", async () => {
+    for (const blank of ["  ", [{ text: " " }, { text: "" }]] as const) {
+      script.claudeRequests.length = 0;
+      script.claude.push(toolReply, { stop_reason: "end_turn", content: [{ type: "text", text: "答え" }] });
+      const s = createChatSession("claude", { ...opts("claude-opus-5-5"), tools: readTools, runTool: finishRead });
+      await s.send("読んで");
+      await s.send(blank);
+      // 2 回目のリクエストは、道具の結果だけの user で終わる (空の text ブロックも、空のメッセージも無い)
+      const msgs = script.claudeRequests[1]!.messages as Msg[];
+      expect(script.claudeRequests).toHaveLength(2);
+      expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+      expect((msgs[2]!.content as { type: string }[]).map((b) => b.type)).toEqual(["tool_result"]);
+    }
+  });
+
+  it("空白だけの部分は足さず、中身のある部分だけを text ブロックにする", async () => {
+    script.claude.push({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" }] });
+    await createChatSession("claude", opts("claude-opus-5-5")).send([{ text: " " }, { text: "中身", shared: true }, { text: "\n" }]);
+    const msgs = script.claudeRequests[0]!.messages as Msg[];
+    expect(msgs).toHaveLength(1);
+    expect((msgs[0]!.content as { text: string }[]).map((b) => b.text)).toEqual(["中身"]);
+  });
+});
+
 describe("発言の部分 (RequestPart)", () => {
   it("OpenAI・Gemini は、部分をつないだ 1 つの文字列で送る", async () => {
     script.openai.push({ output_text: "ok", output: [] });

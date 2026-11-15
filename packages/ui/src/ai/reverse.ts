@@ -297,18 +297,22 @@ export interface SessionSpec {
   unavailable: string;
 }
 
-/** 使えない道具が呼ばれ続けて、会話を打ち切るときの文 */
+/** 使えない道具が続けて呼ばれて、会話を打ち切るときの文 (往復のあとに chat.ts が ChatError として投げる) */
 const UNAVAILABLE_ABORT = "この会話で使えない道具が続けて呼ばれたので、会話を打ち切りました。";
+
+/** 使えない道具が続けて呼ばれて打ち切られた例外か (その往復で提出が受け付けられていたら、呼ぶ側は失敗にしない) */
+export const isUnavailableAbort = (e: unknown): boolean => e instanceof ChatError && e.message === UNAVAILABLE_ABORT;
 
 /** 新しい会話。道具の呼び出しは、ソースの道具ならソースへ、それ以外は handlers へ振り分ける */
 export function openSession(ctx: Ctx, spec: SessionSpec): ChatSession {
   const runSource = sourceRunner(ctx, spec.cap);
   const counted = spec.counted ?? [];
-  // 使えない道具 (この会話の handlers に無いもの) が呼ばれた回数。上限を超えたら「道具を使わずに答えてください」と返し、それでも続いたら会話を打ち切る
+  // 使えない道具 (この会話の handlers に無いもの) が続けて呼ばれた回数 (間に使える道具の呼び出しがあれば数え直す)。上限を超えたら「道具を使わずに答えてください」と返し、
+  // それでも続いたら会話を打ち切る。打ち切りは、道具の実行の中では投げず、結果の stop で伝える (同じ往復の正しい呼び出しを巻き込まないよう、往復のあとで chat.ts が止める)
   let unavailableCalls = 0;
   const unavailable = (message: string): ToolOutcome => {
     unavailableCalls++;
-    if (unavailableCalls > REVERSE_LIMITS.unavailableCalls + 1) throw new ChatError(UNAVAILABLE_ABORT);
+    if (unavailableCalls > REVERSE_LIMITS.unavailableCalls + 1) return { ...errorOutcome("この会話では道具を使わずに答えてください。"), stop: UNAVAILABLE_ABORT };
     if (unavailableCalls > REVERSE_LIMITS.unavailableCalls) return errorOutcome("この会話では道具を使わずに答えてください。");
     return errorOutcome(message);
   };
@@ -322,9 +326,13 @@ export function openSession(ctx: Ctx, spec: SessionSpec): ChatSession {
     tools: [...SOURCE_TOOLS, ...stageTools],
     label: spec.label,
     runTool: (name, input) => {
-      if (isSourceTool(name)) return runSource(name, input);
+      if (isSourceTool(name)) {
+        unavailableCalls = 0;
+        return runSource(name, input);
+      }
       throwIfAborted(ctx.o.signal);
-      const h = spec.handlers[name];
+      const h: SessionSpec["handlers"][string] | undefined = spec.handlers[name];
+      if (h !== undefined) unavailableCalls = 0;
       if (h && counted.includes(name)) return runSource(name, input, () => h(input));
       if (h) return h(input);
       if (spec.stageTools.some((t) => t.name === name)) return unavailable(`この会話では ${name} は使えません。${spec.unavailable}`);

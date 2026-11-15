@@ -29,6 +29,7 @@ import {
   sourcePathsIn,
   statesOfScreen,
   stoppedWarning,
+  isUnavailableAbort,
   stageFailure,
   surveyCollector,
   throwIfAborted,
@@ -462,13 +463,13 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     rejected++;
     if (rejected > REVERSE_LIMITS.submitRejections) {
       gaveUp = true;
-      return okOutcome(`提出が続けて受け付けられなかったので、見送ります。これ以上は受け付けません。${FINISH_NOTE}`, false);
+      return acceptedOutcome(`提出が続けて受け付けられなかったので、見送ります。これ以上は受け付けません。${FINISH_NOTE}`, false);
     }
     return errorOutcome(message);
   };
   const submitScreens = (input: unknown): ToolOutcome => {
-    if (accepted) return okOutcome(`すでに受け付けました。${FINISH_NOTE}`, false);
-    if (gaveUp) return okOutcome(`提出は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
+    if (accepted) return acceptedOutcome(`すでに受け付けました。${FINISH_NOTE}`, false);
+    if (gaveUp) return acceptedOutcome(`提出は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
     const draft = readScreensDraft(input);
     if (!draft) return reject("systems の一覧が必要です");
     attempts++;
@@ -554,8 +555,8 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       const d = readScreenDraft(input);
       if (!d) return errorOutcome("screen・view・bindings が必要です");
       if (nameKey(d.screen) !== nameKey(t.name)) return errorOutcome(`この会話で作る画面は「${t.name}」だけです (「${d.screen}」ではありません)`);
-      if (gaveUp) return okOutcome(`この画面の画面 UI は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
-      if (applied && attempt >= screenMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${FINISH_NOTE}`, false);
+      if (gaveUp) return acceptedOutcome(`この画面の画面 UI は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
+      if (applied && attempt >= screenMaxAttempts) return acceptedOutcome(`これ以上は出し直せません。このまま受け付けています。${FINISH_NOTE}`, false);
       attempt++;
       const r = applyScreenDraft(model, { ...d, screen: t.name, system: sysName });
       if (r.applied) {
@@ -570,7 +571,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
         const text = `${message}${note}${note === "" || retriesLeft <= 0 ? `\n${FINISH_NOTE}` : ""}`;
         return note === "" || retriesLeft <= 0 ? acceptedOutcome(text, true) : okOutcome(text, true);
       }
-      if (applied) return okOutcome(`出し直しは通らなかったので、前の提出のままにします。${FINISH_NOTE}`, false);
+      if (applied) return acceptedOutcome(`出し直しは通らなかったので、前の提出のままにします。${FINISH_NOTE}`, false);
       if (r.viewError && attempt <= REVERSE_LIMITS.screenRetries) {
         o.onSubmit?.(false, `画面「${t.name}」の形を直してもらっています`);
         return errorOutcome(`view が mokkun の検証に通りませんでした。直して出し直してください: ${r.viewError}`);
@@ -578,7 +579,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       gaveUp = true;
       screenWarnings = r.warnings;
       o.onSubmit?.(false, `画面「${t.name}」の画面 UI は置けませんでした`);
-      return okOutcome("この画面の画面 UI は置けなかったので、見送ります。次へ進んでください", false);
+      return acceptedOutcome(`この画面の画面 UI は置けなかったので、見送ります。${FINISH_NOTE}`, false);
     };
     try {
       const design = model.designs.find((d) => d.systemId === t.systemId)!;
@@ -602,11 +603,16 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {
-      failure = stageFailure(e, o.signal);
-      if (!failure) throw e;
-      errorStreak++;
-      lastFailure = failure;
-      warnings.push(`画面 UI: 画面「${t.name}」: ${failure.message}`);
+      // 使えない道具の打ち切りは、その画面の提出が受け付けられていたら、失敗にしない (提出は残る)
+      if (applied && isUnavailableAbort(e) && !o.signal?.aborted) {
+        errorStreak = 0;
+      } else {
+        failure = stageFailure(e, o.signal);
+        if (!failure) throw e;
+        errorStreak++;
+        lastFailure = failure;
+        warnings.push(`画面 UI: 画面「${t.name}」: ${failure.message}`);
+      }
     }
     if (!applied && !gaveUp && !failure && screenWarnings.length === 0) warnings.push(`画面 UI: 画面「${t.name}」: AI が画面 UI を提出しなかったので、作りませんでした`);
     warnings.push(...screenWarnings);

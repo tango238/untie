@@ -47,6 +47,8 @@ interface Call {
   kind: Kind;
   text: string;
   runTool: ChatOptions["runTool"];
+  /** 1 回の返答で、複数の道具を並べて呼ぶ (同じ往復) */
+  round: (calls: { name: string; input: unknown }[]) => Promise<ToolOutcome[]>;
   events?: ChatEvents;
   system: string;
 }
@@ -58,7 +60,8 @@ const fake = vi.hoisted(() => ({
 }));
 
 vi.mock("../chat", async (importOriginal) => {
-  const actual = (await importOriginal()) as { MAX_STEPS: number };
+  const actual = (await importOriginal()) as { MAX_STEPS: number; ChatError: new (m: string) => Error };
+  const ChatError = actual.ChatError;
   return {
     ...actual,
     createChatSession: (_provider: string, o: ChatOptions) => {
@@ -68,13 +71,24 @@ vi.mock("../chat", async (importOriginal) => {
         send: async (input: string | readonly { text: string }[], events?: ChatEvents) => {
           // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
           const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
-          const runTool: ChatOptions["runTool"] = async (name, input) => {
-            const outcome = await o.runTool(name, input);
-            events?.onTool?.(name, outcome);
-            return outcome;
+          // 本物の send と同じく、同じ往復の道具をすべて実行したあとで、stop (打ち切り) と finish (会話を終える) を判定する。finish のあとは、道具をもう呼べない
+          let finished = false;
+          const round = async (calls: { name: string; input: unknown }[]): Promise<ToolOutcome[]> => {
+            if (finished) throw new Error("finish のあとに道具が呼ばれました (本物の send は、次のリクエストを送らずに会話を終えます)");
+            const outcomes: ToolOutcome[] = [];
+            for (const c of calls) {
+              const outcome = await o.runTool(c.name, c.input);
+              events?.onTool?.(c.name, outcome);
+              outcomes.push(outcome);
+            }
+            const stop = outcomes.find((x) => x.stop !== undefined)?.stop;
+            if (stop !== undefined) throw new ChatError(stop);
+            if (outcomes.some((x) => x.finish)) finished = true;
+            return outcomes;
           };
+          const runTool: ChatOptions["runTool"] = async (name, input) => (await round([{ name, input }]))[0]!;
           fake.calls.push({ kind, text, system: o.system });
-          return (await fake.scripts[kind]!({ kind, text, runTool, events, system: o.system })) as string;
+          return (await fake.scripts[kind]!({ kind, text, runTool, round, events, system: o.system })) as string;
         },
       };
     },

@@ -8,7 +8,7 @@ import { applyDataImport } from "../reverseData";
 import type { ChatEvents, ChatOptions } from "../chat";
 import type { ToolOutcome } from "../tools";
 import { FIXTURE_DSL } from "./fixtures/reverseDraft";
-import { MULTI_ADMIN, MULTI_DATABASE, MULTI_SCREENS, MULTI_SCREENS_STRUCTURE, MULTI_SHOP, MULTI_SPEC, multiFixtureSources } from "./fixtures/reverseMultiSource";
+import { MULTI_ADMIN, MULTI_API, MULTI_DATABASE, MULTI_SCREENS, MULTI_SCREENS_STRUCTURE, MULTI_SHOP, MULTI_SPEC, multiFixtureSources } from "./fixtures/reverseMultiSource";
 
 type Kind = "survey" | "structure" | "model" | "tables" | "screen";
 interface Call {
@@ -19,6 +19,8 @@ interface Call {
   /** 何番目の会話か (この種類の) */
   session: number;
   runTool: ChatOptions["runTool"];
+  /** 1 回の返答で、複数の道具を並べて呼ぶ (同じ往復。全部を実行してから、finish・stop を判定する) */
+  round: (calls: { name: string; input: unknown }[]) => Promise<ToolOutcome[]>;
   events?: ChatEvents;
   system: string;
   seed: { role: string; text: string }[];
@@ -49,16 +51,28 @@ vi.mock("../chat", async (importOriginal) => {
           // 部分に分けた発言 (RequestPart の並び) は、つないだ 1 つの文字列として記録する (OpenAI・Gemini に送る形と同じ)
           const text = typeof input === "string" ? input : input.map((p) => p.text).join("");
           // 本物の send と同じく、道具を呼ぶたびに往復を 1 つ使う。上限まで使うと、返答を書く往復が残らず ChatError
+          // 本物の send と同じく、同じ往復の道具をすべて実行したあとで、道具の結果の stop (打ち切り) と finish (会話を終える) を判定する。
+          // finish を示したあとは、次のリクエストを送らない (道具をもう呼べない) ので、呼んだら失敗にする
           let steps = 0;
-          const runTool: ChatOptions["runTool"] = async (name, input) => {
-            steps++;
-            const outcome = await o.runTool(name, input);
-            events?.onTool?.(name, outcome);
-            return outcome;
+          let finished = false;
+          const runRound: Call["round"] = async (calls) => {
+            if (finished) throw new Error("finish のあとに道具が呼ばれました (本物の send は、次のリクエストを送らずに会話を終えます)");
+            const outcomes: ToolOutcome[] = [];
+            for (const c of calls) {
+              steps++;
+              const outcome = await o.runTool(c.name, c.input);
+              events?.onTool?.(c.name, outcome);
+              outcomes.push(outcome);
+            }
+            const stop = outcomes.find((x) => x.stop !== undefined)?.stop;
+            if (stop !== undefined) throw new actual.ChatError(stop);
+            if (outcomes.some((x) => x.finish)) finished = true;
+            return outcomes;
           };
+          const runTool: ChatOptions["runTool"] = async (name, input) => (await runRound([{ name, input }]))[0]!;
           const mine = nth++;
           fake.calls.push({ kind, text, nth: mine, system: o.system, seed, tools: names });
-          const reply = (await fake.scripts[kind]!({ kind, text, nth: mine, session, runTool, events, system: o.system, seed })) as string;
+          const reply = (await fake.scripts[kind]!({ kind, text, nth: mine, session, runTool, round: runRound, events, system: o.system, seed })) as string;
           if (steps >= actual.MAX_STEPS) throw new actual.ChatError("道具を使う回数が上限に達しました。依頼を分けて試してください。");
           return reply;
         },
@@ -253,15 +267,23 @@ describe("画面 UI の提出", () => {
           await c.runTool("submit_screen", draft);
           return "提出しました";
         }
-        for (let i = 0; i <= REVERSE_LIMITS.screenRetries; i++) await c.runTool("submit_screen", { ...draft, view: { title: "壊れた view" } });
-        later.push(await c.runTool("submit_screen", draft));
+        // 1 回の返答で並べて呼ぶ (見送りで会話を終えるので、次の往復は無い)。見送ったあとの正しい提出も、同じ往復なら実行され、受け付けない
+        const outs = await c.round([
+          ...Array.from({ length: REVERSE_LIMITS.screenRetries + 1 }, () => ({ name: "submit_screen", input: { ...draft, view: { title: "壊れた view" } } })),
+          { name: "submit_screen", input: draft },
+        ]);
+        later.push(outs[outs.length - 2]!, outs[outs.length - 1]!);
         return "提出しました";
       },
     });
     const res = await runScreens();
-    expect(later).toHaveLength(1);
-    expect(later[0]!.changed).toBe(false);
-    expect(parse(later[0]!).result).toMatch(/見送りました/);
+    expect(later).toHaveLength(2);
+    // 置けなかったので見送る (会話を終える)。そのあとの提出は受け付けず、これも会話を終える
+    expect(later[0]!.finish).toBe(true);
+    expect(parse(later[0]!).result).toMatch(/見送ります/);
+    expect(later[1]!.changed).toBe(false);
+    expect(later[1]!.finish).toBe(true);
+    expect(parse(later[1]!).result).toMatch(/見送りました/);
     expect(res.added.ui).toBe(MULTI_SCREENS.length - 1);
     const design = res.model.designs.find((d) => d.systemId === res.model.elements.find((e) => e.kind === "system" && e.name === sysOf(first.screen))!.id)!;
     const screen = design.screens.find((s) => s.source.kind === "screen" && res.model.elements.find((e) => e.id === (s.source as { screenId: string }).screenId)?.name === first.screen)!;
@@ -273,14 +295,17 @@ describe("画面 UI の提出", () => {
     useScripts({
       screen: async (c) => {
         const draft = MULTI_SCREENS.find((d) => d.screen === screenNameOf(c.text))!;
-        outcomes.push(await c.runTool("submit_screen", draft));
-        if (draft.screen === first.screen) outcomes.push(await c.runTool("submit_screen", { ...broken, screen: draft.screen }));
+        // 受け付けたあとの出し直しは、同じ往復で並べて呼ぶ (受け付けて終えるので、次の往復は無い)
+        outcomes.push(...(await c.round([{ name: "submit_screen", input: draft }, ...(draft.screen === first.screen ? [{ name: "submit_screen", input: { ...broken, screen: draft.screen } }] : [])])));
         return "提出しました";
       },
     });
     const res = await runScreens();
     const retry = outcomes.find((o) => /前の提出のまま/.test(o.content));
     expect(retry).toBeDefined();
+    // もう AI にできることが無いので、会話を終える (往復を 1 回省く)
+    expect(retry!.finish).toBe(true);
+    expect(retry!.changed).toBe(false);
     expect(res.added.ui).toBe(MULTI_SCREENS.length);
     const sys = res.model.elements.find((e) => e.kind === "system" && e.name === sysOf(first.screen))!;
     const design = res.model.designs.find((d) => d.systemId === sys.id)!;
@@ -397,7 +422,8 @@ describe("失敗の扱い (テーブルと情報の対応)", () => {
     fake.sessions = {};
     useScripts({
       tables: async (c) => {
-        for (const system of [MULTI_SHOP, MULTI_ADMIN]) await c.runTool("use_database", { system, database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables });
+        // 3 つのシステムの分を、1 回の返答で並べて呼ぶ (往復を増やさない)
+        await c.round([MULTI_SHOP, MULTI_ADMIN, MULTI_API].map((system) => ({ name: "use_database", input: { system, database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables } })));
         return "提出しました";
       },
     });
@@ -540,6 +566,39 @@ describe("受け付けた提出は、会話を終えてよいと示す (これ�
     expect(model.some((o) => o.ok && o.finish === true)).toBe(true);
   });
 
+  it("形の違う提出が続いて見送ったあと (業務のモデル・画面の構成) は、もう AI にできることが無いので、会話を終える", async () => {
+    let model: ToolOutcome[] = [];
+    let structure: ToolOutcome[] = [];
+    useScripts({
+      structure: async (c) => {
+        structure = await c.round(Array.from({ length: REVERSE_LIMITS.submitRejections + 2 }, () => ({ name: "submit_screens", input: { systems: [] } })));
+        return "提出しました";
+      },
+      model: async (c) => {
+        model = await c.round(Array.from({ length: REVERSE_LIMITS.submitRejections + 2 }, () => ({ name: "submit_model", input: {} })));
+        return "提出しました";
+      },
+    });
+    const s = await runScreens().catch(() => null);
+    expect(s).toBeNull();
+    expect(structure.slice(0, REVERSE_LIMITS.submitRejections).every((o) => !o.ok && o.finish === undefined)).toBe(true);
+    // 見送りを返す提出と、そのあとの提出は、会話を終える
+    expect(structure.slice(REVERSE_LIMITS.submitRejections).every((o) => o.ok && o.finish === true && !o.changed)).toBe(true);
+    expect(parse(structure[REVERSE_LIMITS.submitRejections]!).result).toMatch(/見送ります/);
+    expect(parse(structure[REVERSE_LIMITS.submitRejections + 1]!).result).toMatch(/見送りました/);
+    // 業務のモデルも同じ (画面の段階は、上の構成の提出がなくても進めるよう、画面の構成を先に受け付けさせる)
+    useScripts({
+      model: async (c) => {
+        model = await c.round(Array.from({ length: REVERSE_LIMITS.submitRejections + 2 }, () => ({ name: "submit_model", input: {} })));
+        return "提出しました";
+      },
+    });
+    const screens = await runScreens();
+    await expect(reverseLogic(screens.model, multiFixtureSources(), "お客様の注文から", baseOptions)).rejects.toThrow();
+    expect(model.slice(0, REVERSE_LIMITS.submitRejections).every((o) => !o.ok && o.finish === undefined)).toBe(true);
+    expect(model.slice(REVERSE_LIMITS.submitRejections).every((o) => o.ok && o.finish === true && !o.changed)).toBe(true);
+  });
+
   it("画面 UI の提出: 出し直しの案内 (気づいたこと) が無いか、出し直しの回数が尽きたときだけ finish。案内があるときは、今までどおり AI に返して続ける", async () => {
     const outcomes: ToolOutcome[] = [];
     useScripts({
@@ -626,6 +685,66 @@ describe("使えない道具が呼ばれ続けたとき", () => {
     expect([...perSession.values()].every((v) => v === 0)).toBe(true);
     expect(perSession.size).toBeGreaterThan(0);
   });
+
+  const draftOf = (c: Call) => MULTI_SCREENS.find((d) => d.screen === screenNameOf(c.text))!;
+  const badCalls = (n: number) => Array.from({ length: n }, () => ({ name: "submit_screens", input: {} }));
+
+  it("使えない道具が 4 回続けて呼ばれた返答でも、同じ往復の正しい submit_screen は実行され、画面は失敗として数えない (残りの画面も作る)", async () => {
+    for (const order of ["bad-first", "submit-first"] as const) {
+      useScripts({
+        screen: async (c) => {
+          const submit = { name: "submit_screen", input: draftOf(c) };
+          await c.round(order === "bad-first" ? [...badCalls(4), submit] : [submit, ...badCalls(4)]);
+          return "提出しました";
+        },
+      });
+      const res = await runScreens();
+      // 4 画面とも置かれる (失敗が 3 回続いて、残りを作らない、にならない)。気づいたことに、失敗も打ち切りも出ない
+      expect(res.added.ui, order).toBe(MULTI_SCREENS.length);
+      expect(res.warnings.filter((w) => /使えない道具が続けて呼ばれたので|残りの/.test(w)), order).toEqual([]);
+      expect(res.warnings.filter((w) => /^画面 UI: 画面「.+」: /.test(w)), order).toEqual([]);
+    }
+  });
+
+  it("「続けて」は、間に使える道具の呼び出しがあれば数え直す (会話の累計では数えない)", async () => {
+    const seen: string[] = [];
+    useScripts({
+      screen: async (c) => {
+        // 使えない道具 2 回 → 使える道具 (一覧) → 使えない道具 2 回 → 提出。累計は 4 回だが、続けては 2 回まで
+        for (let i = 0; i < 2; i++) seen.push(parse(await c.runTool("submit_screens", {})).error as string);
+        await c.runTool("list_files", { path: "" });
+        for (let i = 0; i < 2; i++) seen.push(parse(await c.runTool("submit_screens", {})).error as string);
+        await c.runTool("submit_screen", draftOf(c));
+        return "提出しました";
+      },
+    });
+    const res = await runScreens();
+    expect(res.added.ui).toBe(MULTI_SCREENS.length);
+    expect(res.warnings.some((w) => /打ち切り/.test(w))).toBe(false);
+    // 3 回目以降の案内 (「道具を使わずに答えてください」) にもならない
+    expect(seen.every((t) => /この会話では submit_screens は使えません/.test(t))).toBe(true);
+  });
+});
+
+describe("使えない道具の打ち切りと、テーブルの対応 (答えが受け付けられていたら、失敗にしない)", () => {
+  it("[use_database, 使えない道具 ×4] の返答でも、答えは残り、会話の失敗の気づいたことは出ない", async () => {
+    useScripts({ tables: () => "なし" });
+    let m = (await runScreens()).model;
+    m = (await reverseLogic(m, multiFixtureSources(), "お客様の注文から", baseOptions)).model;
+    const cleared = { ...m, databases: m.databases.map((d) => ({ ...d, tables: [] })) } as UntieModel;
+    useScripts({
+      tables: async (c) => {
+        await c.round([
+          ...[MULTI_SHOP, MULTI_ADMIN, MULTI_API].map((system) => ({ name: "use_database", input: { system, database: "バックエンドのデータベース", tables: MULTI_DATABASE.tables } })),
+          ...Array.from({ length: 4 }, () => ({ name: "submit_screens", input: {} })),
+        ]);
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(cleared, multiFixtureSources(), baseOptions);
+    expect(res.mappedInformations).toBeGreaterThan(0);
+    expect(res.warnings.some((w) => /会話が失敗しました/.test(w))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------- テーブルと情報の対応
@@ -700,12 +819,13 @@ describe("テーブルと情報の対応 (use_database)", () => {
     expect(res.mappedInformations).toBe(1);
   });
 
-  it("出し直しの案内は、同じ内容 (対応のない情報とテーブルの一覧) で 2 回まで。減っていないのに促し続けない。そのあとは受け付けて終える", async () => {
+  it("出し直しの案内は、未対応が減らない回が 2 回続くまで。減っていないのに促し続けない。そのあとは受け付けて終え、案内と終わりの文が同時に届かない", async () => {
     const m = await withOtherDb();
     const outcomes: ToolOutcome[] = [];
     useScripts({
       tables: async (c) => {
-        for (let i = 0; i < 4; i++) outcomes.push(await c.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [] }));
+        // 本物の会話と同じく、終えてよいと示されたら次の呼び出しは無い (2 回案内して、3 回目で終わる)
+        for (let i = 0; i < 3; i++) outcomes.push(await c.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [] }));
         return "提出しました";
       },
     });
@@ -714,8 +834,218 @@ describe("テーブルと情報の対応 (use_database)", () => {
     expect(texts[0]).toMatch(/use_database を出し直してください/);
     expect(texts[1]).toMatch(/use_database を出し直してください/);
     expect(texts[2]).not.toMatch(/use_database を出し直してください/);
-    expect(texts[3]).not.toMatch(/use_database を出し直してください/);
-    expect(outcomes.map((o) => o.finish === true)).toEqual([false, false, true, true]);
+    expect(outcomes.map((o) => o.finish === true)).toEqual([false, false, true]);
+    // 続ける結果に「これで終わりです」を添えない。終える結果に「出し直してよい」を添えない
+    for (const [i, o] of outcomes.entries()) {
+      const t = parse(o).result as string;
+      expect(/これで終わりです/.test(t)).toBe(o.finish === true);
+      if (o.finish) expect(t).not.toMatch(/出し直してよい/);
+      else expect(i).toBeLessThan(2);
+    }
+  });
+
+  /** システム 1 つ・情報 30 件・テーブル 30 件 (どれも対応が無い)。対応の一覧が先頭 20 件で切れる大きさ */
+  async function bigMapping(): Promise<{ model: UntieModel; infos: string[]; tableOf: (k: number) => string }> {
+    const N = 30;
+    const tableOf = (k: number) => `T${String(k).padStart(2, "0")}`;
+    const dsl = Array.from({ length: N }, (_, i) => `model ${tableOf(i)} {\n  id String @id\n}\n`).join("\n");
+    const base = applyDataImport(emptyModel("m"), { name: "DB", dsl }).model;
+    const infos = Array.from({ length: N }, (_, i) => `情報${String(i).padStart(2, "0")}`);
+    useScripts({
+      structure: async (c) => (await c.runTool("submit_screens", { systems: [{ name: "S", screens: [{ name: "画面" }], databases: [] as string[] }] }), "ok"),
+      screen: () => "なし",
+      model: async (c) => {
+        await c.runTool("submit_model", {
+          system_name: "x",
+          actors: [{ name: "担当" }],
+          informations: infos.map((name) => ({ name })),
+          businesses: [{ name: "業務", main_actors: ["担当"], activities: [{ name: "作業", performers: ["担当"], usecases: [{ name: "記録する", writes: infos, targets: ["画面"] }] }] }],
+          screens: [{ name: "画面", system: "S", usecase: "記録する" }],
+        });
+        return "ok";
+      },
+      tables: () => "なし",
+    });
+    let m = (await runScreens({}, base)).model;
+    m = (await reverseLogic(m, multiFixtureSources(), "x", baseOptions)).model;
+    return { model: { ...m, databases: m.databases.map((d) => ({ ...d, tables: [] })) } as UntieModel, infos, tableOf };
+  }
+
+  it("未対応が減っている間は、一覧が先頭 20 件で切れていても案内を続ける (表示の文字列ではなく、未対応が減ったかで決める)", async () => {
+    const { model, infos, tableOf } = await bigMapping();
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        // 後ろから 1 件ずつ結ぶ。先頭 20 件の表示は変わらないが、毎回、未対応が 1 件減る
+        for (let k = 29; k >= 25; k--) outcomes.push(await c.runTool("use_database", { system: "S", database: "DB", tables: [{ table: tableOf(k), informations: [infos[k]!] }] }));
+        return "ok";
+      },
+    });
+    const res = await reverseMapping(model, multiFixtureSources(), baseOptions);
+    expect(outcomes).toHaveLength(5);
+    for (const o of outcomes) {
+      const t = parse(o).result as string;
+      expect(t).toMatch(/未対応が減った情報 1\)/);
+      expect(t).toMatch(/use_database を出し直してください/);
+      expect(t).not.toMatch(/これで終わりです/);
+      expect(o.finish).toBeUndefined();
+    }
+    expect(res.mappedInformations).toBe(5);
+  });
+
+  it("未対応が減らないまま続けたとき、「ほか N 件の情報も…」の行があっても、案内と終わりの文が同時に届かない (案内を止めて終える)", async () => {
+    const { model } = await bigMapping();
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        for (let i = 0; i < 3; i++) outcomes.push(await c.runTool("use_database", { system: "S", database: "DB", tables: [] }));
+        return "ok";
+      },
+    });
+    await reverseMapping(model, multiFixtureSources(), baseOptions);
+    const last = outcomes[2]!;
+    expect(last.finish).toBe(true);
+    const text = parse(last).result as string;
+    expect(text).toMatch(/これで終わりです/);
+    expect(text).not.toMatch(/出し直してよい/);
+    expect(text).not.toMatch(/use_database を出し直してください/);
+  });
+
+  describe("システムが複数あるとき、使うデータベースがまだ決まっていないシステムすべてに答えが来るまで続ける", () => {
+    /** 画面と業務の段階を済ませ、対応と、設計が使うデータベースの指定を空にしたモデル (注文サーバーは設計が無く、使うデータベースがまだ決まっていない) */
+    async function undecided(): Promise<UntieModel> {
+      useScripts({ tables: () => "なし" });
+      let m = (await runScreens()).model;
+      m = (await reverseLogic(m, multiFixtureSources(), "お客様の注文から", baseOptions)).model;
+      return { ...m, databases: m.databases.map((d) => ({ ...d, tables: [] })), designs: m.designs.map((d) => ({ ...d, databaseIds: [] })) } as UntieModel;
+    }
+    const answer = (system: string) => ({ name: "use_database", input: { system, database: "バックエンドのデータベース", tables: system === MULTI_SHOP ? MULTI_DATABASE.tables : [] } });
+    const dbIdsOf = (m: UntieModel, system: string) => m.designs.find((d) => d.systemId === m.elements.find((e) => e.kind === "system" && e.name === system)?.id)?.databaseIds ?? [];
+
+    it("ネットショップの分だけ答えても、finish にせず、残りのシステムの名前を挙げて続ける。続けて答えれば、その往復で終わり、設計が使うデータベースが決まる", async () => {
+      const m = await undecided();
+      const outcomes: ToolOutcome[] = [];
+      useScripts({
+        tables: async (c) => {
+          outcomes.push(await c.runTool(answer(MULTI_SHOP).name, answer(MULTI_SHOP).input));
+          outcomes.push(await c.runTool(answer(MULTI_API).name, answer(MULTI_API).input));
+          return "提出しました";
+        },
+      });
+      const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+      expect(outcomes[0]!.finish).toBeUndefined();
+      expect(parse(outcomes[0]!).result).toMatch(/続けて、システム「注文サーバー」の分も use_database で答えてください/);
+      expect(parse(outcomes[0]!).result).not.toMatch(/これで終わりです/);
+      expect(outcomes[1]!.finish).toBe(true);
+      expect(callsOf("tables")).toHaveLength(1);
+      expect(dbIdsOf(res.model, MULTI_API)).toHaveLength(1);
+      expect(res.warnings.some((w) => /使うデータベースが決まりませんでした/.test(w))).toBe(false);
+    });
+
+    it("全部のシステムの分を 1 回の返答で並べて呼んだときは、その往復で終わる (往復を増やさない)。最後の呼び出しだけが finish", async () => {
+      const m = await undecided();
+      let outcomes: ToolOutcome[] = [];
+      useScripts({
+        tables: async (c) => {
+          outcomes = await c.round([MULTI_SHOP, MULTI_ADMIN, MULTI_API].map(answer));
+          return "提出しました";
+        },
+      });
+      const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+      expect(outcomes.map((o) => o.finish === true)).toEqual([false, false, true]);
+      expect(callsOf("tables")).toHaveLength(1);
+      expect(dbIdsOf(res.model, MULTI_API)).toHaveLength(1);
+      expect(res.warnings.some((w) => /使うデータベースが決まりませんでした/.test(w))).toBe(false);
+    });
+
+    it("答えが来ないまま AI が終えたら、残りのシステムを 1 度だけ聞き直し、それでも決まらなければ、気づいたことに残す", async () => {
+      const m = await undecided();
+      useScripts({
+        tables: async (c) => {
+          if (c.nth === 0) await c.runTool("use_database", answer(MULTI_SHOP).input);
+          return "提出しました";
+        },
+      });
+      const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+      expect(callsOf("tables")).toHaveLength(2);
+      expect(callsOf("tables")[1]!.text).toMatch(/使うデータベースがまだ決まっていないシステム「注文サーバー」の分も、use_database で答えてください/);
+      expect(dbIdsOf(res.model, MULTI_API)).toEqual([]);
+      expect(res.warnings.some((w) => /^データ: システム「注文サーバー」が使うデータベースが決まりませんでした/.test(w))).toBe(true);
+    });
+
+    it("進まない呼び出し (未対応が減らず、答えも来ない) が続いたら、残りのシステムが答えていなくても、案内を止めて終える", async () => {
+      const m = await undecided();
+      const outcomes: ToolOutcome[] = [];
+      useScripts({
+        tables: async (c) => {
+          for (let i = 0; i < 3; i++) outcomes.push(await c.runTool("use_database", { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [] }));
+          return "提出しました";
+        },
+      });
+      const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+      expect(outcomes.map((o) => o.finish === true)).toEqual([false, false, true]);
+      expect(callsOf("tables")).toHaveLength(1);
+      expect(res.warnings.some((w) => /^データ: システム「注文サーバー」が使うデータベースが決まりませんでした/.test(w))).toBe(true);
+    });
+  });
+
+  it("use_database の回数の上限に達したあとの答えは、もう AI にできることが無いので、会話を終える", async () => {
+    const m = await withOtherDb();
+    let outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        outcomes = await c.round(Array.from({ length: REVERSE_LIMITS.mappingCalls + 1 }, () => ({ name: "use_database", input: { system: MULTI_SHOP, database: "バックエンドのデータベース", tables: [] } })));
+        return "提出しました";
+      },
+    });
+    await reverseMapping(m, multiFixtureSources(), baseOptions);
+    const over = outcomes[REVERSE_LIMITS.mappingCalls]!;
+    expect(parse(over).result).toMatch(/これ以上は答えられません/);
+    expect(over.finish).toBe(true);
+    expect(over.changed).toBe(false);
+  });
+
+  it("system を省いても、その情報を使うシステムがすべて、指したデータベースを使っているなら結ぶ (データベースが 1 つのモデルでも断らない)", async () => {
+    useScripts({ tables: () => "なし" });
+    let m = (await runScreens()).model;
+    m = (await reverseLogic(m, multiFixtureSources(), "お客様の注文から", baseOptions)).model;
+    const cleared = { ...m, databases: m.databases.map((d) => ({ ...d, tables: [] })) } as UntieModel;
+    expect(cleared.databases).toHaveLength(1);
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        outcomes.push(await c.runTool("use_database", { database: "バックエンドのデータベース", tables: [{ table: "Order", informations: ["注文"] }, { table: "Product", informations: ["商品"] }] }));
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(cleared, multiFixtureSources(), baseOptions);
+    expect(outcomes[0]!.ok).toBe(true);
+    expect(parse(outcomes[0]!).result).not.toMatch(/結びませんでした/);
+    expect(tableInfos(res.model, "バックエンドのデータベース", "Order")).toEqual([infoId(res.model, "注文")]);
+    expect(tableInfos(res.model, "バックエンドのデータベース", "Product")).toEqual([infoId(res.model, "商品")]);
+    expect(res.mappedInformations).toBeGreaterThan(0);
+  });
+
+  it("system を省いたとき、その情報を使うシステムのどれかが指したデータベースを使っていなければ断る (最初の 1 つだけでなく、すべてのシステムを見る)", async () => {
+    // 注文は、ネットショップ・注文管理画面・注文サーバーが使う。注文管理画面の設計だけが、別のDB を使う
+    const m = await withOtherDb((x) => {
+      const other = x.databases.find((d) => d.name === "別のDB")!.id;
+      const admin = x.elements.find((e) => e.kind === "system" && e.name === MULTI_ADMIN)!.id;
+      return { ...x, designs: x.designs.map((d) => (d.systemId === admin ? { ...d, databaseIds: [other] } : d)) };
+    });
+    const outcomes: ToolOutcome[] = [];
+    useScripts({
+      tables: async (c) => {
+        outcomes.push(await c.runTool("use_database", { database: "バックエンドのデータベース", tables: [{ table: "Order", informations: ["注文", "商品"] }] }));
+        return "提出しました";
+      },
+    });
+    const res = await reverseMapping(m, multiFixtureSources(), baseOptions);
+    const text = parse(outcomes[0]!).result as string;
+    expect(text).toMatch(/情報「注文」はシステム「注文管理画面」が使っています。system を書いて、そのシステムが使うデータベースに結んでください/);
+    expect(text).not.toMatch(/情報「商品」はシステム/);
+    // 商品 (ネットショップだけが使う) は結ばれ、注文は結ばれない
+    expect(tableInfos(res.model, "バックエンドのデータベース", "Order")).toEqual([infoId(res.model, "商品")]);
   });
 
   it("ソースの道具・get_table の上限は、対応を付けるシステムの数に合わせて増える (全体の上限と往復の上限の中で)", async () => {

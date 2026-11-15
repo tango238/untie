@@ -244,16 +244,24 @@ function claudeSession(o: ChatOptions): ChatSession {
   /** 発言の共通の部分の終わりのブロック */
   const shared: BlockRef[] = [];
 
-  /** 利用者の発言を履歴に足す。直前が道具の結果 (終わりの印で終えた往復) なら、その user のメッセージの末尾に足す (user が続かないように) */
+  /**
+   * 利用者の発言を履歴に足す。直前が道具の結果 (終わりの印で終えた往復) なら、その user のメッセージの末尾に足す (user が続かないように)。
+   * 空・空白だけの部分は足さない。すべて空なら、直前が道具の結果のときはその結果だけを送り、そうでなければ何も送らずにエラーにする
+   */
   function pushUser(input: UserRequest): void {
     const last = messages[messages.length - 1];
-    if (typeof input === "string" && !(last && last.role === "user" && Array.isArray(last.content))) {
+    const afterResults = !!last && last.role === "user" && Array.isArray(last.content);
+    const parts: RequestPart[] = (typeof input === "string" ? [{ text: input }] : input).filter((p) => p.text.trim() !== "");
+    if (parts.length === 0) {
+      if (afterResults) return;
+      throw new ChatError("送る内容がありません。");
+    }
+    if (typeof input === "string" && !afterResults) {
       messages.push({ role: "user", content: input });
       return;
     }
-    const parts: RequestPart[] = typeof input === "string" ? [{ text: input }] : input.filter((p) => p.text.trim() !== "");
     const blocks = parts.map((p) => ({ type: "text" as const, text: p.text }));
-    const base = last && last.role === "user" && Array.isArray(last.content) ? last.content : [];
+    const base = afterResults ? (last.content as Anthropic.Beta.BetaContentBlockParam[]) : [];
     const message = base.length > 0 ? messages.length - 1 : messages.length;
     const content = [...base, ...blocks] as Anthropic.Beta.BetaContentBlockParam[];
     if (base.length > 0) messages[message] = { role: "user", content };
@@ -300,14 +308,18 @@ function claudeSession(o: ChatOptions): ChatSession {
         if (message.stop_reason === "max_tokens") throw new ChatError("返答が長すぎて途中で切れました。範囲を絞って依頼してください。");
         const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
         let finish = false;
+        let stop: string | undefined;
         for (const call of calls) {
           const outcome = await o.runTool(call.name, call.input);
           events.onTool?.(call.name, outcome);
           results.push({ type: "tool_result", tool_use_id: call.id, content: outcome.content, ...(outcome.ok ? {} : { is_error: true }) });
           if (outcome.finish) finish = true;
+          stop ??= outcome.stop;
         }
         // 呼んだ道具の結果は、終えるときも履歴に残す (呼び出しと結果が対になる。あとで同じ会話に send しても、結果の無い呼び出しが残らない)
         messages.push({ role: "user", content: results });
+        // 打ち切りは、同じ往復の道具をすべて実行したあとで判定する (正しい呼び出しを巻き込まない)
+        if (stop !== undefined) throw new ChatError(stop);
         if (finish) return last;
       }
       throw new ChatError("道具を使う回数が上限に達しました。依頼を分けて試してください。");
@@ -347,6 +359,7 @@ function openaiSession(o: ChatOptions): ChatSession {
         const calls = response.output.filter((x): x is OpenAI.Responses.ResponseFunctionToolCall => x.type === "function_call");
         if (calls.length === 0) return response.output_text;
         let finish = false;
+        let stop: string | undefined;
         for (const call of calls) {
           let args: unknown = {};
           try {
@@ -361,8 +374,10 @@ function openaiSession(o: ChatOptions): ChatSession {
           events.onTool?.(call.name, outcome);
           input.push({ type: "function_call_output", call_id: call.call_id, output: outcome.content });
           if (outcome.finish) finish = true;
+          stop ??= outcome.stop;
         }
-        // 呼び出しと結果は、履歴に対で残してある。終えてよいと示されたら、次のリクエストを送らない
+        // 呼び出しと結果は、履歴に対で残してある。打ち切りは、同じ往復の道具をすべて実行したあとで判定する。終えてよいと示されたら、次のリクエストを送らない
+        if (stop !== undefined) throw new ChatError(stop);
         if (finish) return response.output_text;
       }
       throw new ChatError("道具を使う回数が上限に達しました。依頼を分けて試してください。");
@@ -406,11 +421,13 @@ function geminiSession(o: ChatOptions): ChatSession {
         if (calls.length === 0) return textOut;
         const parts: Part[] = [];
         let finish = false;
+        let stop: string | undefined;
         for (const call of calls) {
           const name = call.name ?? "";
           const outcome = await o.runTool(name, call.args ?? {});
           events.onTool?.(name, outcome);
           if (outcome.finish) finish = true;
+          stop ??= outcome.stop;
           parts.push({
             functionResponse: {
               ...(call.id ? { id: call.id } : {}),
@@ -420,7 +437,8 @@ function geminiSession(o: ChatOptions): ChatSession {
           });
         }
         contents.push({ role: "user", parts });
-        // 呼び出しと結果は、履歴に対で残してある。終えてよいと示されたら、次のリクエストを送らない
+        // 呼び出しと結果は、履歴に対で残してある。打ち切りは、同じ往復の道具をすべて実行したあとで判定する。終えてよいと示されたら、次のリクエストを送らない
+        if (stop !== undefined) throw new ChatError(stop);
         if (finish) return textOut;
       }
       throw new ChatError("道具を使う回数が上限に達しました。依頼を分けて試してください。");

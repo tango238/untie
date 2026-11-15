@@ -21,6 +21,7 @@ import {
   designWarningLines,
   elementName,
   errorOutcome,
+  isUnavailableAbort,
   logicBudget,
   mappingLimits,
   okOutcome,
@@ -285,8 +286,14 @@ async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; sys
   const dbIds = plan.databaseIds;
   let calls = 0;
   let used = false;
-  /** 出し直しの案内を返した回数 (内容 = 対応のない情報とテーブルの一覧ごと)。同じ内容は、未対応が減らないまま促し続けない */
-  const nudged = new Map<string, number>();
+  /** use_database の結果で、会話を終えてよいと示したか (示したあとは、AI が答えていないシステムを、こちらから聞き直さない) */
+  let closed = false;
+  /** 続けて、進まなかった (未対応が減らず、答えの無かったシステムにも答えが来なかった) use_database の数。進んだら 0 に戻し、mappingNudges を超えたら促さずに終える */
+  let stalled = 0;
+  /** 使うデータベースがまだ決まっていないシステム (対象のうち) で、system つきの答えがまだ来ていないもの (id → 名前)。決まっているシステムは、答えが無くてもよい */
+  const awaiting = new Map<string, string>(
+    model.elements.flatMap((e) => (e.kind === "system" && unmappedInSystem(model, e.id).length > 0 && !systemDatabaseChoice(model, e.id).chosen ? [[e.id, e.name] as const] : [])),
+  );
   const dbNames = (ids: readonly string[]) => ids.map((id) => model.databases.find((d) => d.id === id)?.name ?? "").filter((n) => n !== "");
   /** 出し直しの案内に添える、対応のすきま: どのテーブルにも結ばれていない情報 (システムが使うものと、どのシステムにも使われていないもの) と、どの情報にも結ばれていないテーブル */
   const gap = (databaseId: string): { lines: string[]; any: boolean } => {
@@ -299,9 +306,14 @@ async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; sys
     return { lines, any: infos.length > 0 };
   };
   const useDatabase = (input: unknown): ToolOutcome => {
+    const outcome = answerDatabase(input);
+    if (outcome.finish) closed = true;
+    return outcome;
+  };
+  const answerDatabase = (input: unknown): ToolOutcome => {
     const draft = readDatabaseUse(input);
     if (!draft) return errorOutcome("database・tables が必要です (system は省いてよい)");
-    if (calls >= REVERSE_LIMITS.mappingCalls) return okOutcome(`これ以上は答えられません (${REVERSE_LIMITS.mappingCalls} 回まで)。このまま受け付けています。${FINISH_NOTE}`, false);
+    if (calls >= REVERSE_LIMITS.mappingCalls) return acceptedOutcome(`これ以上は答えられません (${REVERSE_LIMITS.mappingCalls} 回まで)。このまま受け付けています。${FINISH_NOTE}`, false);
     // system を書いたときは、そのシステムが使えるデータベースの中から選ぶ。省いたときは、テーブルのあるデータベースすべて
     const sys = draft.system !== undefined ? model.elements.find((e) => e.kind === "system" && nameKey(e.name) === nameKey(draft.system!)) : undefined;
     if (draft.system !== undefined && !sys) return errorOutcome(`システム「${draft.system}」はモデルにありません。上の「システムと、対応のない情報」にあるシステムの名前を書くか、system を省いてください`);
@@ -311,22 +323,22 @@ async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; sys
     if (!target) {
       return errorOutcome(`データベース「${draft.database}」は、${sys ? `システム「${sys.name}」が使う` : "対象の"}データベースにありません。次のどれかの名前で指してください: ${dbNames(allowed).map((n) => `「${n}」`).join("")}`);
     }
-    // system を省いたとき、結べるのは、どのシステムにも使われていない情報だけ。システムが使う情報は、そのシステムが使うデータベースに結ばせる
-    // (使わないデータベースに結ぶと、対応づいたように見えて、そのシステムの対応は付かないまま残る)
+    // system を省いたとき、結べるのは、その情報を使うシステムがすべて、指したデータベースを使える (設計が使うデータベースに入っている・まだ決まっていない) 情報だけ。
+    // 使わないデータベースに結ぶと、対応づいたように見えて、そのシステムの対応は付かないまま残る
     const refused: string[] = [];
     let tables = draft.tables;
     if (!sys) {
-      const ownerOf = new Map<string, string>();
-      for (const e of model.elements) if (e.kind === "system") for (const id of systemInformationIds(model, e.id)) if (!ownerOf.has(id)) ownerOf.set(id, e.name);
+      const usersOf = new Map<string, { id: string; name: string }[]>();
+      for (const e of model.elements) if (e.kind === "system") for (const id of systemInformationIds(model, e.id)) usersOf.set(id, [...(usersOf.get(id) ?? []), { id: e.id, name: e.name }]);
       const infoByName = new Map<string, string>();
       for (const e of model.elements) if (e.kind === "information" && !infoByName.has(e.name)) infoByName.set(e.name, e.id);
       tables = draft.tables.map((t) => ({
         ...t,
         informations: t.informations.filter((n) => {
           const id = infoByName.get(n.trim());
-          const owner = id !== undefined ? ownerOf.get(id) : undefined;
-          if (owner === undefined) return true;
-          const line = `情報「${n.trim()}」はシステム「${owner}」が使っています。system を書いて、そのシステムが使うデータベースに結んでください`;
+          const blocked = (id !== undefined ? (usersOf.get(id) ?? []) : []).filter((u) => !systemDatabaseChoice(model, u.id).ids.includes(target.id));
+          if (blocked.length === 0) return true;
+          const line = `情報「${n.trim()}」はシステム${blocked.map((u) => `「${u.name}」`).join("")}が使っています。system を書いて、そのシステムが使うデータベースに結んでください`;
           if (!refused.includes(line)) refused.push(line);
           return false;
         }),
@@ -345,21 +357,25 @@ async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; sys
     o.onSubmit?.(true, message);
     const retriesLeft = REVERSE_LIMITS.mappingCalls - calls;
     const g = gap(target.id);
-    const others = r.warnings.filter((w) => !/がどのテーブルにも対応していません/.test(w));
+    // 対応していない情報の気づいたこと (「ほか N 件」の行も) は、すきまの案内 (gap) が伝えるので、ここには添えない
+    const others = r.warnings.filter((w) => !/どのテーブルにも対応していません/.test(w));
     const note = revisionNote(others, retriesLeft, "use_database", "");
     const refusedNote = refused.length > 0 ? `\n次の情報は結びませんでした:\n- ${refused.join("\n- ")}` : "";
-    // 出し直しを促すのは、同じ内容 (対応のない情報とテーブルの一覧) で 2 回まで。減っていないのに促し続けない
-    const nudgeKey = g.lines.join("\n");
-    if (g.any && retriesLeft > 0 && (nudged.get(nudgeKey) ?? 0) < REVERSE_LIMITS.mappingNudges) {
-      nudged.set(nudgeKey, (nudged.get(nudgeKey) ?? 0) + 1);
-      return okOutcome(
-        `${message}${note}${refusedNote}\n${g.lines.join("\n")}\nテーブルが DSL にあるのに対応が無い情報は、tables に足して use_database を出し直してください (足した対応は残ります)。ほかのシステム・データベースの分も続けて答えてください。対応するテーブルがソースに無い情報だけ、直さなくてかまいません (あと ${retriesLeft} 回まで)`,
-        true,
-      );
+    // 使うデータベースがまだ決まっていなかったシステムが、system つきで答えられたか。進んだか (未対応が減った・答えが来た) で、案内を続けるかを決める (表示の文字列では決めない)
+    const answered = sys !== undefined && awaiting.delete(sys.id);
+    stalled = reduced > 0 || answered ? 0 : stalled + 1;
+    const waiting = [...awaiting.values()];
+    // 出し直しを促すのは、進まない回が mappingNudges 回続くまで。減っていないのに促し続けない
+    if ((g.any || waiting.length > 0) && retriesLeft > 0 && stalled <= REVERSE_LIMITS.mappingNudges) {
+      const gapText = g.any
+        ? `\n${g.lines.join("\n")}\nテーブルが DSL にあるのに対応が無い情報は、tables に足して use_database を出し直してください (足した対応は残ります)。ほかのシステム・データベースの分も続けて答えてください。対応するテーブルがソースに無い情報だけ、直さなくてかまいません (あと ${retriesLeft} 回まで)`
+        : "";
+      const waitingText = waiting.length > 0 ? `\n使うデータベースがまだ決まっていないシステムがあります。続けて、システム${waiting.map((n) => `「${n}」`).join("")}の分も use_database で答えてください (対応するテーブルがソースに無ければ、tables を空にして答えてください)` : "";
+      return okOutcome(`${message}${note}${refusedNote}${gapText}${waitingText}`, true);
     }
-    // 受け付けて、AI に返す気づいたこと (出し直してよいという案内・結ばなかった情報) が無ければ、会話を終えてよい
-    const text = `${message}${note}${refusedNote}\n${FINISH_NOTE}`;
-    return refused.length === 0 && (note === "" || retriesLeft <= 0) ? acceptedOutcome(text, true) : okOutcome(text, true);
+    // 受け付けて、AI に返す気づいたこと (出し直してよいという案内・結ばなかった情報) が無ければ、会話を終えてよい。続けるときは、終わりを示す文を添えない
+    if (refused.length === 0 && (note === "" || retriesLeft <= 0)) return acceptedOutcome(`${message}${note}\n${FINISH_NOTE}`, true);
+    return okOutcome(`${message}${note}${refusedNote}`, true);
   };
   try {
     const session = openSession(ctx, {
@@ -377,12 +393,21 @@ async function mapTablesAndInformations(args: { model: UntieModel; ctx: Ctx; sys
     if (!used) {
       await session.send("use_database で、テーブルと情報の対応を答えてください (対応するテーブルが無ければ、tables を空にして答えてください)。", {}, o.signal);
       throwIfAborted(o.signal);
+    } else if (awaiting.size > 0 && !closed) {
+      // AI が自分で終えたのに、使うデータベースがまだ決まっていないシステムが残っているとき、1 度だけ聞き直す
+      await session.send(`使うデータベースがまだ決まっていないシステム${[...awaiting.values()].map((n) => `「${n}」`).join("")}の分も、use_database で答えてください (対応するテーブルが無ければ、tables を空にして答えてください)。`, {}, o.signal);
+      throwIfAborted(o.signal);
     }
   } catch (e) {
-    const failure = stageFailure(e, o.signal);
-    if (!failure) throw e;
-    warnings.push(`データ: テーブルと情報の対応を付ける会話が失敗しました: ${failure.message}`);
+    // 使えない道具の打ち切りは、答えが受け付けられていたら、失敗にしない
+    if (!(used && isUnavailableAbort(e) && !o.signal?.aborted)) {
+      const failure = stageFailure(e, o.signal);
+      if (!failure) throw e;
+      warnings.push(`データ: テーブルと情報の対応を付ける会話が失敗しました: ${failure.message}`);
+    }
   }
+  // 会話が終わっても、使うデータベースが決まらなかったシステムは、気づいたことに残す
+  for (const name of awaiting.values()) warnings.push(`データ: システム「${name}」が使うデータベースが決まりませんでした (AI の答えがありませんでした)。データボードで選んでください`);
   // 対応づいた情報の数は、実際に未対応が減った情報の数
   return { model, mappedInformations: reducedInformations(before, unmappedPairs(model)) };
 }
@@ -464,13 +489,13 @@ export async function reverseLogic(base: UntieModel, source: SourceTree | readon
     rejected++;
     if (rejected > REVERSE_LIMITS.submitRejections) {
       gaveUp = true;
-      return okOutcome(`提出が続けて受け付けられなかったので、見送ります。これ以上は受け付けません。${FINISH_NOTE}`, false);
+      return acceptedOutcome(`提出が続けて受け付けられなかったので、見送ります。これ以上は受け付けません。${FINISH_NOTE}`, false);
     }
     return outcome;
   };
   const submitModel = (input: unknown): ToolOutcome => {
-    if (accepted) return okOutcome(`すでに受け付けました。${FINISH_NOTE}`, false);
-    if (gaveUp) return okOutcome(`提出は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
+    if (accepted) return acceptedOutcome(`すでに受け付けました。${FINISH_NOTE}`, false);
+    if (gaveUp) return acceptedOutcome(`提出は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
     attempts++;
     const spec = (input && typeof input === "object" ? input : {}) as unknown as ModelSpec;
     if (!spec || typeof spec !== "object" || !Array.isArray(spec.businesses)) return reject(errorOutcome("businesses の一覧が必要です"));
