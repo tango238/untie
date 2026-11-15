@@ -43,28 +43,31 @@ describe("findSchemaCandidates / defaultSchemaSelection", () => {
     expect(candidates.map((c) => c.path)).toEqual(["db/migrations/2_init.sql", "db/migrations/10_add.sql", "db/schema.sql", "docs/notes.sql", "prisma/schema.prisma"]);
     const by = Object.fromEntries(candidates.map((c) => [c.path, c]));
     expect(by["db/schema.sql"]).toMatchObject({ kind: "sql", hasTables: true, migration: false });
-    expect(by["db/migrations/2_init.sql"]).toMatchObject({ hasTables: true, migration: true });
+    expect(by["db/migrations/2_init.sql"]).toMatchObject({ hasTables: true, migration: true, group: "db/migrations", order: 1 });
     expect(by["db/migrations/10_add.sql"]).toMatchObject({ hasTables: false, migration: true });
     expect(by["docs/notes.sql"]!.hasTables).toBe(false);
     expect(by["prisma/schema.prisma"]).toMatchObject({ kind: "prisma", hasTables: true });
     expect(await by["db/schema.sql"]!.read()).toBe(SQL);
   });
 
-  it("既定の選び方: schema.prisma > ダンプ (マイグレーションではない SQL) > マイグレーション。CREATE TABLE の無いものは選ばない", () => {
-    const c = (id: string, kind: "sql" | "prisma", hasTables: boolean, migration = false) => ({ id, kind, hasTables, migration });
-    expect([...defaultSchemaSelection([c("p", "prisma", true), c("d", "sql", true), c("m", "sql", true, true)])]).toEqual(["p"]);
-    expect([...defaultSchemaSelection([c("d", "sql", true), c("m", "sql", true, true), c("n", "sql", false)])]).toEqual(["d"]);
-    expect([...defaultSchemaSelection([c("m1", "sql", true, true), c("m2", "sql", true, true), c("m3", "sql", false, true)])]).toEqual(["m1", "m2"]);
+  it("既定の選び方: schema.prisma > ダンプ (マイグレーションではない SQL) > マイグレーションの組。CREATE TABLE の無い単独のファイルは選ばない", () => {
+    const c = (id: string, kind: "sql" | "prisma", hasTables: boolean, group?: string, down = false) => ({ id, kind, hasTables, migration: group !== undefined, group, down });
+    expect([...defaultSchemaSelection([c("p", "prisma", true), c("d", "sql", true), c("m", "sql", true, "mig")])]).toEqual(["p"]);
+    expect([...defaultSchemaSelection([c("d", "sql", true), c("m", "sql", true, "mig"), c("n", "sql", false)])]).toEqual(["d"]);
+    // マイグレーションの組は、CREATE TABLE を含むかに関係なく、進む向きを全部選ぶ (取り消し用は選ばない)
+    expect([...defaultSchemaSelection([c("m1", "sql", true, "mig"), c("m2", "sql", true, "mig"), c("m3", "sql", false, "mig"), c("m4", "sql", true, "mig", true)])]).toEqual(["m1", "m2", "m3"]);
     expect(defaultSchemaSelection([c("n", "sql", false)]).size).toBe(0);
+    expect(defaultSchemaSelection([c("a", "sql", false, "mig")]).size).toBe(0);
     expect(defaultSchemaSelection([]).size).toBe(0);
   });
 
   it("SQL が多すぎるときは先頭だけ調べ、残りを知らせる", async () => {
     const files: Record<string, string> = {};
-    for (let i = 0; i < 305; i++) files[`m/${String(i).padStart(4, "0")}.sql`] = SQL;
-    const { candidates, notes } = await findSchemaCandidates(memorySourceTree("many", files));
-    expect(candidates).toHaveLength(300);
-    expect(notes[0]).toMatch(/305 件/);
+    for (let i = 0; i < 1005; i++) files[`m/${String(i).padStart(4, "0")}.sql`] = SQL;
+    const { candidates, notes, skipped } = await findSchemaCandidates(memorySourceTree("many", files));
+    expect(candidates).toHaveLength(1000);
+    expect(skipped.overLimit).toBe(5);
+    expect(notes[0]).toMatch(/1005 件/);
   });
 });
 

@@ -8,6 +8,7 @@
 // ただし画面 UI は画面ごとに独立しているので、1 つの会話の失敗 (拒否・一時的な API のエラー) はその画面だけ飛ばし、できた分を残して、残りを気づいたことに出す。
 import { addElement, setDesignDatabases, setDesignNavigation } from "@untie/core/model/commands";
 import { checkDesign } from "@untie/core/model/designCheck";
+import { effectiveDatabaseIds } from "@untie/core/model/design";
 import { newUniqueId } from "@untie/core/model/id";
 import { NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, truncateText } from "@untie/core/model/limits";
 import { designScreenName, navigationFromSitemap } from "@untie/core/model/sitemap";
@@ -41,6 +42,7 @@ import {
   SUBMIT_SCREEN_DRAFT_TOOL,
 } from "./designDraft";
 import { screenRequest } from "./designScreen";
+import { describeTablesForRequest, executeGetTable, GET_TABLE_TOOL, screenHint } from "./reverseTables";
 import {
   clipSurvey,
   FINISH_NOTE,
@@ -50,13 +52,10 @@ import {
   reverseSystemPrompt,
   wrapSurvey,
 } from "./reversePrompts";
-import { SPEC_LIMITS } from "./spec";
+import { nameKey, SPEC_LIMITS } from "./spec";
 import { combineSourceTrees, isMultiSourceTree, sourcesTitle, visibleFiles, type LabeledSource, type SourceTree } from "./sourceTree";
 import type { ToolDef, ToolOutcome } from "./tools";
 import { TRANSITION_VIAS } from "@untie/core/model/sitemap";
-
-/** 画面の段階の中の手順 (進み具合の表示に使う) */
-export type ScreensStep = "survey" | "structure" | "ui" | "done";
 
 export interface ScreensOptions extends StageOptions {
   /** 対象の画面の範囲 (任意の文章。空なら全部) */
@@ -103,7 +102,7 @@ export interface ScreensDraft {
   systems: ScreensDraftSystem[];
 }
 
-export const SUBMIT_SCREENS_TOOL: ToolDef = {
+const SUBMIT_SCREENS_TOOL: ToolDef = {
   name: "submit_screens",
   description:
     "画面の構成 (システム・画面・画面遷移・メニュー・使うデータベース) を提出する。名前で参照する (id は作らない)。すでにあるシステム・画面は同じ名前で書くと、作り直されずにそのまま使われる。提出すると検査結果が返る。問題があれば直して提出し直す。",
@@ -226,23 +225,27 @@ export function applyScreensDraft(base: UntieModel, draft: ScreensDraft): Screen
   const systems = draft.systems.slice(0, SPEC_LIMITS.systems);
   if (draft.systems.length > systems.length) warnings.push(`システムは先頭 ${SPEC_LIMITS.systems} 件だけ使いました (${draft.systems.length} 件ありました)`);
   let screenBudget: number = SPEC_LIMITS.screens;
-  for (const sys of systems) {
+  for (let sys of systems) {
     const sysName = nameOf(sys.name);
     if (sysName === "") continue;
-    // 同じ名前の画面は 1 つ (同じシステムの中)
+    // 同じ名前の画面は 1 つ (同じシステムの中。綴りの違い (全角半角・空白・大文字小文字) は同じ名前とみなす)
     const seen = new Set<string>();
     const screens = sys.screens.flatMap((s) => {
       const n = nameOf(s.name);
-      if (n === "" || seen.has(n)) return [];
-      seen.add(n);
+      if (n === "" || seen.has(nameKey(n))) return [];
+      seen.add(nameKey(n));
       return [{ name: n, ...(s.description ? { description: truncateText(s.description, DESCRIPTION_MAX_LENGTH) } : {}) }];
     });
     if (screens.length === 0) {
       issues.push(`システム「${sysName}」に画面がありません (画面を 1 つも持たないシステムは書かないでください)`);
       continue;
     }
-    let system = model.elements.find((e) => e.kind === "system" && e.name === sysName);
+    let system = model.elements.find((e) => e.kind === "system" && nameKey(e.name) === nameKey(sysName));
     if (!system) {
+      const person = model.elements.find((e) => (e.kind === "actor" || e.kind === "externalActor") && nameKey(e.name) === nameKey(sysName));
+      if (person) {
+        warnings.push(`システム「${sysName}」と同じ名前の${person.kind === "actor" ? "アクター" : "外部アクター"}がいます。人とは別のシステムとして作りました (名前が重なるので、あとで見分けやすい名前にしてください)`);
+      }
       const r = addElement(model, { kind: "system", name: sysName, init: { ...(sys.description ? { description: truncateText(sys.description, DESCRIPTION_MAX_LENGTH) } : {}) } });
       if (!r.ok) {
         warnings.push(`システム「${sysName}」を作れません: ${r.reason}`);
@@ -253,9 +256,9 @@ export function applyScreensDraft(base: UntieModel, draft: ScreensDraft): Screen
       added.systems++;
     }
     for (const sc of screens) {
-      const existing = model.elements.find((e) => e.kind === "screen" && e.systemId === system!.id && e.name === sc.name);
+      const existing = model.elements.find((e) => e.kind === "screen" && e.systemId === system!.id && nameKey(e.name) === nameKey(sc.name));
       if (existing) {
-        named.push({ system: sysName, screen: sc.name });
+        named.push({ system: system.name, screen: existing.name });
         continue;
       }
       if (screenBudget <= 0) {
@@ -271,10 +274,18 @@ export function applyScreensDraft(base: UntieModel, draft: ScreensDraft): Screen
       screenBudget--;
       added.screens++;
       newScreenIds.push(r.id);
-      named.push({ system: sysName, screen: sc.name });
+      named.push({ system: system.name, screen: sc.name });
     }
+    // 遷移・メニューの画面の名前は、モデルにある画面の名前 (綴りの違いを吸収したもの) に直してから渡す
+    const canon = new Map(model.elements.flatMap((e) => (e.kind === "screen" && e.systemId === system!.id ? ([[nameKey(e.name), e.name]] as const) : [])));
+    const canonical = (n: string): string => canon.get(nameKey(nameOf(n))) ?? n;
+    sys = {
+      ...sys,
+      transitions: (sys.transitions ?? []).map((t) => ({ ...t, from: canonical(t.from), to: canonical(t.to) })),
+      navigation: (sys.navigation ?? []).map((g) => ({ ...g, screens: g.screens.map(canonical) })),
+    };
     // サイトマップ: 分析の画面を設計の画面にし、遷移を足す
-    const sm = applySitemapDraft(model, { system: sysName, transitions: sys.transitions ?? [] });
+    const sm = applySitemapDraft(model, { system: system.name, transitions: sys.transitions ?? [] });
     model = sm.model;
     added.transitions += sm.added.transitions + sm.added.derivedTransitions;
     for (const w of sm.warnings) {
@@ -284,7 +295,7 @@ export function applyScreensDraft(base: UntieModel, draft: ScreensDraft): Screen
     // ナビゲーション
     model = applyNavigation(model, system.id, sys, newScreenIds, warnings);
     // 使うデータベース
-    model = applyDatabases(model, system.id, sysName, sys, warnings, issues);
+    model = applyDatabases(model, system.id, system.name, sys, warnings, issues);
   }
   return { model, warnings, issues, added, named, newScreenIds };
 }
@@ -306,7 +317,7 @@ function applyNavigation(model: UntieModel, systemId: string, sys: ScreensDraftS
   if (!design) return model;
   const byName = new Map<string, string>();
   for (const s of design.screens) {
-    const n = designScreenName(model, s);
+    const n = nameKey(designScreenName(model, s));
     if (!byName.has(n)) byName.set(n, s.id);
   }
   const used = usedDesignIds(model);
@@ -317,7 +328,7 @@ function applyNavigation(model: UntieModel, systemId: string, sys: ScreensDraftS
   };
   if (design.layout.navigation.length === 0) {
     let groups: { id: string; group: string; items: { screenId: string }[] }[];
-    const asked = (sys.navigation ?? []).map((g) => ({ group: truncateText(g.group.trim(), NAME_MAX_LENGTH), ids: [...new Set(g.screens.flatMap((n) => byName.get(nameOf(n)) ?? []))] })).filter((g) => g.group !== "" && g.ids.length > 0);
+    const asked = (sys.navigation ?? []).map((g) => ({ group: truncateText(g.group.trim(), NAME_MAX_LENGTH), ids: [...new Set(g.screens.flatMap((n) => byName.get(nameKey(nameOf(n))) ?? []))] })).filter((g) => g.group !== "" && g.ids.length > 0);
     if (asked.length > 0) {
       const placed = new Set(asked.flatMap((g) => g.ids));
       const rest = design.screens.filter((s) => !placed.has(s.id)).map((s) => s.id);
@@ -407,10 +418,22 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   o.onStep?.("structure");
   let accepted: ScreensApplyResult | null = null;
   let attempts = 0;
+  /** 形の違う・空の提出を断った数 (出し直しの回数 attempts とは別に数え、上限で打ち切る。往復の上限まで同じ断りを続けさせない) */
+  let rejected = 0;
+  let gaveUp = false;
+  const reject = (message: string): ToolOutcome => {
+    rejected++;
+    if (rejected > REVERSE_LIMITS.submitRejections) {
+      gaveUp = true;
+      return okOutcome(`提出が続けて受け付けられなかったので、見送ります。これ以上は受け付けません。${FINISH_NOTE}`, false);
+    }
+    return errorOutcome(message);
+  };
   const submitScreens = (input: unknown): ToolOutcome => {
     if (accepted) return okOutcome(`すでに受け付けました。${FINISH_NOTE}`, false);
+    if (gaveUp) return okOutcome(`提出は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
     const draft = readScreensDraft(input);
-    if (!draft) return errorOutcome("systems の一覧が必要です");
+    if (!draft) return reject("systems の一覧が必要です");
     attempts++;
     // 毎回、受け取ったときのモデルから組み立てる (出し直しで二重に足さない)
     const r = applyScreensDraft(base, draft);
@@ -418,7 +441,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       o.onSubmit?.(false, `画面の構成を直してもらっています (${r.issues[0]!.length > 40 ? `${r.issues[0]!.slice(0, 40)}…` : r.issues[0]}${r.issues.length > 1 ? ` など ${r.issues.length} 件` : ""})`);
       return errorOutcome(`次の点を直して、もう一度提出してください:\n- ${r.issues.slice(0, 20).join("\n- ")}`);
     }
-    if (r.added.systems + r.added.screens === 0 && r.named.length === 0) return errorOutcome("画面が 1 つもありません。ソースにある画面を書いてください (本当に画面が無ければ、そのことを答えて終わってください)");
+    if (r.added.systems + r.added.screens === 0 && r.named.length === 0) return reject("画面が 1 つもありません。ソースにある画面を書いてください (本当に画面が無ければ、そのことを答えて終わってください)");
     accepted = r;
     const message = `受け付けました: システム ${r.added.systems}、画面 ${r.added.screens}、遷移 ${r.added.transitions}${r.issues.length > 0 ? ` (気づいたこと ${r.issues.length} 件は残っています)` : ""}`;
     o.onSubmit?.(true, message);
@@ -428,7 +451,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   try {
     await structureSession.send(reverseScreensStructureRequest(scope, multi), {}, o.signal);
     throwIfAborted(o.signal);
-    if (!accepted) {
+    if (!accepted && !gaveUp) {
       await structureSession.send("submit_screens で画面の構成を提出してください。", {}, o.signal);
       throwIfAborted(o.signal);
     }
@@ -471,7 +494,7 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
   for (const t of todo) {
     throwIfAborted(o.signal);
     if (errorStreak >= REVERSE_LIMITS.screenErrorStreak && lastFailure) {
-      warnings.push(stoppedWarning("画面 UI", lastFailure, todo.length - done));
+      warnings.push(stoppedWarning(lastFailure, todo.length - done));
       break;
     }
     let applied = false;
@@ -484,11 +507,11 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
     const submitScreen = (input: unknown): ToolOutcome => {
       const d = readScreenDraft(input);
       if (!d) return errorOutcome("screen・view・bindings が必要です");
-      if (d.screen.trim() !== t.name) return errorOutcome(`この会話で作る画面は「${t.name}」だけです (「${d.screen}」ではありません)`);
+      if (nameKey(d.screen) !== nameKey(t.name)) return errorOutcome(`この会話で作る画面は「${t.name}」だけです (「${d.screen}」ではありません)`);
       if (gaveUp) return okOutcome(`この画面の画面 UI は見送りました。これ以上は受け付けません。${FINISH_NOTE}`, false);
       if (applied && attempt >= screenMaxAttempts) return okOutcome(`これ以上は出し直せません。このまま受け付けています。${FINISH_NOTE}`, false);
       attempt++;
-      const r = applyScreenDraft(model, { ...d, system: sysName });
+      const r = applyScreenDraft(model, { ...d, screen: t.name, system: sysName });
       if (r.applied) {
         model = r.model;
         applied = true;
@@ -510,12 +533,23 @@ export async function reverseScreens(base: UntieModel, source: SourceTree | read
       return okOutcome("この画面の画面 UI は置けなかったので、見送ります。次へ進んでください", false);
     };
     try {
-      const screenSession = openSession(ctx, system, [SUBMIT_SCREEN_DRAFT_TOOL], { ...lim.screen, finish: "submit" }, { submit_screen: submitScreen }, stageSeed);
       const design = model.designs.find((d) => d.systemId === t.systemId)!;
       const screen = design.screens.find((s) => s.id === t.id)!;
       const description = model.elements.find((e) => e.id === t.analysisId)?.description ?? "";
       const hint = multi ? { labels: tree.sources!.map((x) => x.label), paths: sourcePathsIn(description, tree) } : undefined;
-      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen), t.name, hint, statesOfScreen(model, t.analysisId)), {}, o.signal);
+      // テーブルは、この画面の説明・調査結果のこの画面の行・使う操作と情報の名前に出るものと、その関連先だけを列つきで入れる。残りは名前だけで、get_table で調べさせる
+      const dbIds = effectiveDatabaseIds(model, design);
+      const databases = describeTablesForRequest(model, dbIds, screenHint(model, t.analysisId, t.name, description, survey));
+      const screenSession = openSession(
+        ctx,
+        system,
+        [SUBMIT_SCREEN_DRAFT_TOOL, GET_TABLE_TOOL],
+        { ...lim.screen, finish: "submit" },
+        { submit_screen: submitScreen, get_table: (input) => executeGetTable(model, dbIds, input) },
+        stageSeed,
+        ["get_table"],
+      );
+      await screenSession.send(reverseScreenRequest(screenRequest(model, t.systemId, design, screen, { databases }), t.name, hint, statesOfScreen(model, t.analysisId), databases.narrowed), {}, o.signal);
       throwIfAborted(o.signal);
       errorStreak = 0;
     } catch (e) {

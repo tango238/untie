@@ -32,6 +32,23 @@ export interface SourceTree {
   excludeReasonOf?(path: string, size?: number): ExcludeReason | null;
   /** 同じフォルダを指す木か (ブラウザの isSameEntry で確かめられるとき)。確かめられなければ null (io/sourceFolder.ts) */
   sameFolderAs?(other: SourceTree): Promise<boolean | null>;
+  /**
+   * データの段階の候補探し専用の口。SQL・schema.prisma だけは、ファイルの大きさの上限 (MAX_FILE_BYTES) で落とさない (データ入りのダンプは大きい)。
+   * AI の道具 (一覧・読み取り・検索) には出ない (`files` にも入らない)。秘密になりうるファイル・除外フォルダの規則は、ほかのファイルと同じに保つ
+   */
+  schemaFiles?: SchemaFiles;
+}
+
+/** 候補探しから落ちたものの理由 (SQL・schema.prisma だけの数え方) */
+export type SchemaSkipReason = "folder" | "tooLarge" | "unreadable";
+
+export interface SchemaFiles {
+  /** 大きさの上限 (MAX_FILE_BYTES) を超える、SQL・schema.prisma (MAX_SCHEMA_FILE_BYTES まで) */
+  large: readonly SourceFileInfo[];
+  /** 候補に入れられなかった SQL・schema.prisma の件数 (理由ごと。フォルダごと除外したものは、木をたどった範囲で数えられたものだけ) */
+  skipped: Readonly<Record<SchemaSkipReason, number>>;
+  /** 候補探しと取り込みのための読み取り (`files` にあるものと `large` のもの)。maxBytes があれば先頭からそこまで */
+  read(path: string, maxBytes?: number): Promise<string>;
 }
 
 /** まとめた木の中の 1 つのソース (サマリー) */
@@ -60,6 +77,10 @@ export interface LabeledSource {
 
 /** これを超えるファイルは「巨大」として出さない (バイト) */
 export const MAX_FILE_BYTES = 512 * 1024;
+/** SQL・schema.prisma を、データの段階の候補に入れる大きさの上限 (バイト)。変換器が読める 5000 万文字以内 */
+export const MAX_SCHEMA_FILE_BYTES = 50_000_000;
+/** SQL・schema.prisma か (拡張子だけで決める) */
+export const isSchemaFileName = (path: string): boolean => /\.(sql|prisma)$/i.test(path);
 /** 木に入れるファイルの数の上限 (これを超えたら打ち切って truncated にする) */
 export const MAX_TREE_FILES = 20000;
 /** 木をたどる深さの上限 */
@@ -458,6 +479,10 @@ export function combineSourceTrees(sources: readonly LabeledSource[], options: C
 export function memorySourceTree(name: string, contents: Record<string, string>): SourceTree {
   const encoder = new TextEncoder();
   const files = Object.entries(contents).map(([path, text]) => ({ path, size: encoder.encode(text).length }));
+  // 大きな SQL・schema.prisma は、除外規則 (大きさ) で files から外れるが、候補探しの口 (schemaFiles) からは見える
+  const large = files.filter((f) => isSchemaFileName(f.path) && f.size > MAX_FILE_BYTES && f.size <= MAX_SCHEMA_FILE_BYTES && excludeReason(f.path) === null);
+  const tooLarge = files.filter((f) => isSchemaFileName(f.path) && f.size > MAX_SCHEMA_FILE_BYTES && excludeReason(f.path) === null).length;
+  const folder = files.filter((f) => isSchemaFileName(f.path) && excludeReason(f.path) === "folder").length;
   return {
     name,
     files,
@@ -465,6 +490,15 @@ export function memorySourceTree(name: string, contents: Record<string, string>)
       const text = contents[path];
       if (text === undefined) throw new Error(`ファイルがありません: ${path}`);
       return text;
+    },
+    schemaFiles: {
+      large,
+      skipped: { folder, tooLarge, unreadable: 0 },
+      async read(path, maxBytes) {
+        const text = contents[path];
+        if (text === undefined) throw new Error(`ファイルがありません: ${path}`);
+        return maxBytes === undefined ? text : text.slice(0, maxBytes);
+      },
     },
   };
 }

@@ -3,10 +3,14 @@
 // 除外するフォルダ (node_modules など) には降りない。秘密になりうるファイル・バイナリ・巨大ファイルは木に入れない。
 import {
   MAX_FILE_BYTES,
+  MAX_SCHEMA_FILE_BYTES,
   MAX_TREE_DEPTH,
   MAX_TREE_FILES,
   excludeReason,
   isExcludedDirName,
+  isSchemaFileName,
+  type SchemaFiles,
+  type SchemaSkipReason,
   type SourceFileInfo,
   type SourceTree,
 } from "../ai/sourceTree";
@@ -33,6 +37,46 @@ const rootHandles = new WeakMap<SourceTree, DirHandle>();
 
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
+/** File の先頭 maxBytes バイトまでを文字列で読む (候補探しで、大きなダンプを全部読まないため) */
+const readText = (file: File, maxBytes?: number): Promise<string> => (maxBytes === undefined || file.size <= maxBytes ? file.text() : file.slice(0, maxBytes).text());
+
+/**
+ * 大きな SQL・schema.prisma (MAX_FILE_BYTES を超えるもの) を、候補探し専用に集める。秘密になりうるファイル名・除外フォルダは、ほかのファイルと同じに外す。
+ * 数えられた、落ちた SQL・schema.prisma の件数 (理由ごと) も持つ
+ */
+function schemaCollector(readNormal: (path: string, maxBytes?: number) => Promise<string>) {
+  const large: SourceFileInfo[] = [];
+  const largeFiles = new Map<string, () => Promise<File>>();
+  const skipped: Record<SchemaSkipReason, number> = { folder: 0, tooLarge: 0, unreadable: 0 };
+  const schemaFiles: SchemaFiles = {
+    large,
+    skipped,
+    async read(path, maxBytes) {
+      const open = largeFiles.get(path);
+      if (!open) return readNormal(path, maxBytes);
+      return readText(await open(), maxBytes);
+    },
+  };
+  return {
+    schemaFiles,
+    /** 名前の規則 (秘密・バイナリなど) には当たらないが、大きさで外れた SQL・schema.prisma。大きさが許す範囲なら候補に入れる */
+    offerLarge(path: string, size: number, open: () => Promise<File>) {
+      if (!isSchemaFileName(path) || excludeReason(path) !== null) return;
+      if (size > MAX_SCHEMA_FILE_BYTES) skipped.tooLarge++;
+      else {
+        large.push({ path, size });
+        largeFiles.set(path, open);
+      }
+    },
+    unreadable(path: string) {
+      if (isSchemaFileName(path) && excludeReason(path) === null) skipped.unreadable++;
+    },
+    folder(path: string) {
+      if (isSchemaFileName(path)) skipped.folder++;
+    },
+  };
+}
+
 /** 木をたどる上限 (テストで小さな値に差し替えるため、引数で渡せる) */
 export interface TreeLimits {
   maxFiles?: number;
@@ -51,6 +95,13 @@ export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimit
   const handles = new Map<string, FileEntryHandle>();
   let truncated = false;
   let depthTruncated = false;
+  const collector = schemaCollector(
+    async (path, maxBytes) => {
+      const handle = handles.get(path);
+      if (!handle) throw new Error(`ファイルがありません: ${path}`);
+      return readText(await handle.getFile(), maxBytes);
+    },
+  );
 
   async function walk(dir: DirHandle, prefix: string, depth: number): Promise<void> {
     if (depth > maxDepth) {
@@ -77,6 +128,12 @@ export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimit
         try {
           size = (await entry.getFile()).size;
         } catch {
+          collector.unreadable(path);
+          continue;
+        }
+        if (size > MAX_FILE_BYTES) {
+          // 大きなダンプは、AI の道具には出さず、データの段階の候補探しにだけ出す
+          collector.offerLarge(path, size, () => entry.getFile());
           continue;
         }
         if (excludeReason(path, size) !== null) continue;
@@ -96,6 +153,7 @@ export async function treeFromDirectoryHandle(root: DirHandle, limits: TreeLimit
     files,
     ...(truncated ? { truncated: true } : {}),
     ...(depthTruncated ? { depthTruncated: true } : {}),
+    schemaFiles: collector.schemaFiles,
     async readFile(path) {
       const handle = handles.get(path);
       if (!handle) throw new Error(`ファイルがありません: ${path}`);
@@ -130,12 +188,23 @@ export function treeFromFileList(list: ArrayLike<File>, limits: TreeLimits = {})
   let name = "";
   let truncated = false;
   let depthTruncated = false;
+  const collector = schemaCollector(
+    async (path, maxBytes) => {
+      const file = byPath.get(path);
+      if (!file) throw new Error(`ファイルがありません: ${path}`);
+      return readText(file, maxBytes);
+    },
+  );
   for (let i = 0; i < list.length; i++) {
     const file = list[i]!;
     const segments = (file.webkitRelativePath || file.name).split("/");
     if (segments.length > 1) name = name || segments[0]!;
     const path = (segments.length > 1 ? segments.slice(1) : segments).join("/");
-    if (excludeReason(path, file.size) !== null) continue;
+    const why = excludeReason(path, file.size);
+    if (why === "folder") collector.folder(path);
+    // 大きな SQL・schema.prisma は、AI の道具には出さず、データの段階の候補探しにだけ出す
+    if (why === "large") collector.offerLarge(path, file.size, async () => file);
+    if (why !== null) continue;
     if (path.split("/").length > maxDepth + 1) {
       depthTruncated = true;
       continue;
@@ -153,6 +222,7 @@ export function treeFromFileList(list: ArrayLike<File>, limits: TreeLimits = {})
     files,
     ...(truncated ? { truncated: true } : {}),
     ...(depthTruncated ? { depthTruncated: true } : {}),
+    schemaFiles: collector.schemaFiles,
     async readFile(path) {
       const file = byPath.get(path);
       if (!file) throw new Error(`ファイルがありません: ${path}`);

@@ -240,6 +240,12 @@ function clipInit(init: Record<string, unknown>): Record<string, unknown> {
 const nameOf = (text: string) => truncateText(text.trim(), NAME_MAX_LENGTH);
 
 /**
+ * 名前の突き合わせの鍵: NFKC (全角の英数字・カナ・空白を半角へ)・小文字・空白 (全角・半角) の削除。「ＥＣ サイト」と「EC サイト」、「注文 一覧」と「注文一覧」が同じ鍵になる。
+ * 突き合わせにだけ使い、表示と保存はもとの名前のまま (土台の名前を書き換えない)
+ */
+export const nameKey = (text: string): string => text.normalize("NFKC").toLowerCase().replace(/\s+/gu, "");
+
+/**
  * 下書きの一覧ごとの上限。AI の出力 (特にソースコードから読んだ大きな下書き) が巨大でも、組み立てで画面が固まらないようにする。
  * 超えた分は先頭から使い、「先頭 N 件だけ使いました」と warnings に残す。activities・usecases は、業務・活動・イベントをまたいだ合計
  */
@@ -328,7 +334,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   const usecaseBudget = budget(L.usecases, "操作");
   // 種類ごとの名前 → id
   const ids = new Map<string, Map<string, string>>();
-  const idOf = (group: string, name: string) => ids.get(group)?.get(nameOf(name));
+  const idOf = (group: string, name: string) => ids.get(group)?.get(nameKey(nameOf(name)));
 
   const apply = <T>(r: CommandResult<T>, what: string): (T & { model: UntieModel }) | null => {
     if (!r.ok) {
@@ -352,7 +358,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     );
     if (!r) return null;
     if (!ids.has(group)) ids.set(group, new Map());
-    ids.get(group)!.set(name, r.id);
+    ids.get(group)!.set(nameKey(name), r.id);
     kindById.set(r.id, kind);
     return r.id;
   };
@@ -361,19 +367,27 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   const relationByKey = new Map<string, string>();
   const relationKey = (kind: string, a: string, b: string) => (isUndirected(kind as never) && a > b ? `${kind}:${b}:${a}` : `${kind}:${a}:${b}`);
   // 土台の要素と関係を、名前の突き合わせと重複の検査に使えるようにする (同じ名前が複数あれば最初のもの)
+  /** 土台の操作 (名前の鍵 → id)。同じ名前でも、この下書きの同じ作業・同じ画面のものだけを同じ操作とみなすので、名前だけの一覧には入れない */
+  const baseUsecasesByKey = new Map<string, string[]>();
+  /** 土台の画面 (名前の鍵 → 画面)。下書きの画面・操作の対象の名前が、土台の画面を指せるように */
+  const baseScreensByKey = new Map<string, Extract<Element, { kind: "screen" }>[]>();
   if (base) {
     const put = (group: string, name: string, id: string) => {
       const m = ids.get(group) ?? new Map<string, string>();
       ids.set(group, m);
-      if (!m.has(name)) m.set(name, id);
+      const key = nameKey(name);
+      if (!m.has(key)) m.set(key, id);
     };
     for (const e of base.elements) {
       kindById.set(e.id, e.kind);
       switch (e.kind) {
         case "actor":
         case "externalActor":
-        case "system":
           put("actor", e.name, e.id);
+          break;
+        case "system":
+          // システムは人と別の名前の一覧 (同じ名前のアクターがいても、取り違えない)
+          put("system", e.name, e.id);
           break;
         case "activity":
           put(`activity:${e.bucId}`, e.name, e.id);
@@ -383,14 +397,21 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
           break;
         case "screen":
           put(`screen:${e.systemId}`, e.name, e.id);
+          baseScreensByKey.set(nameKey(e.name), [...(baseScreensByKey.get(nameKey(e.name)) ?? []), e]);
+          break;
+        case "usecase":
+          baseUsecasesByKey.set(nameKey(e.name), [...(baseUsecasesByKey.get(nameKey(e.name)) ?? []), e.id]);
+          break;
+        case "state":
+          // 状態は、状態のまとまり (グループ) と名前の組で突き合わせる。名前だけで引くときの控えは、別の一覧に置く
+          put(`state:${nameKey(e.group ?? "")}`, e.name, e.id);
+          put("stateAny", e.name, e.id);
           break;
         case "ledger":
         case "business":
-        case "usecase":
         case "event":
         case "context":
         case "variation":
-        case "state":
         case "information":
         case "condition":
           put(e.kind, e.name, e.id);
@@ -459,7 +480,7 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   };
   for (const a of clip(spec.actors, L.actors, "アクター")) addActor("actor", a);
   for (const a of clip(spec.external_actors, L.externalActors, "外部アクター")) addActor("externalActor", a);
-  for (const a of clip(spec.systems, L.systems, "システム")) add("system", "actor", a);
+  for (const a of clip(spec.systems, L.systems, "システム")) add("system", "system", a);
   for (const a of clip(spec.ledgers, L.ledgers, "帳票")) add("ledger", "ledger", a);
   // 情報のまわり (操作から参照されるので先に作る)
   for (const c of clip(spec.contexts, L.contexts, "コンテキスト")) add("context", "context", c);
@@ -468,7 +489,15 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     add("variation", "variation", v, { values: clip(v.values, L.valuesPerItem, `バリエーション「${v.name}」の値`), contextId: ctx(v.context) });
   }
   for (const g of clip(spec.state_groups, L.stateGroups, "状態グループ")) {
-    for (const st of clip(g.states, L.valuesPerItem, `状態グループ「${g.name}」の状態`)) add("state", "state", st, { group: g.name, contextId: ctx(g.context) });
+    for (const st of clip(g.states, L.valuesPerItem, `状態グループ「${g.name}」の状態`)) {
+      // 状態は、グループと名前の組で突き合わせる (別のグループの同じ名前の状態は、別の状態)。名前だけで引く参照 (from_states など) のために、最初の 1 つを控える
+      const id = add("state", `state:${nameKey(typeof g.name === "string" ? nameOf(g.name) : "")}`, st, { group: g.name, contextId: ctx(g.context) });
+      if (id && typeof st.name === "string") {
+        const any = ids.get("state") ?? new Map<string, string>();
+        ids.set("state", any);
+        if (!any.has(nameKey(nameOf(st.name)))) any.set(nameKey(nameOf(st.name)), id);
+      }
+    }
   }
   const informations = clip(spec.informations, L.informations, "情報");
   const conditions = clip(spec.conditions, L.conditions, "条件");
@@ -482,38 +511,81 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   for (const c of conditions) {
     const id = idOf("condition", c.name);
     for (const n of clip(c.variations, L.refsPerItem, `条件「${c.name}」のバリエーション`)) relate(id, ref(["variation"], n, "バリエーション"));
-    for (const n of clip(c.states, L.refsPerItem, `条件「${c.name}」の状態`)) relate(id, ref(["state"], n, "状態"));
+    for (const n of clip(c.states, L.refsPerItem, `条件「${c.name}」の状態`)) relate(id, ref(["state", "stateAny"], n, "状態"));
   }
 
   const nameOfId = (id: string) => model.elements.find((e) => e.id === id)?.name ?? id;
   /** 画面の名前 (spec.screens)。操作の targets にこの名前が書かれたら、その画面を使う操作として画面の段階で結ぶ (screens[].usecase と同じ扱い) */
   // 上限で切られる画面 (先頭 SPEC_LIMITS.screens 件のあと) は含めない。切られた画面を指す targets は、「対象が見つかりません」の警告になる
-  const specScreens = (Array.isArray(spec.screens) ? spec.screens : []).slice(0, L.screens);
-  const specScreenNames = new Set(specScreens.flatMap((sc) => (typeof sc?.name === "string" && nameOf(sc.name) ? [nameOf(sc.name)] : [])));
-  /** 画面の名前 → targets にその名前を書いた操作の id */
+  const specScreens = clip(spec.screens, L.screens, "画面").filter((sc) => sc && typeof sc === "object");
+  /** targets に書いてよい画面の名前の鍵: 下書きの画面と、土台にすでにある画面 */
+  const specScreenKeys = new Set([...specScreens.flatMap((sc) => (typeof sc.name === "string" && nameOf(sc.name) ? [nameKey(nameOf(sc.name))] : [])), ...baseScreensByKey.keys()]);
+  /** 画面の名前の鍵 → targets にその名前を書いた操作の id */
   const usecasesNamingScreen = new Map<string, string[]>();
   /** 画面の段階で、targets の画面の名前から結びにいった操作の id (結べたかは別。ここに無いものは、画面が作られなかったなどで結びにいけなかった) */
   const namedAttempted = new Set<string>();
+  /** 土台の画面を使っている土台の操作の id (画面の id → 操作の id) */
+  const baseUserOfScreen = new Map<string, string>();
+  if (base) {
+    const kindOfBase = new Map(base.elements.map((e) => [e.id, e.kind]));
+    for (const r of base.relations) if (r.kind === "usecaseScreen" && kindOfBase.get(r.targetId) === "screen") baseUserOfScreen.set(r.targetId, r.sourceId);
+  }
+  /** 土台の操作のうち、この下書きの画面が「同じ操作を使う」と宣言しているもの (土台の同じ名前の画面を使う、同じ名前の操作)。同じ画面を使うので、同じ操作とみなす */
+  const sameByScreen = new Set<string>();
+  for (const sc of specScreens) {
+    if (typeof sc.name !== "string" || typeof sc.usecase !== "string") continue;
+    for (const screen of baseScreensByKey.get(nameKey(nameOf(sc.name))) ?? []) {
+      const user = baseUserOfScreen.get(screen.id);
+      if (user && baseUsecasesByKey.get(nameKey(nameOf(sc.usecase)))?.includes(user)) sameByScreen.add(user);
+    }
+  }
+  /** 土台の操作が、この下書きの操作と同じものか: この下書きの同じ作業 (同じ業務・活動の同じ名前の作業) に属する、同じイベントをきっかけにする、または同じ画面を使う */
+  const isSameUsecase = (baseId: string, u: SpecUsecase, scope: { activityId?: string; eventId?: string }): boolean => {
+    if (scope.activityId && model.relations.some((r) => r.kind === "activityUsecase" && r.sourceId === scope.activityId && r.targetId === baseId)) return true;
+    if (scope.eventId && model.relations.some((r) => r.kind === "eventUsecase" && r.sourceId === scope.eventId && r.targetId === baseId)) return true;
+    if (sameByScreen.has(baseId)) return true;
+    return (Array.isArray(u.targets) ? u.targets : []).some((n) => typeof n === "string" && (baseScreensByKey.get(nameKey(nameOf(n))) ?? []).some((screen) => baseUserOfScreen.get(screen.id) === baseId));
+  };
   /** 操作を作り、対象・情報・条件・状態を結ぶ (作業から使う操作も、イベントをきっかけにする操作も同じ) */
-  const addUsecase = (u: SpecUsecase, systemTargets: string[] = []): string | null => {
-    // すでにある操作 (同じ名前) は上限に数えない
-    if (!(typeof u.name === "string" && idOf("usecase", u.name)) && !usecaseBudget.take()) return null;
-    const ucId = add("usecase", "usecase", u);
+  const addUsecase = (u: SpecUsecase, systemTargets: string[] = [], scope: { activityId?: string; eventId?: string } = {}): string | null => {
+    // この下書きがすでに作った (または土台から引いた) 同じ名前の操作は、同じもの
+    let ucId: string | null = typeof u.name === "string" ? (idOf("usecase", u.name) ?? null) : null;
+    if (!ucId && typeof u.name === "string" && nameOf(u.name)) {
+      const candidates = baseUsecasesByKey.get(nameKey(nameOf(u.name))) ?? [];
+      const same = candidates.find((id) => isSameUsecase(id, u, scope));
+      if (same) {
+        // 土台の同じ操作を使う (上限には数えない)。この下書きの中で同じ名前が出たら、これに合流する
+        const m = ids.get("usecase") ?? new Map<string, string>();
+        ids.set("usecase", m);
+        m.set(nameKey(nameOf(u.name)), same);
+        ucId = same;
+      } else {
+        if (!usecaseBudget.take()) return null;
+        ucId = add("usecase", "usecase", u);
+        if (ucId && candidates.length > 0) {
+          warnings.push(`操作「${nameOf(u.name)}」は、土台にも同じ名前の操作がありますが、別の作業・別の画面のものなので、別の操作として作りました (名前が重なります。業務が分かる具体的な名前にしてください)`);
+        }
+      }
+    } else if (!ucId) {
+      if (!usecaseBudget.take()) return null;
+      ucId = add("usecase", "usecase", u);
+    }
     if (!ucId) return null;
     // 操作の対象は 1 つだけ (0.3.0)。担当に書かれたシステムか、targets の最初の 1 つを結ぶ
     const written = clip(u.targets, L.refsPerItem, `操作「${u.name}」の対象`).filter((n) => {
       // システム・帳票の名前ではなく、画面の名前なら、画面の段階でその画面を使う操作として結ぶ
       const screenName = typeof n === "string" ? nameOf(n) : "";
-      if (!screenName || idOf("actor", screenName) || idOf("ledger", screenName) || !specScreenNames.has(screenName)) return true;
-      const list = usecasesNamingScreen.get(screenName) ?? [];
-      if (!list.includes(ucId)) list.push(ucId);
-      usecasesNamingScreen.set(screenName, list);
+      if (!screenName || idOf("system", screenName) || idOf("ledger", screenName) || !specScreenKeys.has(nameKey(screenName))) return true;
+      const list = usecasesNamingScreen.get(nameKey(screenName)) ?? [];
+      if (!list.includes(ucId!)) list.push(ucId!);
+      usecasesNamingScreen.set(nameKey(screenName), list);
       return false;
     });
     const targets = [...systemTargets.map((id) => ({ id })), ...written.map((n) => ({ name: n }))];
     const [first, ...rest] = targets;
     if (first) {
-      const targetId = "id" in first ? first.id : ref(["actor", "ledger"], first.name, "対象");
+      // 操作の対象は、システム・帳票から探す (同じ名前の人がいても、人には向けない)
+      const targetId = "id" in first ? first.id : ref(["system", "ledger"], first.name, "対象");
       const current = targetId ? model.relations.find((r) => r.kind === "usecaseSystem" && r.sourceId === ucId) : undefined;
       if (targetId && current && current.targetId !== targetId) {
         warnings.push(`操作「${nameOfId(ucId)}」の対象はすでに「${nameOfId(current.targetId)}」なので「${nameOfId(targetId)}」は結びませんでした`);
@@ -524,8 +596,8 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     for (const n of clip(u.reads, L.refsPerItem, `操作「${u.name}」の取得する情報`)) relate(ucId, ref(["information"], n, "情報"), "read");
     for (const n of clip(u.writes, L.refsPerItem, `操作「${u.name}」の保存する情報`)) relate(ucId, ref(["information"], n, "情報"), "write");
     for (const n of clip(u.conditions, L.refsPerItem, `操作「${u.name}」の条件`)) relate(ucId, ref(["condition"], n, "条件"));
-    for (const n of clip(u.from_states, L.refsPerItem, `操作「${u.name}」の実行できる状態`)) relate(ref(["state"], n, "状態"), ucId);
-    for (const n of clip(u.to_states, L.refsPerItem, `操作「${u.name}」の実行後の状態`)) relate(ucId, ref(["state"], n, "状態"));
+    for (const n of clip(u.from_states, L.refsPerItem, `操作「${u.name}」の実行できる状態`)) relate(ref(["state", "stateAny"], n, "状態"), ucId);
+    for (const n of clip(u.to_states, L.refsPerItem, `操作「${u.name}」の実行後の状態`)) relate(ucId, ref(["state", "stateAny"], n, "状態"));
     return ucId;
   };
 
@@ -540,12 +612,13 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     // システムは作業の担当にならない (0.2.0)。担当に書かれたシステムは、その作業の操作の対象にする
     const systemTargets: string[] = [];
     for (const n of clip(a.performers, L.refsPerItem, `作業「${a.name}」の担当`)) {
-      const performer = ref(["actor"], n, "担当");
+      // 作業の担当は人から探す (同じ名前のシステムがあっても、人を先に。人がいなければ、システムを操作の対象にする)
+      const performer = ref(["actor", "system"], n, "担当");
       if (performer && model.elements.find((e) => e.id === performer)?.kind === "system") systemTargets.push(performer);
       else relate(performer, id);
     }
     for (const u of Array.isArray(a.usecases) ? a.usecases : []) {
-      const ucId = addUsecase(u, systemTargets);
+      const ucId = addUsecase(u, systemTargets, { activityId: id });
       relate(id, ucId);
     }
   };
@@ -574,21 +647,22 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     const id = add("event", "event", ev, { contextId: ctx(ev.context) });
     if (!id) continue;
     pendingEvents.push({ id, spec: ev });
-    for (const u of Array.isArray(ev.usecases) ? ev.usecases : []) relate(id, addUsecase(u));
+    for (const u of Array.isArray(ev.usecases) ? ev.usecases : []) relate(id, addUsecase(u, [], { eventId: id }));
   }
   // 名前 → 要素 (種類ごと。最初のもの)。要素を足し終えた段階で作り直す
+  // 名前の鍵 → 要素。この下書きで足した要素を先に探す (土台の同じ名前の要素より前)
   const indexOf = (kind: ElementKind): Map<string, Element> => {
     const m = new Map<string, Element>();
-    for (const e of model.elements) if (e.kind === kind && !m.has(e.name)) m.set(e.name, e);
+    for (const fromBase of [false, true]) for (const e of model.elements) if (e.kind === kind && baseIds.has(e.id) === fromBase && !m.has(nameKey(e.name))) m.set(nameKey(e.name), e);
     return m;
   };
-  const findByName = (kind: ElementKind, name: string) => model.elements.find((e) => e.kind === kind && e.name === nameOf(name));
+  const findByName = (kind: ElementKind, name: string) => indexOf(kind).get(nameKey(nameOf(name)));
   const systemIndex = indexOf("system");
   const usecaseIndex = indexOf("usecase");
   for (const { id, spec: ev } of pendingEvents) {
     let origins = 0;
     for (const n of clip(ev.raised_by, L.refsPerItem, `イベント「${ev.name}」を起こすもの`)) {
-      const origin = systemIndex.get(nameOf(n)) ?? usecaseIndex.get(nameOf(n));
+      const origin = systemIndex.get(nameKey(nameOf(n))) ?? usecaseIndex.get(nameKey(nameOf(n)));
       if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システムか操作の名前にしてください)`);
       else {
         relate(origin.id, id);
@@ -610,76 +684,91 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
       if (t) targetOfUsecase.set(r.sourceId, t);
     }
   }
+  /** 土台にその名前の画面があり、それがただ 1 つのシステムのものなら、そのシステム (下書きに system が無く、システムが 2 つ以上あるときの手がかり) */
+  const baseOwnerOfScreen = (name: string): Element | undefined => {
+    const owners = new Map<string, Element>();
+    for (const screen of baseScreensByKey.get(nameKey(name)) ?? []) {
+      const owner = model.elements.find((e) => e.id === screen.systemId && e.kind === "system");
+      if (owner) owners.set(owner.id, owner);
+    }
+    return owners.size === 1 ? [...owners.values()][0] : undefined;
+  };
+  /** 下書きに書いていない画面: targets に名前だけ書かれた、土台の画面 (土台の画面を使う操作として結ぶため、下書きの画面と同じ扱いで流す) */
+  const declaredScreenKeys = new Set(specScreens.flatMap((sc) => (typeof sc.name === "string" && nameOf(sc.name) ? [nameKey(nameOf(sc.name))] : [])));
+  const targetOnlyScreens: SpecScreen[] = [];
+  for (const key of usecasesNamingScreen.keys()) {
+    if (declaredScreenKeys.has(key)) continue;
+    for (const screen of baseScreensByKey.get(key) ?? []) {
+      const owner = model.elements.find((e) => e.id === screen.systemId && e.kind === "system");
+      if (owner) targetOnlyScreens.push({ name: screen.name, system: owner.name });
+    }
+  }
+  const screenList: SpecScreen[] = [...specScreens, ...targetOnlyScreens];
   /**
    * 画面の宣言 (名前・属するシステム・使う操作) を、画面を作る前に解決する。作られない画面 (名前が無い・属するシステムが見つからない・
    * 属するシステムが決まらない) は含めない。属するシステムは、書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム、
-   * それも無ければ宣言した操作の対象のシステム
+   * それも無ければ土台にあるその名前の画面のシステム (1 つだけのとき)、それも無ければ宣言した操作の対象のシステム
    */
-  const resolvedScreens: { name: string; systemKey: string; declaredName?: string }[] = [];
-  for (const sc of specScreens) {
+  const resolvedScreens: { key: string; systemKey: string; declaredId?: string }[] = [];
+  for (const sc of screenList) {
     const name = typeof sc?.name === "string" ? nameOf(sc.name) : "";
     if (!name) continue;
-    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
-    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(nameOf(sc.system)) : undefined;
+    const declaredUc = typeof sc.usecase === "string" && nameOf(sc.usecase) ? usecaseIndex.get(nameKey(nameOf(sc.usecase))) : undefined;
+    const explicit = typeof sc.system === "string" && sc.system ? systemIndex.get(nameKey(nameOf(sc.system))) : undefined;
     // 書かれたシステムが見つからない画面は作られない
     if (typeof sc.system === "string" && sc.system && !explicit) continue;
     const declaredTarget = declaredUc ? targetOfUsecase.get(declaredUc.id) : undefined;
-    const system = explicit ?? (systems.length === 1 ? systems[0] : undefined) ?? (declaredTarget?.kind === "system" ? declaredTarget : undefined);
+    const system = explicit ?? (systems.length === 1 ? systems[0] : undefined) ?? baseOwnerOfScreen(name) ?? (declaredTarget?.kind === "system" ? declaredTarget : undefined);
     // システムが決まらない画面は、宣言した操作が無ければ、名前を書いた操作の対象から決まることがある (そのため、宣言には数えず、同じ名前の判定では 1 つのシステム扱いにする)
-    resolvedScreens.push({ name, systemKey: system?.id ?? "", ...(declaredUc && system ? { declaredName: declaredUc.name } : {}) });
+    resolvedScreens.push({ key: nameKey(name), systemKey: system?.id ?? "", ...(declaredUc && system ? { declaredId: declaredUc.id } : {}) });
   }
-  /** 同じ名前の画面が、別のシステムにも (または、システムが決まらないまま) 複数あるときの名前。targets の名前だけでは、どの画面か決められない。同じシステムの同じ名前は 1 つの画面 */
+  /** 同じ名前の画面が、別のシステムにも (または、システムが決まらないまま) 複数あるときの名前の鍵。targets の名前だけでは、どの画面か決められない。同じシステムの同じ名前は 1 つの画面 */
   const ambiguousScreenNames = new Set<string>();
   {
     const systemsByName = new Map<string, Set<string>>();
     for (const r of resolvedScreens) {
-      const set = systemsByName.get(r.name) ?? new Set<string>();
+      const set = systemsByName.get(r.key) ?? new Set<string>();
       set.add(r.systemKey);
-      systemsByName.set(r.name, set);
+      systemsByName.set(r.key, set);
     }
     for (const [n, set] of systemsByName) if (set.size > 1) ambiguousScreenNames.add(n);
   }
-  /** 作られる画面が screens[].usecase で宣言した操作の名前 → 宣言した画面の名前 (宣言が勝つ。targets に別の画面の名前があっても、そちらには結ばない) */
+  /** 作られる画面が screens[].usecase で宣言した操作の id → 宣言した画面の名前の鍵 (宣言が勝つ。targets に別の画面の名前があっても、そちらには結ばない) */
   const declaredScreensOfUsecase = new Map<string, Set<string>>();
   for (const r of resolvedScreens) {
-    if (r.declaredName === undefined) continue;
-    const set = declaredScreensOfUsecase.get(r.declaredName) ?? new Set<string>();
-    set.add(r.name);
-    declaredScreensOfUsecase.set(r.declaredName, set);
+    if (r.declaredId === undefined) continue;
+    const set = declaredScreensOfUsecase.get(r.declaredId) ?? new Set<string>();
+    set.add(r.key);
+    declaredScreensOfUsecase.set(r.declaredId, set);
   }
-  const declaredUsecaseNames = new Set(declaredScreensOfUsecase.keys());
+  const declaredUsecaseIds = new Set(declaredScreensOfUsecase.keys());
   /** 画面 (分析の要素の id) → 使う操作の id と、操作 → 画面。結んだものだけを覚える (画面はこの段階で初めて結ぶ) */
   const usecaseOfScreen = new Map<string, string>();
   const screenOfUsecase = new Map<string, string>();
   // 土台で、すでに画面を使っている操作 (画面 → 操作と操作 → 画面。同じ組を結び直さず、別の組は断る)
-  if (base) {
-    const kindOf = new Map(base.elements.map((e) => [e.id, e.kind]));
-    for (const r of base.relations) {
-      if (r.kind === "usecaseScreen" && kindOf.get(r.targetId) === "screen") {
-        usecaseOfScreen.set(r.targetId, r.sourceId);
-        screenOfUsecase.set(r.sourceId, r.targetId);
-      }
-    }
+  for (const [screenId, usecaseId] of baseUserOfScreen) {
+    usecaseOfScreen.set(screenId, usecaseId);
+    screenOfUsecase.set(usecaseId, screenId);
   }
-  for (const sc of clip(spec.screens, L.screens, "画面")) {
+  for (const sc of screenList) {
     const name = typeof sc.name === "string" ? nameOf(sc.name) : "";
     if (!name) {
       nameless.set("screen", (nameless.get("screen") ?? 0) + 1);
       continue;
     }
-    const declared = sc.usecase ? usecaseIndex.get(nameOf(sc.usecase)) : undefined;
+    const declared = sc.usecase ? usecaseIndex.get(nameKey(nameOf(sc.usecase))) : undefined;
     if (sc.usecase && !declared) warnings.push(`画面「${name}」を使う操作「${sc.usecase}」が見つかりません`);
     // 操作の targets に画面の名前を書いたものも、screens の usecase と同じ扱いで、その画面を使う操作にする
-    // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム
-    let system = sc.system ? systemIndex.get(nameOf(sc.system)) : systems.length === 1 ? systems[0] : undefined;
+    // 属するシステム: 書いてあればそれ、無ければシステムが 1 つだけのときのそのシステム、それも無ければ土台にあるその名前の画面のシステム (1 つだけのとき)
+    let system = sc.system ? systemIndex.get(nameKey(nameOf(sc.system))) : (systems.length === 1 ? systems[0] : undefined) ?? baseOwnerOfScreen(name);
     if (!system && sc.system) warnings.push(`画面「${name}」の属するシステム「${sc.system}」が見つかりません`);
     // targets に名前を書いた操作: どこかの画面が screens[].usecase で宣言した操作には結ばない (宣言が勝つ)。同じ名前の画面が複数あるときは、
     // 操作の対象のシステムが、この画面のシステムと同じものだけ結ぶ (それで 1 つに決まる。決まらないものは、最後に 1 件だけ警告する)
     const named: Element[] = [];
-    for (const id of usecasesNamingScreen.get(name) ?? []) {
+    for (const id of usecasesNamingScreen.get(nameKey(name)) ?? []) {
       const u = model.elements.find((e) => e.id === id);
-      if (!u || declaredUsecaseNames.has(u.name)) continue;
-      if (ambiguousScreenNames.has(name)) {
+      if (!u || declaredUsecaseIds.has(u.id)) continue;
+      if (ambiguousScreenNames.has(nameKey(name))) {
         const t = targetOfUsecase.get(u.id);
         if (!(t?.kind === "system" && system && t.id === system.id)) continue;
       }
@@ -729,30 +818,35 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   }
 
   // targets に画面の名前を書いたのに、その画面に結べなかった操作 (画面が作られなかった・同じ名前の画面が複数あって決められなかった)
-  for (const [screenName, ucIds] of usecasesNamingScreen) {
+  for (const [screenKey, ucIds] of usecasesNamingScreen) {
+    const screenName = specScreens.find((sc) => typeof sc.name === "string" && nameKey(nameOf(sc.name)) === screenKey)?.name ?? baseScreensByKey.get(screenKey)?.[0]?.name ?? screenKey;
     // 宣言のある操作の targets がほかの画面を指していたら、宣言を優先したことを知らせる
     for (const id of ucIds) {
       const u = model.elements.find((e) => e.id === id);
-      const declaredBy = u ? declaredScreensOfUsecase.get(u.name) : undefined;
-      if (u && declaredBy && !declaredBy.has(screenName)) {
+      const declaredBy = u ? declaredScreensOfUsecase.get(u.id) : undefined;
+      if (u && declaredBy && !declaredBy.has(screenKey)) {
+        const names = [...declaredBy].map((k) => specScreens.find((sc) => typeof sc.name === "string" && nameKey(nameOf(sc.name)) === k)?.name ?? baseScreensByKey.get(k)?.[0]?.name ?? k);
         warnings.push(
-          `操作「${u.name}」の targets の画面「${screenName}」は結びませんでした (画面${[...declaredBy].map((n) => `「${n}」`).join("")}が screens[].usecase でこの操作を使うと宣言しているため。1 つの操作が使う画面は 1 つだけ)`,
+          `操作「${u.name}」の targets の画面「${nameOf(screenName)}」は結びませんでした (画面${names.map((n) => `「${nameOf(n)}」`).join("")}が screens[].usecase でこの操作を使うと宣言しているため。1 つの操作が使う画面は 1 つだけ)`,
         );
       }
     }
-    const left = ucIds.map((id) => model.elements.find((e) => e.id === id)).filter((u): u is Element => !!u && !declaredUsecaseNames.has(u.name) && !namedAttempted.has(u.id));
+    const left = ucIds.map((id) => model.elements.find((e) => e.id === id)).filter((u): u is Element => !!u && !declaredUsecaseIds.has(u.id) && !namedAttempted.has(u.id));
     if (left.length === 0) continue;
-    if (ambiguousScreenNames.has(screenName)) {
-      warnings.push(`画面「${screenName}」は同じ名前の画面が複数あるので、操作 (${left.map((u) => `「${u.name}」`).join("")}) の targets からは結べません。screens[].usecase で書いてください`);
+    if (ambiguousScreenNames.has(screenKey)) {
+      warnings.push(`画面「${nameOf(screenName)}」は同じ名前の画面が複数あるので、操作 (${left.map((u) => `「${u.name}」`).join("")}) の targets からは結べません。screens[].usecase で書いてください`);
     } else {
-      for (const u of left) warnings.push(`操作「${u.name}」の対象「${screenName}」が見つかりません (その画面は作られませんでした)`);
+      for (const u of left) warnings.push(`操作「${u.name}」の対象「${nameOf(screenName)}」が見つかりません (その画面は作られませんでした)`);
     }
   }
 
   // 作業の起点 (作業・イベント・その他)
   for (const { id, spec: a } of pendingTriggers) {
     for (const n of clip(a.trigger_activities, L.refsPerItem, `作業「${a.name}」の起点の作業`)) {
-      const same = model.elements.filter((e) => e.kind === "activity" && e.name === nameOf(n));
+      // この下書きで足した作業を先に探す (土台の同じ名前の作業より前)
+      const same = model.elements
+        .filter((e) => e.kind === "activity" && nameKey(e.name) === nameKey(nameOf(n)))
+        .sort((a, b) => Number(baseIds.has(a.id)) - Number(baseIds.has(b.id)));
       const others = same.filter((e) => e.id !== id);
       if (same.length === 0) warnings.push(`起点の作業「${n}」が見つかりません`);
       else if (others.length === 0) warnings.push(`作業「${a.name}」は自分自身を起点にできないので、起点「${n}」は結びませんでした`);
@@ -774,9 +868,13 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   // 課題
   for (const issue of clip(spec.issues, L.issues, "課題")) {
     // 土台にある課題と同じ名前は、足さない (同じ業務をやり直したとき、課題が二重にならないように)
-    if (base && base.elements.some((e) => e.kind === "issue" && e.name === nameOf(issue.name ?? ""))) continue;
+    if (base && base.elements.some((e) => e.kind === "issue" && nameKey(e.name) === nameKey(nameOf(issue.name ?? "")))) continue;
     const found = clip(issue.targets, L.refsPerItem, `課題「${issue.name}」の対象`)
-      .map((n) => model.elements.find((e) => isIssueTargetKind(e.kind) && e.name === nameOf(n)))
+      // 対象は、この下書きで足した要素を先に探す (土台の別の業務の同じ名前の作業に付かないように)
+      .map((n) => {
+        const same = model.elements.filter((e) => isIssueTargetKind(e.kind) && nameKey(e.name) === nameKey(nameOf(n)));
+        return same.find((e) => !baseIds.has(e.id)) ?? same[0];
+      })
       .filter((e): e is Element => !!e);
     // 全体的な課題 (登場人物) と具体的な課題 (業務・作業・操作) は混ぜられないので、最初の対象と同じ区分だけを残す
     const scope = found[0] && isIssueTargetKind(found[0].kind) ? issueScopeOfKind(found[0].kind) : null;

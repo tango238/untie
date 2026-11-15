@@ -6,8 +6,8 @@ import { describeChatError, isAbortError } from "../../ai/chat";
 import { getApiKey } from "../../ai/keys";
 import { PROVIDERS } from "../../ai/providers";
 import { parsePrismaDslCached } from "@untie/core/model/prismaCache";
-import { commitStageModel } from "../../ai/reverseCommit";
-import { reverseLogic } from "../../ai/reverseLogic";
+import { AGENT_BUSY_REASON, commitStageModel } from "../../ai/reverseCommit";
+import { applyMappingSuggestions, mappingGap, reverseLogic, reverseMapping, suggestMappings } from "../../ai/reverseLogic";
 import { reverseScreens } from "../../ai/reverseScreens";
 import { recallSources, rememberSources } from "../../ai/sourceRegistry";
 import {
@@ -28,10 +28,11 @@ import { useUntieStore } from "../../store";
 import { SourceDataCard, type StageDone } from "./SourceDataCard";
 
 /** 段階 (カードの並び) */
-export type StageId = "data" | "screens" | "logic";
+export type StageId = "data" | "screens" | "logic" | "mapping";
 
 /** AI を使う段階の中の手順 (順に進む)。進み具合の表示に使う */
-const STAGE_STEPS: Record<"screens" | "logic", { step: string; label: string }[]> = {
+const STAGE_STEPS: Record<"screens" | "logic" | "mapping", { step: string; label: string }[]> = {
+  mapping: [{ step: "tables", label: "テーブルと情報を結ぶ" }],
   screens: [
     { step: "survey", label: "ソースコードを調べる" },
     { step: "structure", label: "画面の構成を作る" },
@@ -44,7 +45,7 @@ const STAGE_STEPS: Record<"screens" | "logic", { step: string; label: string }[]
   ],
 };
 
-const STAGE_LABELS: Record<StageId, string> = { data: "データ", screens: "画面", logic: "業務" };
+const STAGE_LABELS: Record<StageId, string> = { data: "データ", screens: "画面", logic: "業務", mapping: "テーブルと情報の対応" };
 
 /** 画面に出す、読んだ場所の件数 */
 const RECENT_READS = 5;
@@ -91,29 +92,40 @@ export function stageProgress(model: UntieModel): Record<StageId, { text: string
   const screens = model.elements.filter((e) => e.kind === "screen").length;
   const withView = model.designs.reduce((n, d) => n + d.screens.filter((s) => s.source.kind === "screen" && s.view !== undefined).length, 0);
   const businesses = model.elements.filter((e) => e.kind === "business").length;
+  const gap = mappingGap(model);
   return {
+    mapping: { text: gap.informations > 0 ? `未対応の情報 ${gap.informations}・テーブル ${gap.tables}` : tables > 0 ? "未対応の情報はありません" : "まだ", done: tables > 0 && gap.informations === 0 },
     data: { text: dbs.length > 0 ? `データベース ${dbs.length} つ・テーブル ${tables}` : "まだ", done: dbs.length > 0 },
     screens: { text: screens > 0 ? `画面 ${screens} (画面 UI ${withView})` : "まだ", done: screens > 0 },
     logic: { text: businesses > 0 ? `業務 ${businesses}` : "まだ", done: businesses > 0 },
   };
 }
 
-/** 終わった段階のあとに勧める段階 (無ければ null)。前の段階が無いと精度が落ちるので、その順で勧める (止めはしない) */
+/**
+ * 終わった段階のあとに勧める段階 (無ければ null)。前の段階が無いと精度が落ちるので、その順で勧める (止めはしない)。
+ * どの段階のあとでも、どのテーブルにも対応していない情報と、どの情報にも対応していないテーブルの両方があれば、最後に「テーブルと情報の対応」を勧める
+ * (データを後から取り込んだとき・業務のあとにデータを取り込んだときなど、業務の段階の最後の対応付けが走らなかった組み合わせのため)
+ */
 export function recommendNext(model: UntieModel, justDone: StageId): { stage: StageId; reason: string } | null {
   const p = stageProgress(model);
   const missingUi = model.designs.some((d) => d.screens.some((s) => s.source.kind === "screen" && s.view === undefined)) || model.elements.some((e) => e.kind === "screen" && !model.designs.some((d) => d.screens.some((s) => s.source.kind === "screen" && s.source.screenId === e.id)));
+  const gap = mappingGap(model);
+  const mapping = gap.informations > 0 && gap.tables > 0 ? { stage: "mapping" as const, reason: `どのテーブルにも対応していない情報が ${gap.informations} 件、どの情報にも対応していないテーブルが ${gap.tables} 件あります。業務のカードの「テーブルと情報を結ぶ」で対応を付けられます` } : null;
   if (justDone === "data") {
     if (!p.screens.done) return { stage: "screens", reason: "画面の項目を、取り込んだテーブルの列に結べます" };
     if (!p.logic.done) return { stage: "logic", reason: "業務を作ると、テーブルと情報の対応も付きます" };
-    return null;
+    return mapping;
   }
   if (justDone === "screens") {
     if (!p.logic.done) return { stage: "logic", reason: "画面を使う操作と、業務を作ります" };
-    return null;
+    return mapping;
   }
-  if (!p.data.done) return { stage: "data", reason: "データベースがまだ無いので、テーブルと情報の対応を付けられていません" };
-  if (missingUi) return { stage: "screens", reason: "画面 UI がまだ無い画面があります" };
-  return null;
+  if (justDone === "logic") {
+    if (!p.data.done) return { stage: "data", reason: "データベースがまだ無いので、テーブルと情報の対応を付けられていません" };
+    if (missingUi) return { stage: "screens", reason: "画面 UI がまだ無い画面があります" };
+    return mapping;
+  }
+  return missingUi && p.data.done ? { stage: "screens", reason: "画面 UI がまだ無い画面があります" } : null;
 }
 
 /** 画面 UI を作り直す画面の候補 (画面 UI がすでにあるもの) */
@@ -139,7 +151,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const settings = useAgentStore((s) => s.settings);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
   const agentRunning = useAgentStore((s) => s.running);
-  const continueFrom = useAgentStore((s) => s.continueFrom);
+  const agentBase = useUntieStore((s) => s.agentBase);
   const model = useUntieStore((s) => s.model);
   const docSeq = useUntieStore((s) => s.docSeq);
   const nextKey = useRef(1);
@@ -165,7 +177,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const [scope, setScope] = useState("");
   const [rebuild, setRebuild] = useState<ReadonlySet<string>>(new Set());
   /** いま実行している AI の段階 (データの段階は、その場で終わるので入らない) */
-  const [running, setRunning] = useState<"screens" | "logic" | null>(null);
+  const [running, setRunning] = useState<"screens" | "logic" | "mapping" | null>(null);
   const [step, setStep] = useState<string | null>(null);
   const [survey, setSurvey] = useState("");
   const [reads, setReads] = useState<string[]>([]);
@@ -179,8 +191,6 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   /** 段階を始めている最中か (「進める」の二度押しで 2 本走らせない) */
   const starting = useRef(false);
   const mounted = useRef(true);
-  /** この画面で終えた段階の要約 (AI のペインへ引き継ぐ会話に、段階ごとの要約を積む) */
-  const carried = useRef<{ role: "user" | "assistant"; text: string }[]>([]);
   // ダイアログが外れたら段階を止める (結果が届いても、今のモデルに反映しない)
   useEffect(() => {
     mounted.current = true;
@@ -300,18 +310,27 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
     requestAnimationFrame(() => addButton.current?.focus());
   };
 
-  /** 段階の結果を見せ、AI のペインへ会話を引き継ぐ (段階ごとの要約を積む) */
+  /**
+   * 段階の結果を見せ、AI のペインの会話へ反映する。AI のペインに会話がまだ無ければ、その段階の会話 (調査結果つき) でペインを始める。
+   * すでに会話があれば、置き換えずに、段階の要約を会話に足す (AI への次の発言の文脈に入る。データの段階とテーブルの対応は、短い知らせだけ)
+   */
   const finish = (done: StageDone, seedForAgent: { role: "user" | "assistant"; text: string }[]) => {
     const latest = useUntieStore.getState().model;
     const note = `${STAGE_LABELS[done.stage]}の段階が終わりました。`;
-    carried.current = [...carried.current, { role: "user", text: `ソースコードから「${STAGE_LABELS[done.stage]}」の段階を実行しました。` }, { role: "assistant", text: done.summary }];
-    // 前の段階は要約だけ、いまの段階は調査結果つきの会話
-    const previous = carried.current.slice(0, -2);
-    continueFrom([...previous, ...seedForAgent], [
-      { role: "user", text: `ソースコードから作成 (${STAGE_LABELS[done.stage]})` },
-      { role: "assistant", text: done.summary },
-      { role: "info", text: "このまま会話を続けて、モデルを直せます。" },
-    ]);
+    const shown = [
+      { role: "user" as const, text: `ソースコードから作成 (${STAGE_LABELS[done.stage]})` },
+      { role: "assistant" as const, text: done.summary },
+    ];
+    const agent = useAgentStore.getState();
+    if (agent.items.length > 0) {
+      const brief = done.brief ?? [
+        { role: "user" as const, text: `ソースコードから「${STAGE_LABELS[done.stage]}」の段階を実行しました。` },
+        { role: "assistant" as const, text: done.summary },
+      ];
+      agent.appendContext(brief, [...shown, { role: "info", text: "ここまでの会話は残しています。続けて、モデルを直せます。" }]);
+    } else {
+      agent.continueFrom(seedForAgent, [...shown, { role: "info", text: "このまま会話を続けて、モデルを直せます。" }]);
+    }
     setResult({ stage: done.stage, summary: `${note}${done.summary}`, warnings: done.warnings, next: recommendNext(latest, done.stage) });
     setRunning(null);
     setStep(null);
@@ -323,7 +342,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const sourcesReady = allPicked && !emptyRow && labelProblems.every((p) => p === null) && pickingKey === null;
 
   /** AI を使う段階を始める (画面・業務)。今のモデルに足し、結果は最後に 1 件の履歴として反映する */
-  const startStage = async (stage: "screens" | "logic") => {
+  const startStage = async (stage: "screens" | "logic" | "mapping") => {
     if (starting.current || busy || !sourcesReady) return;
     starting.current = true;
     try {
@@ -381,7 +400,9 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                   setLog((l) => [...l, `${ok ? "✓" : "×"} 画面 ${done}/${total}: ${name}`]);
                 },
               })
-            : await reverseLogic(base, sources, request, common);
+            : stage === "mapping"
+              ? await reverseMapping(base, sources, common)
+              : await reverseLogic(base, sources, request, common);
         // 中断された・ダイアログが外れたあとに届いた結果は、モデルに反映しない
         if (!mounted.current) return;
         if (ctl.signal.aborted) {
@@ -397,7 +418,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
           setStep(null);
           return;
         }
-        setRebuild(new Set());
+        if (stage === "screens") setRebuild(new Set());
         finish({ stage, summary: res.summary, warnings: res.warnings, seed: res.seed }, res.seed);
       } catch (e) {
         if (!mounted.current) return;
@@ -415,13 +436,34 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
   const progress = stageProgress(model);
   const hasScreenUi = rebuildCandidates(model);
   const logicReady = !!request.trim();
-  const aiDisabledReason = agentRunning ? "AI のペインが作業中です。終わってから実行してください。" : null;
+  // AI のペインが作業中 (または編集の途中) の間は、段階の結果をモデルに反映できない (ペインの履歴にまとまってしまう)
+  const agentBusy = agentRunning || agentBase !== null;
+  const aiDisabledReason = agentBusy ? AGENT_BUSY_REASON : null;
   const stageSteps = running ? STAGE_STEPS[running] : [];
   const stageIndex = running && step ? stageSteps.findIndex((s) => s.step === step) : -1;
+  const gap = mappingGap(model);
+  const suggestions = suggestMappings(model);
   const aiStageBlock = (stage: "screens" | "logic") => {
-    const ok = sourcesReady && !busy && !agentRunning && (stage === "screens" || logicReady);
+    const ok = sourcesReady && !busy && !agentBusy && (stage === "screens" || logicReady);
     const done = progress[stage].done;
     return { ok, label: done ? "もう一度" : "進める" };
+  };
+
+  /** 名前が合うテーブルと情報を、AI を使わずに結ぶ */
+  const applySuggestions = () => {
+    const st = useUntieStore.getState();
+    const base = st.model;
+    const found = suggestMappings(base);
+    if (found.length === 0) return;
+    const r = applyMappingSuggestions(base, found);
+    const c = commitStageModel(base, r.model, st.docSeq);
+    if (!c.ok) {
+      setError(c.reason);
+      return;
+    }
+    setError(null);
+    const summary = `名前が合うテーブルと情報 ${r.applied} 組を結びました (AI は使っていません)。`;
+    finish({ stage: "mapping", summary, warnings: [], seed: [], brief: [{ role: "user", text: "名前が合うテーブルと情報を結んでください。" }, { role: "assistant", text: summary }] }, []);
   };
 
   return (
@@ -442,15 +484,16 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
             followBody.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
           }}
         >
-          {busy ? (
+          {busy && (
             <div className="source-summary" title={summaryTitle(rows)}>
               <div className="source-summary-sources">{summaryTitle(rows)}</div>
               <div className="source-summary-request">
-                {STAGE_LABELS[running!]}の段階{running === "logic" ? `: ${request.trim()}` : scope.trim() ? `: ${scope.trim()}` : ""}
+                {STAGE_LABELS[running!]}の段階{running === "logic" ? `: ${request.trim()}` : running === "screens" && scope.trim() ? `: ${scope.trim()}` : ""}
               </div>
             </div>
-          ) : (
-            <>
+          )}
+          {/* 実行中は畳むだけで、外さない (データの段階で選んだ候補・直接選んだファイル・変換の結果が、段階の実行で消えないように) */}
+          <div hidden={busy} style={busy ? { display: "none" } : undefined}>
               <p className="hint">
                 既存のソースコードを、データ → 画面 → 業務の 3 つの段階で、いま開いているモデルに足していきます (置き換えません)。どの段階も、どの順でも、何度でも実行できます。おすすめはこの順です (前の段階が無いと、精度が落ちます)。実行した段階は 1 件の履歴になり、元に戻す (Ctrl+Z) でまとめて戻せます。
               </p>
@@ -573,6 +616,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                 rows={rows}
                 progress={progress.data.text}
                 disabled={busy}
+                importBlocked={aiDisabledReason}
                 onError={(m) => setError(m === "" ? null : m)}
                 onDone={(d) => {
                   setError(null);
@@ -631,7 +675,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                 )}
                 <ul className="source-notes">
                   <li>
-                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、対象の範囲の文、すでにモデルにあるシステム・画面・データベース (テーブルと列) の名前と説明です。フォルダ全体は送りません。
+                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、対象の範囲の文、すでにモデルにあるシステム・画面 (名前と説明、使う操作の名前)・データベース (テーブルと列の名前)・業務・情報・登場人物の名前です。画面 UI を作る依頼には、さらに、その画面を使う操作・扱う情報・条件・状態の名前と説明、画面遷移、使うデータベースのテーブルと列の名前と型 (その画面に関わるテーブルだけ列を付け、残りは名前だけ。AI が必要なテーブルの列を道具で調べます)、調査結果の文章が入ります。フォルダ全体は送りません。
                   </li>
                   <li>ふつうのソースファイルに直接書かれたキーや個人情報は、送られることがあります。画面の数だけ AI を呼ぶので、数分かかり、API の利用料がかかります (画面 UI は 1 回に 30 画面まで。残りは、もう一度進めると続きを作ります)。</li>
                 </ul>
@@ -671,7 +715,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                 />
                 <ul className="source-notes">
                   <li>
-                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、起こしたい業務の文、すでにモデルにあるシステム・画面・データベース (テーブルと列)・業務・情報・登場人物の名前と説明です。フォルダ全体は送りません。
+                    選んでいる AI ({provider.label}) の API に送られるのは、フォルダ名とラベル、ファイルの一覧 (名前と大きさ)、AI が開いたファイルの中身、検索で見つかった行、起こしたい業務の文、すでにモデルにあるシステム・画面 (名前と説明、使う操作の名前)・データベース (テーブルと列の名前)・業務・情報・登場人物の名前です。テーブルと情報の対応を付けるときは、さらに、システムが使う情報と画面の名前と説明、使うデータベースのテーブルと列の名前と型、いま結んである情報の名前、調査結果の文章が入ります。フォルダ全体は送りません。
                   </li>
                   <li>対象の業務のほか、関係する業務も調べます。数分かかり、API の利用料がかかります。</li>
                 </ul>
@@ -683,6 +727,36 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                   {sourcesReady && !logicReady && <span className="source-folder-count">起こしたい業務を入力してください</span>}
                   {aiDisabledReason && <span className="source-folder-count">{aiDisabledReason}</span>}
                 </div>
+                <div className="stage-sub">テーブルと情報を結ぶ</div>
+                <p className="source-note">
+                  業務の段階の最後には、どのテーブルにも対応していない情報を、テーブルに結ぶ会話があります。それだけを単独で行えます (業務のあとにデータを取り込んだときなど)。
+                  {gap.informations > 0 || gap.tables > 0
+                    ? ` いま、どのテーブルにも対応していない情報が ${gap.informations} 件、どの情報にも対応していないテーブルが ${gap.tables} 件あります。`
+                    : " いま、対応を付ける情報はありません。"}
+                </p>
+                {suggestions.length > 0 && (
+                  <details className="stage-rebuild">
+                    <summary>名前が合うものを、AI を使わずに結ぶ ({suggestions.length} 組)</summary>
+                    <ul className="stage-notes" aria-label="名前が合うテーブルと情報">
+                      {suggestions.slice(0, 20).map((x) => (
+                        <li key={`${x.databaseId}:${x.table}:${x.informationId}`}>
+                          {x.databaseName} / {x.table} ↔ 情報「{x.informationName}」 ({x.via}が一致)
+                        </li>
+                      ))}
+                      {suggestions.length > 20 && <li>ほか {suggestions.length - 20} 組</li>}
+                    </ul>
+                    <button type="button" disabled={busy || agentBusy} onClick={applySuggestions}>
+                      名前が合うものを結ぶ
+                    </button>
+                  </details>
+                )}
+                <div className="stage-actions">
+                  <button type="button" disabled={busy || agentBusy || !sourcesReady || gap.informations === 0 || gap.tables === 0} onClick={() => void startStage("mapping")}>
+                    AI でテーブルと情報を結ぶ
+                  </button>
+                  {gap.informations === 0 || gap.tables === 0 ? <span className="source-folder-count">結ぶ情報とテーブルの両方が要ります</span> : null}
+                  {!sourcesReady && <span className="source-folder-count">ソースを登録してください</span>}
+                </div>
               </section>
 
               <div className="prompt-ai">
@@ -691,8 +765,7 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
                   変える
                 </button>
               </div>
-            </>
-          )}
+          </div>
           {busy && (
             <div className="prompt-progress">
               <div className="visually-hidden" role="status">
@@ -745,9 +818,14 @@ export function CreateFromSourceDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="dialog-actions">
           {busy ? (
-            <button type="button" onClick={() => controller.current?.abort()}>
-              中断
-            </button>
+            <>
+              <span className="source-folder-count">
+                中断すると、この段階でできた分も反映されません (結果は、全部できてから 1 回でモデルに反映します。画面 UI を途中まで作っていても同じです)。
+              </span>
+              <button type="button" onClick={() => controller.current?.abort()}>
+                中断
+              </button>
+            </>
           ) : (
             <button type="button" onClick={onClose}>
               閉じる

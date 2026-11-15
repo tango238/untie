@@ -98,4 +98,28 @@ describe("readScreensDraft", () => {
     const d = readScreensDraft({ systems: [{ name: "S", screens: [{ name: "A", description: 1 }, { nameless: true }], transitions: [{ from: "A" }], databases: ["D", 3], navigation: [{ group: "G", screens: ["A", 1] }] }, { screens: [] }] })!;
     expect(d.systems).toEqual([{ name: "S", screens: [{ name: "A" }], databases: ["D"], navigation: [{ group: "G", screens: ["A"] }] }]);
   });
+
+  it("綴りの違い (全角半角・空白・大文字小文字) を同じ名前とみなす: 「ＥＣ サイト」「注文 一覧」「ｉｄ発行」が、すでにある「EC サイト」「注文一覧」「ID 発行」と二重にならず、もとの名前は書き換わらない。遷移の名前も合う", () => {
+    const first = applyScreensDraft(emptyModel("m"), { systems: [{ name: "EC サイト", screens: [{ name: "注文一覧" }, { name: "ID 発行" }] }] });
+    const r = applyScreensDraft(first.model, {
+      systems: [{ name: "ＥＣ サイト", screens: [{ name: "注文 一覧" }, { name: "ｉｄ発行" }, { name: "注文詳細" }], transitions: [{ from: "注文 一覧", to: "注文詳細", via: "row" }], navigation: [{ group: "注文", screens: ["注文 一覧", "注文詳細"] }] }],
+    });
+    expect(r.added).toEqual({ systems: 0, screens: 1, transitions: 1 });
+    expect(r.model.elements.filter((e) => e.kind === "system").map((e) => e.name)).toEqual(["EC サイト"]);
+    expect(nameOfScreens(r.model)).toEqual(["注文一覧", "ID 発行", "注文詳細"]);
+    // 画面 UI を作る対象の名前は、モデルにある名前
+    expect(r.named).toEqual([{ system: "EC サイト", screen: "注文一覧" }, { system: "EC サイト", screen: "ID 発行" }, { system: "EC サイト", screen: "注文詳細" }]);
+    expect(r.warnings.filter((w) => /見つかりません/.test(w))).toEqual([]);
+    healthy(r.model);
+  });
+
+  it("同じ名前のアクター (外部アクター) がいるところへシステムを作るときは、人とは別のシステムとして作り、警告する", () => {
+    const first = applyScreensDraft(emptyModel("m"), { systems: [{ name: "別", screens: [{ name: "x" }] }] }).model;
+    // アクター「管理」を足したモデル
+    const added = { ...first, elements: [...first.elements, { id: "act_1", kind: "actor", name: "管理", description: "" } as never] };
+    const r = applyScreensDraft(added, { systems: [{ name: "管理", screens: [{ name: "管理トップ" }] }] });
+    expect(r.model.elements.filter((e) => e.kind === "system" && e.name === "管理")).toHaveLength(1);
+    expect(r.model.elements.filter((e) => e.kind === "actor" && e.name === "管理")).toHaveLength(1);
+    expect(r.warnings.some((w) => /同じ名前のアクター/.test(w))).toBe(true);
+  });
 });

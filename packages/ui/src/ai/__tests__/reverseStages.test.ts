@@ -80,7 +80,7 @@ vi.mock("../chat", async (importOriginal) => {
 });
 
 const { reverseScreens } = await import("../reverseScreens");
-const { reverseLogic } = await import("../reverseLogic");
+const { reverseLogic, reverseMapping, mappingGap } = await import("../reverseLogic");
 const { REVERSE_LIMITS } = await import("../reverse");
 
 const parse = (r: ToolOutcome) => JSON.parse(r.content) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -357,6 +357,28 @@ describe("やり直し", () => {
     expect(callsOf("screen").length).toBe(before + 1);
     expect(callsOf("screen")[callsOf("screen").length - 1]!.text).toContain("注文入力");
     expect(count(m2, "screen")).toBe(count(m, "screen"));
+  });
+});
+
+describe("データを後から取り込んだとき (3 → 2 → 1)", () => {
+  it("どのテーブルにも対応していない情報が残り、対応付けだけの入口 (reverseMapping) で解消する。データベースは設計が使うものだけを対象にする", async () => {
+    let m = await runLogic(fresh());
+    m = await runScreens(m);
+    m = runData(m);
+    // 設計はまだ使うデータベースを決めていないので、データの段階のあとは、業務の最後の会話が走らない。情報とテーブルの対応が付いていない
+    expect(mappingGap(m).informations).toBeGreaterThan(0);
+    expect(mappingGap(m).tables).toBeGreaterThan(0);
+    const steps: string[] = [];
+    const res = await reverseMapping(m, multiFixtureSources(), { ...baseOptions, onStep: (s) => steps.push(s) });
+    expect(steps).toEqual(["tables", "done"]);
+    expect(callsOf("tables").length).toBeGreaterThan(0);
+    expect(res.mappedInformations).toBeGreaterThan(0);
+    expect(mappingGap(res.model).informations).toBeLessThan(mappingGap(m).informations);
+    expectHealthy(res.model);
+    // 対応づけたシステムの設計は、そのデータベースを使う
+    for (const d of res.model.designs) expect(d.databaseIds.length).toBeGreaterThan(0);
+    // 渡したモデルは変わらない
+    expect(mappingGap(m).informations).toBeGreaterThan(0);
   });
 });
 

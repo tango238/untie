@@ -32,7 +32,7 @@ export const REVERSE_LIMITS = {
   screens: 30,
   /**
    * 会話 (段階・システム・画面) ごとに呼べる回数。1 つの会話が全部を使い切って、あとの段階が読めなくならないようにする。
-   * 1 回の生成での合計の上限は、これらの合計から決める (sourceBudget。システムの数と画面の数で増える)。
+   * 段階ごとの合計の上限は、これらの合計から決める (screensBudget・logicBudget。画面の数・システムの数で増える)。
    * 1 回の send の往復の上限 (chat.ts の MAX_STEPS) より十分小さくする (conversationSteps で検査する)。読み切ったあとに、調査結果を書く往復・提出の往復・
    * 検査で返されたときの出し直しの往復・終わりの返答の往復が残るように (調査: 上限 + 返答 1、分析モデル: 上限 + 提出 3 + 返答、
    * データ: 上限 + 提出 3 + 2 + 返答、画面: 上限 + 提出 2 + 返答)
@@ -59,6 +59,8 @@ export const REVERSE_LIMITS = {
   revisionWarnings: 10,
   /** データ・画面 UI の会話の失敗 (ChatError と、一時的な API のエラー) が続けて起きたら、残りは作らずに終える回数 */
   screenErrorStreak: 3,
+  /** 提出が、空・形の違い・必須の中身が無いなどで断られ続けたとき、これを超えたら打ち切る回数 (出し直しの回数とは別。往復の上限まで続けさせない) */
+  submitRejections: 3,
 } as const;
 
 /**
@@ -124,7 +126,7 @@ export function conversationSteps(sources = 1): Record<"survey" | "model" | "dat
 // 画面・データの依頼に入れる、分析モデルから取り出した材料) だけを次の会話の履歴 (seed) に渡す。同じ段階の出し直しは、
 // 検査の理由が会話に残るほうがよいので、1 つの会話の中で続ける。
 
-export const ABORT_MESSAGE = "中断しました。";
+const ABORT_MESSAGE = "中断しました。";
 /** 中断されていたら例外を投げる (どの段階でも、道具の呼び出しと会話の切れ目で見る) */
 export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new DOMException(ABORT_MESSAGE, "AbortError");
@@ -134,10 +136,10 @@ export const errorOutcome = (message: string): ToolOutcome => ({ ok: false, cont
 export const okOutcome = (message: string, changed: boolean): ToolOutcome => ({ ok: true, content: JSON.stringify({ result: message }), changed });
 
 /** 通知に出す、道具の名前 (画面に「name detail」と出るので、短い日本語にする) */
-const SOURCE_TOOL_LABELS: Record<string, string> = { list_files: "一覧", read_file: "読む", search_code: "探す" };
+const SOURCE_TOOL_LABELS: Record<string, string> = { list_files: "一覧", read_file: "読む", search_code: "探す", get_table: "テーブル" };
 
 /** 通知に出す、道具の対象 (読むパス・探す語) */
-export function sourceToolDetail(name: string, input: unknown): string {
+function sourceToolDetail(name: string, input: unknown): string {
   const i = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const text = name === "search_code" ? i.pattern : name === "list_files" ? i.path || "/" : i.path;
   return typeof text === "string" ? text.slice(0, 200) : "";
@@ -146,7 +148,7 @@ export function sourceToolDetail(name: string, input: unknown): string {
 export interface Ctx {
   tree: SourceTree;
   o: StageOptions;
-  /** ソースの道具の全体の予算。上限は段階に入るたびに、その段階の分だけ足す (sourceBudget と同じ合計になる) */
+  /** ソースの道具の全体の予算。上限は段階に入るたびに、その段階の分に決め直す (screensBudget・logicBudget) */
   budget: { calls: number; chars: number; usedCalls: number; usedChars: number };
 }
 
@@ -158,11 +160,11 @@ export interface SourceCap {
 }
 
 /** ソースの道具の実行。回数・文字数の上限を超えたら、実行せずに「まとめる・分かった範囲で提出する」よう結果で伝える */
-export function sourceRunner(ctx: Ctx, cap: SourceCap): (name: string, input: unknown) => Promise<ToolOutcome> {
+export function sourceRunner(ctx: Ctx, cap: SourceCap): (name: string, input: unknown, run?: () => ToolOutcome | Promise<ToolOutcome>) => Promise<ToolOutcome> {
   let used = 0;
   let chars = 0;
   const next = cap.finish === "survey" ? "調査結果をまとめてください" : "分かった範囲で提出してください";
-  return async (name, input) => {
+  return async (name, input, run) => {
     throwIfAborted(ctx.o.signal);
     if (used >= cap.calls) return errorOutcome(`この段階でソースコードを読む回数の上限 (${cap.calls} 回) に達したので、これ以上は読めません。${next}`);
     if (chars >= cap.chars) return errorOutcome(`この段階でソースコードを読んだ量の上限 (${cap.chars} 文字) に達したので、これ以上は読めません。${next}`);
@@ -175,7 +177,7 @@ export function sourceRunner(ctx: Ctx, cap: SourceCap): (name: string, input: un
     used++;
     ctx.budget.usedCalls++;
     ctx.o.onSourceTool?.(SOURCE_TOOL_LABELS[name] ?? name, sourceToolDetail(name, input));
-    const outcome = await executeSourceTool(ctx.tree, name, input);
+    const outcome = run ? await run() : await executeSourceTool(ctx.tree, name, input);
     chars += outcome.content.length;
     ctx.budget.usedChars += outcome.content.length;
     return outcome;
@@ -190,6 +192,8 @@ export function openSession(
   cap: SourceCap,
   handlers: Record<string, (input: unknown) => ToolOutcome>,
   seed: SeedTurn[],
+  /** handlers のうち、ソースの道具と同じ回数・文字数の上限に数える道具の名前 (テーブルを調べる get_table など) */
+  counted: readonly string[] = [],
 ): ChatSession {
   const runSource = sourceRunner(ctx, cap);
   const session = createChatSession(ctx.o.provider, {
@@ -201,6 +205,7 @@ export function openSession(
       if (isSourceTool(name)) return runSource(name, input);
       throwIfAborted(ctx.o.signal);
       const h = handlers[name];
+      if (h && counted.includes(name)) return runSource(name, input, () => h(input));
       return h ? h(input) : errorOutcome(`不明な道具です: ${name}`);
     },
   });
@@ -223,12 +228,12 @@ export function revisionNote(warnings: string[], retriesLeft: number, tool: stri
 // ---------------------------------------------------------------- 設計の検証の警告を、利用者向けの文にする
 
 /** 名前を 3 つまで並べる (「(A、B、C ほか)」の形。無ければ空) */
-export function sampleNames(names: string[]): string {
+function sampleNames(names: string[]): string {
   return names.length === 0 ? "" : ` (${names.slice(0, 3).join("、")}${names.length > 3 ? " ほか" : ""})`;
 }
 
 /** 検査の結果の対象 (画面・遷移の id) から、利用者に見せる名前を作る。メッセージの文字列は読み直さない */
-export function designNamer(model: UntieModel, systemId: string) {
+function designNamer(model: UntieModel, systemId: string) {
   const design = model.designs.find((d) => d.systemId === systemId);
   const screenName = (id: string): string | undefined => {
     const s = design?.screens.find((x) => x.id === id);
@@ -329,15 +334,10 @@ export function stageFailure(e: unknown, signal: AbortSignal | undefined): Stage
   return null;
 }
 
-/** 失敗が続いて残りを打ち切ったときの警告。API のエラーなら「API のエラーで途中で止まりました (残りの N 件は作れませんでした)」 */
-export function stoppedWarning(stage: "データ" | "画面 UI", failure: StageFailure, rest: number): string {
-  const streak = REVERSE_LIMITS.screenErrorStreak;
-  if (failure.kind === "api") {
-    return `${stage}: API のエラーで途中で止まりました (残りの ${stage === "データ" ? `${rest} システムのデータは` : `${rest} 画面の画面 UI は`}作れませんでした。${failure.message})`;
-  }
-  return stage === "データ"
-    ? `データ: 会話が続けて ${streak} 回失敗したので、残りの ${rest} システムのデータは作りませんでした`
-    : `画面 UI: 画面の会話が続けて ${streak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`;
+/** 画面 UI の会話の失敗が続いて残りを打ち切ったときの警告。API のエラーなら「API のエラーで途中で止まりました (残りの N 画面の画面 UI は作れませんでした)」 */
+export function stoppedWarning(failure: StageFailure, rest: number): string {
+  if (failure.kind === "api") return `画面 UI: API のエラーで途中で止まりました (残りの ${rest} 画面の画面 UI は作れませんでした。${failure.message})`;
+  return `画面 UI: 画面の会話が続けて ${REVERSE_LIMITS.screenErrorStreak} 回失敗したので、残りの ${rest} 画面は作りませんでした。しばらくしてから、設計モードの画面ボードで作ってください`;
 }
 
 /** パスの区切りに使う文字 (空白は、ラベルやファイル名に空白があっても使えるよう、区切りにしない) */

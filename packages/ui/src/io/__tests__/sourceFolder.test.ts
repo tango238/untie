@@ -258,3 +258,44 @@ describe("sameFolderAs (同じフォルダを 2 回選んだか)", () => {
     expect(await a.sameFolderAs!(treeFromFileList([new File(["x"], "x.ts")]))).toBeNull();
   });
 });
+
+describe("大きな SQL・schema.prisma (データの段階の候補探し専用の口)", () => {
+  const big = (n = MAX_FILE_BYTES + 10) => `CREATE TABLE t (id INT);\n${"x".repeat(n)}`;
+  const withFile = (name: string, text: string) => ({ kind: "file" as const, name, getFile: async () => new File([text], name) });
+
+  it("ディレクトリのハンドル: 512KB を超える SQL は files・AI の道具には出ず、schemaFiles に入って、先頭だけ・全部を読める。ほかの大きなファイルは入らない", async () => {
+    const root = mkDir("app", [withFile("dump.sql", big()), withFile("big.ts", big()), withFile("small.sql", "CREATE TABLE a (id INT);"), withFile("secrets.sql.env", big())]);
+    const tree = await treeFromDirectoryHandle(root);
+    expect(tree.files.map((f) => f.path)).toEqual(["small.sql"]);
+    expect(tree.schemaFiles!.large.map((f) => f.path)).toEqual(["dump.sql"]);
+    expect(tree.schemaFiles!.skipped).toEqual({ folder: 0, tooLarge: 0, unreadable: 0 });
+    expect((await tree.schemaFiles!.read("dump.sql", 20)).length).toBe(20);
+    expect((await tree.schemaFiles!.read("dump.sql")).length).toBe(big().length);
+    expect(await tree.schemaFiles!.read("small.sql")).toBe("CREATE TABLE a (id INT);");
+    // 道具からは、大きなダンプは見えない
+    const listed = (await executeSourceTool(tree, "list_files", {})).content;
+    expect(listed).toContain("small.sql");
+    expect(listed).not.toContain("dump.sql");
+    expect((await executeSourceTool(tree, "read_file", { path: "dump.sql" })).ok).toBe(false);
+    await expect(tree.readFile("dump.sql")).rejects.toThrow();
+  });
+
+  it("読めないファイルは、SQL・schema.prisma なら数える。getFile が投げる", async () => {
+    const root = mkDir("app", [{ kind: "file" as const, name: "a.sql", getFile: async () => Promise.reject(new Error("権限")) }, { kind: "file" as const, name: "a.ts", getFile: async () => Promise.reject(new Error("権限")) }]);
+    const tree = await treeFromDirectoryHandle(root);
+    expect(tree.schemaFiles!.skipped.unreadable).toBe(1);
+  });
+
+  it("<input webkitdirectory> の File の一覧: 大きな SQL は schemaFiles に入る。除外フォルダの下の SQL は件数に数える", async () => {
+    const f = (path: string, text: string) => {
+      const file = new File([text], path.split("/").pop()!);
+      Object.defineProperty(file, "webkitRelativePath", { value: `app/${path}` });
+      return file;
+    };
+    const tree = treeFromFileList([f("db/dump.sql", big()), f("src/a.ts", "x"), f("node_modules/x/seed.sql", "CREATE TABLE z (id INT);"), f("big.prisma", `model A {\n  id Int @id\n}\n${"//".repeat(MAX_FILE_BYTES)}`)]);
+    expect(tree.files.map((x) => x.path)).toEqual(["src/a.ts"]);
+    expect(tree.schemaFiles!.large.map((x) => x.path).sort()).toEqual(["big.prisma", "db/dump.sql"]);
+    expect(tree.schemaFiles!.skipped.folder).toBe(1);
+    expect((await tree.schemaFiles!.read("db/dump.sql", 10)).length).toBe(10);
+  });
+});

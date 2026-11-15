@@ -53,6 +53,11 @@ interface AgentState {
   cancel: () => void;
   /** プロンプトからの作成のあと、その会話を引き継いでペインを開く */
   continueFrom: (seed: SeedTurn[], items: { role: ChatItemRole; text: string }[]) => void;
+  /**
+   * すでにある会話は消さずに、あとへ足す (「ソースコードから作成」の段階が終わったとき)。items は画面に出す行で、seed は AI への次の発言の文脈に入る履歴
+   * (会話のセッションがあればそこへ、無ければ次にセッションを作るときの最初の履歴へ)。ペインが作業中なら何もしない (false)
+   */
+  appendContext: (seed: SeedTurn[], items: { role: ChatItemRole; text: string }[]) => boolean;
   /** 課題の深掘りを始める。新しい会話にし、課題と対象のまわりを渡して最初の質問をもらう */
   startGrill: (issueId: string) => Promise<void>;
   /** 深掘りを終えて通常の会話に戻る (会話の表示は残し、次の発言から新しい会話) */
@@ -207,6 +212,13 @@ export const useAgentStore = create<AgentState>()((set, get) => {
       resetSession();
       pendingSeed = seed;
       set({ open: true, mode: { kind: "edit" }, items: items.map((i) => ({ id: ++seq, role: i.role, text: i.text })) });
+    },
+    appendContext: (seed, items) => {
+      if (get().running) return false;
+      if (session) session.seed(seed);
+      else pendingSeed = [...(pendingSeed.length > 0 ? pendingSeed : recoverySeed()), ...seed];
+      set((s) => ({ open: true, items: [...s.items, ...items.map((i) => ({ id: ++seq, role: i.role, text: i.text }))] }));
+      return true;
     },
     startGrill: async (issueId) => {
       if (get().running) return;

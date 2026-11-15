@@ -4,7 +4,9 @@ import { addElement, emptyModel } from "@untie/core";
 import { useAgentStore } from "../../ai/agentStore";
 import { PROVIDERS } from "../../ai/providers";
 import { getApiKey } from "../../ai/keys";
-import { reverseLogic, type LogicResult } from "../../ai/reverseLogic";
+import { mappingGap, reverseLogic, reverseMapping, type LogicResult } from "../../ai/reverseLogic";
+import { applyDataImport } from "../../ai/reverseData";
+import { buildModelFromSpec } from "../../ai/spec";
 import { reverseScreens, type ScreensResult } from "../../ai/reverseScreens";
 import { forgetSources } from "../../ai/sourceRegistry";
 import { MAX_SOURCES, memorySourceTree, type SourceTree } from "../../ai/sourceTree";
@@ -20,7 +22,7 @@ vi.mock("../../ai/keys", async (importOriginal) => ({
   getApiKey: vi.fn().mockResolvedValue("sk-test"),
 }));
 vi.mock("../../ai/reverseScreens", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../ai/reverseScreens")>()), reverseScreens: vi.fn() }));
-vi.mock("../../ai/reverseLogic", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../ai/reverseLogic")>()), reverseLogic: vi.fn() }));
+vi.mock("../../ai/reverseLogic", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../ai/reverseLogic")>()), reverseLogic: vi.fn(), reverseMapping: vi.fn() }));
 // sqlImport は別の担当が実装している。SQL に CREATE TABLE があれば、FIXTURE_DSL (Order・OrderItem・Product) を返す偽物にする
 vi.mock("@untie/core/model/sqlImport", () => ({
   sqlFilesToPrismaDsl: (files: { path: string; text: string }[]) => {
@@ -96,6 +98,7 @@ const progressOf = (c: ReturnType<typeof card>) => c.getByText(/^進み具合: /
 beforeEach(() => {
   resetStore(emptyModel("テスト"));
   forgetSources();
+  useAgentStore.setState({ items: [], running: false });
   mockedScreens.mockReset();
   mockedLogic.mockReset();
   vi.mocked(getApiKey).mockResolvedValue("sk-test");
@@ -368,6 +371,261 @@ describe("CreateFromSourceDialog: 段階 1 データ (AI を使わない)", () =
   });
 });
 
+describe("CreateFromSourceDialog: 段階 1 データ (マイグレーション・大きなダンプ・競合)", () => {
+  const flyway = memorySourceTree("shop-api", {
+    "db/migration/V10__more.sql": "ALTER TABLE a ADD COLUMN c INT;",
+    "db/migration/V1__init.sql": "CREATE TABLE a (id INT);",
+    "db/migration/V2__add.sql": "ALTER TABLE a ADD COLUMN b INT;",
+    "db/migration/U2__undo.sql": "CREATE TABLE a (id INT);",
+  });
+  async function open(t: SourceTree) {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(t);
+    await waitFor(() => expect(dataCard().getByRole("list", { name: "スキーマ定義の候補" })).toBeDefined());
+  }
+  const list = () => dataCard().getByRole("list", { name: "スキーマ定義の候補" });
+  const box = (name: RegExp) => within(list()).getByRole("checkbox", { name }) as HTMLInputElement;
+
+  it("マイグレーションの組: 進む向きを全部、当てる順 (V2 は V10 より前) に並べて選び、取り消し用は印を付けて選ばない。組の見出しが出る。一覧は高さを抑えてスクロールできる", async () => {
+    await open(flyway);
+    const order = within(list()).getAllByRole("checkbox").map((c) => (c.closest("label")!.querySelector(".candidate-path") as HTMLElement).textContent);
+    // 取り消し用 (U2) は、同じ番号の進む向き (V2) のすぐあと
+    expect(order).toEqual(["db/migration/V1__init.sql", "db/migration/V2__add.sql", "db/migration/U2__undo.sql", "db/migration/V10__more.sql"]);
+    expect(["V1__", "V2__", "V10__", "U2__"].map((n) => box(new RegExp(n)).checked)).toEqual([true, true, true, false]);
+    expect(within(list()).getByText(/当てる順 3/)).toBeDefined();
+    expect(within(list()).getByText(/取り消し用 \(既定では選びません\)/)).toBeDefined();
+    expect(within(list()).getByRole("note").textContent).toMatch(/マイグレーション: db\/migration \(3 件・取り消し用 1 件。上から順に当てます\)/);
+    expect(list().className).toContain("candidate-scroll");
+    expect(dataCard().queryByText(/一部だけ選ばれています/)).toBeNull();
+  });
+
+  it("組の一部だけ (または取り消し用を) 選ぶと、「順に全部当てないと最後の形になりません」と知らせる", async () => {
+    await open(flyway);
+    fireEvent.click(box(/V2__/));
+    expect(dataCard().getByText(/マイグレーションは順に全部当てないと、最後の形になりません/)).toBeDefined();
+    fireEvent.click(box(/V2__/));
+    expect(dataCard().queryByText(/マイグレーションは順に全部当てないと/)).toBeNull();
+    fireEvent.click(box(/U2__/));
+    expect(dataCard().getByText(/マイグレーションは順に全部当てないと/)).toBeDefined();
+  });
+
+  it("512KB を超えるダンプも候補に出る (大きなファイルと表示)。落ちた件数と理由 (除外フォルダ) を出し、「SQL のファイルを選ぶ」を案内する", async () => {
+    const dump = `CREATE TABLE logs (id INT);\n${"INSERT INTO logs VALUES (1);\n".repeat(25000)}`;
+    await open(memorySourceTree("shop-api", { "db/dump.sql": dump, "node_modules/x/seed.sql": "CREATE TABLE z (id INT);" }));
+    expect(box(/db\/dump\.sql/).checked).toBe(true);
+    expect(within(list()).getByText(/大きなファイル/)).toBeDefined();
+    expect(dataCard().getByText(/除外したフォルダ.*1 件/)).toBeDefined();
+    expect(dataCard().getByText(/SQL のファイルを選ぶ/, { selector: "p" })).toBeDefined();
+  });
+
+  it("ソースが複数あるとき、既定はスキーマの見つかった先頭のソースだけ。取り込むと、次のソースを選ぶ。ソースごとにデータベースの名前が決まる", async () => {
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder(memorySourceTree("api-a", { "db/schema.sql": "CREATE TABLE a (id INT);" }));
+    fireEvent.click(screen.getByRole("button", { name: "ソースコードの場所を足す" }));
+    memory().sourceTree = memorySourceTree("api-b", { "db/schema.sql": "CREATE TABLE b (id INT);" });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /^フォルダを選ぶ…$/ })[0]!);
+    });
+    await waitFor(() => expect(within(list()).getAllByRole("checkbox")).toHaveLength(2));
+    const checks = () => within(list()).getAllByRole("checkbox").map((c) => (c as HTMLInputElement).checked);
+    expect(checks()).toEqual([true, false]);
+    expect(dataCard().getByText(/ほかのソースにもスキーマがあります/)).toBeDefined();
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "取り込む" }));
+    });
+    expect(useUntieStore.getState().model.databases).toHaveLength(1);
+    await waitFor(() => expect(checks()).toEqual([false, true]));
+    expect(dataCard().queryByText(/ほかのソースにもスキーマがあります/)).toBeNull();
+    expect(within(list()).getByText(/取り込み済みのソース/)).toBeDefined();
+  });
+
+  it("AI のペインが作業中は、取り込むを押せず、理由を出す。取り込みの処理も断る (会話の履歴にまとまらない)", async () => {
+    await open(treeWithSql);
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    useAgentStore.setState({ running: true });
+    await waitFor(() => expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(true));
+    expect(dataCard().getByText(/AI のペインが作業中です/)).toBeDefined();
+    useAgentStore.setState({ running: false });
+    await waitFor(() => expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(false));
+    // ペインの編集の途中 (agentBase あり) も断る
+    useUntieStore.getState().beginAgentEdit();
+    await waitFor(() => expect((dataCard().getByRole("button", { name: "取り込む" }) as HTMLButtonElement).disabled).toBe(true));
+    useUntieStore.getState().endAgentEdit();
+  });
+
+  it("置き換えの確認に、手で直した分も置き換わること・元に戻せることを添える。確認のあとで名前を変えると、確認は取り消される (別の名前では取り込まない)", async () => {
+    const seeded = { ...useUntieStore.getState().model, databases: [{ id: "db1", name: "aozora-apiのデータベース", dsl: FIXTURE_DSL, tables: [] }] };
+    resetStore(seeded);
+    await open(treeWithSql);
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "取り込む" }));
+    });
+    expect(screen.getByRole("alert").textContent).toMatch(/手で直した分を含む\) は置き換わります。元に戻す \(Undo\) で戻せます/);
+    fireEvent.change(dataCard().getByLabelText("データベースの名前"), { target: { value: "別の名前" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(useUntieStore.getState().model.databases).toHaveLength(1);
+  });
+
+  it("段階 2・3 を実行している間も、データの段階の選んだ候補・変換の結果は消えない (カードを外さない)", async () => {
+    mockedLogic.mockImplementation(() => new Promise(() => {}));
+    await open(treeWithSql);
+    fireEvent.click(box(/001_init/));
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(dataCard().getByText(/^変換の結果/)).toBeDefined());
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(mockedLogic).toHaveBeenCalled());
+    // 実行中は隠れているだけで、状態は残っている
+    expect(document.querySelector("[hidden] .stage-card")).not.toBeNull();
+    const hiddenBox = [...document.querySelectorAll<HTMLInputElement>("[hidden] .candidate-row input")].find((i) => /001_init/.test(i.closest("label")!.textContent ?? ""))!;
+    // 利用者が足したチェックが残っている (既定では選ばれていないファイル)
+    expect(hiddenBox.checked).toBe(true);
+    expect([...document.querySelectorAll("[hidden] .stage-preview .prompt-step")].some((e) => /^変換の結果/.test(e.textContent ?? ""))).toBe(true);
+  });
+
+  it("変換を押したあとで選び直すと、古い変換の結果は出ない", async () => {
+    let release!: (t: string) => void;
+    const slow = memorySourceTree("shop-api", { "db/schema.sql": "CREATE TABLE a (id INT);" });
+    const orig = slow.readFile.bind(slow);
+    slow.readFile = (p: string) => (p === "db/schema.sql" ? new Promise<string>((r) => (release = r)) : orig(p));
+    (slow as { schemaFiles?: unknown }).schemaFiles = undefined;
+    // 候補探しの読み取りは通す (最初の 1 回だけ)
+    let first = true;
+    const read = slow.readFile;
+    slow.readFile = (p: string) => (first && ((first = false), true) ? orig(p) : read(p));
+    await open(slow);
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    // 読んでいる最中に、選ぶ組を替える
+    fireEvent.click(box(/db\/schema\.sql/));
+    await act(async () => {
+      release("CREATE TABLE a (id INT);");
+    });
+    expect(dataCard().queryByText(/^変換の結果/)).toBeNull();
+  });
+
+  it("読めないときの案内: フォルダの読み取りの権限が切れた可能性を伝える", async () => {
+    const t = memorySourceTree("shop-api", { "db/schema.sql": "CREATE TABLE a (id INT);" });
+    await open(t);
+    t.schemaFiles!.read = async () => {
+      throw new Error("NotAllowedError");
+    };
+    t.readFile = async () => {
+      throw new Error("NotAllowedError");
+    };
+    await act(async () => {
+      fireEvent.click(dataCard().getByRole("button", { name: "変換して確かめる" }));
+    });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/権限が切れた可能性/));
+  });
+});
+
+describe("CreateFromSourceDialog: テーブルと情報の対応 (単独の入口と勧め)", () => {
+  /** 業務・画面・情報のあるモデルに、あとからデータを取り込んだ状態 (段階 3 → 2 → 1 の順)。情報「注文」とテーブル Order は、名前が合うが結ばれていない */
+  function laterData(): ReturnType<typeof useUntieStore.getState>["model"] {
+    const built = buildModelFromSpec({
+      system_name: "x",
+      actors: [{ name: "担当" }],
+      systems: [{ name: "ショップ" }],
+      informations: [{ name: "注文" }, { name: "商品" }],
+      businesses: [{ name: "受注", main_actors: ["担当"], activities: [{ name: "注文を受ける", performers: ["担当"], usecases: [{ name: "注文を登録する", writes: ["注文", "商品"], targets: ["ショップ"] }] }] }],
+    }).model;
+    return applyDataImport(built, { name: "ショップDB", dsl: 'model Order {\n  id String @id\n  @@map("注文")\n}\n\nmodel Item {\n  id String @id\n}\n' }).model;
+  }
+
+  it("データを後から取り込んだ状態 (業務が終わっている) でも、どの段階のあとにも、未対応の情報とテーブルがあれば「テーブルと情報の対応」を勧める", () => {
+    const m = laterData();
+    expect(mappingGap(m)).toMatchObject({ informations: 2, tables: 2 });
+    // 業務は済んでいて、データを後から取り込んだ: 画面がまだなら画面、あとはどの段階のあとでも「テーブルと情報の対応」
+    expect(recommendNext(m, "data")?.stage).toBe("screens");
+    expect(recommendNext(m, "screens")?.stage).toBe("mapping");
+    expect(recommendNext(m, "logic")?.stage).toBe("mapping");
+    expect(recommendNext(m, "screens")?.reason).toMatch(/情報が 2 件.*テーブルが 2 件/);
+    // 対応がそろえば勧めない
+    const info = m.elements.filter((e) => e.kind === "information").map((e) => e.id);
+    const mappedAll = { ...m, databases: m.databases.map((d) => ({ ...d, tables: [{ table: "Order", informationIds: [info[0]!] }, { table: "Item", informationIds: [info[1]!] }] })) };
+    expect(mappingGap(mappedAll)).toMatchObject({ informations: 0, tables: 0 });
+    expect(recommendNext(mappedAll, "screens")).toBeNull();
+    // 画面の段階のあとの結果の欄にも出る
+    expect(stageProgress(m).mapping).toEqual({ text: "未対応の情報 2・テーブル 2", done: false });
+  });
+
+  it("単独の入口: 業務のカードに、未対応の情報・テーブルの数が出る。名前が合うものは、AI を使わずに結べる (1 件の履歴。Undo で戻る)", async () => {
+    resetStore(laterData());
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(logicCard().getByText(/どのテーブルにも対応していない情報が 2 件、どの情報にも対応していないテーブルが 2 件/)).toBeDefined();
+    const details = logicCard().getByText(/名前が合うものを、AI を使わずに結ぶ \(1 組\)/);
+    fireEvent.click(details);
+    expect(within(logicCard().getByRole("list", { name: "名前が合うテーブルと情報" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["ショップDB / Order ↔ 情報「注文」 (もとの名前が一致)"]);
+    await act(async () => {
+      fireEvent.click(logicCard().getByRole("button", { name: "名前が合うものを結ぶ" }));
+    });
+    expect(screen.getByText(/名前が合うテーブルと情報 1 組を結びました/)).toBeDefined();
+    const db = useUntieStore.getState().model.databases[0]!;
+    expect(db.tables.find((t) => t.table === "Order")!.informationIds).toHaveLength(1);
+    expect(useUntieStore.getState().history.past).toHaveLength(1);
+    expect(mockedLogic).not.toHaveBeenCalled();
+    useUntieStore.getState().undo();
+    expect(useUntieStore.getState().model.databases[0]!.tables.some((t) => t.informationIds.length > 0)).toBe(false);
+  });
+
+  it("AI でテーブルと情報を結ぶ: ソースを登録するまで押せない。押すと reverseMapping が今のモデルで呼ばれ、結果が 1 件の履歴で反映される", async () => {
+    const base = laterData();
+    resetStore(base);
+    const mapped = vi.mocked(reverseMapping);
+    mapped.mockReset();
+    mapped.mockImplementation(async () => ({
+      model: { ...base, databases: base.databases.map((d) => ({ ...d, tables: [{ table: "Item", informationIds: [base.elements.find((e) => e.name === "商品")!.id] }] })) },
+      mappedInformations: 1,
+      warnings: [],
+      summary: "テーブルと情報の対応を付けました (対応づいた情報 1 件)。",
+      seed: [{ role: "user", text: "u" }, { role: "assistant", text: "a" }],
+    }));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    const button = () => logicCard().getByRole("button", { name: "AI でテーブルと情報を結ぶ" }) as HTMLButtonElement;
+    expect(button().disabled).toBe(true);
+    await pickFolder();
+    expect(button().disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(button());
+    });
+    await waitFor(() => expect(screen.getByText(/テーブルと情報の対応の段階が終わりました/)).toBeDefined());
+    expect(mapped.mock.calls[0]![0]).toBe(base);
+    expect(useUntieStore.getState().history.past).toHaveLength(1);
+  });
+
+  it("中断すると、できた分も反映されないことを、実行中に知らせる。AI に送るものの説明は、段階ごとの実装に合っている", async () => {
+    mockedScreens.mockImplementation(() => new Promise(() => {}));
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    expect(screensCard().getByText(/すでにモデルにあるシステム・画面.*使う操作の名前.*データベース \(テーブルと列の名前\).*業務・情報・登場人物の名前/)).toBeDefined();
+    expect(screensCard().getByText(/画面 UI を作る依頼には、さらに.*操作・扱う情報・条件・状態の名前と説明.*テーブルと列の名前と型/)).toBeDefined();
+    expect(logicCard().getByText(/テーブルと情報の対応を付けるときは、さらに.*情報と画面の名前と説明/)).toBeDefined();
+    expect(dataCard().getByText(/取り込んだテーブル定義 \(テーブル・列の名前と型。コメントと既定値を含む DSL\) は、あとの段階や AI のペインで使うと AI に送られます/)).toBeDefined();
+    await pickFolder();
+    await act(async () => {
+      fireEvent.click(goButton(screensCard()));
+    });
+    await waitFor(() => expect(mockedScreens).toHaveBeenCalled());
+    expect(screen.getByText(/中断すると、この段階でできた分も反映されません/)).toBeDefined();
+  });
+});
+
 describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () => {
   it("画面の段階: 今のモデルを土台に reverseScreens が呼ばれ、範囲が渡る。進み具合が出て、終わると結果と次の段階を出して閉じない", async () => {
     let opts!: Parameters<typeof reverseScreens>[2];
@@ -430,7 +688,8 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     // 畳む: 登録欄・カード・入力欄は無く、要約と段階の進み具合
     expect(screen.queryByRole("list", { name: "ソースコードの場所" })).toBeNull();
     expect(screen.queryByRole("heading", { name: /^1\. データ/ })).toBeNull();
-    expect(screen.queryByLabelText("モデルに起こしたい業務")).toBeNull();
+    // (外してはいない。データの段階で選んだ候補・変換の結果が消えないよう、隠しているだけ)
+    expect(screen.getByLabelText("モデルに起こしたい業務").closest("[hidden]")).not.toBeNull();
     expect(document.querySelector(".source-summary-sources")!.textContent).toBe("ソースコード「shop-app」");
     expect(document.querySelector(".source-summary-request")!.textContent).toBe("画面の段階");
     fireEvent.click(screen.getByRole("button", { name: "中断" }));
@@ -456,10 +715,13 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
     expect(useAgentStore.getState().open).toBe(true);
   });
 
-  it("段階をまたいで引き継ぐ会話に、前の段階の要約が残る", async () => {
-    mockedScreens.mockImplementation(async () => screensResult());
+  it("段階をまたいでも、AI のペインの会話は置き換えない。最初の段階はその段階の会話でペインを始め、次からは要約を足す", async () => {
+    mockedScreens.mockImplementation(async () => screensResult({ seed: [{ role: "user", text: "画面の seed" }] }));
     mockedLogic.mockImplementation(async () => logicResult({ seed: [{ role: "user", text: "業務の seed" }] }));
-    const spy = vi.spyOn(useAgentStore.getState(), "continueFrom");
+    const real = useAgentStore.getState();
+    const first = vi.fn(real.continueFrom);
+    const next = vi.fn(real.appendContext);
+    useAgentStore.setState({ continueFrom: first, appendContext: next });
     render(<CreateFromSourceDialog onClose={() => {}} />);
     await pickFolder();
     await fill();
@@ -467,13 +729,35 @@ describe("CreateFromSourceDialog: 段階 2 画面・段階 3 業務 (AI)", () =>
       fireEvent.click(goButton(screensCard()));
     });
     await waitFor(() => expect(screen.getByText(/画面の段階が終わりました/)).toBeDefined());
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(first.mock.calls[0]![0].map((t) => t.text)).toEqual(["画面の seed"]);
     await act(async () => {
       fireEvent.click(startButton());
     });
     await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
-    const seeds = spy.mock.calls.map((c) => c[0].map((t) => t.text));
-    expect(seeds[seeds.length - 1]).toEqual(["ソースコードから「画面」の段階を実行しました。", "画面を足しました", "業務の seed"]);
-    spy.mockRestore();
+    // 2 回目は置き換えず、要約を足す
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0]![0].map((t) => t.text)).toEqual(["ソースコードから「業務」の段階を実行しました。", "業務を足しました"]);
+    const texts = useAgentStore.getState().items.map((i) => i.text);
+    expect(texts).toContain("画面を足しました");
+    expect(texts).toContain("業務を足しました");
+    useAgentStore.setState({ continueFrom: real.continueFrom, appendContext: real.appendContext });
+  });
+
+  it("AI のペインで続けていた会話は、段階が終わっても消えない (会話に、段階の要約が足される)", async () => {
+    mockedLogic.mockImplementation(async () => logicResult());
+    useAgentStore.setState({ items: [{ id: 900, role: "user", text: "いまの会話" }, { id: 901, role: "assistant", text: "はい" }] });
+    render(<CreateFromSourceDialog onClose={() => {}} />);
+    await pickFolder();
+    await fill();
+    await act(async () => {
+      fireEvent.click(startButton());
+    });
+    await waitFor(() => expect(screen.getByText(/業務の段階が終わりました/)).toBeDefined());
+    const items = useAgentStore.getState().items.map((i) => i.text);
+    expect(items.slice(0, 2)).toEqual(["いまの会話", "はい"]);
+    expect(items).toContain("業務を足しました");
   });
 
   it("API キーが無ければ、画面・業務の段階では理由を出して始めない (データの段階は使える)", async () => {

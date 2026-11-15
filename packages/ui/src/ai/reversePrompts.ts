@@ -7,6 +7,7 @@ import type { UntieModel } from "@untie/core/model/types";
 import type { SourceSummary } from "./sourceTree";
 import { screenSystemPrompt } from "./designScreen";
 import { MODEL_DESCRIPTION } from "./prompts";
+import { describeTablesForRequest } from "./reverseTables";
 
 /** ソースが複数のときだけ、システムの指示に足す (パスの先頭がラベルになること・ラベルの扱い・システムと画面の写し方) */
 const MULTI_SOURCE_SYSTEM = `
@@ -49,6 +50,7 @@ const SCREENS_RULES = `画面の段階の考え方:
 /** 業務の段階の考え方 */
 const LOGIC_RULES = `ソースから業務へ引き上げる考え方:
 - コントローラー・ハンドラー・ジョブ・メソッドの名前をそのまま操作の名前にしない。業務の言葉で、人の作業 (活動の中の作業) と、その作業の中でのシステムの操作 (画面で行う 1 回の操作) に分ける
+- 操作の名前は、どの業務の何の操作か分かる具体的な名前にする (「登録する」「確認する」ではなく「予約を登録する」「請求を確認する」)。すでにある別の業務の操作と同じ名前にすると、別の操作として作られて、名前が重なる
 - 人が担当しない処理 (バッチ・定期ジョブ・webhook・メッセージの購読・イベントハンドラー・自動の連鎖) は、作業にしない。イベント (発生タイミングを付けられる) をきっかけにした操作として書き、起こすシステムか操作を raised_by に書く
 - 人が誰も関わらない処理だけで 1 つの業務を作らない (業務には主担当の人が要る)。そうした処理はイベントをきっかけにした操作として書き、業務には入れない。その処理の結果を人が使う作業 (集計を見る・結果を確かめる、など) がソースにあるときだけ、その作業を業務に入れる。主担当は、ソースから読み取れる人だけにする。読み取れないときに、関係のないアクターを推測で付けない
 - 権限・ロール (admin・staff・customer など) は、アクターか外部アクターにする。ログインしない利用者 (お客様など) は外部アクター。外部サービス (決済・メール・配送など) は、人が使うなら外部アクター、システムとして連携するならシステムにする
@@ -87,7 +89,7 @@ ${LOGIC_RULES}${multi ? MULTI_SOURCE_SYSTEM : ""}`;
 }
 
 /** ソースの一覧 (ラベル・フォルダ名・読めるファイル数・打ち切り) を、依頼に入れる文にする */
-export function describeSources(sources: readonly SourceSummary[]): string {
+function describeSources(sources: readonly SourceSummary[]): string {
   return sources
     .map((s) => {
       const notes = [
@@ -114,7 +116,7 @@ const MULTI_SOURCE_SURVEY = `
 `;
 
 /** すでにモデルにあるシステム・画面・データベースなどを、依頼に入れる材料にするときの数の上限 */
-const EXISTING_LIMITS = { systems: 30, screensPerSystem: 60, tables: 60, columns: 30, names: 80 } as const;
+const EXISTING_LIMITS = { systems: 30, screensPerSystem: 60, tables: 40, columns: 20, otherTables: 300, names: 80 } as const;
 
 /** すでにモデルにある要素の名前を、種類ごとに上限までの名前の並びにする (多いときは先頭だけで、残りの数を添える) */
 function nameList(model: UntieModel, kind: string): { names: string[]; more: number } {
@@ -122,14 +124,15 @@ function nameList(model: UntieModel, kind: string): { names: string[]; more: num
   return { names: all.slice(0, EXISTING_LIMITS.names), more: Math.max(0, all.length - EXISTING_LIMITS.names) };
 }
 
-/** 依頼に入れる、すでにあるデータベース (名前・テーブルと列)。テーブルと情報の対応はここでは入れない (describeSharedDatabases が入れる) */
-function describeTables(model: UntieModel): { name: string; tables: { table: string; columns: string[] }[]; note?: string }[] {
+/** 依頼に入れる、すでにあるデータベース (名前・テーブルと列)。数百のテーブルになりうるので、列つきは先頭だけで、残りは名前だけ (テーブルと情報の対応はここでは入れない) */
+function describeTables(model: UntieModel): { name: string; tables: { table: string; columns: string[] }[]; otherTables?: string[]; note?: string }[] {
   return model.databases.map((db) => {
     const models = parsePrismaDslCached(db.dsl).models;
+    const rest = models.slice(EXISTING_LIMITS.tables).map((m) => m.name);
     return {
       name: db.name,
       tables: models.slice(0, EXISTING_LIMITS.tables).map((m) => ({ table: m.name, columns: m.fields.slice(0, EXISTING_LIMITS.columns).map((f) => f.name) })),
-      ...(models.length > EXISTING_LIMITS.tables ? { note: `テーブルは ${models.length} 件のうち先頭 ${EXISTING_LIMITS.tables} 件だけ示した` } : {}),
+      ...(rest.length > 0 ? { otherTables: rest.slice(0, EXISTING_LIMITS.otherTables), note: `テーブルは ${models.length} 件。先頭 ${EXISTING_LIMITS.tables} 件だけ列を示し、残りは名前だけ${rest.length > EXISTING_LIMITS.otherTables ? ` (先頭 ${EXISTING_LIMITS.otherTables} 件)` : ""}` } : {}),
     };
   });
 }
@@ -343,33 +346,10 @@ export function clipSurvey(text: string, max: number): string {
   return `${[...taken.entries()].sort((a, b) => a[0] - b[0]).map(([, piece]) => piece).join("\n")}${note}`;
 }
 
-/** 依頼に入れる、すでにあるデータベースの数・テーブルの数・列の数の上限 */
-const SHARED_DB_LIMITS = { tables: 60, columns: 30, informationNames: 80 } as const;
-
-/** すでにあるデータベース (名前・テーブルと列・テーブルが表す情報のいまの対応) を、依頼に入れる JSON 文字列にする */
-export function describeSharedDatabases(model: UntieModel, databaseIds: readonly string[]): string {
-  const infoName = new Map(model.elements.map((e) => [e.id, e.name]));
-  const dbs = databaseIds
-    .map((id) => model.databases.find((d) => d.id === id))
-    .filter((d): d is NonNullable<typeof d> => !!d)
-    .map((db) => {
-      const models = parsePrismaDslCached(db.dsl).models;
-      return {
-        name: db.name,
-        tables: models.slice(0, SHARED_DB_LIMITS.tables).map((m) => ({
-          table: m.name,
-          columns: m.fields.slice(0, SHARED_DB_LIMITS.columns).map((f) => f.name),
-          informations: (db.tables.find((t) => t.table === m.name)?.informationIds ?? []).map((i) => infoName.get(i) ?? i),
-        })),
-        ...(models.length > SHARED_DB_LIMITS.tables ? { note: `テーブルは ${models.length} 件のうち先頭 ${SHARED_DB_LIMITS.tables} 件だけ示した` } : {}),
-      };
-    });
-  return JSON.stringify(dbs, null, 2);
-}
-
 /**
  * 業務の段階: システムが使う情報と、すでにあるデータベースのテーブルの対応の依頼。use_database で、まだどのテーブルにも結ばれていない情報を、
- * すでにあるデータベースのテーブルに結ぶ (すでにある対応は消えず、足される)
+ * すでにあるデータベースのテーブルに結ぶ (すでにある対応は消えず、足される)。テーブルは、情報の名前・画面の説明に名前が出るものと関連先だけを列つきで入れ、
+ * 残りは名前だけ (列は get_table で調べる)
  */
 export function reverseTableMapRequest(model: UntieModel, systemId: string, databaseIds: readonly string[]): string {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
@@ -382,7 +362,9 @@ export function reverseTableMapRequest(model: UntieModel, systemId: string, data
   const screens = model.elements
     .filter((e) => e.kind === "screen" && e.systemId === systemId)
     .map((e) => ({ name: e.name, ...(e.description ? { description: e.description } : {}) }));
-  return `システム「${system?.name ?? ""}」が使う情報と、すでにあるデータベースのテーブルの対応を付けます。調査結果と、作ったモデルをもとに、use_database を提出してください。
+  const hint = [...infos.flatMap((i) => [i.name, i.description ?? ""]), ...screens.flatMap((x) => [x.name, x.description ?? ""])].join("\n");
+  const databases = describeTablesForRequest(model, databaseIds, hint);
+  return `システム「${system?.name ?? ""}」が使う情報と、すでにあるデータベースのテーブルの対応を付けます。調査結果 (あれば) と、作ったモデルをもとに、use_database を提出してください。
 
 <システムが使う情報 (名前で結ぶ)>
 ${infos.length > 0 ? JSON.stringify(infos, null, 2) : "(このシステムを対象にした操作が扱う情報はありません)"}
@@ -392,11 +374,11 @@ ${infos.length > 0 ? JSON.stringify(infos, null, 2) : "(このシステムを対
 ${JSON.stringify(screens, null, 2)}
 </システムの画面>
 
-<すでにあるデータベース (名前・テーブルと列・テーブルが表す情報のいまの対応)>
-${describeSharedDatabases(model, databaseIds)}
+<すでにあるデータベース (名前・テーブルと列・テーブルが表す情報のいまの対応${databases.narrowed ? "。情報に関わるテーブルだけ列を書いた。otherTables は名前だけで、列は get_table で調べる" : ""})>
+${databases.text}
 </すでにあるデータベース>
 
-- use_database の database には、すでにあるデータベースの名前を書く。このシステムのデータが入っているデータベースを選ぶ (画面が呼ぶ API・ハンドラーが読み書きするテーブルから決める。必要なら道具でソースを読んでよい)
+- use_database の database には、すでにあるデータベースの名前を書く。このシステムのデータが入っているデータベースを選ぶ (画面が呼ぶ API・ハンドラーが読み書きするテーブルから決める。必要なら道具でソースを読んでよい)${databases.narrowed ? "\n- 名前だけのテーブルが情報に対応しそうなときは、get_table で列を確かめてから結ぶ (呼べる回数に上限がある)" : ""}
 - tables には、このシステムの情報のうち、まだどのテーブルにも結ばれていないものを、そのデータベースのテーブルに結ぶ形で書く (すでにある対応は消えず、足される)。1 つの情報を複数のテーブルが表してもよい
 - 対応するテーブルがソースに無い情報は、無理に結ばない (tables に書かない)。推測で別のテーブルを作らない
 - 情報の名前は、上の一覧にあるものだけ。テーブルは、DSL にある model の名前だけ
@@ -414,7 +396,7 @@ export interface ScreenSourceHint {
 /**
  * 段階 4: 画面 UI の依頼。states は、この画面の操作に関わる状態の名前 (モデルの状態。一覧の例の値で状態を出すときに使う)
  */
-export function reverseScreenRequest(material: string, screenName: string, hint?: ScreenSourceHint, states: readonly string[] = []): string {
+export function reverseScreenRequest(material: string, screenName: string, hint?: ScreenSourceHint, states: readonly string[] = [], narrowed = false): string {
   const sourceRule = hint
     ? `
 - ソースが複数あります (ラベル: ${hint.labels.map((l) => `「${l}」`).join("")})。${
@@ -427,7 +409,7 @@ export function reverseScreenRequest(material: string, screenName: string, hint?
 
 ---- ソースコードから作る場合の追加の決まり ----
 - この会話で作るのは画面「${screenName}」だけ。画面の説明にあるパスや、search_code で見つけたこの画面のソース (テンプレート・コンポーネント) を読み、項目・一覧の列・ボタンをソースから写す。ソースに無い項目・ボタンは作らない。読みすぎない
-- 項目と列は、上の「使うデータベース」のテーブルと列に結ぶ (bindings)。bindings の database には、データベースの名前を書く (使うデータベースが 1 つなら省略してよい)。対応するテーブル・列がソースに無い項目は、結ばなくてよい
+- 項目と列は、上の「使うデータベース」のテーブルと列に結ぶ (bindings)。${narrowed ? "otherTables にあるテーブルは名前だけなので、列を知りたいときは get_table で調べる (呼べる回数に上限がある。画面に関わるテーブルだけ調べる)。" : ""}bindings の database には、データベースの名前を書く (使うデータベースが 1 つなら省略してよい)。対応するテーブル・列がソースに無い項目は、結ばなくてよい
 - submit_screen に書くのは、id ではなく名前。screen はこの画面の名前、遷移先 (view の to) は上の「この画面からの遷移」の toName にある画面の名前、bindings の database はデータベースの名前。上の材料に id が書いてあっても、id は書かない
 - 例 (example) には架空の値を入れる。ソースの中の実在の値は写さない。一覧の例の値で状態を出すときは、モデルの状態の名前を使う${states.length > 0 ? ` (この画面の操作に関わる状態: ${states.map((n) => `「${n}」`).join("")})` : ""}
 - 項目の説明・注記 (help・note など、利用者に見える文) には、ソースの不整合や開発者向けのメモ (「ソースでは〜と違う」「TODO」など) を書かない。そういう気づきは、画面 UI ではなく分析モデルの課題 (issues) に書くものなので、ここには入れない${sourceRule}

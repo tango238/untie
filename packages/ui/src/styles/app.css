@@ -648,9 +648,13 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .stage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .candidate-row { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; font-size: 12px; }
 .candidate-row input[type="checkbox"] { flex: none; align-self: center; }
-.candidate-text { display: flex; flex-direction: column; min-width: 0; }
+.candidate-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 0; }
 .candidate-path { overflow-wrap: anywhere; min-width: 0; }
 .candidate-meta { font-size: 11px; color: var(--muted); }
+/* 候補が何百件あっても伸びない (SQL が 300 件でも、この高さでスクロール) */
+.candidate-scroll { max-height: 18rem; overflow-y: auto; padding-right: 4px; }
+.candidate-group { font-size: 11px; font-weight: 600; color: var(--muted); margin: 6px 0 2px; overflow-wrap: anywhere; }
+.candidate-in-group .candidate-row { padding-left: 10px; border-left: 2px solid var(--border, #d9d4c7); }
 .stage-field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .stage-field > span { flex: none; min-width: 8em; }
 .stage-field input { flex: 1; min-width: 0; font: inherit; color: var(--text, inherit); }

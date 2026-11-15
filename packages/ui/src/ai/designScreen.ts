@@ -76,8 +76,8 @@ view の形式 (要点):
 
 const nameOf = (e: { name: string } | undefined): string => e?.name || "(名前なし)";
 
-/** 画面の材料を渡す依頼の文章 */
-export function screenRequest(model: UntieModel, systemId: string, design: SystemDesign, screen: DesignScreen): string {
+/** 画面の材料を渡す依頼の文章。options.databases があれば、使うデータベースの部分をそれに置き換える (「ソースコードから作成」が、テーブルを絞って渡す) */
+export function screenRequest(model: UntieModel, systemId: string, design: SystemDesign, screen: DesignScreen, options: { databases?: { text: string; narrowed: boolean } } = {}): string {
   const byId = new Map(model.elements.map((e) => [e.id, e]));
   const names = new Map(design.screens.map((s) => [s.id, designScreenName(model, s)]));
   const analysis = screen.source.kind === "screen" ? byId.get(screen.source.screenId) : undefined;
@@ -146,8 +146,8 @@ export function screenRequest(model: UntieModel, systemId: string, design: Syste
 ${JSON.stringify(screenInfo, null, 2)}
 </画面>
 
-<使うデータベース (テーブルと列。informations はテーブルが表す情報)>
-${JSON.stringify(databases, null, 2)}
+<使うデータベース (テーブルと列。informations はテーブルが表す情報${options.databases?.narrowed ? "。この画面に関わるテーブルだけ列を書いた。otherTables は名前だけで、列は get_table で調べる" : ""})>
+${options.databases ? options.databases.text : JSON.stringify(databases, null, 2)}
 </使うデータベース>
 
 <この画面からの遷移 (to は遷移先の画面の id。via はきっかけ: button ボタン / row 一覧の行 / afterSubmit 送信のあと)>
