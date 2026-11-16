@@ -95,7 +95,8 @@ describe("作業の起点", () => {
     const t = activityTriggers(m, "act_create_bill");
     expect(t.activities).toEqual([]);
     expect(t.events.map((e) => e.name)).toEqual(["チェックアウトの日になった"]);
-    expect(activityTriggers(m, "act_accept_reservation")).toEqual({ activities: [], events: [], note: "電話・予約サイトからの申し込み" });
+    const accept = activityTriggers(m, "act_accept_reservation");
+    expect([accept.activities, accept.events.map((e) => e.name), accept.note]).toEqual([[], ["宿泊の申込が届いた"], "電話・予約サイトからの申し込み"]);
     expect(activityTriggers(m, "act_clean").activities.map((e) => e.name)).toEqual(["清掃を指示する"]);
     expect(activityTriggers(m, "uc_calc_charge")).toEqual({ activities: [], events: [] });
     expect(activitiesTriggeredBy(m, "act_clean").map((e) => e.name)).toEqual(["部屋を点検する"]);

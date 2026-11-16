@@ -9,7 +9,7 @@ const view = (rows: { layer: string; elements: { name: string }[] }[]) =>
 describe("lineage (トレース)", () => {
   it("作業から上へ、業務 (既定の活動は飛ばす)・担当・業務の主担当まで、下へ操作・情報・条件・状態・バリエーションまで辿る", () => {
     const t = lineage(sample(), "act_verify_identity");
-    expect(view(t.up)).toEqual({ actor: ["フロント担当", "宿泊客"], business: ["チェックイン"] });
+    expect(view(t.up)).toEqual({ actor: ["フロント担当"], business: ["チェックイン"] });
     const down = view(t.down);
     expect(down.usecase).toEqual(["チェックインを記録する", "宿泊者名簿に記入する"]);
     expect(down.information).toEqual(["予約", "宿泊客"]);

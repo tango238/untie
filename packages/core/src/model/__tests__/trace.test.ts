@@ -177,9 +177,11 @@ describe("traceWarnings", () => {
     expect(businessWarnings(m).map((x) => x.elementId)).toEqual(["biz_reservation"]);
   });
 
-  it("外部アクターが作業の担当になっても、業務の警告にはならない", () => {
+  it("外部アクターは作業の担当にできず、イベントを発生させても業務の警告にはならない", () => {
     let m = sample();
-    m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "act_accept_reservation" }));
+    expect(addRelation(m, { sourceId: "ext_guest", targetId: "act_accept_reservation" }).ok).toBe(false);
+    m = okModel(addElement(m, { kind: "event", name: "問い合わせが届いた", id: "ev_inquiry_x" }));
+    m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "ev_inquiry_x" }));
     expect(businessWarnings(m)).toEqual([]);
   });
 

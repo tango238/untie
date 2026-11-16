@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 describe("簡易ボードどうしの「移動」の対応表", () => {
-  it("各レイヤーを見る簡易ボード: 登場人物〜作業はワークフロー、操作・画面・条件はシステム操作、コンテキスト・情報・状態・バリエーションは情報と状態。非機能要件は無し", () => {
+  it("各レイヤーを見る簡易ボード: 登場人物〜作業は業務一覧、操作・画面・条件はシステム操作、コンテキスト・情報・状態・バリエーションは情報と状態。非機能要件は無し", () => {
     for (const l of ["actor", "business", "buc", "activity"] as const) expect(simpleBoardOfLayer(l)).toBe("workflow");
     for (const l of ["usecase", "screen", "condition"] as const) expect(simpleBoardOfLayer(l)).toBe("operation");
     for (const l of ["context", "information", "state", "variation"] as const) expect(simpleBoardOfLayer(l)).toBe("information");
@@ -41,7 +41,7 @@ describe("トレース表の「移動」を押す", () => {
     return sel?.type === "element" ? sel.id : null;
   };
 
-  it("ワークフローで作業を選び、操作の行の「移動」を押すと、簡易モードのままシステム操作ボードへ移り、その行の先頭の操作を選ぶ", () => {
+  it("業務一覧で作業を選び、操作の行の「移動」を押すと、簡易モードのままシステム操作ボードへ移り、その行の先頭の操作を選ぶ", () => {
     select("act_confirm_reservation");
     render(<PropertyPanel />);
     fireEvent.click(screen.getByRole("button", { name: "操作をシステム操作ボードで見る" }));
@@ -69,11 +69,11 @@ describe("トレース表の「移動」を押す", () => {
     }
   });
 
-  it("システム操作ボードで操作を選び、作業の行の「移動」を押すと、ワークフローへ移り、その作業を選ぶ", () => {
+  it("システム操作ボードで操作を選び、作業の行の「移動」を押すと、業務一覧へ移り、その作業を選ぶ", () => {
     act(() => st().setCurrentBoard("simple:operation"));
     select("uc_confirm_reservation");
     render(<PropertyPanel />);
-    fireEvent.click(screen.getByRole("button", { name: "作業をワークフローボードで見る" }));
+    fireEvent.click(screen.getByRole("button", { name: "作業を業務一覧ボードで見る" }));
     expect(st().ui.currentBoardId).toBe("simple:workflow");
     expect(st().ui.mode).toBe("analysisSimple");
     expect(st().ui.selection).toEqual({ type: "element", id: "act_confirm_reservation" });
@@ -82,7 +82,7 @@ describe("トレース表の「移動」を押す", () => {
   it("自分の行 (選んだ要素のレイヤー) の「移動」は、選んだ要素を選んだまま行き先へ移る。行に要素が無いとき、いま選んでいる要素が行き先で見えなければ選択は外れる", () => {
     select("act_confirm_reservation");
     const { unmount } = render(<PropertyPanel />);
-    // 作業 (ワークフローの主役) の選択を持って、情報と状態ボードへ: 情報の行に要素があれば先頭を選ぶ
+    // 作業 (業務一覧の主役) の選択を持って、情報と状態ボードへ: 情報の行に要素があれば先頭を選ぶ
     fireEvent.click(screen.getByRole("button", { name: "情報を情報と状態ボードで見る" }));
     expect(st().ui.currentBoardId).toBe("simple:information");
     expect(st().model.elements.find((e) => e.id === selectedId())?.kind).toBe("information");
@@ -134,7 +134,7 @@ describe("右ペインの課題一覧・検証の「移動」とリンク (簡�
     act(() => st().setRightPanel("issues"));
     const { unmount } = render(<IssuePanel />);
     fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
-    fireEvent.click(screen.getByRole("button", { name: "「予約受付」をワークフローボードで見る" }));
+    fireEvent.click(screen.getByRole("button", { name: "「予約受付」を業務一覧ボードで見る" }));
     expect(st().ui.mode).toBe("analysisSimple");
     expect(st().ui.currentBoardId).toBe("simple:workflow");
     expect(st().ui.selection).toEqual({ type: "element", id: "biz_reservation" });

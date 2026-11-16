@@ -203,7 +203,7 @@ export const MULTI_SPEC: ModelSpec = {
       activities: [
         {
           name: "注文を出す",
-          performers: ["お客様"],
+          performers: ["店のスタッフ"],
           usecases: [
             { name: "注文を送る", reads: ["商品"], writes: ["注文"], to_states: ["承認待ち"] },
             { name: "注文の状況を見る", reads: ["注文"] },
@@ -365,7 +365,7 @@ export const MULTI_SPEC_RETURN: ModelSpec = {
       activities: [
         {
           name: "返品を申し出る",
-          performers: ["お客様"],
+          performers: ["店のスタッフ"],
           usecases: [{ name: "返品を送る", reads: ["注文"], writes: ["返品"] }],
         },
       ],

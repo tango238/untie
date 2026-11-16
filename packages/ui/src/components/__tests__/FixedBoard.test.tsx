@@ -19,7 +19,7 @@ describe("FixedBoard", () => {
     render(<FixedBoard layer="activity" />);
     const checkin = within(groupEl("チェックイン"));
     expect(checkin.getByRole("button", { name: /鍵を渡す/ })).toBeDefined();
-    expect(checkin.getByLabelText("担当: フロント担当、宿泊客")).toBeDefined();
+    expect(checkin.getAllByLabelText("担当: フロント担当").length).toBeGreaterThan(0);
   });
 
   it("活動・作業・操作のボードには 3 段を並べた書き方のヒントを出し、今の段を強調する。最初は閉じ、開閉を覚える", () => {
@@ -252,7 +252,8 @@ describe("FixedBoard: 作業カードの起点の要約", () => {
     const card = (id: string) => document.querySelector(`[data-fixed-card="${id}"]`) as HTMLElement;
     expect(card("act_create_bill").textContent).toContain("起点: チェックアウトの日になった (イベント)");
     expect(card("act_confirm_reservation").textContent).toContain("起点: 予約を受け付ける");
-    expect(card("act_accept_reservation").textContent).toContain("起点: 電話・予約サイトからの申し込み");
+    expect(card("act_accept_reservation").textContent).toContain("起点: 宿泊の申込が届いた (イベント)");
+    expect(card("act_accept_reservation").textContent).toContain("電話・予約サイトからの申し込み");
     expect(card("act_verify_identity").textContent).toContain("起点: 到着を確認する");
     expect(card("act_change_cancel").textContent).toContain("起点: 宿泊客からの電話・メール");
   });

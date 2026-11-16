@@ -324,6 +324,10 @@ textarea { resize: vertical; width: 100%; }
 
 /* 固定ボード (自動で並ぶ。位置は動かせない) */
 .fixed-board { position: absolute; inset: 0; overflow: auto; background: #efece6; padding: 12px 16px 24px; }
+/* 作業ボードの、作業の順序の線 (カードの上に重ねる。線と丸だけがポインタを受ける) */
+.activity-flow { z-index: 1; position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.flow-line { fill: none; stroke: #6f6a5d; stroke-width: 1.6; }
+.flow-arrow-head { fill: #6f6a5d; }
 .fixed-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .fixed-title { margin: 0; font-size: 16px; }
 .fixed-hint { color: var(--muted); font-size: 12px; }
@@ -1229,6 +1233,8 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-kind { font-size: 10px; font-weight: 600; color: var(--muted); }
 .wf-name { font-weight: 600; word-break: break-all; }
 .wf-note { font-size: 11px; color: var(--muted); margin: 2px 0; }
+/* 枠の幅を決めない (文が長くても、枠は作業のカードの幅のまま。文は折り返す) */
+.wf-lane-note { width: 0; min-width: 100%; }
 .wf-add { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
 .wf-trunk { flex: 0 0 28px; margin-top: var(--wf-bus-y); border-top: 2px solid var(--wf-line); }
 .wf-businesses { list-style: none; margin: 0; padding: calc(var(--wf-bus-y) + var(--wf-stub)) 4px 4px 0; display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; flex: 1; min-width: 0; }
@@ -1251,6 +1257,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .wf-activity { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-activity); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
 .wf-assignees { font-size: 11px; color: var(--muted); }
+/* 作業のカードでは、担当を目立たせる。担当がいない作業は警告の色で「担当なし」と出す */
+.wf-activity .wf-assignees { align-self: flex-start; color: #2f5d3a; font-weight: 600; background: #e7f1e6; border-radius: 9px; padding: 0 8px; margin-top: 2px; }
+.wf-activity .wf-assignees.is-none { color: #8a3a2c; background: #fbeee9; }
 /* 条件の行だけ、長い添え書きを折り返す (ほかのボードの枠が細く縮まないように) */
 .wf-condition .wf-assignees { overflow-wrap: anywhere; }
 .wf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1315,3 +1324,35 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 /* ワークフロー: 外部の登場人物の行の枠は「担当する作業のある業務」(主担当の業務ではない) なので、枠と枝を破線にして控えめに区別する */
 .wf-frame.is-assigned { border-style: dashed; }
 .wf-branch-item.is-assigned::after { border-left-style: dashed; }
+
+/* 業務フローボード: 上の山形が業務、横は作業の順、縦は担当の登場人物。外部の登場人物が一番上、システム・帳票が一番下 */
+.flow-board { position: relative; }
+.flow-diagram { position: relative; width: max-content; min-width: 100%; padding: 6px 0 12px; }
+.flow-grid { display: grid; gap: 10px 40px; align-items: center; position: relative; }
+.flow-band { grid-row: 1; background: #26364d; color: #fff; border: 0; padding: 8px 26px 8px 14px; font: inherit; font-weight: 700; text-align: center; cursor: pointer; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%); }
+.flow-band.is-selected { outline: 2px solid var(--selected); }
+.flow-lane { background: #ecebe6; border-radius: 4px; align-self: stretch; margin: -5px -8px; z-index: 0; }
+.flow-lane.is-external { background: #e6ecf3; }
+.flow-lane.is-system { background: #f1e9e7; }
+/* 左端の行ラベルは固定 (横にスクロールしても残す)。背景は行の色に合わせ、下のカードが透けないようにする */
+.flow-actor { position: sticky; left: 0; z-index: 3; background: #ecebe6; font-weight: 600; font-size: 13px; padding: 6px 10px; align-self: stretch; display: flex; align-items: center; min-width: 5.5em; box-shadow: 8px 0 8px -8px rgba(0,0,0,0.25); }
+.flow-actor { margin: -5px 0; }
+.flow-actor.is-external { background: #e6ecf3; }
+.flow-actor.is-system { background: #f1e9e7; }
+.flow-actor.is-none, .flow-actor.is-none * { color: var(--danger); }
+.flow-actor-name { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.flow-cell { min-width: 0; position: relative; z-index: 2; }
+.flow-card { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid #c9c6bb; border-radius: 4px; background: #fff; font: inherit; cursor: pointer; overflow-wrap: anywhere; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.flow-card.is-selected { outline: 2px solid var(--selected); }
+.flow-card.is-unordered { border-style: dashed; }
+.flow-card.is-event { border-color: #d9a441; background: #fdf6e6; }
+.flow-card.is-system { border-color: #d6a49a; color: #b3372a; }
+.flow-kind { font-size: 10px; color: var(--muted); }
+.flow-card.is-system .flow-kind { color: #b3372a; }
+.flow-unordered { font-size: 11px; color: var(--muted); }
+.flow-trigger { font-size: 11px; color: #6a5a1f; }
+.flow-line.is-system { stroke: #b3372a; }
+.flow-line.is-event { stroke: #d9a441; }
+.flow-orphan { margin-top: 12px; }
+.flow-business-title { margin: 0 0 6px; font-size: 14px; }
+.flow-orphans { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }

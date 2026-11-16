@@ -191,7 +191,7 @@ export function Toolbar() {
                       ))}
                     </optgroup>
                   ) : mode === "analysisSimple" ? (
-                    // 簡易モードで開けるのは簡易ボード (ワークフロー・システム操作・情報と状態) だけ (自由ボード・固定ボードは出さない)
+                    // 簡易モードで開けるのは簡易ボード (業務一覧・システム操作・情報と状態) だけ (自由ボード・固定ボードは出さない)
                     <>
                       <optgroup label="ボード">
                         {SIMPLE_BOARD_KINDS.map((kind) => (
@@ -201,7 +201,8 @@ export function Toolbar() {
                         ))}
                       </optgroup>
                       <optgroup label="分析ボード">
-                        {visibleAnalysisKinds().map((kind) => (
+                        {/* 業務フローは簡易ボードに出すので、分析ボードには出さない */}
+                        {visibleAnalysisKinds().filter((kind) => kind !== "flow").map((kind) => (
                           <option key={kind} value={analysisBoardId(kind)}>
                             {ANALYSIS_LABELS[kind]}
                           </option>

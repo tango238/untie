@@ -11,8 +11,8 @@ const frame = (m: UntieModel, key: string) => buildOperationBoard(m).frames.find
 const opIds = (m: UntieModel, frameKey: string, actId: string) => ids(frame(m, frameKey).rows.find((r) => r.activity.id === actId)!.operations.map((o) => o.usecase));
 
 describe("簡易モードのボード (3 枚)", () => {
-  it("ワークフロー・システム操作・情報と状態。id と相互に変換できる", () => {
-    expect(SIMPLE_BOARD_KINDS).toEqual(["workflow", "operation", "information"]);
+  it("業務一覧・システム操作・情報と状態。id と相互に変換できる", () => {
+    expect(SIMPLE_BOARD_KINDS).toEqual(["workflow", "flow", "operation", "information"]);
     expect(SIMPLE_BOARD_LABELS.operation).toBe("システム操作");
     expect(SIMPLE_BOARD_LABELS.information).toBe("情報と状態");
     for (const k of SIMPLE_BOARD_KINDS) expect(parseSimpleBoardId(simpleBoardId(k))).toBe(k);

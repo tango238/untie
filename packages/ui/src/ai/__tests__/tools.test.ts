@@ -57,8 +57,10 @@ describe("AI の道具", () => {
     expect(r.ok && r.changed).toBe(true);
     const id = parse(r.content).id as string;
     expect(e.model.elements.find((x) => x.id === id)).toMatchObject({ bucId: "buc_default_checkin", hours: 0.2 });
-    expect(executeTool(e, "add_relation", { source_id: "ext_guest", target_id: id }).ok).toBe(true);
-    expect(executeTool(e, "remove_relation", { source_id: id, target_id: "ext_guest" }).ok).toBe(true);
+    // 外部アクターは担当にならない (0.6.4)。社内のアクターは担当にできる
+    expect(executeTool(e, "add_relation", { source_id: "ext_guest", target_id: id }).ok).toBe(false);
+    expect(executeTool(e, "add_relation", { source_id: "actor_front", target_id: id }).ok).toBe(true);
+    expect(executeTool(e, "remove_relation", { source_id: id, target_id: "actor_front" }).ok).toBe(true);
   });
 
   it("画面・非機能要件は system_id で属するシステムを指定して作れ、move_to_system で移せる。system_id が無いと失敗する", () => {

@@ -108,7 +108,25 @@ export const MIGRATIONS: readonly Migration[] = [
     to: "0.6.3",
     migrate: (json) => json,
   },
+  {
+    // 0.6.4: 外部アクターは作業の担当にならない (主担当は元からなれない)。外部アクターが担当だった作業の担当は外す。
+    // 外部アクターがイベントを発生させる関係 (externalActorEvent) は足すだけなので、変換は要らない
+    from: "0.6.3",
+    to: "0.6.4",
+    migrate: migrateExternalActorDuties,
+  },
 ];
+
+/** 0.6.3 → 0.6.4: 外部アクターが担当だった作業の担当 (actorActivity) を外す (件数を知らせる) */
+export function migrateExternalActorDuties(json: Json, notes: string[]): Json {
+  const elements = Array.isArray(json.elements) ? (json.elements as { id?: unknown; kind?: unknown }[]) : [];
+  const relations = Array.isArray(json.relations) ? (json.relations as { kind?: unknown; sourceId?: unknown }[]) : [];
+  const externals = new Set(elements.filter((e) => e && e.kind === "externalActor" && typeof e.id === "string").map((e) => e.id as string));
+  const kept = relations.filter((r) => !(r && r.kind === "actorActivity" && typeof r.sourceId === "string" && externals.has(r.sourceId)));
+  if (kept.length === relations.length) return json;
+  notes.push(`外部アクターは作業の担当にならなくなったので、${relations.length - kept.length} 件の担当を外しました`);
+  return { ...json, relations: kept };
+}
 
 /**
  * 0.3.0 → 0.4.0: 置き場所と画面の情報の関係を外し、取得・保存の区別を操作が扱う情報の access に移す。

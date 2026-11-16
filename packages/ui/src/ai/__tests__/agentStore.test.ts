@@ -324,7 +324,7 @@ describe("AI に添える画面の状態", () => {
   it("簡易ボード・分析ボード・設計ボードは、生の id ではなく名前で伝える。既定の簡易のモードも名前で伝える", async () => {
     act(() => st().setMode("analysisSimple"));
     await useAgentStore.getState().send("今の画面は?");
-    expect(last()).toMatch(/\[画面の状態\] モード: 分析（簡易） \/ 開いているボード: 簡易ボード「ワークフロー」/);
+    expect(last()).toMatch(/\[画面の状態\] モード: 分析（簡易） \/ 開いているボード: 簡易ボード「業務一覧」/);
     expect(last()).not.toMatch(/simple:/);
     act(() => st().setCurrentBoard("simple:operation"));
     await useAgentStore.getState().send("次");

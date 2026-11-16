@@ -41,7 +41,7 @@ afterEach(() => setDevModeForTest(undefined));
 describe("開発モード", () => {
   it("既定は off。開発用のボード (イベントストーミング・ドメイン・コンテキストマップ) は、選べるボードに入らない", () => {
     expect(isDevMode()).toBe(false);
-    expect(visibleAnalysisKinds()).toEqual(["issues", "people", "informationLocation"]);
+    expect(visibleAnalysisKinds()).toEqual(["issues", "people", "informationLocation", "flow"]);
     // シーケンス図は、利用者にも見せる (開発を始める前に、分岐を決め切るため)
     expect(visibleDesignKinds()).toEqual(["sitemap", "navigation", "data", "screen", "relation", "sequence"]);
     for (const id of ["analysis:storming", "design:domain", "design:contextmap", "design:rules"]) expect(isBoardAvailable(id)).toBe(false);

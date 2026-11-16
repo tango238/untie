@@ -113,7 +113,7 @@ export function checkReadiness(model: UntieModel, systemId: string): Readiness {
     if (!written.has(id)) add("origins", { message: `情報「${nameOf(byId.get(id))}」を保存する操作がありません (取得するだけで、どこで作られるかが決まっていない)`, target: element(id) });
   }
   // 出どころ: このシステムの操作のきっかけの出来事に、起こす操作・システムも、起きる時期も無い
-  const raised = new Set(model.relations.filter((r) => r.kind === "usecaseEvent" || r.kind === "systemEvent").map((r) => r.targetId));
+  const raised = new Set(model.relations.filter((r) => r.kind === "usecaseEvent" || r.kind === "systemEvent" || r.kind === "externalActorEvent").map((r) => r.targetId));
   const triggers = new Set(model.relations.filter((r) => r.kind === "eventUsecase" && usecaseIds.has(r.targetId)).map((r) => r.sourceId));
   for (const e of model.elements) {
     if (e.kind === "event" && triggers.has(e.id) && !raised.has(e.id) && !e.timing) {

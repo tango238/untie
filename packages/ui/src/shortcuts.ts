@@ -51,9 +51,9 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
 };
 
 /** 簡易ボード: Cmd+B のあとに押すキー */
-export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", operation: "p", information: "h" };
+export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", flow: "o", operation: "p", information: "h" };
 
-export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { issues: "i", people: "w", informationLocation: "l", storming: "e" };
+export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { flow: "y", issues: "i", people: "w", informationLocation: "l", storming: "e" };
 
 export const DESIGN_KEYS: Record<DesignBoardKind, string> = { sitemap: "s", navigation: "v", data: "t", screen: "g", relation: "r", sequence: "q", domain: "m", contextmap: "k", rules: "u" };
 

@@ -106,6 +106,7 @@ export const RELATION_KINDS: readonly RelationKind[] = [
   "usecaseSystem",
   "usecaseEvent",
   "systemEvent",
+  "externalActorEvent",
   "eventUsecase",
   "usecaseNext",
   "activityTrigger",
@@ -402,7 +403,7 @@ export type { UntieModel as Model };
  * 現行のモデルの形式 (スキーマ) のバージョン。JSON の version に入れる。
  * 上げるときの手順と、古い版からの変換は migrate.ts
  */
-export const MODEL_VERSION = "0.6.3";
+export const MODEL_VERSION = "0.6.4";
 
 /** 空のドメインモデル (0.6.0) */
 export function emptyDomain(): DomainModel {

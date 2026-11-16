@@ -100,6 +100,8 @@ export interface OperationBox {
 /** 作業 1 つの行: 作業のカードと、その作業が使う操作 */
 export interface OperationRow {
   activity: Activity;
+  /** 作業の担当 (社内のアクター。担当なしは空) */
+  assignees: Element[];
   operations: OperationBox[];
 }
 
@@ -206,6 +208,7 @@ export function buildOperationBoard(model: UntieModel): OperationBoardData {
   const boxes = new Map(usecases.map((u) => [u.id, boxOf(u)]));
   const rowOf = (a: Activity): OperationRow => ({
     activity: a,
+    assignees: model.relations.filter((r) => r.kind === "actorActivity" && r.targetId === a.id).map((r) => byId.get(r.sourceId)).filter((e): e is Element => !!e),
     // 操作の並びはモデルの順
     operations: usecases.filter((u) => (usecasesOfActivity.get(a.id) ?? []).includes(u.id)).map((u) => boxes.get(u.id)!),
   });

@@ -698,7 +698,7 @@ describe("PropertyPanel: 作業の起点", () => {
     // act_clean: 起点は「清掃を指示する」、後続は「部屋を点検する」
     const s2 = within(screen.getByTestId("trigger-section"));
     expect(s2.getByRole("button", { name: "清掃を指示する" })).toBeDefined();
-    const followers = s2.getByRole("list", { name: "この作業を起点にする作業" });
+    const followers = s2.getByRole("list", { name: "次の作業" });
     expect(within(followers).getByRole("button", { name: "部屋を点検する" })).toBeDefined();
     // 後続の一覧は読み取りだけ (外すボタンが無く、名前を押すと選ぶ)
     expect(within(followers).queryByRole("button", { name: /外す/ })).toBeNull();
@@ -710,29 +710,57 @@ describe("PropertyPanel: 作業の起点", () => {
     expect(adder ? groupLabels(adder).filter((l) => l!.startsWith("起点")) : []).toEqual([]);
   });
 
-  it("起点の候補に自分自身と既存の起点は出ず、業務 (活動があれば業務 / 活動) ごとに分かれる。足す・外すができる", () => {
+  it("作業の起点は、固定ボードではイベントだけ足す・外せる。前の作業 (作業どうしの順序) は出ず、外す×も無い", () => {
     onFixedBoard();
-    // 同名の作業を別の業務に足して、候補で区別できることを確かめる
-    act(() => {
-      const r = st().dispatch((m) => addElement(m, { kind: "activity", name: "予約を受け付ける", init: { bucId: "buc_default_checkin" } }));
-      if (!r.ok) throw new Error(r.reason);
-    });
     selectEl("act_hand_key");
     render(<PropertyPanel />);
     const select = screen.getByLabelText("起点を追加");
-    const names = optionNames(select);
-    expect(names).not.toContain("鍵を渡す");
-    expect(names).not.toContain("部屋を割り当てる"); // 既存の起点
-    expect(groupLabels(select)).toEqual(expect.arrayContaining(["作業: 予約受付", "作業: チェックイン", "作業: 滞在中の対応 / 客室対応", "イベント"]));
-    expect(within(select.querySelector('optgroup[label="作業: 予約受付"]') as HTMLElement).getAllByRole("option").map((o) => o.textContent)).toContain("予約を受け付ける");
-    expect(within(select.querySelector('optgroup[label="作業: チェックイン"]') as HTMLElement).getAllByRole("option").map((o) => o.textContent)).toContain("予約を受け付ける");
-
-    fireEvent.change(select, { target: { value: "act_confirm_arrival" } });
-    expect(st().model.relations.some((r) => r.kind === "activityTrigger" && r.sourceId === "act_confirm_arrival" && r.targetId === "act_hand_key")).toBe(true);
-    fireEvent.change(screen.getByLabelText("起点を追加"), { target: { value: "ev_checkout_day" } });
+    expect(groupLabels(select)).toEqual(["イベント"]);
+    // 既存の前の作業 (部屋を割り当てる) は読み取りだけ
+    expect(screen.getByText("部屋を割り当てる")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "起点「部屋を割り当てる」を外す" })).toBeNull();
+    fireEvent.change(select, { target: { value: "ev_checkout_day" } });
     expect(st().model.relations.some((r) => r.kind === "eventActivity" && r.sourceId === "ev_checkout_day" && r.targetId === "act_hand_key")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "起点「チェックアウトの日になった」を外す" }));
     expect(st().model.relations.some((r) => r.kind === "eventActivity" && r.targetId === "act_hand_key")).toBe(false);
+    // 関係の一覧からも、順序の関係は外せない
+    expect(screen.queryByRole("button", { name: /関係「起点 .*」を削除/ })).toBeNull();
+  });
+
+  it("業務フローボード (簡易・詳細) では、作業の担当と前の作業だけを足す・外せる。前の作業は同じ業務の作業から選ぶ", () => {
+    for (const board of ["simple:flow", "analysis:flow"]) {
+      resetStore();
+      act(() => st().setCurrentBoard(board));
+      selectEl("act_hand_key");
+      const { unmount } = render(<PropertyPanel />);
+      const previous = screen.getByLabelText("前の作業を追加");
+      const names = optionNames(previous);
+      expect(names).not.toContain("鍵を渡す");
+      expect(names).not.toContain("部屋を割り当てる"); // すでに前の作業
+      expect(names.length).toBeGreaterThan(0);
+      fireEvent.change(previous, { target: { value: (previous.querySelector("option:not([value=''])") as HTMLOptionElement).value } });
+      const added = st().model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === "act_hand_key");
+      expect(added.length).toBe(2);
+      fireEvent.click(screen.getByRole("button", { name: "前の作業「部屋を割り当てる」を外す" }));
+      expect(st().model.relations.some((r) => r.kind === "activityTrigger" && r.sourceId === "act_assign_room" && r.targetId === "act_hand_key")).toBe(false);
+      unmount();
+    }
+  });
+
+  it("イベントの発生元に外部アクターを結べる (関係を追加の「発生 ← 外部アクター」)。社内のアクターは出ない", () => {
+    onFixedBoard();
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "externalActor", name: "取引先", id: "ext_new_x" }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    selectEl("ev_stay_requested");
+    render(<PropertyPanel />);
+    const adder = screen.getByLabelText("関係を追加");
+    expect(groupLabels(adder).filter((l) => l!.startsWith("発生"))).toContain("発生 ← 外部アクター");
+    expect(optionNames(adder)).toContain("取引先");
+    expect(optionNames(adder)).not.toContain("フロント担当");
+    fireEvent.change(adder, { target: { value: "ext_new_x>ev_stay_requested" } });
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.sourceId === "ext_new_x" && r.targetId === "ev_stay_requested")).toBe(true);
   });
 
   it("その他の入力は triggerNote になり、空にすると項目ごと消える", () => {
@@ -757,10 +785,10 @@ describe("PropertyPanel: 作業の起点", () => {
     expect(screen.queryByRole("button", { name: /起点「.*」を外す/ })).toBeNull();
     expect((screen.getByLabelText("起点 (その他)") as HTMLInputElement).readOnly).toBe(true);
     // 起点のない作業でも、自由ボードでは「足します」の案内は出さない
-    selectEl("act_accept_reservation");
+    selectEl("act_change_cancel");
     expect(screen.queryByText(/足します/)).toBeNull();
     onFixedBoard();
-    selectEl("act_accept_reservation");
+    selectEl("act_change_cancel");
     expect(screen.getByText(/足します/)).toBeDefined();
   });
 });

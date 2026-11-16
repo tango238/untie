@@ -36,7 +36,7 @@ export function OperationBoard() {
         </span>
       </div>
       {!readOnly && ctx.systems.length === 0 && <p className="hint">画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。画面を足すには、先に分析（詳細）の「登場人物」でシステムを作ってください。</p>}
-      {empty && <p className="hint">まだ作業がありません。「ワークフロー」のボードで業務と作業を書くと、ここに出ます。</p>}
+      {empty && <p className="hint">まだ作業がありません。「業務一覧」のボードで業務と作業を書くと、ここに出ます。</p>}
       <div className="wf-outers">
         {board.frames.map((f) => (
           <OuterFrame key={f.key} frame={f} ctx={ctx} />
@@ -160,12 +160,14 @@ function OuterFrame({ frame, ctx }: { frame: OperationFrame; ctx: Ctx }) {
 /** 作業のカードと、そこから右へ伸びる枝の先の操作の枠 */
 function ActivityRow({ row, ctx }: { row: OperationRow; ctx: Ctx }) {
   const a: Activity = row.activity;
+  const assignees = row.assignees.map(nameOf);
   return (
     <div className="wf-lane wf-row" aria-label={`作業 ${nameOf(a)} の行`} role="group">
       <div className="wf-actor" data-workflow-el={a.id}>
-        <Pick id={a.id} className="wf-activity wf-actor-card" ctx={ctx} label={`作業 ${nameOf(a)}`}>
+        <Pick id={a.id} className="wf-activity wf-actor-card" ctx={ctx} label={`作業 ${nameOf(a)} (${assignees.length > 0 ? `担当: ${assignees.join("、")}` : "担当なし"})`}>
           <span className="wf-kind">作業</span>
           <span className="wf-name">{nameOf(a)}</span>
+          {assignees.length > 0 ? <span className="wf-assignees">担当: {assignees.join("、")}</span> : <span className="wf-assignees is-none">担当なし</span>}
         </Pick>
         {!ctx.readOnly && (
           <button

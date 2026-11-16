@@ -13,10 +13,11 @@ import {
 } from "./types";
 
 /** ボードの選択肢に並べる順。課題から紐解くので、課題の分布を先頭に置く */
-export const ANALYSIS_KINDS = ["issues", "people", "informationLocation", "storming"] as const;
+export const ANALYSIS_KINDS = ["issues", "people", "informationLocation", "flow", "storming"] as const;
 export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 
 export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {
+  flow: "業務フロー",
   people: "担当別の作業一覧",
   informationLocation: "情報の所在",
   issues: "課題の分布",
@@ -88,7 +89,8 @@ export function performerWorkList(model: UntieModel): { performers: PerformerWor
   const get = lookup(model);
   const activities = byKind(model, "activity");
   const performers = model.elements
-    .filter((e) => e.kind === "actor" || e.kind === "externalActor")
+    // 外部アクターは作業の担当にならない (0.6.4 から)
+    .filter((e) => e.kind === "actor")
     .map((performer) => {
       const ids = new Set(targetsOf(model, "actorActivity", performer.id));
       return { performer, sections: activitySections(model, activities.filter((a) => ids.has(a.id))) };

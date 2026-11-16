@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addElement, addRelation, removeElement } from "@untie/core/model/commands";
+import { addElement, addRelation, removeElement, removeRelation } from "@untie/core/model/commands";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
 import { PropertyPanel } from "../PropertyPanel";
@@ -194,11 +194,11 @@ describe("削除の確認と「移動」", () => {
     expect(d.getByText(/画面 1 件: 削除されず残ります \(操作ごと残り、「作業に結ばれていない操作」に移ります\)/)).toBeDefined();
   });
 
-  it("トレース表: システム操作ボードでは、操作・画面の行に「移動」が無く、登場人物・業務・作業の行にはワークフローへ移る「移動」がある。固定ボードへは移らない", () => {
+  it("トレース表: システム操作ボードでは、操作・画面の行に「移動」が無く、登場人物・業務・作業の行には業務一覧へ移る「移動」がある。固定ボードへは移らない", () => {
     renderBoth();
     fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を確定する/ })[0]!);
     for (const layer of ["操作", "画面"]) expect(screen.queryByRole("button", { name: new RegExp(`^${layer}を.*ボードで見る`) })).toBeNull();
-    for (const layer of ["登場人物", "業務", "作業"]) expect(screen.getByRole("button", { name: `${layer}をワークフローボードで見る` })).toBeDefined();
+    for (const layer of ["登場人物", "業務", "作業"]) expect(screen.getByRole("button", { name: `${layer}を業務一覧ボードで見る` })).toBeDefined();
     for (const layer of ["操作", "画面", "作業"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
   });
 });
@@ -491,5 +491,16 @@ describe("操作の枠の前提の状態・次の状態", () => {
       useUntieStore.setState((s) => ({ model: { ...s.model, elements: s.model.elements.map((e) => (e.id === "st_res_confirmed" ? { ...e, group: "   " } : e)) as typeof s.model.elements } }));
     });
     expect(notesOf(within(frame("作業に結ばれていない操作")).getByRole("region", { name: "操作 宙の操作" }))).toEqual(["前提の状態: 確定"]);
+  });
+
+  it("作業のカードに担当を出す。担当が 1 人もいない作業は「担当なし」", () => {
+    render(<OperationBoard />);
+    const row = within(screen.getByRole("group", { name: "作業 本人確認をする の行" }));
+    expect(row.getByRole("button", { name: /^作業 本人確認をする \(担当: フロント担当\)/ }).textContent).toContain("担当: フロント担当");
+    act(() => {
+      const rel = st().model.relations.find((r) => r.kind === "actorActivity" && r.targetId === "act_verify_identity")!;
+      st().dispatch((m) => removeRelation(m, { id: rel.id }));
+    });
+    expect(screen.getByRole("button", { name: /^作業 本人確認をする \(担当なし\)/ }).textContent).toContain("担当なし");
   });
 });
