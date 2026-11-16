@@ -43,7 +43,7 @@ export interface SpecUsecase extends SpecNamed {
 }
 
 export interface SpecActivity extends SpecNamed {
-  /** 担当 (アクター・外部アクターの名前。システムの名前が来たら、その作業の操作の対象にする) */
+  /** 担当 (アクターの名前。外部アクターは担当にならない。システムの名前が来たら、その作業の操作の対象にする) */
   performers?: string[];
   usecases?: SpecUsecase[];
   /** 起点となる作業の名前 (別の作業。モデルのどこにあってもよい) */
@@ -65,7 +65,7 @@ export interface SpecScreen extends SpecNamed {
 /** イベント。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) は作業にせず、イベントをきっかけにした操作にする */
 export interface SpecEvent extends SpecNamed {
   context?: string;
-  /** このイベントを起こすもの: システムの名前か、操作の名前。必ず 1 つ以上 (無いと担い手まで辿れない) */
+  /** このイベントを起こすもの: システム・外部アクターの名前か、操作の名前。必ず 1 つ以上 (無いと担い手まで辿れない) */
   raised_by?: string[];
   /** このイベントをきっかけに行う操作 (作業に属さない処理。ほかの場所で定義した操作の名前でもよい) */
   usecases?: SpecUsecase[];
@@ -136,7 +136,7 @@ const usecaseSchema = named({
   targets: names("操作の対象のシステム・帳票・画面の名前 (systems / ledgers / screens に定義したもの)。1 つだけ。画面を通す操作は、画面の名前を書いてもよい (screens の usecase に操作を書くのと同じ意味)。情報の置き場所 (取得元・保存先) は、対象と扱う情報 (informations / reads / writes) から導く"),
 });
 const activitySchema = named({
-  performers: names("担当する人の名前 (actors / external_actors に定義したもの)。必ず 1 つ以上。システムは担当にせず、操作の targets に書く"),
+  performers: names("担当する人の名前 (actors に定義した社内の人の役割)。必ず 1 つ以上。外部アクターとシステムは担当にせず、システムは操作の targets に書く"),
   usecases: list(usecaseSchema, "この作業で使う操作 (システム・帳票に対する 1 回の操作)。同じ名前の操作は同じものとして扱う"),
   trigger_activities: names("この作業が始まる起点になる別の作業の名前 (どこの業務の作業でもよい。モデルのほかの作業と同じ名前にする)。無ければ省く"),
   trigger_events: names("この作業が始まる起点になるイベントの名前 (events に定義したもの)。無ければ省く"),
@@ -174,7 +174,7 @@ export const SUBMIT_MODEL_TOOL: ToolDef = {
       events: list(
         named({
           context: { type: "string", description: "所属するコンテキストの名前" },
-          raised_by: names("このイベントを起こすシステム (systems に定義したもの) か操作の名前。必ず 1 つ以上"),
+          raised_by: names("このイベントを起こすシステム (systems に定義したもの)・外部アクター (external_actors に定義したもの) か操作の名前。必ず 1 つ以上"),
           usecases: list(usecaseSchema, "このイベントをきっかけに行う操作。人が担当しない処理 (バッチ・通知の受信・自動の連鎖) はこちらに書き、作業にはしない。同じ名前の操作は同じものとして扱う"),
         }),
         "イベント: システムや操作が起こす出来事。ほかの処理や作業のきっかけになる",
@@ -686,7 +686,10 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
     for (const n of clip(a.performers, L.refsPerItem, `作業「${a.name}」の担当`)) {
       // 作業の担当は人から探す (同じ名前のシステムがあっても、人を先に。人がいなければ、システムを操作の対象にする)
       const performer = ref(["actor", "system"], n, "担当");
-      if (performer && model.elements.find((e) => e.id === performer)?.kind === "system") systemTargets.push(performer);
+      const performerKind = performer ? kindById.get(performer) : undefined;
+      if (performerKind === "system") systemTargets.push(performer!);
+      // 外部アクターは作業の担当にならない (0.6.4)。結ばず、知らせる
+      else if (performerKind === "externalActor") warnings.push(`作業「${a.name}」の担当「${n}」は外部アクターなので結べません (外部アクターは作業の担当になれません。作業の担当は社内のアクターにしてください)`);
       else relate(performer, id);
     }
     for (const u of Array.isArray(a.usecases) ? a.usecases : []) {
@@ -750,11 +753,12 @@ export function buildModelFromSpec(spec: ModelSpec, options: BuildOptions = {}):
   const systemIndex = lookupOf("system");
   const usecaseIndex = lookupOf("usecase");
   const eventIndex = lookupOf("event");
+  const externalIndex = lookupOf("externalActor");
   for (const { id, spec: ev } of pendingEvents) {
     let origins = 0;
     for (const n of clip(ev.raised_by, L.refsPerItem, `イベント「${ev.name}」を起こすもの`)) {
-      const origin = systemIndex.get(n) ?? usecaseIndex.get(n);
-      if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システムか操作の名前にしてください)`);
+      const origin = systemIndex.get(n) ?? usecaseIndex.get(n) ?? externalIndex.get(n);
+      if (!origin) warnings.push(`イベント「${ev.name}」を起こすもの「${n}」が見つかりません (システム・外部アクター・操作の名前にしてください)`);
       else {
         relate(origin.id, id);
         origins++;

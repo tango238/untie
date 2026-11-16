@@ -184,10 +184,7 @@ describe("buildFlowEdges", () => {
     const nodes = buildFlowNodes(createHotelSample(), "board_overview");
     const byId = new Map(nodes.map((n) => [n.id, n]));
     expect(byId.get("biz_checkin")!.data.actors).toEqual([{ name: "フロント担当", kind: "actor" }]);
-    expect(byId.get("act_verify_identity")!.data.actors).toEqual([
-      { name: "フロント担当", kind: "actor" },
-      { name: "宿泊客", kind: "externalActor" },
-    ]);
+    expect(byId.get("act_verify_identity")!.data.actors).toEqual([{ name: "フロント担当", kind: "actor" }]);
     // ボードに無い作業のラベルも、アクターがボードに無くても出る
     expect(buildFlowNodes(m, "board_flow").find((n) => n.id === "act_hand_key")!.data.actors).toEqual([
       { name: "フロント担当", kind: "actor" },

@@ -6,7 +6,7 @@ describe("関係ルール", () => {
   const table: [string, string, string][] = [
     ["actor", "business", "actorBusiness"],
     ["actor", "activity", "actorActivity"],
-    ["externalActor", "activity", "actorActivity"],
+    ["externalActor", "event", "externalActorEvent"],
     ["activity", "usecase", "activityUsecase"],
     ["usecase", "information", "usecaseInformation"],
     ["usecase", "condition", "usecaseCondition"],
@@ -41,6 +41,11 @@ describe("関係ルール", () => {
         if (!allowed.has(`${s}>${t}`)) expect(relationKindFor(s, t), `${s} → ${t}`).toBeNull();
       }
     }
+  });
+
+  it("外部アクターは作業の担当にならない (0.6.4 から。イベントを発生させる)", () => {
+    expect(relationKindFor("externalActor", "activity")).toBeNull();
+    expect(relationKindFor("actor", "event")).toBeNull();
   });
 
   it("システムは作業の担当にならない (0.2.0 から。操作の対象にする)", () => {

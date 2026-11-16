@@ -23,7 +23,7 @@ export const FIXTURE_SPEC: ModelSpec = {
       activities: [
         {
           name: "注文を受ける",
-          performers: ["受付担当", "お客様"],
+          performers: ["受付担当"],
           usecases: [
             { name: "注文を登録する", reads: ["商品"], writes: ["注文"], to_states: ["受付済み"] },
             { name: "注文を検索する", reads: ["注文"] },

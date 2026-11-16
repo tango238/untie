@@ -22,7 +22,7 @@ const spec: ModelSpec = {
       activities: [
         {
           name: "予約を受け付ける",
-          performers: ["フロント係", "宿泊客"],
+          performers: ["フロント係"],
           usecases: [{ name: "予約を登録する", writes: ["予約"], conditions: ["満室である"], to_states: ["仮予約"], targets: ["予約サイト"] }],
         },
       ],

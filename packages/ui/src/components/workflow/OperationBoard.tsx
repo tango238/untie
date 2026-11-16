@@ -36,7 +36,7 @@ export function OperationBoard() {
         </span>
       </div>
       {!readOnly && ctx.systems.length === 0 && <p className="hint">画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。画面を足すには、先に分析（詳細）の「登場人物」でシステムを作ってください。</p>}
-      {empty && <p className="hint">まだ作業がありません。「ワークフロー」のボードで業務と作業を書くと、ここに出ます。</p>}
+      {empty && <p className="hint">まだ作業がありません。「業務一覧」のボードで業務と作業を書くと、ここに出ます。</p>}
       <div className="wf-outers">
         {board.frames.map((f) => (
           <OuterFrame key={f.key} frame={f} ctx={ctx} />

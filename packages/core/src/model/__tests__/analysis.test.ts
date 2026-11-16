@@ -152,6 +152,6 @@ describe("情報の所在: システムのイベント", () => {
     m = okModel(addElement(m, { kind: "event", name: "清掃が記録された", id: "ev_x" }));
     m = okModel(addRelation(m, { sourceId: "uc_x", targetId: "ev_x" }));
     m = okModel(addElement(m, { kind: "event", name: "ひとりのイベント", id: "ev_y" }));
-    expect(names(systemEventLists(m).eventsWithoutSystem)).toEqual(["清掃が記録された", "ひとりのイベント"]);
+    expect(names(systemEventLists(m).eventsWithoutSystem)).toEqual(["宿泊の申込が届いた", "清掃が記録された", "ひとりのイベント"]);
   });
 });

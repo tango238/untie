@@ -198,7 +198,7 @@ describe("ストア", () => {
 });
 
 describe("最初に出す画面", () => {
-  it("起動時は分析（簡易）のワークフローと右ペインのプロパティ。分析（詳細）で始めたときの最初は、分析ボード「課題の分布」と課題一覧", async () => {
+  it("起動時は分析（簡易）の業務一覧と右ペインのプロパティ。分析（詳細）で始めたときの最初は、分析ボード「課題の分布」と課題一覧", async () => {
     const { useUntieStore, START_BOARD_ID } = await import("..");
     expect(START_BOARD_ID).toBe("analysis:issues");
     expect(useUntieStore.getState().ui).toMatchObject({ mode: "analysisSimple", currentBoardId: "simple:workflow", rightPanel: "properties" });

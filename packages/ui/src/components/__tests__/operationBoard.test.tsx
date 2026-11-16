@@ -194,11 +194,11 @@ describe("削除の確認と「移動」", () => {
     expect(d.getByText(/画面 1 件: 削除されず残ります \(操作ごと残り、「作業に結ばれていない操作」に移ります\)/)).toBeDefined();
   });
 
-  it("トレース表: システム操作ボードでは、操作・画面の行に「移動」が無く、登場人物・業務・作業の行にはワークフローへ移る「移動」がある。固定ボードへは移らない", () => {
+  it("トレース表: システム操作ボードでは、操作・画面の行に「移動」が無く、登場人物・業務・作業の行には業務一覧へ移る「移動」がある。固定ボードへは移らない", () => {
     renderBoth();
     fireEvent.click(screen.getAllByRole("button", { name: /^操作 予約を確定する/ })[0]!);
     for (const layer of ["操作", "画面"]) expect(screen.queryByRole("button", { name: new RegExp(`^${layer}を.*ボードで見る`) })).toBeNull();
-    for (const layer of ["登場人物", "業務", "作業"]) expect(screen.getByRole("button", { name: `${layer}をワークフローボードで見る` })).toBeDefined();
+    for (const layer of ["登場人物", "業務", "作業"]) expect(screen.getByRole("button", { name: `${layer}を業務一覧ボードで見る` })).toBeDefined();
     for (const layer of ["操作", "画面", "作業"]) expect(screen.queryByRole("button", { name: `固定ボード「${layer}」へ移る` })).toBeNull();
   });
 });

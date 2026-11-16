@@ -52,6 +52,7 @@ function upEdges(model: UntieModel): Map<string, string[]> {
       case "eventUsecase":
       case "usecaseEvent":
       case "systemEvent":
+      case "externalActorEvent":
       case "actorNfr":
         add(r.targetId, r.sourceId);
         break;

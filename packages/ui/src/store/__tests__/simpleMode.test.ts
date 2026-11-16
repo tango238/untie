@@ -11,7 +11,7 @@ const make = () => createUntieStore(createHotelSample(), START_BOARD_ID, "proper
 const WORKFLOW = "simple:workflow";
 
 describe("分析（簡易）モード", () => {
-  it("分析（詳細）から簡易へ移ると、ワークフローが開く", () => {
+  it("分析（詳細）から簡易へ移ると、業務一覧が開く", () => {
     const s = make();
     expect(s.getState().ui.mode).toBe("analysis");
     s.getState().setMode("analysisSimple");
@@ -28,7 +28,7 @@ describe("分析（簡易）モード", () => {
     expect(s.getState().ui.currentBoardId).toBe("analysis:people");
   });
 
-  it("簡易モードでワークフロー以外のボードが渡されたら、設計ボードは (対象が未定なら) 断り、自由ボード・固定ボードは分析（詳細）へ移って開く", () => {
+  it("簡易モードで業務一覧以外のボードが渡されたら、設計ボードは (対象が未定なら) 断り、自由ボード・固定ボードは分析（詳細）へ移って開く", () => {
     const s = make();
     s.getState().setMode("analysisSimple");
     // 自由ボードは詳細へ移って開く (ショートカット一覧から自由ボードを押したとき)
@@ -45,7 +45,7 @@ describe("分析（簡易）モード", () => {
     expect(s.getState().ui.currentBoardId).toBe("fixed:activity");
   });
 
-  it("詳細・設計モードではワークフローは開けない。ワークフローの id を開くと簡易モードへ移る", () => {
+  it("詳細・設計モードでは業務一覧は開けない。業務一覧の id を開くと簡易モードへ移る", () => {
     const s = make();
     s.getState().setCurrentBoard(WORKFLOW);
     expect(s.getState().ui.mode).toBe("analysisSimple");
@@ -133,10 +133,10 @@ describe("分析（簡易）モード", () => {
   });
 });
 
-describe("簡易モードのワークフローとシステム操作の 2 枚", () => {
+describe("簡易モードの業務一覧とシステム操作の 2 枚", () => {
   const OPERATION = "simple:operation";
 
-  it("簡易モードの最初はワークフロー。システムへ移って、ワークフローへ戻れる。どちらも簡易モードのまま", () => {
+  it("簡易モードの最初は業務一覧。システムへ移って、業務一覧へ戻れる。どちらも簡易モードのまま", () => {
     const s = make();
     s.getState().setMode("analysisSimple");
     expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
@@ -157,7 +157,7 @@ describe("簡易モードのワークフローとシステム操作の 2 枚", (
     s.getState().setMode("analysis");
     expect(s.getState().ui.currentBoardId).toBe("analysis:issues");
     expect(s.getState().ui.selection).toEqual({ type: "element", id: "uc_register_reservation" });
-    // 簡易へ戻ると、ワークフローから (開いていたのはシステムでも、最初のボード)
+    // 簡易へ戻ると、業務一覧から (開いていたのはシステムでも、最初のボード)
     s.getState().setMode("analysisSimple");
     expect(s.getState().ui.currentBoardId).toBe(WORKFLOW);
     // 設計 → 簡易
@@ -166,7 +166,7 @@ describe("簡易モードのワークフローとシステム操作の 2 枚", (
     expect(s.getState().ui.mode).toBe("analysisSimple");
   });
 
-  it("簡易モードでシステム操作のボードを開いたまま、ファイルを開き直す・選択した要素が消えても、システムのボードは保たれる (ファイルを開き直すとワークフローから)", () => {
+  it("簡易モードでシステム操作のボードを開いたまま、ファイルを開き直す・選択した要素が消えても、システムのボードは保たれる (ファイルを開き直すと業務一覧から)", () => {
     const s = make();
     s.getState().setCurrentBoard(OPERATION);
     s.getState().select({ type: "element", id: "scr_checkin" });
@@ -180,7 +180,7 @@ describe("簡易モードのワークフローとシステム操作の 2 枚", (
 });
 
 describe("簡易モードの 3 枚のボード", () => {
-  it("ワークフロー・システム操作・情報と状態を行き来できる。どれも簡易モードのまま。モードを離れると最初のボードに直る", () => {
+  it("業務一覧・システム操作・情報と状態を行き来できる。どれも簡易モードのまま。モードを離れると最初のボードに直る", () => {
     const s = make();
     s.getState().setMode("analysisSimple");
     for (const id of ["simple:operation", "simple:information", "simple:workflow", "simple:information"]) {
@@ -194,7 +194,7 @@ describe("簡易モードの 3 枚のボード", () => {
     // 詳細から情報と状態の id を開くと簡易モードへ移る
     s.getState().setCurrentBoard("simple:information");
     expect(s.getState().ui.mode).toBe("analysisSimple");
-    // 簡易モードに入り直すと、最初はワークフロー
+    // 簡易モードに入り直すと、最初は業務一覧
     s.getState().setMode("analysis");
     s.getState().setMode("analysisSimple");
     expect(s.getState().ui.currentBoardId).toBe("simple:workflow");
@@ -202,7 +202,7 @@ describe("簡易モードの 3 枚のボード", () => {
 });
 
 describe("既定のモードは分析（簡易）", () => {
-  it("何も指定しないストアは、分析（簡易）のワークフローから始まる。ui.mode が未設定でも簡易と読む", () => {
+  it("何も指定しないストアは、分析（簡易）の業務一覧から始まる。ui.mode が未設定でも簡易と読む", () => {
     expect(DEFAULT_MODE).toBe("analysisSimple");
     const s = createUntieStore(createHotelSample(), "simple:workflow");
     expect(s.getState().ui.mode).toBe("analysisSimple");
@@ -210,7 +210,7 @@ describe("既定のモードは分析（簡易）", () => {
     expect(modeOf({ mode: "analysis" })).toBe("analysis");
   });
 
-  it("新規作成・ファイルを開く・サンプルを開くと、既定のモード (簡易) のワークフローと、プロパティの右ペインで始まる", () => {
+  it("新規作成・ファイルを開く・サンプルを開くと、既定のモード (簡易) の業務一覧と、プロパティの右ペインで始まる", () => {
     const s = createUntieStore(createHotelSample(), "simple:workflow");
     s.getState().setRightPanel("trace");
     s.getState().newDocument(createHotelSample(), { pristine: true });

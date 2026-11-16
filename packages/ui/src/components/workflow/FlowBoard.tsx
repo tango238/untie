@@ -42,7 +42,7 @@ export function FlowBoard() {
         <h2 className="fixed-title">{FLOW_BOARD_LABEL}</h2>
         <span className="fixed-hint">業務ごとの枠に、作業を順に左から右へ並べます。縦は担当の登場人物です。作業を選ぶと、右のプロパティで「担当」と「前の作業」を決められます (作業の順序は、このボードでだけ決めます)。</span>
       </div>
-      {empty && <p className="hint">作業がまだありません。ワークフローで業務と作業を書くと、ここに並びます。</p>}
+      {empty && <p className="hint">作業がまだありません。業務一覧で業務と作業を書くと、ここに並びます。</p>}
       {flow.businesses.filter((b) => b.rows.length > 0).map((b) => (
         <BusinessFlow key={b.business.id} box={b} selectedId={selectedId} choose={choose} />
       ))}
@@ -110,11 +110,12 @@ function Card({ cell, row, selected, choose }: { cell: FlowCell; row: number; se
         data-flow-card={activity.id}
         className={`flow-card${selected ? " is-selected" : ""}${cell.unordered ? " is-unordered" : ""}`}
         aria-current={selected ? "true" : undefined}
-        aria-label={`作業 ${nameOf(activity)} (${names.length > 0 ? `担当: ${names.join("、")}` : "担当なし"}${cell.unordered ? "、順序は未設定" : ""})`}
+        aria-label={`作業 ${nameOf(activity)} (${names.length > 0 ? `担当: ${names.join("、")}` : "担当なし"}${cell.triggerEvents.length > 0 ? `、きっかけ: ${cell.triggerEvents.map(nameOf).join("、")}` : ""}${cell.unordered ? "、順序は未設定" : ""})`}
         onClick={() => choose(activity.id)}
       >
         <span className="wf-name">{nameOf(activity)}</span>
         {names.length > 1 && <span className="wf-assignees">担当: {names.join("、")}</span>}
+        {cell.triggerEvents.length > 0 && <span className="flow-trigger">きっかけ: {cell.triggerEvents.map(nameOf).join("、")}</span>}
         {cell.unordered && <span className="flow-unordered">順序は未設定</span>}
       </button>
     </div>

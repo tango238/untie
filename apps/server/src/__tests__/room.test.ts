@@ -58,7 +58,7 @@ describe("UntieRoom の RPC", () => {
       await state.storage.put("snapshot", { ...JSON.parse(JSON.stringify(hotelSample)), version: 1 });
     });
     const exported = await exportModel();
-    expect(exported.version).toBe("0.6.3");
+    expect(exported.version).toBe("0.6.4");
     expect(validateModel(exported).ok).toBe(true);
   });
 

@@ -56,6 +56,7 @@ export type RelationKind =
   | "usecaseSystem"
   | "usecaseEvent"
   | "systemEvent"
+  | "externalActorEvent"
   | "eventUsecase"
   | "usecaseNext"
   | "activityTrigger"
@@ -76,9 +77,9 @@ export interface UntieModel {
    */
   $schema?: string;
   /**
-   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.3。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
+   * モデルの形式 (スキーマ) のバージョン。semver の文字列で、現行は 0.6.4。スキーマを変えたら上げ、古い版のファイルは読み込むときに migrateModel() が現行へ変換する。0.1.0 より前のファイルは整数の 1 を持つ (これも 0.1.0 へ変換する)。
    */
-  version: "0.6.3";
+  version: "0.6.4";
   meta: Meta;
   /**
    * 全要素。kind で 17 種を判別する。id はモデル内で一意。

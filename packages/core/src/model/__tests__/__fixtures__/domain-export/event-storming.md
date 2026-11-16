@@ -37,16 +37,16 @@ Untie の業務分析 (RDRA) から導いたものです。イベントの並び
 
 | Actor | Command | Aggregate | Event | 備考 |
 |-------|---------|-----------|-------|------|
-| 倉庫担当・仕入先 | receiveStock | Stock | StockReceived | 入荷を受け入れる |
+| 倉庫担当 | receiveStock | Stock | StockReceived | 入荷を受け入れる |
 | 倉庫担当 | 在庫数を更新する | Stock | 在庫数が変わった |  |
 | 倉庫担当・店長 | 棚卸の結果を記録する | Stock | 棚卸の数が記録された |  |
-| 受注担当・購入者 | placeOrder | Order | OrderPlaced | 注文を受け付ける |
+| 受注担当 | placeOrder | Order | OrderPlaced | 注文を受け付ける |
 | 受注担当 | confirmOrder | Order | OrderConfirmed | 注文を確定する |
 | 受注担当 | cancelOrder | Order | OrderCancelled | 注文を取り消す |
 | System | allocateStock | Stock | StockAllocated | 在庫を引き当てる。OrderConfirmed がきっかけ (自動) |
-| 倉庫担当・配送業者 | issueShippingLabel | Shipment | ShippingLabelIssued | 送り状を発行する |
-| 受注担当・購入者 | shipOrder | Shipment | OrderShipped | 出荷する |
-| カスタマーサポート・購入者 | acceptReturn | ReturnRequest | ReturnAccepted | 返品を受け付ける |
+| 倉庫担当 | issueShippingLabel | Shipment | ShippingLabelIssued | 送り状を発行する |
+| 受注担当 | shipOrder | Shipment | OrderShipped | 出荷する |
+| カスタマーサポート | acceptReturn | ReturnRequest | ReturnAccepted | 返品を受け付ける |
 | 倉庫担当 | inspectReturn | ReturnRequest | ReturnInspected | 返品を検品する。ReturnAccepted がきっかけ (人が判断) |
 | TBD | markOrderPaid | Order | OrderPaid | 注文を入金済にする。あるべき姿 (分析に無い)。PaymentConfirmed がきっかけ (自動) |
 | System | 売掛金を登録する | Receivable | 売掛金が計上された | OrderShipped がきっかけ (自動) |

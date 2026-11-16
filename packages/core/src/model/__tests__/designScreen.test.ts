@@ -41,7 +41,7 @@ function base(): UntieModel {
     { id: "uc_1", kind: "usecase", name: "検索する" },
   ] as UntieModel["elements"];
   const rel = (kind: string, sourceId: string, targetId: string) => ({ id: `rel_${sourceId}_${targetId}`, kind, sourceId, targetId });
-  m.relations = [rel("actorActivity", "actor_1", "act_1"), rel("actorActivity", "actor_2", "act_1"), rel("actorActivity", "ext_1", "act_1"), rel("activityUsecase", "act_1", "uc_1"), rel("usecaseScreen", "uc_1", "scr_1")] as UntieModel["relations"];
+  m.relations = [rel("actorActivity", "actor_1", "act_1"), rel("actorActivity", "actor_2", "act_1"), rel("activityUsecase", "act_1", "uc_1"), rel("usecaseScreen", "uc_1", "scr_1")] as UntieModel["relations"];
   m = okModel(addDesignScreens(m, { systemId: "sys_a", screens: [{ id: "d1", source: { kind: "screen", screenId: "scr_1" } }, { id: "d_top", source: { kind: "builtin", builtin: "top" } }], transitions: [] }));
   m = okModel(addDatabase(m, { id: "db_x", name: "予約DB" }));
   return okModel(setDatabaseDsl(m, { id: "db_x", dsl: DSL }));

@@ -212,7 +212,8 @@ export function exportDesignBrief(model: UntieModel, systemId: string): DesignBr
       const raisedBy = [...sources("usecaseEvent", id).map((r) => r.sourceId), ...model.relations.filter((r) => r.kind === "usecaseCondition" && r.alternate?.eventId === id).map((r) => r.sourceId)];
       const bySystems = sorted(sources("systemEvent", id).map((r) => r.sourceId)).map((x) => `システム「${name(x)}」`);
       const when = e.kind === "event" && e.timing ? describeEventTiming(e.timing) : "";
-      const origin = [raisedBy.length > 0 ? usecaseList(raisedBy) : "", ...bySystems, when].filter(Boolean).join("、");
+      const byExternals = sorted(sources("externalActorEvent", id).map((r) => r.sourceId)).map((x) => `外部アクター「${name(x)}」`);
+      const origin = [raisedBy.length > 0 ? usecaseList(raisedBy) : "", ...bySystems, ...byExternals, when].filter(Boolean).join("、");
       push(`- ${nameOf(e)}: 起こすもの: ${origin || "**決まっていない**"}。これをきっかけに行う操作: ${usecaseList(targets("eventUsecase", id).map((r) => r.targetId))}`);
     }
     push("");

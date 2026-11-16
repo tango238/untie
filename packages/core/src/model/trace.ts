@@ -88,6 +88,7 @@ export function traceParents(model: UntieModel): Map<string, string[]> {
       case "usecaseState":
       case "usecaseEvent":
       case "systemEvent":
+      case "externalActorEvent":
       case "eventUsecase":
         add(r.targetId, r.sourceId);
         break;

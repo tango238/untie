@@ -47,8 +47,8 @@ describe("fixedGroups", () => {
     const m = sample();
     expect(fixedGroups(m, "context").map((g) => g.title)).toEqual(["予約", "顧客", "客室", "料金"]);
     const res = group(m, "context", "ctx_reservation");
-    expect(res.items.map((e) => e.kind)).toEqual(["information", "condition", "state", "state", "state", "state", "state", "variation"]);
-    expect(names(res.items)).toEqual(["予約", "取消料が発生する", "仮予約", "確定", "チェックイン済", "チェックアウト済", "取消", "予約経路"]);
+    expect(res.items.map((e) => e.kind)).toEqual(["information", "condition", "state", "state", "state", "state", "state", "variation", "event"]);
+    expect(names(res.items)).toEqual(["予約", "取消料が発生する", "仮予約", "確定", "チェックイン済", "チェックアウト済", "取消", "予約経路", "宿泊の申込が届いた"]);
     // 5 種類 (イベントを含む) とも枠から作れ、作るとそのコンテキストに属する
     expect(res.addKinds).toEqual(["information", "condition", "state", "variation", "event"]);
     for (const kind of ["information", "condition", "state", "variation", "event"] as const) {

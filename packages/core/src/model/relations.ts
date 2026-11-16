@@ -15,8 +15,8 @@ export interface RelationRule {
 /** 設計書 3 章の表。情報の置き場所 (取得元・保存先) と画面が扱う情報は関係に持たず、操作が扱う情報と対象から導く (placement.ts。0.4.0 から) */
 export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "actorBusiness", sources: ["actor"], targets: ["business"], label: "主担当", undirected: false },
-  // 作業の担当は人だけ (0.2.0 から。システムは操作の対象 usecaseSystem で結ぶ)
-  { kind: "actorActivity", sources: ["actor", "externalActor"], targets: ["activity"], label: "担当", undirected: false },
+  // 作業の担当は社内の登場人物だけ (システムは 0.2.0 から、外部アクターは 0.6.4 から担当にならない。システムは操作の対象 usecaseSystem で結ぶ)
+  { kind: "actorActivity", sources: ["actor"], targets: ["activity"], label: "担当", undirected: false },
   { kind: "activityUsecase", sources: ["activity"], targets: ["usecase"], label: "使う", undirected: false },
   { kind: "usecaseInformation", sources: ["usecase"], targets: ["information"], label: "扱う", undirected: false },
   { kind: "usecaseCondition", sources: ["usecase"], targets: ["condition"], label: "判断", undirected: false },
@@ -30,6 +30,8 @@ export const RELATION_RULES: readonly RelationRule[] = [
   { kind: "usecaseSystem", sources: ["usecase"], targets: ["system", "ledger"], label: "対象", undirected: false },
   { kind: "usecaseEvent", sources: ["usecase"], targets: ["event"], label: "発生", undirected: false },
   { kind: "systemEvent", sources: ["system"], targets: ["event"], label: "発生", undirected: false },
+  // 0.6.4 から。外部アクターが発生させる出来事 (お客様の来訪・申込など)
+  { kind: "externalActorEvent", sources: ["externalActor"], targets: ["event"], label: "発生", undirected: false },
   { kind: "eventUsecase", sources: ["event"], targets: ["usecase"], label: "きっかけ", undirected: false },
   { kind: "usecaseNext", sources: ["usecase"], targets: ["usecase"], label: "次に", undirected: false },
   // 0.4.1 から。作業の起点 (作業・イベント)。もう 1 つの起点「その他」は作業の項目 triggerNote

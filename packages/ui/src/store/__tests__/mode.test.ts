@@ -193,7 +193,7 @@ describe("ファイルを開く・閉じると、設計から既定 (分析（�
       s.getState().setCurrentBoard("design:navigation");
       if (reset === "newDocument") s.getState().newDocument(createHotelSample());
       else s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
-      // 設計にいたときは、既定の分析（簡易）のワークフローに戻る
+      // 設計にいたときは、既定の分析（簡易）の業務一覧に戻る
       expect(s.getState().ui.mode).toBe("analysisSimple");
       expect(s.getState().ui.designSystemId).toBeUndefined();
       expect(s.getState().ui.currentBoardId).toBe("simple:workflow");

@@ -71,6 +71,23 @@ describe("業務フローボード", () => {
     expect(screen.queryByRole("button", { name: /^作業 鍵を渡す \(担当なし/ })).toBeNull();
   });
 
+  it("プロパティで、きっかけのイベントを足す・外すと、カードに「きっかけ: ○○」が出る (人の作業のきっかけをイベントから直接結ぶ)", () => {
+    act(() => st().setCurrentBoard("simple:flow"));
+    act(() => st().select({ type: "element", id: "act_hand_key" }));
+    render(
+      <>
+        <FlowBoard />
+        <PropertyPanel />
+      </>,
+    );
+    const section = within(screen.getByTestId("flow-order-section"));
+    fireEvent.change(section.getByLabelText("きっかけのイベントを追加"), { target: { value: "ev_stay_requested" } });
+    expect(st().model.relations.some((r) => r.kind === "eventActivity" && r.sourceId === "ev_stay_requested" && r.targetId === "act_hand_key")).toBe(true);
+    expect(screen.getByRole("button", { name: /^作業 鍵を渡す.*きっかけ: 宿泊の申込が届いた/ })).toBeDefined();
+    fireEvent.click(within(screen.getByTestId("flow-order-section")).getByRole("button", { name: "きっかけのイベント「宿泊の申込が届いた」を外す" }));
+    expect(st().model.relations.some((r) => r.kind === "eventActivity" && r.targetId === "act_hand_key")).toBe(false);
+  });
+
   it("順序を外した作業は「順序は未設定」で右に出る", () => {
     act(() => {
       const rel = st().model.relations.find((r) => r.kind === "activityTrigger" && r.targetId === "act_hand_key")!;

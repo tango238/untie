@@ -1339,3 +1339,4 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .flow-card.is-unordered { border-style: dashed; background: #fff; }
 .flow-unordered { font-size: 11px; color: var(--muted); }
 .flow-orphans { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.flow-trigger { font-size: 11px; color: #6a5a1f; }

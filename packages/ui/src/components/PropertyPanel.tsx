@@ -232,7 +232,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  // 分析（簡易）のボード (ワークフロー・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
+  // 分析（簡易）のボード (業務一覧・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
   // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
   const simple = isSimpleBoard(boardId);
   // 業務フローボードでは、作業の担当と順序だけを変える (どの画面でも全部の項目を直せると、項目が多くなりすぎるため)
@@ -319,7 +319,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
       ) : onFlow ? (
-        <p className="hint">この画面では、作業の担当と順序を決められます。そのほかの所属・関係・削除は、ワークフローや分析（詳細）で直します。</p>
+        <p className="hint">この画面では、作業の担当と順序を決められます。そのほかの所属・関係・削除は、業務一覧や分析（詳細）で直します。</p>
       ) : (
         !structural &&
         !(simple && element.kind === "buc" && element.isDefault) && (
@@ -850,6 +850,8 @@ function FlowOrderSection({ activity, model }: { activity: Activity; model: Unti
   const previousRels = model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === activity.id && model.elements.some((e) => e.id === r.sourceId && e.kind === "activity"));
   const previousOptions = previousCandidates(model, activity.id);
   const followers = activitiesTriggeredBy(model, activity.id);
+  const eventRels = model.relations.filter((r) => r.kind === "eventActivity" && r.targetId === activity.id);
+  const eventOptions = model.elements.filter((e) => e.kind === "event" && !eventRels.some((r) => r.sourceId === e.id));
   const add = (sourceId: string) => {
     if (!sourceId) return;
     const r = dispatch((m) => addRelation(m, { sourceId, targetId: activity.id }));
@@ -889,6 +891,18 @@ function FlowOrderSection({ activity, model }: { activity: Activity; model: Unti
         <select aria-label="前の作業を追加" value="" onChange={(ev) => add(ev.target.value)}>
           <option value="">前の作業を追加…</option>
           {previousOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name || "(名前なし)"}
+            </option>
+          ))}
+        </select>
+      )}
+      <h3>きっかけのイベント (起点)</h3>
+      {eventRels.length === 0 ? <p className="hint">イベントから始まる作業は、ここでイベントを選びます (例: 宿泊の申込が届いた → 予約を受け付ける)。</p> : list("きっかけのイベント", eventRels, "きっかけのイベント")}
+      {eventOptions.length > 0 && (
+        <select aria-label="きっかけのイベントを追加" value="" onChange={(ev) => add(ev.target.value)}>
+          <option value="">きっかけのイベントを追加…</option>
+          {eventOptions.map((o) => (
             <option key={o.id} value={o.id}>
               {o.name || "(名前なし)"}
             </option>

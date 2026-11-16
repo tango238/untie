@@ -1,18 +1,18 @@
-// 分析（簡易）のボード (ワークフロー: 登場人物 → 業務 → 活動 → 作業。システム操作: 作業 → 操作 → 画面・情報・条件は operationBoard.ts。情報と状態: コンテキスト → 情報・状態・バリエーションは informationBoard.ts)。共通の id・種類・削除の影響を置く。
+// 分析（簡易）のボード (業務一覧: 登場人物 → 業務 → 活動 → 作業。システム操作: 作業 → 操作 → 画面・情報・条件は operationBoard.ts。情報と状態: コンテキスト → 情報・状態・バリエーションは informationBoard.ts)。共通の id・種類・削除の影響を置く。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, addRelation, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup, type FixedLayer } from "./fixedBoards";
 import { defaultBucOf, issuesTargeting } from "./selectors";
-import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business, type Element, type ElementKind, type ExternalActor, type UntieModel } from "./types";
+import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business, type Element, type EventElement, type ElementKind, type ExternalActor, type UntieModel } from "./types";
 
 // ---------------------------------------------------------------- ボードの id
 
-/** 簡易モードのボードの種類 (選択肢に並べる順。最初がワークフロー) */
+/** 簡易モードのボードの種類 (選択肢に並べる順。最初が業務一覧) */
 export const SIMPLE_BOARD_KINDS = ["workflow", "flow", "operation", "information"] as const;
 export type SimpleBoardKind = (typeof SIMPLE_BOARD_KINDS)[number];
 
 export const SIMPLE_BOARD_LABELS: Record<SimpleBoardKind, string> = {
-  workflow: "ワークフロー",
+  workflow: "業務一覧",
   flow: "業務フロー",
   operation: "システム操作",
   information: "情報と状態",
@@ -32,7 +32,7 @@ export function parseSimpleBoardId(boardId: string): SimpleBoardKind | null {
 }
 
 /**
- * 簡易モードのボード (ワークフロー・システム操作・情報と状態) で構造 (関係・所属・削除) を直せる要素か。
+ * 簡易モードのボード (業務一覧・システム操作・情報と状態) で構造 (関係・所属・削除) を直せる要素か。
  * ボードで選べる種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、
  * 消すと巻き込まれるものが大きい (システムは画面と非機能要件ごと消える) ので、詳細で直す
  */
@@ -44,7 +44,7 @@ export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: bool
 /** 簡易ボードごとの、主役の要素の種類 (そのボードで選んで直せる。システム・帳票は、システム操作ボードにチップで出るだけで主役ではない。イベントは操作に結ばれていれば、システム操作ボードのチップで選べる) */
 export const SIMPLE_BOARD_ELEMENT_KINDS: Record<SimpleBoardKind, readonly ElementKind[]> = {
   workflow: ["actor", "externalActor", "business", "buc", "activity"],
-  // 業務フローは、ワークフローボードの要素を並べ直して見るだけ (主役の要素は持たない。作業はここで選べるが、ワークフローが主)
+  // 業務フローは、業務一覧ボードの要素を並べ直して見るだけ (主役の要素は持たない。作業はここで選べるが、業務一覧が主)
   flow: [],
   operation: ["usecase", "screen", "condition", "event"],
   information: ["context", "information", "state", "variation"],
@@ -135,19 +135,14 @@ export interface WorkflowBusiness {
   bucs: WorkflowBuc[];
   /** 業務の主担当の登場人物 (複数いるときはすべて。検証が警告を出す) */
   ownerIds: string[];
-  /**
-   * 外部の登場人物の行に出す枠で、その人が担当する作業だけを入れたもの (主担当の業務ではなく、担当する作業のある業務)。
-   * 担当でない作業・担当する作業の無い活動は入れない
-   */
-  assignedOnly?: boolean;
 }
 
 /** 登場人物 1 人の行 */
 export interface WorkflowLane {
   actor: Actor | ExternalActor;
   businesses: WorkflowBusiness[];
-  /** 外部の登場人物が担当する、どの業務の枠にも出ない作業 (業務に属さない作業など)。社内の登場人物の行では空 */
-  orphanActivities: Activity[];
+  /** 外部の登場人物が発生させるイベント (0.6.4 から)。外部の登場人物は業務の主担当にも作業の担当にもならない。社内の登場人物の行では空 */
+  raisedEvents: EventElement[];
 }
 
 export interface Workflow {
@@ -164,7 +159,7 @@ export function activityAssigneeIds(model: UntieModel, activityId: string): stri
 }
 
 /**
- * ワークフローを組み立てる。並びはモデルの順 (固定ボードと同じ)。
+ * 業務一覧を組み立てる。並びはモデルの順 (固定ボードと同じ)。
  * 業務が複数の登場人物に結ばれているときは、それぞれの行に出す (どの行でも同じ業務なので、選択は共通)
  */
 export function buildWorkflow(model: UntieModel): Workflow {
@@ -188,20 +183,15 @@ export function buildWorkflow(model: UntieModel): Workflow {
   const shown = new Set(boxes.flatMap((b) => [...b.direct, ...b.bucs.flatMap((x) => x.activities)]).map((a) => a.id));
   const orphanActivities = activities.filter((a) => !shown.has(a.id));
 
-  /** 外部の登場人物の行: 主担当の業務 (検証に通らないモデルで主担当になっているとき) に加えて、担当する作業のある業務を、担当する作業だけ入れて出す */
-  const assignedBox = (box: WorkflowBusiness, mine: ReadonlySet<string>): WorkflowBusiness | null => {
-    const direct = box.direct.filter((a) => mine.has(a.id));
-    const withBucs = box.bucs.map((x) => ({ buc: x.buc, activities: x.activities.filter((a) => mine.has(a.id)) })).filter((x) => x.activities.length > 0);
-    return direct.length > 0 || withBucs.length > 0 ? { ...box, direct, bucs: withBucs, assignedOnly: true } : null;
-  };
+  // 外部の登場人物は、業務の主担当にも作業の担当にもならない。行には、発生させるイベントだけを出す
   const lanes: WorkflowLane[] = model.elements
     .filter((e): e is Actor | ExternalActor => e.kind === "actor" || e.kind === "externalActor")
     .map((actor) => {
-      const owned = boxes.filter((b) => b.ownerIds.includes(actor.id));
-      if (actor.kind !== "externalActor") return { actor, businesses: owned, orphanActivities: [] };
-      const mine = new Set(model.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === actor.id).map((r) => r.targetId));
-      const assigned = boxes.map((b) => (owned.includes(b) ? b : assignedBox(b, mine))).filter((b): b is WorkflowBusiness => b !== null);
-      return { actor, businesses: assigned, orphanActivities: orphanActivities.filter((a) => mine.has(a.id)) };
+      if (actor.kind === "externalActor") {
+        const raised = new Set(model.relations.filter((r) => r.kind === "externalActorEvent" && r.sourceId === actor.id).map((r) => r.targetId));
+        return { actor, businesses: [], raisedEvents: model.elements.filter((e): e is EventElement => e.kind === "event" && raised.has(e.id)) };
+      }
+      return { actor, businesses: boxes.filter((b) => b.ownerIds.includes(actor.id)), raisedEvents: [] };
     });
   const actorIds = new Set(lanes.map((l) => l.actor.id));
   const unassigned = boxes.filter((b) => !b.ownerIds.some((id) => actorIds.has(id)));
@@ -274,6 +264,7 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
         note: alone > 0 ? `主担当が外れます (ほかに主担当がいない ${alone} 件は「担当が決まっていない業務」に移ります)` : "主担当が外れます",
       });
       push({ label: "作業", count: model.relations.filter((r) => r.kind === "actorActivity" && r.sourceId === el.id).length, effect: "kept", note: "担当が外れます" });
+      push({ label: "イベント", count: countRelations(model, el.id, ["externalActorEvent"]), effect: "kept", note: "発生元の結び付きが外れます" });
       push({ label: "非機能要件", count: countRelations(model, el.id, ["actorNfr"]), effect: "kept", note: "「求める」の結び付きが外れます" });
       pushIssues(el.id);
       break;
@@ -328,6 +319,7 @@ export function removalImpact(model: UntieModel, elementId: string): ImpactItem[
       push({ label: "操作", count: countRelations(model, el.id, ["eventUsecase", "usecaseEvent"]), effect: "kept", note: "きっかけ・発生の結び付きが外れます" });
       push({ label: "作業", count: countRelations(model, el.id, ["eventActivity"]), effect: "kept", note: "起点が外れます (この出来事を起点にしている作業)" });
       push({ label: "システム", count: countRelations(model, el.id, ["systemEvent"]), effect: "kept", note: "発生元の結び付きが外れます" });
+      push({ label: "外部の登場人物", count: countRelations(model, el.id, ["externalActorEvent"]), effect: "kept", note: "発生元の結び付きが外れます" });
       push({
         label: "代替パターン",
         count: model.relations.filter((r) => r.alternate?.eventId === el.id).length,
@@ -436,7 +428,7 @@ export function impactLines(items: readonly ImpactItem[]): string[] {
 
 // ---------------------------------------------------------------- 足す
 
-/** ワークフローボードで足せるもの */
+/** 業務一覧ボードで足せるもの */
 export type WorkflowAddKind = "actor" | "business" | "buc" | "activity";
 
 /** 業務の枠に作業を直接足せるか。活動のある業務は、作業を活動の枠に入れる (固定ボードと同じ決まり) */
@@ -445,17 +437,17 @@ export function canAddActivityToBusiness(model: UntieModel, businessId: string):
 }
 
 /**
- * ワークフローボードで足す。足したものは、枠の持ち主に結ぶ (固定ボードの「枠に足す」と同じ。作成と結び付けで 1 件の履歴)。
+ * 業務一覧ボードで足す。足したものは、枠の持ち主に結ぶ (固定ボードの「枠に足す」と同じ。作成と結び付けで 1 件の履歴)。
  * - actor: 親なし
  * - business: 親は登場人物 (主担当として結ぶ)
  * - buc (活動): 親は業務。業務に初めて活動を足すと、業務に直接あった作業はその活動へ移る
  * - activity (作業): 親は業務 (活動の無い業務だけ) か活動
  */
 export function addWorkflowElement(model: UntieModel, kind: WorkflowAddKind, parentId?: string, options: { assigneeId?: string } = {}): CommandResult<{ id: string }> {
-  // 作業を足すとき assigneeId があれば、その登場人物 (外部の登場人物も) を担当に結ぶ (作成と結び付けで 1 件の履歴)
+  // 作業を足すとき assigneeId があれば、その登場人物 (外部の登場人物は担当にならない) を担当に結ぶ (作成と結び付けで 1 件の履歴)
   if (kind === "activity" && options.assigneeId !== undefined) {
     const assignee = find(model, options.assigneeId);
-    if (!assignee || (assignee.kind !== "actor" && assignee.kind !== "externalActor")) return { ok: false, reason: "担当にできるのは登場人物だけです" };
+    if (!assignee || assignee.kind !== "actor") return { ok: false, reason: "担当にできるのは登場人物だけです (外部の登場人物は不可)" };
     const created = addWorkflowElement(model, "activity", parentId);
     if (!created.ok) return created;
     const linked = addRelation(created.model, { sourceId: assignee.id, targetId: created.id });

@@ -134,7 +134,7 @@ describe("レビューを受けた振る舞い", () => {
     expect(inquiry.key).toBe("usecase:uc_record_inquiry");
     expect(inquiry.activity).toBeNull();
     expect(names(inquiry.activities)).toEqual(["問い合わせに答える", "配送状況を調べる", "対応を記録する"]);
-    expect(names(inquiry.actors)).toEqual(["カスタマーサポート", "購入者", "配送業者"]);
+    expect(names(inquiry.actors)).toEqual(["カスタマーサポート"]);
   });
 
   it("ほかのシステムでも書く集約は、書くシステムを持つ (帳票は入れない)", () => {

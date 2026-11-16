@@ -163,6 +163,8 @@ const conditions: Element[] = [
 
 /** イベント (操作やシステムが発生させる出来事)。宿泊料金の計算は、人の作業ではなくイベントをきっかけにした自動の処理 */
 const events: Element[] = [
+  // 外部アクター (宿泊客・旅行会社) が発生させる出来事。予約を受け付ける作業の起点になる
+  { id: "ev_stay_requested", kind: "event", name: "宿泊の申込が届いた", contextId: "ctx_reservation" },
   { id: "ev_checkout_day", kind: "event", name: "チェックアウトの日になった", contextId: "ctx_charge", timing: { type: "scheduled", every: "day", hour: 0, minute: 5, note: "日付が変わったら、その日にチェックアウトする予約をまとめて拾う" } },
   { id: "ev_charge_calculated", kind: "event", name: "請求金額が計算された", contextId: "ctx_charge" },
 ];
@@ -223,13 +225,10 @@ const pairs: [source: string, target: string, access?: InformationAccess][] = [
   ["actor_housekeeping", "biz_cleaning"],
   // actorActivity
   ["actor_reservation", "act_accept_reservation"],
-  ["ext_travel_agency", "act_accept_reservation"],
   ["actor_reservation", "act_confirm_reservation"],
   ["actor_reservation", "act_change_cancel"],
-  ["ext_guest", "act_change_cancel"],
   ["actor_front", "act_confirm_arrival"],
   ["actor_front", "act_verify_identity"],
-  ["ext_guest", "act_verify_identity"],
   ["actor_front", "act_assign_room"],
   ["actor_front", "act_hand_key"],
   ["actor_front", "act_room_request"],
@@ -328,6 +327,9 @@ const pairs: [source: string, target: string, access?: InformationAccess][] = [
   // 作業に属さない自動の処理: 宿泊管理システムが「チェックアウトの日になった」を発生させ、請求金額を計算する。
   // 計算が済んだら「請求金額が計算された」を発生させ、フロント担当の請求書の発行のきっかけになる
   ["sys_pms", "ev_checkout_day"],
+  // 外部アクターが発生させる出来事 (外部アクターは作業の担当にならない)
+  ["ext_guest", "ev_stay_requested"],
+  ["ext_travel_agency", "ev_stay_requested"],
   ["ev_checkout_day", "uc_calc_charge"],
   ["uc_calc_charge", "sys_pms"],
   ["uc_calc_charge", "ev_charge_calculated"],
@@ -356,6 +358,7 @@ const pairs: [source: string, target: string, access?: InformationAccess][] = [
   ["act_room_request", "act_room_service"],
   ["act_room_service", "act_record_extra"],
   ["ev_checkout_day", "act_create_bill"],
+  ["ev_stay_requested", "act_accept_reservation"],
   ["act_create_bill", "act_settle"],
   ["act_settle", "act_collect_key"],
   ["act_collect_key", "act_instruct_cleaning"],

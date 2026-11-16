@@ -747,6 +747,22 @@ describe("PropertyPanel: 作業の起点", () => {
     }
   });
 
+  it("イベントの発生元に外部アクターを結べる (関係を追加の「発生 ← 外部アクター」)。社内のアクターは出ない", () => {
+    onFixedBoard();
+    act(() => {
+      const r = st().dispatch((m) => addElement(m, { kind: "externalActor", name: "取引先", id: "ext_new_x" }));
+      if (!r.ok) throw new Error(r.reason);
+    });
+    selectEl("ev_stay_requested");
+    render(<PropertyPanel />);
+    const adder = screen.getByLabelText("関係を追加");
+    expect(groupLabels(adder).filter((l) => l!.startsWith("発生"))).toContain("発生 ← 外部アクター");
+    expect(optionNames(adder)).toContain("取引先");
+    expect(optionNames(adder)).not.toContain("フロント担当");
+    fireEvent.change(adder, { target: { value: "ext_new_x>ev_stay_requested" } });
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.sourceId === "ext_new_x" && r.targetId === "ev_stay_requested")).toBe(true);
+  });
+
   it("その他の入力は triggerNote になり、空にすると項目ごと消える", () => {
     onFixedBoard();
     selectEl("act_hand_key");
@@ -769,10 +785,10 @@ describe("PropertyPanel: 作業の起点", () => {
     expect(screen.queryByRole("button", { name: /起点「.*」を外す/ })).toBeNull();
     expect((screen.getByLabelText("起点 (その他)") as HTMLInputElement).readOnly).toBe(true);
     // 起点のない作業でも、自由ボードでは「足します」の案内は出さない
-    selectEl("act_accept_reservation");
+    selectEl("act_change_cancel");
     expect(screen.queryByText(/足します/)).toBeNull();
     onFixedBoard();
-    selectEl("act_accept_reservation");
+    selectEl("act_change_cancel");
     expect(screen.getByText(/足します/)).toBeDefined();
   });
 });

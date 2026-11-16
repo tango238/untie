@@ -1,5 +1,5 @@
 import { useEffect, useMemo, type ReactNode } from "react";
-import { activityParentOptions, addWorkflowElement, buildWorkflow, canAddActivityToBusiness, SIMPLE_BOARD_LABELS, type WorkflowAddKind, type WorkflowBusiness, type WorkflowBuc } from "@untie/core/model/workflow";
+import { addWorkflowElement, buildWorkflow, canAddActivityToBusiness, SIMPLE_BOARD_LABELS, type WorkflowAddKind, type WorkflowBusiness, type WorkflowBuc } from "@untie/core/model/workflow";
 import type { Activity, Actor, ExternalActor, UntieModel } from "@untie/core/model/types";
 import { selectReadOnly, useUntieStore } from "../../store";
 import { canvasApi } from "../canvas/canvasApi";
@@ -7,7 +7,7 @@ import { canvasApi } from "../canvas/canvasApi";
 export const nameOf = (e: { name: string }) => e.name || "(名前なし)";
 
 /**
- * 分析（簡易）のワークフローボード。登場人物 → 業務 → 活動 → 作業 を 1 枚で書く。
+ * 分析（簡易）の業務一覧ボード。登場人物 → 業務 → 活動 → 作業 を 1 枚で書く。
  * 配置は保存せず、毎回モデルから組み立てる (core の buildWorkflow)。詳細モードの固定ボードと同じモデルを別の見せ方で扱う。
  */
 export function WorkflowBoard() {
@@ -64,8 +64,7 @@ export function WorkflowBoard() {
     setTimeout(() => canvasApi.focus?.(r.id, laneId), 50);
   };
 
-  const parentOptions = useMemo(() => activityParentOptions(model), [model]);
-  const ctx: Ctx = { model, readOnly, selectedId, assignees, choose, add, parentOptions };
+  const ctx: Ctx = { model, readOnly, selectedId, assignees, choose, add };
   const empty = workflow.lanes.length === 0 && workflow.unassigned.length === 0 && workflow.orphanActivities.length === 0;
 
   return (
@@ -82,27 +81,16 @@ export function WorkflowBoard() {
       {empty && <p className="hint">まだ何もありません。「＋登場人物」から書き始めます。</p>}
       {workflow.lanes.map((lane) => (
         <section key={lane.actor.id} className="wf-lane" data-workflow-lane={lane.actor.id} aria-label={`登場人物 ${nameOf(lane.actor)} の行`}>
-          <ActorCard actor={lane.actor} hasBusinesses={lane.businesses.length > 0 || lane.orphanActivities.length > 0} ctx={ctx} />
-          {(lane.businesses.length > 0 || lane.orphanActivities.length > 0) && (
+          <ActorCard actor={lane.actor} hasBusinesses={lane.businesses.length > 0} raisedEvents={lane.raisedEvents.map(nameOf)} ctx={ctx} />
+          {lane.businesses.length > 0 && (
             <>
               <div className="wf-trunk" aria-hidden="true" />
               <ul className="wf-businesses">
                 {lane.businesses.map((b) => (
-                  <li key={b.business.id} className={`wf-branch-item${b.assignedOnly ? " is-assigned" : ""}`}>
+                  <li key={b.business.id} className="wf-branch-item">
                     <BusinessFrame box={b} laneActorId={lane.actor.id} ctx={ctx} />
                   </li>
                 ))}
-                {lane.orphanActivities.length > 0 && (
-                  <li className="wf-branch-item is-assigned">
-                    <section className="wf-frame wf-business is-assigned" aria-label={`業務に属さない作業 (${nameOf(lane.actor)} が担当する作業)`} onClick={(e) => e.stopPropagation()}>
-                      <header className="wf-frame-head">
-                        <h3 className="wf-section-title">業務に属さない作業</h3>
-                      </header>
-                      <p className="wf-note">担当する作業</p>
-                      <ActivityStack activities={lane.orphanActivities} ctx={ctx} />
-                    </section>
-                  </li>
-                )}
               </ul>
             </>
           )}
@@ -111,7 +99,7 @@ export function WorkflowBoard() {
       {workflow.unassigned.length > 0 && (
         <section className="wf-section" aria-label="担当が決まっていない業務">
           <h3 className="wf-section-title">担当が決まっていない業務</h3>
-          <p className="fixed-hint">業務を選び、プロパティの「関係を追加」で主担当の登場人物を結ぶと、その人の行に移ります。外部の登場人物が担当する作業は、その人の行にも出ます。</p>
+          <p className="fixed-hint">業務を選び、プロパティの「関係を追加」で主担当の登場人物を結ぶと、その人の行に移ります。</p>
           <ul className="wf-businesses is-flat">
             {workflow.unassigned.map((b) => (
               <li key={b.business.id}>
@@ -140,8 +128,6 @@ interface Ctx {
   choose: (id: string) => void;
   /** laneId: 押した行 (足した要素へは、その行の中を先にスクロールする) */
   add: (kind: WorkflowAddKind, parentId?: string, options?: { assigneeId?: string; laneId?: string }) => void;
-  /** 作業を足せる足し先 (業務・活動) の候補 (外部の登場人物のカードのセレクト) */
-  parentOptions: { id: string; label: string }[];
 }
 
 /** 選べる箱 (カード・枠の見出し・作業の行)。ボタンなのでキーボードでも選べる */
@@ -163,7 +149,7 @@ export function Pick({ id, className, ctx, children, label }: { id: string; clas
   );
 }
 
-function ActorCard({ actor, hasBusinesses, ctx }: { actor: Actor | ExternalActor; hasBusinesses: boolean; ctx: Ctx }) {
+function ActorCard({ actor, hasBusinesses, raisedEvents, ctx }: { actor: Actor | ExternalActor; hasBusinesses: boolean; raisedEvents: string[]; ctx: Ctx }) {
   const external = actor.kind === "externalActor";
   return (
     <div className={`wf-actor kind-${actor.kind}${ctx.selectedId === actor.id ? " is-selected" : ""}`} data-workflow-el={actor.id}>
@@ -176,28 +162,10 @@ function ActorCard({ actor, hasBusinesses, ctx }: { actor: Actor | ExternalActor
           ＋業務
         </button>
       )}
-      {/* 外部の登場人物は業務の主担当にはなれないが、作業の担当にはなれる。担当する作業のある業務の枠を出し、作業はここから足せる */}
-      {!ctx.readOnly && external && ctx.parentOptions.length > 0 && (
-        <select
-          className="wf-add"
-          aria-label={`「${nameOf(actor)}」に作業を足す (業務・活動を選ぶ)`}
-          value=""
-          onChange={(e) => {
-            if (e.target.value) ctx.add("activity", e.target.value, { assigneeId: actor.id, laneId: actor.id });
-          }}
-        >
-          <option value="">＋作業 (業務・活動を選ぶ)</option>
-          {ctx.parentOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      )}
-      {!ctx.readOnly && external && ctx.parentOptions.length === 0 && <span className="wf-note">作業を足すには、先に業務を作ってください</span>}
-      {external && <span className="wf-note">業務の主担当にはなれません。担当する作業を、業務ごとに出します</span>}
+      {/* 外部の登場人物は、業務の主担当にも作業の担当にもなれない。イベントを発生させる (イベントの発生元は、イベントのプロパティで結ぶ) */}
+      {external && <span className="wf-note">業務の主担当にも、作業の担当にもなれません。イベントを発生させます</span>}
+      {external && raisedEvents.length > 0 && <span className="wf-note wf-raised">発生させるイベント: {raisedEvents.join("、")}</span>}
       {!hasBusinesses && !external && <span className="wf-note">業務はまだありません</span>}
-      {!hasBusinesses && external && <span className="wf-note">担当する作業はまだありません</span>}
     </div>
   );
 }
@@ -206,14 +174,11 @@ function BusinessFrame({ box, laneActorId, ctx }: { box: WorkflowBusiness; laneA
   const { business } = box;
   const others = box.ownerIds.filter((id) => id !== laneActorId).map((id) => ctx.model.elements.find((e) => e.id === id)).filter((e) => !!e);
   const canAddActivity = canAddActivityToBusiness(ctx.model, business.id);
-  // 外部の登場人物の行の枠 (担当する作業だけ): 主担当の業務ではないので、主担当を添えて区別する。活動は足さず、作業はその人の担当として足す
-  const assigned = box.assignedOnly === true;
   const laneName = nameOf(ctx.model.elements.find((e) => e.id === laneActorId) ?? { name: "" });
-  const owners = box.ownerIds.map((id) => ctx.model.elements.find((e) => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e);
   return (
     <section
-      className={`wf-frame wf-business${assigned ? " is-assigned" : ""}${ctx.selectedId === business.id ? " is-selected" : ""}`}
-      aria-label={`業務 ${nameOf(business)}${laneActorId ? ` (${laneName} ${assigned ? "が担当する作業" : "の行"})` : ""}`}
+      className={`wf-frame wf-business${ctx.selectedId === business.id ? " is-selected" : ""}`}
+      aria-label={`業務 ${nameOf(business)}${laneActorId ? ` (${laneName} の行)` : ""}`}
       data-workflow-el={business.id}
       onClick={() => ctx.choose(business.id)}
     >
@@ -224,30 +189,23 @@ function BusinessFrame({ box, laneActorId, ctx }: { box: WorkflowBusiness; laneA
         </Pick>
       </header>
       {/* 行は業務の主担当で決まり、作業の担当は行を決めない。担当を外してもカードは枠に残るので、そのことを伝える */}
-      {!assigned && laneActorId && <p className="wf-note wf-lane-note">行は業務の主担当 ({laneName})。作業の担当は、各カードに出ます。</p>}
-      {assigned && <p className="wf-note">担当する作業 ({owners.length > 0 ? `主担当: ${owners.map(nameOf).join("、")}` : "主担当は決まっていません"})</p>}
-      {!assigned && box.ownerIds.length > 1 && laneActorId && (
+      {laneActorId && <p className="wf-note wf-lane-note">行は業務の主担当 ({laneName})。作業の担当は、各カードに出ます。</p>}
+      {box.ownerIds.length > 1 && laneActorId && (
         <p className="wf-warning">主担当が複数います (ほかに {others.map((o) => nameOf(o!)).join("、")} の行にも出ています)。主担当は 1 人にしてください。</p>
       )}
       {box.direct.length > 0 && <ActivityStack activities={box.direct} ctx={ctx} />}
       {box.direct.length > 0 && box.bucs.length > 0 && <p className="wf-warning">活動のある業務です。作業をどれかの活動に移してください (プロパティの「活動」)。</p>}
       {!ctx.readOnly && box.bucs.length > 0 && <p className="wf-note">作業は活動の枠の「＋作業」から足します。</p>}
-      {/* 担当の枠で、活動のある業務の直下の作業だけを担当しているときは、ここに足せるボタンが無いので理由を出す */}
-      {!ctx.readOnly && assigned && !canAddActivity && box.bucs.length === 0 && (
-        <p className="wf-note">この業務には活動があるので、作業は活動に足します。カードの「＋作業 (業務・活動を選ぶ)」から活動を選んでください。</p>
-      )}
       {box.bucs.map((b) => (
-        <BucFrame key={b.buc.id} box={b} ctx={ctx} laneId={laneActorId} assigned={assigned} />
+        <BucFrame key={b.buc.id} box={b} ctx={ctx} laneId={laneActorId} />
       ))}
       {!ctx.readOnly && (
         <div className="wf-actions">
-          {!assigned && (
-            <button type="button" className="wf-add" aria-label={`「${nameOf(business)}」に活動を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("buc", business.id, { laneId: laneActorId }); }}>
-              ＋活動
-            </button>
-          )}
+          <button type="button" className="wf-add" aria-label={`「${nameOf(business)}」に活動を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("buc", business.id, { laneId: laneActorId }); }}>
+            ＋活動
+          </button>
           {canAddActivity && (
-            <button type="button" className="wf-add" aria-label={assigned ? `「${nameOf(business)}」に${laneName}が担当する作業を足す` : `「${nameOf(business)}」に作業を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("activity", business.id, { ...(assigned ? { assigneeId: laneActorId } : {}), laneId: laneActorId }); }}>
+            <button type="button" className="wf-add" aria-label={`「${nameOf(business)}」に作業を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("activity", business.id, { laneId: laneActorId }); }}>
               ＋作業
             </button>
           )}
@@ -257,13 +215,12 @@ function BusinessFrame({ box, laneActorId, ctx }: { box: WorkflowBusiness; laneA
   );
 }
 
-function BucFrame({ box, ctx, laneId, assigned }: { box: WorkflowBuc; ctx: Ctx; laneId: string; assigned: boolean }) {
-  const laneName = nameOf(ctx.model.elements.find((e) => e.id === laneId) ?? { name: "" });
+function BucFrame({ box, ctx, laneId }: { box: WorkflowBuc; ctx: Ctx; laneId: string }) {
   const { buc } = box;
   return (
     <section
       className={`wf-frame wf-buc${ctx.selectedId === buc.id ? " is-selected" : ""}`}
-      aria-label={assigned ? `活動 ${nameOf(buc)} (${laneName} が担当する作業)` : `活動 ${nameOf(buc)}`}
+      aria-label={`活動 ${nameOf(buc)}`}
       data-workflow-el={buc.id}
       onClick={(e) => {
         e.stopPropagation();
@@ -279,7 +236,7 @@ function BucFrame({ box, ctx, laneId, assigned }: { box: WorkflowBuc; ctx: Ctx; 
       <ActivityStack activities={box.activities} ctx={ctx} />
       {!ctx.readOnly && (
         <div className="wf-actions">
-          <button type="button" className="wf-add" aria-label={assigned ? `「${nameOf(buc)}」に${laneName}が担当する作業を足す` : `「${nameOf(buc)}」に作業を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("activity", buc.id, { ...(assigned ? { assigneeId: laneId } : {}), laneId }); }}>
+          <button type="button" className="wf-add" aria-label={`「${nameOf(buc)}」に作業を足す`} onClick={(e) => { e.stopPropagation(); ctx.add("activity", buc.id, { laneId }); }}>
             ＋作業
           </button>
         </div>

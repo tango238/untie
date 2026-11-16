@@ -1,7 +1,7 @@
 // 業務フローボード (分析（簡易）と分析（詳細）で共通) の組み立て。横軸は業務ごとの枠の中で作業を順に、縦軸は担当の登場人物。
 // 作業の順序は作業 → 作業の起点 (activityTrigger: 始点が前の作業、終点が後の作業) をそのまま使う。モデルには保存せず、毎回組み立てる。
 import { defaultBucOf } from "./selectors";
-import type { Activity, Actor, Business, Buc, ExternalActor, UntieModel } from "./types";
+import type { Activity, Actor, Business, Buc, EventElement, ExternalActor, UntieModel } from "./types";
 
 /** 業務フローボードの id の末尾 (簡易: simple:flow、詳細の分析ボード: analysis:flow) */
 export const FLOW_BOARD_LABEL = "業務フロー";
@@ -14,6 +14,8 @@ export interface FlowCell {
   unordered: boolean;
   /** 担当 (複数のときは先頭の行に出す。全員の名前はカードに添える) */
   assignees: (Actor | ExternalActor)[];
+  /** きっかけのイベント (eventActivity。作業の起点のうちイベント) */
+  triggerEvents: EventElement[];
 }
 
 export interface FlowRow {
@@ -106,7 +108,11 @@ export function buildActivityFlow(model: UntieModel): ActivityFlow {
           .filter((r) => r.kind === "actorActivity" && r.targetId === activity.id)
           .map((r) => actorById.get(r.sourceId))
           .filter((a): a is Actor | ExternalActor => !!a);
-        return { activity, column, unordered, assignees };
+        const triggerEvents = model.relations
+          .filter((r) => r.kind === "eventActivity" && r.targetId === activity.id)
+          .map((r) => model.elements.find((e) => e.id === r.sourceId))
+          .filter((e): e is EventElement => e?.kind === "event");
+        return { activity, column, unordered, assignees, triggerEvents };
       });
       // 行: 業務の主担当を先に、次に担当の登場人物を出てきた順に、担当なしを最後に
       const owners = model.relations.filter((r) => r.kind === "actorBusiness" && r.targetId === business.id).map((r) => actorById.get(r.sourceId)).filter((a): a is Actor | ExternalActor => !!a);

@@ -89,7 +89,8 @@ export function performerWorkList(model: UntieModel): { performers: PerformerWor
   const get = lookup(model);
   const activities = byKind(model, "activity");
   const performers = model.elements
-    .filter((e) => e.kind === "actor" || e.kind === "externalActor")
+    // 外部アクターは作業の担当にならない (0.6.4 から)
+    .filter((e) => e.kind === "actor")
     .map((performer) => {
       const ids = new Set(targetsOf(model, "actorActivity", performer.id));
       return { performer, sections: activitySections(model, activities.filter((a) => ids.has(a.id))) };
