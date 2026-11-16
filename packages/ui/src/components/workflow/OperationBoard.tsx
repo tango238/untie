@@ -160,12 +160,14 @@ function OuterFrame({ frame, ctx }: { frame: OperationFrame; ctx: Ctx }) {
 /** 作業のカードと、そこから右へ伸びる枝の先の操作の枠 */
 function ActivityRow({ row, ctx }: { row: OperationRow; ctx: Ctx }) {
   const a: Activity = row.activity;
+  const assignees = row.assignees.map(nameOf);
   return (
     <div className="wf-lane wf-row" aria-label={`作業 ${nameOf(a)} の行`} role="group">
       <div className="wf-actor" data-workflow-el={a.id}>
-        <Pick id={a.id} className="wf-activity wf-actor-card" ctx={ctx} label={`作業 ${nameOf(a)}`}>
+        <Pick id={a.id} className="wf-activity wf-actor-card" ctx={ctx} label={`作業 ${nameOf(a)} (${assignees.length > 0 ? `担当: ${assignees.join("、")}` : "担当なし"})`}>
           <span className="wf-kind">作業</span>
           <span className="wf-name">{nameOf(a)}</span>
+          {assignees.length > 0 ? <span className="wf-assignees">担当: {assignees.join("、")}</span> : <span className="wf-assignees is-none">担当なし</span>}
         </Pick>
         {!ctx.readOnly && (
           <button

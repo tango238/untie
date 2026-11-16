@@ -37,11 +37,20 @@ const GAP = 9;
 const LOOP = 28;
 
 /**
- * 前の作業 a から次の作業 b への線。いつも a の右の辺の真ん中 (引き始める丸) から出る。
+ * 前の作業 a から次の作業 b への線。同じ列で上下に離れていれば縦の直線。そうでなければ a の右の辺の真ん中から出る。
  * 同じ列 (横の範囲が重なる) なら、カードの文字に重ならないよう右へふくらませて b の右の辺へ戻し、そうでなければ b の左右の辺へつなぐ
  */
 export function linkShape(a: Box, b: Box): LinkShape {
   const sameColumn = a.x < b.x + b.w && b.x < a.x + a.w;
+  // 同じ列で上下に離れているなら、まっすぐ縦の矢印 (行をまたぐ線。外部アクターのイベント → 作業、作業 → システム)
+  if (sameColumn && (a.y + a.h <= b.y || b.y + b.h <= a.y)) {
+    const x = (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2;
+    const down = a.y + a.h <= b.y;
+    const start: Point = { x, y: down ? a.y + a.h : a.y };
+    const end: Point = { x, y: down ? b.y : b.y + b.h };
+    const f = (n: number) => Math.round(n * 10) / 10;
+    return { d: `M ${f(start.x)} ${f(start.y)} L ${f(end.x)} ${f(end.y)}`, start, end, mid: { x, y: (start.y + end.y) / 2 } };
+  }
   const start: Point = { x: a.x + a.w, y: a.y + a.h / 2 };
   let end: Point;
   let c1: Point;

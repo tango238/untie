@@ -4,6 +4,8 @@ import { linkShape, type Box } from "./activityFlowGeometry";
 /** 線でつなぐ 1 本: 前の作業 → 次の作業 */
 export interface FlowLine {
   id: string;
+  /** 線の種類 (作業の順序・イベントから作業・作業からシステム)。色分けに使う */
+  kind?: string;
   sourceId: string;
   targetId: string;
 }
@@ -69,7 +71,7 @@ export function ActivityFlow({ boardRef, cards, lines }: { boardRef: RefObject<H
   const shapes = lines.flatMap((l) => {
     const a = boxes.get(l.sourceId);
     const b = boxes.get(l.targetId);
-    return a && b ? [{ id: l.id, shape: linkShape(a, b) }] : [];
+    return a && b ? [{ id: l.id, kind: l.kind, shape: linkShape(a, b) }] : [];
   });
 
   return (
@@ -79,8 +81,8 @@ export function ActivityFlow({ boardRef, cards, lines }: { boardRef: RefObject<H
           <path d="M 0 0 L 10 5 L 0 10 z" className="flow-arrow-head" />
         </marker>
       </defs>
-      {shapes.map(({ id, shape }) => (
-        <path key={id} d={shape.d} className="flow-line" data-flow-link={id} markerEnd="url(#flow-arrow)" />
+      {shapes.map(({ id, kind, shape }) => (
+        <path key={id} d={shape.d} className={`flow-line${kind ? ` is-${kind}` : ""}`} data-flow-link={id} markerEnd="url(#flow-arrow)" />
       ))}
     </svg>
   );

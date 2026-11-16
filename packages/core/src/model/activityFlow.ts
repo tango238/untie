@@ -1,46 +1,75 @@
-// 業務フローボード (分析（簡易）と分析（詳細）で共通) の組み立て。横軸は業務ごとの枠の中で作業を順に、縦軸は担当の登場人物。
+// 業務フローボード (分析（簡易）と分析（詳細）で共通) の組み立て。1 枚の図に、横軸は業務ごとの帯の中で作業を順に左から右へ、縦軸は担当の登場人物。
+// 一番上に外部アクター (発生させるイベント)、一番下にシステム・帳票 (作業が使う操作の対象) を置く。
 // 作業の順序は作業 → 作業の起点 (activityTrigger: 始点が前の作業、終点が後の作業) をそのまま使う。モデルには保存せず、毎回組み立てる。
 import { defaultBucOf } from "./selectors";
 import type { Activity, Actor, Business, Buc, EventElement, ExternalActor, UntieModel } from "./types";
 
-/** 業務フローボードの id の末尾 (簡易: simple:flow、詳細の分析ボード: analysis:flow) */
 export const FLOW_BOARD_LABEL = "業務フロー";
 
 export interface FlowCell {
   activity: Activity;
-  /** 左から数えた列 (0 始まり)。順序が決まっていない作業は、順序のある作業の右に 1 列ずつ並べる */
+  businessId: string;
+  /** 図全体の列 (0 始まり)。業務の帯ごとに左から並べ、順序が決まっていない作業は、その業務の順序のある作業の右に 1 列ずつ並べる */
   column: number;
   /** 前後のどちらにも順序が決まっていない作業 */
   unordered: boolean;
-  /** 担当 (複数のときは先頭の行に出す。全員の名前はカードに添える) */
+  /** 担当 (複数のときは先頭の行に出す。全員の名前をカードに添える) */
   assignees: (Actor | ExternalActor)[];
-  /** きっかけのイベント (eventActivity。作業の起点のうちイベント) */
+  /** カードの中に添えるきっかけのイベント (行にカードとして出していないもの) */
   triggerEvents: EventElement[];
+}
+
+/** 外部アクターの行に出す、そのアクターが発生させて作業の起点になるイベント */
+export interface FlowEventCell {
+  event: EventElement;
+  column: number;
 }
 
 export interface FlowRow {
   /** 担当なしの行は null */
   actor: Actor | ExternalActor | null;
+  /** 外部アクターの行か (作業は持たず、発生させるイベントを出す) */
+  external: boolean;
   cells: FlowCell[];
+  events: FlowEventCell[];
 }
 
+/** 業務の帯 (上の山形)。columns 列ぶん */
+export interface FlowBand {
+  business: Business;
+  start: number;
+  columns: number;
+}
+
+/** 一番下の行の、システム・帳票のカード。同じ列で同じものは 1 枚にまとめる */
+export interface FlowSystemCell {
+  key: string;
+  element: { id: string; name: string; kind: "system" | "ledger" };
+  column: number;
+  /** この対象を使う操作の作業 */
+  activityIds: string[];
+}
+
+export type FlowLinkKind = "order" | "event" | "system";
+
+/** 線でつなぐ 1 本 (sourceId / targetId は、カードの key) */
 export interface FlowLink {
   id: string;
+  kind: FlowLinkKind;
   sourceId: string;
   targetId: string;
 }
 
-export interface FlowBusiness {
-  business: Business;
+export interface ActivityFlow {
+  bands: FlowBand[];
   columns: number;
   rows: FlowRow[];
+  systems: FlowSystemCell[];
   links: FlowLink[];
-}
-
-export interface ActivityFlow {
-  businesses: FlowBusiness[];
   /** どの業務にも属さない作業 (順序は決められない) */
   orphans: Activity[];
+  /** 起点にする作業が無く、図に出していないイベントの数 (外部アクターが発生させるもの) */
+  hiddenEvents: number;
 }
 
 function activitiesOf(model: UntieModel, business: Business): Activity[] {
@@ -53,12 +82,10 @@ function activitiesOf(model: UntieModel, business: Business): Activity[] {
   return order.flatMap((id) => acts.filter((a) => a.bucId === id));
 }
 
-/** 同じ業務の中の作業の列を決める。順序の最長の長さ (閉じた順序は、戻る線を無視する) */
-function columnsOf(acts: Activity[], links: FlowLink[]): Map<string, number> {
-  const ids = new Set(acts.map((a) => a.id));
+/** 同じ業務の中の作業の列を決める。順序の最長の長さ (輪になる順序は、戻る線を無視する) */
+function columnsOf(acts: Activity[], links: { sourceId: string; targetId: string }[]): Map<string, number> {
   const next = new Map<string, string[]>(acts.map((a) => [a.id, []]));
-  for (const l of links) if (ids.has(l.sourceId) && ids.has(l.targetId)) next.get(l.sourceId)!.push(l.targetId);
-  // 戻る線 (輪になる線) を見つけて外す
+  for (const l of links) next.get(l.sourceId)?.push(l.targetId);
   const state = new Map<string, 1 | 2>();
   const back = new Set<string>();
   const visit = (id: string) => {
@@ -86,51 +113,114 @@ function columnsOf(acts: Activity[], links: FlowLink[]): Map<string, number> {
 
 /** 業務フローを組み立てる */
 export function buildActivityFlow(model: UntieModel): ActivityFlow {
-  const actors = model.elements.filter((e): e is Actor | ExternalActor => e.kind === "actor" || e.kind === "externalActor");
-  const actorById = new Map(actors.map((a) => [a.id, a]));
+  const byId = new Map(model.elements.map((e) => [e.id, e]));
+  const isActor = (e: unknown): e is Actor | ExternalActor => !!e && ((e as { kind: string }).kind === "actor" || (e as { kind: string }).kind === "externalActor");
   const triggers = model.relations.filter((r) => r.kind === "activityTrigger");
   const shown = new Set<string>();
 
-  const businesses = model.elements
-    .filter((e): e is Business => e.kind === "business")
-    .map((business): FlowBusiness => {
-      const acts = activitiesOf(model, business);
-      for (const a of acts) shown.add(a.id);
-      const ids = new Set(acts.map((a) => a.id));
-      const links = triggers.filter((r) => ids.has(r.sourceId) && ids.has(r.targetId)).map((r) => ({ id: r.id, sourceId: r.sourceId, targetId: r.targetId }));
-      const col = columnsOf(acts, links);
-      const linked = new Set(links.flatMap((l) => [l.sourceId, l.targetId]));
-      let columns = Math.max(0, ...[...col.entries()].filter(([id]) => linked.has(id)).map(([, c]) => c + 1));
-      const cells: FlowCell[] = acts.map((activity) => {
-        const unordered = !linked.has(activity.id);
-        const column = unordered ? columns++ : col.get(activity.id)!;
-        const assignees = model.relations
-          .filter((r) => r.kind === "actorActivity" && r.targetId === activity.id)
-          .map((r) => actorById.get(r.sourceId))
-          .filter((a): a is Actor | ExternalActor => !!a);
-        const triggerEvents = model.relations
-          .filter((r) => r.kind === "eventActivity" && r.targetId === activity.id)
-          .map((r) => model.elements.find((e) => e.id === r.sourceId))
-          .filter((e): e is EventElement => e?.kind === "event");
-        return { activity, column, unordered, assignees, triggerEvents };
-      });
-      // 行: 業務の主担当を先に、次に担当の登場人物を出てきた順に、担当なしを最後に
-      const owners = model.relations.filter((r) => r.kind === "actorBusiness" && r.targetId === business.id).map((r) => actorById.get(r.sourceId)).filter((a): a is Actor | ExternalActor => !!a);
-      const firstActor = (c: FlowCell) => c.assignees[0] ?? null;
-      const rowActors: (Actor | ExternalActor | null)[] = [];
-      for (const a of [...owners, ...cells.map(firstActor)]) if (!rowActors.includes(a) && (a !== null || cells.some((c) => firstActor(c) === null))) rowActors.push(a);
-      const rows = rowActors.sort((x, y) => Number(x === null) - Number(y === null)).map((actor) => ({ actor, cells: cells.filter((c) => firstActor(c) === actor) }));
-      return { business, columns: Math.max(columns, 1), rows, links };
-    });
+  const bands: FlowBand[] = [];
+  const cells: FlowCell[] = [];
+  const links: FlowLink[] = [];
+  let offset = 0;
+  for (const business of model.elements.filter((e): e is Business => e.kind === "business")) {
+    const acts = activitiesOf(model, business);
+    for (const a of acts) shown.add(a.id);
+    if (acts.length === 0) continue;
+    const ids = new Set(acts.map((a) => a.id));
+    const inner = triggers.filter((r) => ids.has(r.sourceId) && ids.has(r.targetId));
+    const col = columnsOf(acts, inner);
+    const linked = new Set(inner.flatMap((r) => [r.sourceId, r.targetId]));
+    let columns = Math.max(0, ...acts.filter((a) => linked.has(a.id)).map((a) => col.get(a.id)! + 1));
+    for (const activity of acts) {
+      const unordered = !linked.has(activity.id);
+      const column = offset + (unordered ? columns++ : col.get(activity.id)!);
+      const assignees = model.relations.filter((r) => r.kind === "actorActivity" && r.targetId === activity.id).map((r) => byId.get(r.sourceId)).filter(isActor);
+      cells.push({ activity, businessId: business.id, column, unordered, assignees, triggerEvents: [] });
+    }
+    for (const r of inner) links.push({ id: r.id, kind: "order", sourceId: r.sourceId, targetId: r.targetId });
+    columns = Math.max(columns, 1);
+    bands.push({ business, start: offset, columns });
+    offset += columns;
+  }
+  const cellOf = new Map(cells.map((c) => [c.activity.id, c]));
+
+  // 外部アクターが発生させ、作業の起点になるイベント: 外部アクターの行に、最初の起点の作業と同じ列で出す
+  const eventCells = new Map<string, FlowEventCell[]>();
+  const shownEvents = new Set<string>();
+  let hiddenEvents = 0;
+  for (const rel of model.relations.filter((r) => r.kind === "externalActorEvent")) {
+    const actor = byId.get(rel.sourceId);
+    const event = byId.get(rel.targetId);
+    if (actor?.kind !== "externalActor" || event?.kind !== "event") continue;
+    const targets = model.relations.filter((r) => r.kind === "eventActivity" && r.sourceId === event.id && cellOf.has(r.targetId));
+    if (targets.length === 0) {
+      hiddenEvents++;
+      continue;
+    }
+    const list = eventCells.get(actor.id) ?? [];
+    list.push({ event, column: cellOf.get(targets[0]!.targetId)!.column });
+    eventCells.set(actor.id, list);
+    shownEvents.add(event.id);
+    for (const t of targets) links.push({ id: `ev:${actor.id}:${event.id}:${t.targetId}`, kind: "event", sourceId: `${actor.id}:${event.id}`, targetId: t.targetId });
+  }
+  for (const c of cells) {
+    c.triggerEvents = model.relations
+      .filter((r) => r.kind === "eventActivity" && r.targetId === c.activity.id)
+      .map((r) => byId.get(r.sourceId))
+      .filter((e): e is EventElement => e?.kind === "event" && !shownEvents.has(e.id));
+  }
+
+  // 行: 外部アクター (上) → 業務の主担当・担当の登場人物 (出てきた順) → 担当なし → (システムは別)
+  const rows: FlowRow[] = [];
+  for (const [actorId, evs] of eventCells) rows.push({ actor: byId.get(actorId) as ExternalActor, external: true, cells: [], events: evs });
+  const internal: (Actor | ExternalActor | null)[] = [];
+  for (const b of bands) {
+    for (const r of model.relations.filter((x) => x.kind === "actorBusiness" && x.targetId === b.business.id)) {
+      const a = byId.get(r.sourceId);
+      if (isActor(a) && a.kind === "actor" && !internal.includes(a) && cells.some((c) => c.businessId === b.business.id && c.assignees[0] === a)) internal.push(a);
+    }
+  }
+  for (const c of cells) {
+    const a = c.assignees[0] ?? null;
+    if (!internal.includes(a)) internal.push(a);
+  }
+  internal.sort((x, y) => Number(x === null) - Number(y === null));
+  for (const actor of internal) rows.push({ actor, external: false, cells: cells.filter((c) => (c.assignees[0] ?? null) === actor), events: [] });
+
+  // システム・帳票: 作業が使う操作の対象 (操作 → システム・帳票、または操作が使う画面のシステム)
+  const systems = new Map<string, FlowSystemCell>();
+  for (const c of cells) {
+    const targets = new Set<string>();
+    for (const ur of model.relations.filter((r) => r.kind === "activityUsecase" && r.sourceId === c.activity.id)) {
+      for (const r of model.relations) {
+        if (r.sourceId !== ur.targetId) continue;
+        if (r.kind === "usecaseSystem") targets.add(r.targetId);
+        else if (r.kind === "usecaseScreen") {
+          const screen = byId.get(r.targetId);
+          if (screen?.kind === "screen") targets.add(screen.systemId);
+        }
+      }
+    }
+    for (const id of targets) {
+      const t = byId.get(id);
+      if (!t || (t.kind !== "system" && t.kind !== "ledger")) continue;
+      const key = `sys:${c.column}:${id}`;
+      const cell = systems.get(key) ?? { key, element: { id: t.id, name: t.name, kind: t.kind }, column: c.column, activityIds: [] };
+      cell.activityIds.push(c.activity.id);
+      systems.set(key, cell);
+      links.push({ id: `sys:${c.activity.id}:${key}`, kind: "system", sourceId: c.activity.id, targetId: key });
+    }
+  }
+
   const orphans = model.elements.filter((e): e is Activity => e.kind === "activity" && !shown.has(e.id));
-  return { businesses, orphans };
+  return { bands, columns: Math.max(offset, 1), rows, systems: [...systems.values()], links, orphans, hiddenEvents };
 }
 
 /** この作業の前の作業にできる作業 (同じ業務の、まだ前になっていない作業) */
 export function previousCandidates(model: UntieModel, activityId: string): Activity[] {
   const flow = buildActivityFlow(model);
-  const box = flow.businesses.find((b) => b.rows.some((r) => r.cells.some((c) => c.activity.id === activityId)));
-  if (!box) return [];
+  const mine = flow.rows.flatMap((r) => r.cells).find((c) => c.activity.id === activityId);
+  if (!mine) return [];
   const taken = new Set(model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === activityId).map((r) => r.sourceId));
-  return box.rows.flatMap((r) => r.cells.map((c) => c.activity)).filter((a) => a.id !== activityId && !taken.has(a.id));
+  return flow.rows.flatMap((r) => r.cells).filter((c) => c.businessId === mine.businessId && c.activity.id !== activityId && !taken.has(c.activity.id)).map((c) => c.activity);
 }

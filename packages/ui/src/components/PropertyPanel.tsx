@@ -1,6 +1,7 @@
 import { isDevMode } from "../devMode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  addElement,
   addRelation,
   moveActivity,
   moveBuc,
@@ -237,7 +238,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const simple = isSimpleBoard(boardId);
   // 業務フローボードでは、作業の担当と順序だけを変える (どの画面でも全部の項目を直せると、項目が多くなりすぎるため)
   const onFlow = isFlowBoard(boardId);
-  const structural = !readOnly && !onFlow && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
+  // ただし外部アクターとイベントは、どのボードから選んでも同じ項目 (発生元・発生させるイベントなど) を直せるようにする
+  const flowEditable = onFlow && (element.kind === "externalActor" || element.kind === "event");
+  const structural = !readOnly && (flowEditable || !onFlow) && (isFixedBoard(boardId) || flowEditable || (simple && isWorkflowElement(element)) || element.kind === "issue");
   // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
   const kindLabel = (k: Element["kind"]) => (simple ? workflowKindLabel(k) : ELEMENT_KIND_LABELS[k]);
 
@@ -306,6 +309,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
         readOnly={readOnly}
         onCommit={(description) => update({ description })}
       />
+      {element.kind === "externalActor" && structural && <ExternalActorEventsSection actor={element} model={model} />}
       {(element.kind === "actor" || element.kind === "externalActor") && <PersonaSection actor={element} />}
       {element.kind === "event" && <EventTimingSection event={element} />}
       {(element.kind === "activity" || element.kind === "usecase") && (
@@ -318,7 +322,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
-      ) : onFlow ? (
+      ) : onFlow && element.kind === "activity" ? (
         <p className="hint">この画面では、作業の担当と順序を決められます。そのほかの所属・関係・削除は、業務一覧や分析（詳細）で直します。</p>
       ) : (
         !structural &&
@@ -1753,6 +1757,80 @@ function EventTimingSection({ event }: { event: Extract<Element, { kind: "event"
           <p className="hint event-timing-summary">{describeEventTiming(timing)}</p>
         </>
       )}
+    </section>
+  );
+}
+
+/** 外部アクターが発生させるイベント (0.6.4)。既にあるイベントを足す・外す、新しいイベントを作って結ぶ。簡易モードでは、操作に結ばれていないイベントをここから作れる */
+function ExternalActorEventsSection({ actor, model }: { actor: Extract<Element, { kind: "externalActor" }>; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const select = useUntieStore((s) => s.select);
+  const requestNameFocus = useUntieStore((s) => s.requestNameFocus);
+  const rels = model.relations.filter((r) => r.kind === "externalActorEvent" && r.sourceId === actor.id);
+  const raised = new Set(rels.map((r) => r.targetId));
+  const nameOf = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+  const options = model.elements.filter((e) => e.kind === "event" && !raised.has(e.id));
+  return (
+    <section className="subsection" data-testid="external-events-section">
+      <h3>発生させるイベント</h3>
+      {rels.length === 0 ? (
+        <p className="hint">この人が起こす出来事 (申込・来訪など) を、イベントとして足します。作業の起点にするには、作業を選んで「きっかけのイベント」に足します。</p>
+      ) : (
+        <ul className="relation-list" aria-label="発生させるイベント">
+          {rels.map((r) => (
+            <li key={r.id}>
+              <button type="button" className="link" onClick={() => selectAndReveal(r.targetId)}>
+                {nameOf(r.targetId)}
+              </button>
+              <button type="button" className="icon-button" aria-label={`発生させるイベント「${nameOf(r.targetId)}」を外す`} onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {options.length > 0 && (
+        <select
+          aria-label="発生させるイベントを追加"
+          value=""
+          onChange={(ev) => {
+            const id = ev.target.value;
+            if (!id) return;
+            const r = dispatch((m) => addRelation(m, { sourceId: actor.id, targetId: id }));
+            if (!r.ok) pushToast(r.reason, "error");
+          }}
+        >
+          <option value="">既にあるイベントを足す…</option>
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name || "(名前なし)"}
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          // 作成と結び付けを 1 件の履歴にする (元に戻すとまとめて戻る)
+          let createdId = "";
+          const r = dispatch((m) => {
+            const created = addElement(m, { kind: "event", name: "新しいイベント" });
+            if (!created.ok) return created;
+            createdId = created.id;
+            const linked = addRelation(created.model, { sourceId: actor.id, targetId: created.id });
+            return linked.ok ? { ok: true as const, model: linked.model, id: created.id } : linked;
+          });
+          if (!r.ok) {
+            pushToast(r.reason, "error");
+            return;
+          }
+          select({ type: "element", id: createdId });
+          requestNameFocus();
+        }}
+      >
+        ＋新しいイベントを作る
+      </button>
     </section>
   );
 }

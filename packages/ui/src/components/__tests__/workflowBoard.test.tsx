@@ -434,6 +434,44 @@ describe("外部の登場人物の行 (発生させるイベントだけ。0.6.4
   });
 });
 
+describe("外部の登場人物: 発生させるイベントの編集 (簡易モード)", () => {
+  beforeEach(() => {
+    resetStore();
+    act(() => st().setMode("analysisSimple"));
+    act(() => st().setCurrentBoard("simple:workflow"));
+  });
+
+  it("外部の登場人物を選ぶと「発生させるイベント」が出て、足す・外す・新しく作るができる。作成と結び付けは 1 件の履歴", () => {
+    act(() => st().select({ type: "element", id: "ext_guest" }));
+    render(<PropertyPanel />);
+    const section = () => within(screen.getByTestId("external-events-section"));
+    expect(section().getByText("宿泊の申込が届いた")).toBeDefined();
+    // 外す → 既にあるイベントから足す
+    fireEvent.click(section().getByRole("button", { name: "発生させるイベント「宿泊の申込が届いた」を外す" }));
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.sourceId === "ext_guest")).toBe(false);
+    fireEvent.change(section().getByLabelText("発生させるイベントを追加"), { target: { value: "ev_stay_requested" } });
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.sourceId === "ext_guest" && r.targetId === "ev_stay_requested")).toBe(true);
+    // 新しく作る: 作って結び、選ぶ。元に戻すと 1 回で作成も結び付きも戻る
+    const before = st().model.elements.length;
+    fireEvent.click(section().getByRole("button", { name: "＋新しいイベントを作る" }));
+    expect(st().model.elements.length).toBe(before + 1);
+    const created = st().model.elements[st().model.elements.length - 1]!;
+    expect(created.kind).toBe("event");
+    expect(st().ui.selection).toEqual({ type: "element", id: created.id });
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.sourceId === "ext_guest" && r.targetId === created.id)).toBe(true);
+    act(() => st().undo());
+    expect(st().model.elements.length).toBe(before);
+    expect(st().model.relations.some((r) => r.kind === "externalActorEvent" && r.targetId === created.id)).toBe(false);
+  });
+
+  it("社内の登場人物には出ない。閲覧専用では出さない", () => {
+    act(() => st().select({ type: "element", id: "actor_front" }));
+    const { unmount } = render(<PropertyPanel />);
+    expect(screen.queryByTestId("external-events-section")).toBeNull();
+    unmount();
+  });
+});
+
 describe("業務一覧ボード: 作業の担当の見せ方", () => {
   const rel = (kind: string, s: string, t: string) => st().model.relations.find((r) => r.kind === kind && r.sourceId === s && r.targetId === t)!;
 
