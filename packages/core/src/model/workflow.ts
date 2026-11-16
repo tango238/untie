@@ -8,11 +8,12 @@ import { ELEMENT_KIND_LABELS, type Activity, type Actor, type Buc, type Business
 // ---------------------------------------------------------------- ボードの id
 
 /** 簡易モードのボードの種類 (選択肢に並べる順。最初がワークフロー) */
-export const SIMPLE_BOARD_KINDS = ["workflow", "operation", "information"] as const;
+export const SIMPLE_BOARD_KINDS = ["workflow", "flow", "operation", "information"] as const;
 export type SimpleBoardKind = (typeof SIMPLE_BOARD_KINDS)[number];
 
 export const SIMPLE_BOARD_LABELS: Record<SimpleBoardKind, string> = {
   workflow: "ワークフロー",
+  flow: "業務フロー",
   operation: "システム操作",
   information: "情報と状態",
 };
@@ -43,6 +44,8 @@ export function isWorkflowElement(el: Pick<Element, "kind"> & { isDefault?: bool
 /** 簡易ボードごとの、主役の要素の種類 (そのボードで選んで直せる。システム・帳票は、システム操作ボードにチップで出るだけで主役ではない。イベントは操作に結ばれていれば、システム操作ボードのチップで選べる) */
 export const SIMPLE_BOARD_ELEMENT_KINDS: Record<SimpleBoardKind, readonly ElementKind[]> = {
   workflow: ["actor", "externalActor", "business", "buc", "activity"],
+  // 業務フローは、ワークフローボードの要素を並べ直して見るだけ (主役の要素は持たない。作業はここで選べるが、ワークフローが主)
+  flow: [],
   operation: ["usecase", "screen", "condition", "event"],
   information: ["context", "information", "state", "variation"],
 };

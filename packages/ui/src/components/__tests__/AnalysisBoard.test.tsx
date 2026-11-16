@@ -25,7 +25,7 @@ describe("AnalysisBoard", () => {
     }
     render(<Toolbar />);
     const select = screen.getByLabelText("ボード") as HTMLSelectElement;
-    expect(select.querySelectorAll('optgroup[label="分析ボード"] option')).toHaveLength(4);
+    expect(select.querySelectorAll('optgroup[label="分析ボード"] option')).toHaveLength(5);
     fireEvent.change(select, { target: { value: "analysis:people" } });
     expect(st().ui.currentBoardId).toBe("analysis:people");
     expect((screen.getByRole("button", { name: "名前変更" }) as HTMLButtonElement).disabled).toBe(true);

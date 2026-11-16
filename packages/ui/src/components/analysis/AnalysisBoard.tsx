@@ -22,6 +22,7 @@ import { HoursLabel } from "../Hours";
 
 /** 分析ボードの見出しに出す説明 */
 const DESCRIPTIONS: Record<AnalysisKind, string> = {
+  flow: "業務ごとに、作業を順に左から右へ並べます (業務フローボードが描くので、ここでは使いません)。",
   people:
     "担い手 (アクター・外部アクター) ごとに、受け持つ作業を業務・活動の順に並べます。作業や操作をクリックすると、プロパティ欄でリンク (マニュアルなど) を編集できます。",
   informationLocation:

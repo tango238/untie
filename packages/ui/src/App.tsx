@@ -27,6 +27,7 @@ import { parseDesignBoardId } from "@untie/core/model/design";
 import { parseFixedBoardId } from "@untie/core/model/fixedBoards";
 import { parseSimpleBoardId } from "@untie/core/model/workflow";
 import { WorkflowBoard } from "./components/workflow/WorkflowBoard";
+import { FlowBoard } from "./components/workflow/FlowBoard";
 import { OperationBoard } from "./components/workflow/OperationBoard";
 import { InformationBoard } from "./components/workflow/InformationBoard";
 import { DesignBoard } from "./components/design/DesignBoard";
@@ -122,9 +123,9 @@ export default function App() {
           {fixedLayer ? (
             <FixedBoard key={fixedLayer} layer={fixedLayer} />
           ) : analysis ? (
-            <AnalysisBoard key={analysis} kind={analysis} />
+            analysis === "flow" ? <FlowBoard key={analysis} /> : <AnalysisBoard key={analysis} kind={analysis} />
           ) : simple ? (
-            simple === "operation" ? <OperationBoard key={simple} /> : simple === "information" ? <InformationBoard key={simple} /> : <WorkflowBoard key={simple} />
+            simple === "flow" ? <FlowBoard key={simple} /> : simple === "operation" ? <OperationBoard key={simple} /> : simple === "information" ? <InformationBoard key={simple} /> : <WorkflowBoard key={simple} />
           ) : design ? (
             <DesignBoard key={design} kind={design} />
           ) : (

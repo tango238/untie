@@ -300,10 +300,10 @@ describe("プロパティからの関連の追加・削除と、削除の確認"
 });
 
 describe("ツールバー", () => {
-  it("簡易モードではボードの選択肢は簡易ボードの 3 枚と分析ボードで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
+  it("簡易モードではボードの選択肢は簡易ボードの 4 枚と分析ボードで、ボードの追加・名前変更・削除は出さない。詳細・設計ではワークフローを出さない", () => {
     render(<Toolbar />);
     const options = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
-    expect(options()).toEqual(["ワークフロー", "システム操作", "情報と状態", "課題の分布", "担当別の作業一覧", "情報の所在"]);
+    expect(options()).toEqual(["ワークフロー", "業務フロー", "システム操作", "情報と状態", "課題の分布", "担当別の作業一覧", "情報の所在"]);
     expect(screen.queryByRole("button", { name: "＋ボード" })).toBeNull();
     expect(screen.queryByRole("button", { name: "名前変更" })).toBeNull();
     act(() => st().setMode("analysis"));
@@ -635,5 +635,23 @@ describe("外部の登場人物の行: 足した直後のスクロール・読�
     expect(buttons).toHaveLength(2);
     expect(within(lane("宿泊客")).getAllByRole("button", { name: /^作業 二つ目の作業/ })).toHaveLength(1);
     expect(within(screen.getByRole("region", { name: "業務に属さない作業" })).getAllByRole("button", { name: /^作業 二つ目の作業/ })).toHaveLength(1);
+  });
+});
+
+describe("ワークフローボード: 作業の担当の見せ方", () => {
+  const rel = (kind: string, s: string, t: string) => st().model.relations.find((r) => r.kind === kind && r.sourceId === s && r.targetId === t)!;
+
+  it("作業の担当を外しても、カードは業務の主担当の行の枠に残り、担当の表示だけが変わる。行の決まりを枠に添える", () => {
+    render(<WorkflowBoard />);
+    const reserve = within(lane("予約担当")).getByRole("region", { name: /^業務 予約受付/ });
+    expect(within(reserve).getByText(/行は業務の主担当 \(予約担当\)/)).toBeDefined();
+    expect(within(reserve).getByRole("button", { name: "作業 予約内容を確認する (担当: 予約担当)" })).toBeDefined();
+    act(() => {
+      st().dispatch((m) => removeRelation(m, { id: rel("actorActivity", "actor_reservation", "act_confirm_reservation").id }));
+    });
+    // 位置は変わらず、担当がいなくなったことが「担当なし」で見える
+    const after = within(lane("予約担当")).getByRole("button", { name: "作業 予約内容を確認する (担当なし)" });
+    expect(after.textContent).toContain("担当なし");
+    expect(after.querySelector(".wf-assignees.is-none")).not.toBeNull();
   });
 });

@@ -223,6 +223,8 @@ function BusinessFrame({ box, laneActorId, ctx }: { box: WorkflowBusiness; laneA
           <span className="wf-name">{nameOf(business)}</span>
         </Pick>
       </header>
+      {/* 行は業務の主担当で決まり、作業の担当は行を決めない。担当を外してもカードは枠に残るので、そのことを伝える */}
+      {!assigned && laneActorId && <p className="wf-note wf-lane-note">行は業務の主担当 ({laneName})。作業の担当は、各カードに出ます。</p>}
       {assigned && <p className="wf-note">担当する作業 ({owners.length > 0 ? `主担当: ${owners.map(nameOf).join("、")}` : "主担当は決まっていません"})</p>}
       {!assigned && box.ownerIds.length > 1 && laneActorId && (
         <p className="wf-warning">主担当が複数います (ほかに {others.map((o) => nameOf(o!)).join("、")} の行にも出ています)。主担当は 1 人にしてください。</p>
@@ -295,10 +297,10 @@ function ActivityStack({ activities, ctx }: { activities: Activity[]; ctx: Ctx }
         const assignees = ctx.assignees.get(a.id) ?? [];
         return (
           <li key={a.id} data-workflow-el={a.id}>
-            <Pick id={a.id} className="wf-activity" ctx={ctx} label={`作業 ${nameOf(a)}${assignees.length > 0 ? ` (担当: ${assignees.join("、")})` : ""}`}>
+            <Pick id={a.id} className="wf-activity" ctx={ctx} label={`作業 ${nameOf(a)} (${assignees.length > 0 ? `担当: ${assignees.join("、")}` : "担当なし"})`}>
               <span className="wf-kind">作業</span>
               <span className="wf-name">{nameOf(a)}</span>
-              {assignees.length > 0 && <span className="wf-assignees">担当: {assignees.join("、")}</span>}
+              {assignees.length > 0 ? <span className="wf-assignees">担当: {assignees.join("、")}</span> : <span className="wf-assignees is-none">担当なし</span>}
             </Pick>
           </li>
         );

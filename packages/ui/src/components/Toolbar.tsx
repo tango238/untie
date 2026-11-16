@@ -201,7 +201,8 @@ export function Toolbar() {
                         ))}
                       </optgroup>
                       <optgroup label="分析ボード">
-                        {visibleAnalysisKinds().map((kind) => (
+                        {/* 業務フローは簡易ボードに出すので、分析ボードには出さない */}
+                        {visibleAnalysisKinds().filter((kind) => kind !== "flow").map((kind) => (
                           <option key={kind} value={analysisBoardId(kind)}>
                             {ANALYSIS_LABELS[kind]}
                           </option>

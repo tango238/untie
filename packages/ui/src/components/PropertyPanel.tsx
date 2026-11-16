@@ -26,6 +26,7 @@ import { informationPlaces, PLACE_ROLE_LABELS, placeInformations, screenInformat
 import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, LIMITS, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
 import { domainReferences } from "@untie/core/model/domain";
+import { previousCandidates } from "@untie/core/model/activityFlow";
 import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, designReferences, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
   DEFAULT_EDGE_SIDES,
@@ -71,7 +72,7 @@ import {
   type UntieModel,
   type Variation,
 } from "@untie/core/model/types";
-import { isAnalysisBoard, isFixedBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
+import { isAnalysisBoard, isFixedBoard, isFlowBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
 import { impactLines, isWorkflowElement, parseSimpleBoardId, pickSimpleTarget, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { createIssue, goToLayer, goToSimpleBoard, revealElement, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
@@ -234,7 +235,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   // 分析（簡易）のボード (ワークフロー・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
   // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
   const simple = isSimpleBoard(boardId);
-  const structural = !readOnly && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
+  // 業務フローボードでは、作業の担当と順序だけを変える (どの画面でも全部の項目を直せると、項目が多くなりすぎるため)
+  const onFlow = isFlowBoard(boardId);
+  const structural = !readOnly && !onFlow && (isFixedBoard(boardId) || (simple && isWorkflowElement(element)) || element.kind === "issue");
   // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
   const kindLabel = (k: Element["kind"]) => (simple ? workflowKindLabel(k) : ELEMENT_KIND_LABELS[k]);
 
@@ -315,6 +318,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
+      ) : onFlow ? (
+        <p className="hint">この画面では、作業の担当と順序を決められます。そのほかの所属・関係・削除は、ワークフローや分析（詳細）で直します。</p>
       ) : (
         !structural &&
         !(simple && element.kind === "buc" && element.isDefault) && (
@@ -325,7 +330,8 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
           </p>
         )
       )}
-      {element.kind === "activity" && <TriggerSection activity={element} model={model} structural={structural} update={update} />}
+      {element.kind === "activity" && !onFlow && <TriggerSection activity={element} model={model} structural={structural} update={update} />}
+      {element.kind === "activity" && onFlow && !readOnly && <FlowOrderSection activity={element} model={model} />}
       <fieldset className="plain-fieldset" disabled={!structural}>
         {element.kind === "activity" && <ActivityFields activity={element} model={model} />}
         {element.kind === "buc" && !element.isDefault && <BucFields buc={element} model={model} />}
@@ -396,7 +402,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                     {other?.name || "(名前なし)"}
                   </button>
                   {r.kind === "usecaseInformation" && <AccessSelect relation={r} other={other} structural={structural} />}
-                  {structural && (
+                  {structural && r.kind !== "activityTrigger" && (
                     <button
                       type="button"
                       className="icon-button"
@@ -833,6 +839,81 @@ function activityGroupLabel(model: UntieModel, activity: Activity): string {
 }
 
 /** 作業の起点。起点の作業・イベントを足す・外し (固定ボードだけ)、その他を 1 行で書く (固定ボードだけ)。この作業を起点にする作業は読み取りだけ */
+/** 業務フローボードで作業を選んだときの、担当 (縦軸) と前の作業 (横軸の順序) の設定。順序はここでしか決められない */
+function FlowOrderSection({ activity, model }: { activity: Activity; model: UntieModel }) {
+  const dispatch = useUntieStore((s) => s.dispatch);
+  const pushToast = useUntieStore((s) => s.pushToast);
+  const name = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
+  const assigneeRels = model.relations.filter((r) => r.kind === "actorActivity" && r.targetId === activity.id);
+  const assigned = new Set(assigneeRels.map((r) => r.sourceId));
+  const actorOptions = model.elements.filter((e) => (e.kind === "actor" || e.kind === "externalActor") && !assigned.has(e.id));
+  const previousRels = model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === activity.id && model.elements.some((e) => e.id === r.sourceId && e.kind === "activity"));
+  const previousOptions = previousCandidates(model, activity.id);
+  const followers = activitiesTriggeredBy(model, activity.id);
+  const add = (sourceId: string) => {
+    if (!sourceId) return;
+    const r = dispatch((m) => addRelation(m, { sourceId, targetId: activity.id }));
+    if (!r.ok) pushToast(r.reason, "error");
+  };
+  const list = (label: string, rels: { id: string; sourceId: string }[], noun: string) => (
+    <ul className="relation-list" aria-label={label}>
+      {rels.map((r) => (
+        <li key={r.id}>
+          <button type="button" className="link" onClick={() => selectAndReveal(r.sourceId)}>
+            {name(r.sourceId)}
+          </button>
+          <button type="button" className="icon-button" aria-label={`${noun}「${name(r.sourceId)}」を外す`} onClick={() => dispatch((m) => removeRelation(m, { id: r.id }))}>
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <section className="subsection" data-testid="flow-order-section">
+      <h3>担当 (縦軸)</h3>
+      {assigneeRels.length === 0 ? <p className="hint">担当なし。担当を足すと、その人の行に出ます。複数いるときは、先に足した人の行に出ます。</p> : list("担当", assigneeRels, "担当")}
+      {actorOptions.length > 0 && (
+        <select aria-label="担当を追加" value="" onChange={(ev) => add(ev.target.value)}>
+          <option value="">担当を追加…</option>
+          {actorOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name || "(名前なし)"}
+            </option>
+          ))}
+        </select>
+      )}
+      <h3>前の作業 (横軸の順序)</h3>
+      {previousRels.length === 0 ? <p className="hint">前の作業が無いと、先頭 (左) か「順序は未設定」に並びます。同じ業務の作業から選べます。</p> : list("前の作業", previousRels, "前の作業")}
+      {previousOptions.length > 0 && (
+        <select aria-label="前の作業を追加" value="" onChange={(ev) => add(ev.target.value)}>
+          <option value="">前の作業を追加…</option>
+          {previousOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name || "(名前なし)"}
+            </option>
+          ))}
+        </select>
+      )}
+      {followers.length > 0 && (
+        <>
+          <h4>次の作業</h4>
+          <ul className="relation-list" aria-label="次の作業">
+            {followers.map((other) => (
+              <li key={other.id}>
+                <button type="button" className="link" onClick={() => selectAndReveal(other.id)}>
+                  {other.name || "(名前なし)"}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="hint">次の作業は、その作業を選んで「前の作業」に足します。</p>
+        </>
+      )}
+    </section>
+  );
+}
+
 function TriggerSection({
   activity,
   model,
@@ -849,7 +930,8 @@ function TriggerSection({
   const triggers = activityTriggers(model, activity.id);
   const followers = activitiesTriggeredBy(model, activity.id);
   const chosen = new Set([...triggers.activities, ...triggers.events].map((e) => e.id));
-  const activityOptions = model.elements.filter((e): e is Activity => e.kind === "activity" && e.id !== activity.id && !chosen.has(e.id));
+  // 前の作業 (作業どうしの順序) は、業務フローボードでだけ決める。ここではイベントの起点だけ足せる
+  const activityOptions: Activity[] = [];
   const eventOptions = model.elements.filter((e) => e.kind === "event" && !chosen.has(e.id));
   const activityGroups = [...new Set(activityOptions.map((a) => activityGroupLabel(model, a)))];
   const rows = [...triggers.activities, ...triggers.events];
@@ -858,7 +940,7 @@ function TriggerSection({
     <section className="subsection" data-testid="trigger-section">
       <h3>起点</h3>
       {rows.length === 0 ? (
-        structural && <p className="hint">この作業が始まるきっかけ (前の作業・イベント・その他) を足します。</p>
+        structural && <p className="hint">この作業が始まるきっかけ (イベント・その他) を足します。前の作業は、業務フローボードで決めます。</p>
       ) : (
         <ul className="relation-list">
           {rows.map((other) => {
@@ -878,7 +960,7 @@ function TriggerSection({
                 <button type="button" className="link" onClick={() => selectAndReveal(other.id)}>
                   {other.name || "(名前なし)"}
                 </button>
-                {structural && rel && (
+                {structural && rel && other.kind !== "activity" && (
                   <button
                     type="button"
                     className="icon-button"
@@ -936,8 +1018,8 @@ function TriggerSection({
       />
       {followers.length > 0 && (
         <>
-          <h4>この作業を起点にする作業</h4>
-          <ul className="relation-list" aria-label="この作業を起点にする作業">
+          <h4>次の作業</h4>
+          <ul className="relation-list" aria-label="次の作業">
             {followers.map((other) => (
               <li key={other.id}>
                 <span className="relation-kind">起点</span>

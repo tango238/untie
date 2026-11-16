@@ -409,6 +409,11 @@ export function isFixedBoard(boardId: string): boolean {
 }
 
 /** 分析ボードを開いているか */
+/** 業務フローボード (簡易: simple:flow、詳細: analysis:flow) か。作業の担当と順序は、ここでだけ決める */
+export function isFlowBoard(boardId: string): boolean {
+  return boardId === simpleBoardId("flow") || boardId === analysisBoardId("flow");
+}
+
 export function isAnalysisBoard(boardId: string): boolean {
   return parseAnalysisBoardId(boardId) !== null;
 }
