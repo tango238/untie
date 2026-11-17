@@ -7,6 +7,7 @@ import {
   DEFAULT_FRAME_SIZE,
   moveActivity,
   moveBuc,
+  moveBusinessOrder,
   moveNode,
   moveToContext,
   moveToSystem,
@@ -729,5 +730,45 @@ describe("画面を使う操作は 1 つだけ", () => {
     expectFail(setScreenUsecase(m, { screenId: "sys_pms", usecaseId: null }), /画面が存在しません/);
     expectFail(setScreenUsecase(m, { screenId: "scr_a", usecaseId: "act_clean" }), /操作が存在しません/);
     expectFail(setScreenUsecase(m, { screenId: "scr_a", usecaseId: "nope" }), /操作が存在しません/);
+  });
+});
+
+describe("moveBusinessOrder", () => {
+  const bizIds = (m: UntieModel) => m.elements.filter((e) => e.kind === "business").map((e) => e.id);
+  const others = (m: UntieModel) => m.elements.filter((e) => e.kind !== "business").map((e) => e.id);
+
+  it("業務を別の業務の直前・直後へ移し、ほかの要素の相対順は変えない。受け取ったモデルは書き換えない", () => {
+    const m = sample();
+    const before = bizIds(m);
+    const snapshot = JSON.stringify(m);
+    const first = before[0]!;
+    const third = before[2]!;
+    const after = okModel(moveBusinessOrder(m, { id: first, targetId: third, position: "after" }));
+    expect(bizIds(after)).toEqual([before[1], before[2], first, ...before.slice(3)]);
+    expect(others(after)).toEqual(others(m));
+    expect(after.elements).toHaveLength(m.elements.length);
+    expect(JSON.stringify(m)).toBe(snapshot);
+    const front = okModel(moveBusinessOrder(m, { id: third, targetId: first, position: "before" }));
+    expect(bizIds(front)).toEqual([third, first, before[1], ...before.slice(3)]);
+    expect(others(front)).toEqual(others(m));
+  });
+
+  it("すでにその位置なら、同じモデルを返して成功する", () => {
+    const m = sample();
+    const [a, b] = bizIds(m);
+    const r = moveBusinessOrder(m, { id: a!, targetId: b!, position: "before" });
+    expect(r.ok && r.model).toBe(m);
+    const r2 = moveBusinessOrder(m, { id: b!, targetId: a!, position: "after" });
+    expect(r2.ok && r2.model).toBe(m);
+  });
+
+  it("業務でない id・存在しない id・自分自身は失敗する", () => {
+    const m = sample();
+    const biz = bizIds(m)[0]!;
+    expectFail(moveBusinessOrder(m, { id: "actor_front", targetId: biz, position: "before" }), /業務が存在しません/);
+    expectFail(moveBusinessOrder(m, { id: "nothing", targetId: biz, position: "before" }), /業務が存在しません/);
+    expectFail(moveBusinessOrder(m, { id: biz, targetId: "actor_front", position: "after" }), /移す先の業務/);
+    expectFail(moveBusinessOrder(m, { id: biz, targetId: "nothing", position: "after" }), /移す先の業務/);
+    expectFail(moveBusinessOrder(m, { id: biz, targetId: biz, position: "after" }), /同じ業務/);
   });
 });

@@ -6,7 +6,7 @@ import { useBoardKit } from "./boardKit";
 import { nameOf, Pick } from "./WorkflowBoard";
 
 /**
- * 分析（簡易）のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で書く。
+ * 情報整理のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で書く。
  * 作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。配置は保存せず、毎回モデルから組み立てる (core の buildOperationBoard)。
  */
 export function OperationBoard() {
@@ -35,7 +35,7 @@ export function OperationBoard() {
           作業ごとに、使う操作と、操作が使う画面・扱う情報・判断する条件を並べます。作業は、活動 (活動の無い業務では業務) の枠で囲みます。選ぶと右のプロパティで関連や削除を直せます。
         </span>
       </div>
-      {!readOnly && ctx.systems.length === 0 && <p className="hint">画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。画面を足すには、先に分析（詳細）の「登場人物」でシステムを作ってください。</p>}
+      {!readOnly && ctx.systems.length === 0 && <p className="hint">画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。画面を足すには、先に「登場人物」ボードでシステムを作ってください。</p>}
       {empty && <p className="hint">まだ作業がありません。「業務一覧」のボードで業務と作業を書くと、ここに出ます。</p>}
       <div className="wf-outers">
         {board.frames.map((f) => (

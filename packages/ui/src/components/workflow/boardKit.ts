@@ -5,7 +5,7 @@ import { selectReadOnly, useUntieStore } from "../../store";
 import { canvasApi } from "../canvas/canvasApi";
 
 /**
- * 分析（簡易）のボード (システム操作・情報と状態) に共通の部品: 選択・足したあとの動き・要素へのスクロール。
+ * 情報整理のボード (システム操作・情報と状態) に共通の部品: 選択・足したあとの動き・要素へのスクロール。
  * 足した直後は、それを選んで右のプロパティに出し、名前の入力へフォーカスする
  */
 export function useBoardKit() {

@@ -1,4 +1,4 @@
-// 分析（簡易）のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で見る。作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。
+// 情報整理のボード「システム操作」。作業 → 操作 → 画面・情報 を 1 枚で見る。作業は、1 つ上の概念 (活動、無ければ業務) の枠で囲む。
 // モデルには保存せず (配置も持たない)、毎回モデルから組み立てる。純粋関数だけを置く。
 import { addElement, addRelation, USECASE_TARGET_LIMIT_REASON, isUsecaseTargetKind, type CommandResult } from "./commands";
 import { addToGroup, type FixedGroup } from "./fixedBoards";
@@ -255,7 +255,7 @@ export function systemsForScreens(model: UntieModel): System[] {
 /** 操作に画面を足せるか。足せないときは理由を返す (対象は 1 つだけ。画面が要るシステムが無いときも足せない) */
 export function whyCannotAddScreen(model: UntieModel, usecaseId: string, hasSystems: boolean = systemsForScreens(model).length > 0): string | null {
   if (model.relations.some((r) => isUsecaseTargetKind(r.kind) && r.sourceId === usecaseId)) return USECASE_TARGET_LIMIT_REASON;
-  if (!hasSystems) return "画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。先に分析（詳細）の「登場人物」でシステムを作ってください";
+  if (!hasSystems) return "画面は、画面の持ち主になるシステム (例: 宿泊管理システム) に属します。先に「登場人物」ボードでシステムを作ってください";
   return null;
 }
 

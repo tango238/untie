@@ -7,7 +7,7 @@ import { loadLastDesignSystemId } from "../designPrefs";
 
 beforeEach(() => localStorage.clear());
 
-// 分析（詳細）で始めたストア (既定は分析（簡易）。詳細の振る舞いはここで確かめる)
+// 詳細調整で始めたストア (既定は情報整理。詳細の振る舞いはここで確かめる)
 const make = () => createUntieStore(createHotelSample(), START_BOARD_ID, "properties", "analysis");
 
 describe("モード", () => {
@@ -185,7 +185,7 @@ describe("対象のシステムが消えたとき", () => {
   });
 });
 
-describe("ファイルを開く・閉じると、設計から既定 (分析（簡易）) に戻る", () => {
+describe("ファイルを開く・閉じると、設計から既定 (情報整理) に戻る", () => {
   it("新規作成・開く", () => {
     for (const reset of ["newDocument", "loadDocument"] as const) {
       const s = make();
@@ -193,14 +193,14 @@ describe("ファイルを開く・閉じると、設計から既定 (分析（�
       s.getState().setCurrentBoard("design:navigation");
       if (reset === "newDocument") s.getState().newDocument(createHotelSample());
       else s.getState().loadDocument(createHotelSample(), { path: null, name: "a.json" });
-      // 設計にいたときは、既定の分析（簡易）の業務一覧に戻る
+      // 設計にいたときは、既定の情報整理の登場人物に戻る
       expect(s.getState().ui.mode).toBe("analysisSimple");
       expect(s.getState().ui.designSystemId).toBeUndefined();
-      expect(s.getState().ui.currentBoardId).toBe("simple:workflow");
+      expect(s.getState().ui.currentBoardId).toBe("fixed:actor");
     }
   });
 
-  it("分析（詳細）にいるときにファイルを開く・新規作成しても、詳細のまま (最初のボードと課題一覧から)", () => {
+  it("詳細調整にいるときにファイルを開く・新規作成しても、詳細調整のまま (最初のボードと課題一覧から)", () => {
     for (const reset of ["newDocument", "loadDocument"] as const) {
       const s = make();
       s.getState().setCurrentBoard("fixed:activity");

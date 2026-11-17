@@ -26,14 +26,14 @@ export type Selection = { type: "element"; id: string } | { type: "relation"; id
 export type RightPanel = "properties" | "issues" | "trace";
 
 /**
- * モード。analysis は分析（詳細）、analysisSimple は分析（簡易。既定。業務一覧・システム操作・情報と状態の 3 枚で書く）、
+ * モード。analysis は詳細調整、analysisSimple は情報整理 (既定。登場人物・業務一覧・業務フロー・システム操作・情報と状態の 5 枚で書く)、
  * design は設計 (システムごとに、サイトマップ・ナビゲーション・データ・画面を設計する)。
- * 簡易と詳細は同じモデルを別の見せ方で扱うだけなので、行き来できる
+ * 情報整理と詳細調整は同じモデルを別の見せ方で扱うだけなので、行き来できる
  */
 export type Mode = "analysis" | "analysisSimple" | "design";
 
 /** モードの表示名 */
-export const MODE_LABELS: Record<Mode, string> = { analysisSimple: "分析（簡易）", analysis: "分析（詳細）", design: "設計" };
+export const MODE_LABELS: Record<Mode, string> = { analysisSimple: "情報整理", analysis: "詳細調整", design: "設計" };
 
 /** 既定のモード (ui.mode が未設定のとき・アプリを開いたとき)。未設定の解釈はすべてここに揃える */
 export const DEFAULT_MODE: Mode = "analysisSimple";
@@ -46,7 +46,7 @@ export function modeOf(ui: Pick<UiState, "mode">): Mode {
 export interface UiState {
   /** 自由ボード (モデルのボード) の id か、固定ボードの id ("fixed:<レイヤー>")・分析ボードの id ("analysis:<種類>")・設計ボードの id ("design:<種類>") */
   currentBoardId: string;
-  /** モード (未設定は既定の分析（簡易）。ファイルには保存しない・履歴に積まない) */
+  /** モード (未設定は既定の情報整理。ファイルには保存しない・履歴に積まない) */
   mode?: Mode;
   /** 設計モードに入る前にいた分析のモード。設計の対象のシステムが消えたときなど、分析へ戻すときの戻り先 (保存しない) */
   modeBeforeDesign?: Mode;
@@ -249,16 +249,16 @@ export interface UntieState {
 let toastSeq = 0;
 
 /**
- * 分析（詳細）の最初のボード。課題から紐解くので、分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
- * (分析（簡易）の最初は業務一覧。右ペインはプロパティ)
+ * 詳細調整の最初のボード。課題から紐解くので、分析ボード「課題の分布」と、右ペインの課題一覧を開いておく
+ * (情報整理の最初は登場人物 (固定ボード)。右ペインはプロパティ)
  */
 export const START_BOARD_ID = analysisBoardId("issues");
 /**
  * 起動時・新規作成・ファイルを開いたときに最初に出す画面。
  * 狭い画面 (スマートフォン) では、ペインが画面の上に重なるので、最初は閉じておく
  * (開くのはツールバーのボタン)。広い画面ではこれまでどおり、右のペインを開いておく。
- * 分析（簡易）・分析（詳細）のどちらにいても、ファイルを開き直す・新規作成・クラウドの開閉をしてもそのモードを保つ
- * (表現の好みなので)。設計モードにいたときと、モードが未設定のときは、既定 (分析（簡易）) に戻す
+ * 情報整理・詳細調整のどちらにいても、ファイルを開き直す・新規作成・クラウドの開閉をしてもそのモードを保つ
+ * (表現の好みなので)。設計モードにいたときと、モードが未設定のときは、既定 (情報整理) に戻す
  */
 function startUi(prev?: Pick<UiState, "mode">) {
   const narrow = isNarrowViewport();
@@ -267,7 +267,7 @@ function startUi(prev?: Pick<UiState, "mode">) {
   const simple = mode === "analysisSimple";
   return {
     currentBoardId: simple ? SIMPLE_START_BOARD_ID : START_BOARD_ID,
-    // 簡易のボードは、選ぶとプロパティに出す作りなので、プロパティを開いておく。詳細は課題一覧から始める
+    // 情報整理のボードは、選ぶとプロパティに出す作りなので、プロパティを開いておく。詳細調整は課題一覧から始める
     rightPanel: simple ? ("properties" as const) : ("issues" as const),
     rightPanelOpen: !narrow,
     mode,
@@ -294,8 +294,8 @@ function closeIssuePane(ui: UiState): Pick<UiState, "rightPanel" | "rightPanelOp
 /** 設計モードに入ったときの最初のボード */
 export const DESIGN_START_BOARD_ID = designBoardId("sitemap");
 
-/** 簡易モードに入ったときの (ただ 1 枚の) ボード */
-export const SIMPLE_START_BOARD_ID = simpleBoardId("workflow");
+/** 情報整理モードに入ったときの最初のボード (固定ボードの「登場人物」。情報整理モードでも開ける固定ボードはこれだけ) */
+export const SIMPLE_START_BOARD_ID = fixedBoardId("actor");
 
 /** そのモードの最初のボード */
 function firstBoardOf(mode: Mode): string {
@@ -303,9 +303,9 @@ function firstBoardOf(mode: Mode): string {
   return mode === "analysisSimple" ? SIMPLE_START_BOARD_ID : START_BOARD_ID;
 }
 
-/** ボードがそのモードで開けるか。分析（詳細）は固定・分析・自由ボード、分析（簡易）は簡易ボード (業務一覧・システム操作・情報と状態) だけ、設計は設計・自由ボード */
+/** ボードがそのモードで開けるか。詳細調整は固定・分析・自由ボード、情報整理は登場人物の固定ボード・情報整理のボード (業務一覧・業務フロー・システム操作・情報と状態)・分析ボードだけ、設計は設計・自由ボード */
 function boardFitsMode(boardId: string, mode: Mode): boolean {
-  if (mode === "analysisSimple") return isSimpleBoard(boardId) || isAnalysisBoard(boardId);
+  if (mode === "analysisSimple") return isSimpleBoard(boardId) || isAnalysisBoard(boardId) || boardId === SIMPLE_START_BOARD_ID;
   if (mode === "design") return !isFixedBoard(boardId) && !isAnalysisBoard(boardId) && !isSimpleBoard(boardId);
   return !isDesignBoard(boardId) && !isSimpleBoard(boardId);
 }
@@ -409,7 +409,7 @@ export function isFixedBoard(boardId: string): boolean {
 }
 
 /** 分析ボードを開いているか */
-/** 業務フローボード (簡易: simple:flow、詳細: analysis:flow) か。作業の担当と順序は、ここでだけ決める */
+/** 業務フローボード (情報整理: simple:flow、詳細調整: analysis:flow) か。作業の担当と順序は、ここでだけ決める */
 export function isFlowBoard(boardId: string): boolean {
   return boardId === simpleBoardId("flow") || boardId === analysisBoardId("flow");
 }
@@ -423,12 +423,12 @@ export function isDesignBoard(boardId: string): boolean {
   return parseDesignBoardId(boardId) !== null;
 }
 
-/** 簡易モードのボード (業務一覧・システム操作・情報と状態) を開いているか */
+/** 情報整理モードのボード (業務一覧・業務フロー・システム操作・情報と状態) を開いているか */
 export function isSimpleBoard(boardId: string): boolean {
   return parseSimpleBoardId(boardId) !== null;
 }
 
-/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード・設計ボード・簡易モードのボード) か */
+/** モデルに保存しない、アプリが組み立てるボード (固定ボード・分析ボード・設計ボード・情報整理モードのボード) か */
 export function isBuiltinBoard(boardId: string): boolean {
   return isFixedBoard(boardId) || isAnalysisBoard(boardId) || isDesignBoard(boardId) || isSimpleBoard(boardId);
 }
@@ -440,8 +440,8 @@ export function createUntieStore(
   startPanel: RightPanel = "properties",
   startMode?: Mode,
 ) {
-  // モードを省いたときは、開くボードから導く (簡易のボードなら簡易、それ以外は詳細。設計は対象のシステムが要るので詳細)。
-  // 「簡易モードで自由ボードを開いている」ようなボードとモードが合わない状態は作らない
+  // モードを省いたときは、開くボードから導く (情報整理のボードなら情報整理、それ以外は詳細調整。設計は対象のシステムが要るので詳細調整)。
+  // 「情報整理モードで自由ボードを開いている」ようなボードとモードが合わない状態は作らない
   const mode: Mode = startMode ?? (isSimpleBoard(startBoardId) ? "analysisSimple" : "analysis");
   return create<UntieState>()((set, get) => ({
     model: initial,
@@ -658,7 +658,7 @@ export function createUntieStore(
         ui: {
           ...s.ui,
           ...startUi(s.ui),
-          // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析のモード (簡易・詳細) ならそのまま、設計なら既定 (分析（簡易）) に戻す
+          // つなぎ直し (keepUi) は同じファイルなので、モードと設計の対象も引き継ぐ。別のファイルを開くときは分析のモード (情報整理・詳細調整) ならそのまま、設計なら既定 (情報整理) に戻す
           ...(options?.keepUi ? { mode: s.ui.mode, modeBeforeDesign: s.ui.modeBeforeDesign, designSystemId: s.ui.designSystemId, designScreenId: s.ui.designScreenId, designTransitionId: s.ui.designTransitionId, designDatabaseId: s.ui.designDatabaseId, designTableName: s.ui.designTableName } : {}),
           selection: options?.keepUi?.selection ?? null,
           ...(options?.keepUi ? { currentBoardId: options.keepUi.currentBoardId } : {}),
@@ -727,15 +727,16 @@ export function createUntieStore(
         set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? {} : { mode: "design" as const, modeBeforeDesign: modeOf(s.ui), ...closeIssuePane(s.ui) }), currentBoardId: boardId, selection: null } }));
         return;
       }
-      // 簡易モードのボードへ飛ぶと簡易モードへ移る。簡易モードでは、それ以外のボードは開けない (固定ボード・分析ボード・自由ボードは詳細モードへ移る)
+      // 情報整理モードのボードへ飛ぶと情報整理モードへ移る。情報整理モードでは、それ以外のボードは開けない (固定ボード・分析ボード・自由ボードは詳細調整モードへ移る)
       if (isSimpleBoard(boardId)) {
         set((s) => ({ ui: { ...s.ui, mode: "analysisSimple" as const, currentBoardId: boardId, selection: null, ...clearDesignUi } }));
         return;
       }
-      // 固定ボード・分析ボードへ飛ぶと分析（詳細）モードへ移る (設計モードから要素の場所へ飛べるように)。
-      // 簡易モードでは自由ボードも開けないので、同じく詳細へ移ってから開く。詳細・設計モードの自由ボードはモードを変えない
-      // 分析ボードは簡易モードでも開けるので、簡易モードのままにする
-      if (isAnalysisBoard(boardId) && mode === "analysisSimple") {
+      // 固定ボード・分析ボードへ飛ぶと詳細調整モードへ移る (設計モードから要素の場所へ飛べるように)。
+      // 情報整理モードでは自由ボードも開けないので、同じく詳細調整へ移ってから開く。詳細調整・設計モードの自由ボードはモードを変えない
+      // 分析ボードは情報整理モードでも開けるので、情報整理モードのままにする
+      // 固定ボードの「登場人物」も、情報整理モードのままで開ける (ほかの固定ボードは詳細調整モードへ移る)
+      if ((isAnalysisBoard(boardId) || boardId === SIMPLE_START_BOARD_ID) && mode === "analysisSimple") {
         set((s) => ({ ui: { ...s.ui, currentBoardId: boardId, selection: null, ...clearDesignUi } }));
         return;
       }
@@ -747,9 +748,11 @@ export function createUntieStore(
       const current = modeOf(ui);
       if (current === mode) return;
       if (mode === "design" && ui.designSystemId === undefined) return;
-      // 簡易と詳細は同じモデルの別の見せ方なので、行き来しても選んでいるものは残す (reconcileUi が、無くなった参照だけ外す)
+      // 情報整理と詳細調整は同じモデルの別の見せ方なので、行き来しても選んでいるものは残す (reconcileUi が、無くなった参照だけ外す)
       const keepSelection = current !== "design" && mode !== "design";
-      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? { modeBeforeDesign: current, ...closeIssuePane(s.ui) } : {}), mode, currentBoardId: firstBoardOf(mode), selection: keepSelection ? s.ui.selection : null, issueDraft: undefined, ...clearDesignUi } }));
+      // 登場人物の固定ボードは情報整理・詳細調整のどちらでも開けるので、開いたままなら切り替えても残す
+      const keepActorBoard = current !== "design" && mode !== "design" && ui.currentBoardId === SIMPLE_START_BOARD_ID;
+      set((s) => ({ ui: { ...s.ui, ...(mode === "design" ? { modeBeforeDesign: current, ...closeIssuePane(s.ui) } : {}), mode, currentBoardId: keepActorBoard ? ui.currentBoardId : firstBoardOf(mode), selection: keepSelection ? s.ui.selection : null, issueDraft: undefined, ...clearDesignUi } }));
     },
     enterDesign: (systemId, boardId) => {
       const { model, ui } = get();
@@ -834,7 +837,7 @@ export function createUntieStore(
   }));
 }
 
-/** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、既定のモード (分析（簡易）) の最初のボードを開く */
+/** アプリ全体で使う単一ストア。起動時にサンプルを読み込み、既定のモード (情報整理) の最初のボードを開く */
 export const useUntieStore = createUntieStore(createHotelSample(), firstBoardOf(DEFAULT_MODE), DEFAULT_MODE === "analysisSimple" ? "properties" : "issues", DEFAULT_MODE);
 
 /** 保存していない変更があるか (サンプルや新規は、一度も保存していなければ変更ありとみなさない) */

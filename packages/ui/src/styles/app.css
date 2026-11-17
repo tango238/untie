@@ -331,6 +331,12 @@ textarea { resize: vertical; width: 100%; }
 .fixed-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .fixed-title { margin: 0; font-size: 16px; }
 .fixed-hint { color: var(--muted); font-size: 12px; }
+/* 情報整理の業務フローの、業務・作業を足す・直す・消すボタン (見出しの右上。狭い幅では折り返す) */
+.flow-edit { display: flex; gap: 6px 14px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.flow-edit-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.flow-edit-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 2px; }
+.flow-dialog-field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+.flow-dialog-field input, .flow-dialog-field select { font-size: 13px; color: var(--text, inherit); }
 .fixed-filter { margin-left: auto; width: 220px; }
 .fixed-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; align-items: start; }
 .fixed-section { padding-top: 10px; margin-top: 14px; border-top: 2px solid #d6d0c4; }
@@ -1039,15 +1045,20 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .menu-sub button, .fixed-unlink, .home-row-actions button, .issue-target-action { min-height: 32px; }
   select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 36px; }
 
-  /* ツールバー: 1 行目はホーム・名前・ファイル、2 行目はボード、3 行目は操作 (横にスクロール) */
+  /* ツールバー: 1 行目はホーム・名前・ファイル・モード、2 行目はボード、3 行目は操作 (横にスクロール) */
   .toolbar-row { gap: 6px 8px; padding: 6px 10px; }
   .toolbar button, .toolbar select { white-space: nowrap; }
   .toolbar-spacer { display: none; }
+  /* モードはファイルのメニューの隣 (入りきらなければ次の行へ回る)。ボードの選択は 2 行目いっぱいに */
+  .toolbar-mode { flex: 1 1 150px; min-width: 0; }
+  .toolbar-mode .toolbar-label { flex: 1; min-width: 0; }
+  .toolbar-mode .toolbar-label select { flex: 1; min-width: 0; }
   .toolbar-board { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
   .toolbar-board .toolbar-label { flex: 1 1 150px; min-width: 0; }
   /* 固定ボード・分析ボードでは使えない「名前変更」「ボード削除」は、狭い画面では隠して場所を空ける */
   .toolbar-board button:disabled { display: none; }
   .toolbar-board .toolbar-label select { flex: 1; min-width: 0; }
+  .flow-edit { margin-left: 0; flex: 1 1 100%; }
   .rename-form { flex: 1; min-width: 0; }
   .rename-form input { flex: 1; min-width: 0; }
   .toolbar-actions { flex: 1 1 100%; flex-wrap: wrap; }
@@ -1223,7 +1234,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .souther-pending { font-size: 12px; font-weight: 400; color: #8a6414; }
 .seq-after-group select { flex: 1; min-width: 0; }
 
-/* 分析（簡易）のワークフローボード: 登場人物 → 業務 → 活動 → 作業 */
+/* 情報整理のワークフローボード: 登場人物 → 業務 → 活動 → 作業 */
 .workflow-board { --wf-bus-y: 24px; --wf-stub: 14px; --wf-line: #9a9488; }
 .wf-lane { display: flex; align-items: flex-start; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px dashed var(--border); }
 .wf-actor { flex: 0 0 168px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
@@ -1232,6 +1243,21 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-actor-card.is-selected, .wf-activity.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
 .wf-kind { font-size: 10px; font-weight: 600; color: var(--muted); }
 .wf-name { font-weight: 600; word-break: break-all; }
+.wf-name.is-renamable { cursor: text; align-self: flex-start; }
+.wf-name.is-renamable:hover { text-decoration: underline dotted; }
+/* 名前を直している間の箱 (ボタンの代わりの div)。入力欄の幅は箱いっぱいに */
+div.wf-actor-card, div.wf-frame-title, div.wf-activity { cursor: default; }
+div.wf-frame-title { align-self: stretch; flex: 1; min-width: 0; }
+.wf-outsider-section { margin-top: 12px; padding-top: 8px; border-top: 2px solid #d6d0c4; }
+.wf-outsiders { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.wf-outsider-item { flex: 0 0 200px; max-width: 100%; min-width: 0; }
+.wf-outsider { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wf-outsider.kind-system .wf-actor-card { border-color: var(--c-system); }
+.wf-outsider .wf-actor-card { min-height: 0; width: 100%; padding: 6px 8px; }
+.wf-event { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px dashed var(--c-event); border-left: 5px solid var(--c-event); border-radius: 6px; padding: 3px 8px; }
+.wf-event.is-selected { outline: 2px solid var(--selected); outline-offset: 1px; }
+div.wf-event { cursor: default; }
+@media (max-width: 768px) { .wf-outsider-item { flex: 1 1 100%; } }
 .wf-note { font-size: 11px; color: var(--muted); margin: 2px 0; }
 /* 枠の幅を決めない (文が長くても、枠は作業のカードの幅のまま。文は折り返す) */
 .wf-lane-note { width: 0; min-width: 100%; }
@@ -1252,7 +1278,9 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 /* 枠の見出しは、枠の強調と二重にならないよう選択中の枠線を出さない (フォーカス時は出る) */
 .wf-frame-title.is-selected, .wf-frame-title.is-selected:hover { outline: none; background: transparent; }
 .wf-frame-title.is-selected:focus-visible { outline: 2px solid var(--selected); }
-.wf-frame-head { display: flex; }
+.wf-frame-head { display: flex; align-items: flex-start; gap: 4px; }
+.wf-move-group { display: flex; gap: 2px; margin-left: auto; flex: none; }
+.wf-move { align-self: auto; padding: 2px 6px; }
 .wf-frame-title { display: flex; flex-direction: column; text-align: left; background: transparent; border: none; padding: 2px 4px; border-radius: 4px; }
 .wf-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .wf-activity { width: 100%; display: flex; flex-direction: column; text-align: left; background: #fff; border: 1.5px solid var(--c-activity); border-left-width: 5px; border-radius: 6px; padding: 3px 8px; }
@@ -1278,7 +1306,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
   .wf-frame { min-width: 0; }
 }
 
-/* 分析（簡易）のボード「システム操作」: 作業 → 操作 → 画面・情報・条件。外側の枠は活動 (無ければ業務) */
+/* 情報整理のボード「システム操作」: 作業 → 操作 → 画面・情報・条件。外側の枠は活動 (無ければ業務) */
 .wf-outers { display: flex; flex-direction: column; gap: 16px; }
 .wf-outer { min-width: 0; cursor: pointer; }
 .wf-outer .wf-lane.wf-row { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
@@ -1297,7 +1325,7 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-chip.kind-ledger { border-color: var(--c-ledger); border-style: dashed; }
 .wf-chip.kind-event { border-color: var(--c-event); border-style: dashed; }
 
-/* 分析（簡易）のボード「情報と状態」: コンテキスト → 情報 (・バリエーション)・状態 */
+/* 情報整理のボード「情報と状態」: コンテキスト → 情報 (・バリエーション)・状態 */
 .wf-context { --c: var(--c-context); background: color-mix(in srgb, var(--c-context) 5%, #fff); }
 /* 区画の区切りは、直前の行の破線だけにする (二重にしない) */
 .wf-subsection { padding-top: 2px; }
@@ -1326,17 +1354,26 @@ button.trace-el:hover:not(:disabled) { background: none; text-decoration: underl
 .wf-branch-item.is-assigned::after { border-left-style: dashed; }
 
 /* 業務フローボード: 上の山形が業務、横は作業の順、縦は担当の登場人物。外部の登場人物が一番上、システム・帳票が一番下 */
-.flow-board { position: relative; }
+.flow-board { position: relative; --board-pad: 16px; }
+/* 図だけが横にスクロールする。見出し・説明・ボタンは、横にスクロールしても左端 (余白の内側) に残す */
+.flow-board > :not(.flow-diagram) { position: sticky; left: 0; }
+@media (max-width: 768px) { .flow-board { --board-pad: 10px; } }
+/* 要素の場所へスクロールしたとき、左端に固定した担当の列の下に隠れないよう、その幅だけ空ける */
+.flow-band, .flow-cell { scroll-margin-left: 150px; }
 .flow-diagram { position: relative; width: max-content; min-width: 100%; padding: 6px 0 12px; }
 .flow-grid { display: grid; gap: 10px 40px; align-items: center; position: relative; }
 .flow-band { grid-row: 1; background: #26364d; color: #fff; border: 0; padding: 8px 26px 8px 14px; font: inherit; font-weight: 700; text-align: center; cursor: pointer; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%); }
-.flow-band.is-selected { outline: 2px solid var(--selected); }
+/* ボタンの既定のホバー (明るい背景) だと、白い文字が読めなくなる。山形は濃い色のまま、ホバー・選択で色を変える */
+.flow-band:hover:not(:disabled) { background: #3a5173; }
+.flow-band-empty { position: relative; z-index: 1; align-self: start; justify-self: stretch; text-align: center; font-size: 11px; color: var(--muted); opacity: 0.8; pointer-events: none; line-height: 1.2; }
+.flow-band.is-selected, .flow-band.is-selected:hover:not(:disabled) { background: #b8552f; }
+.flow-band:focus-visible { outline: 2px solid #f0b429; outline-offset: -3px; }
 .flow-lane { background: #ecebe6; border-radius: 4px; align-self: stretch; margin: -5px -8px; z-index: 0; }
 .flow-lane.is-external { background: #e6ecf3; }
 .flow-lane.is-system { background: #f1e9e7; }
 /* 左端の行ラベルは固定 (横にスクロールしても残す)。背景は行の色に合わせ、下のカードが透けないようにする */
 .flow-actor { position: sticky; left: 0; z-index: 3; background: #ecebe6; font-weight: 600; font-size: 13px; padding: 6px 10px; align-self: stretch; display: flex; align-items: center; min-width: 5.5em; box-shadow: 8px 0 8px -8px rgba(0,0,0,0.25); }
-.flow-actor { margin: -5px 0; }
+.flow-actor { left: calc(var(--board-pad) * -1); margin: -5px 0 -5px calc(var(--board-pad) * -1); padding-left: calc(10px + var(--board-pad)); }
 .flow-actor.is-external { background: #e6ecf3; }
 .flow-actor.is-system { background: #f1e9e7; }
 .flow-actor.is-none, .flow-actor.is-none * { color: var(--danger); }

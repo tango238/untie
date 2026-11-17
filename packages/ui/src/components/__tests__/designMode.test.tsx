@@ -1,5 +1,5 @@
 import { setDevModeForTest } from "../../devMode";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureDesign, removeElement } from "@untie/core/model/commands";
 import { emptyModel } from "@untie/core/model/types";
@@ -21,25 +21,41 @@ beforeEach(() => {
   resetStore();
 });
 
-const openModeMenu = () => {
-  fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
-  fireEvent.mouseEnter(screen.getByRole("menuitem", { name: /^モード/ }));
-  return screen.getByRole("menu", { name: "モード" });
-};
+/** ツールバーの「モード」の select で切り替える */
+const chooseMode = (mode: "analysisSimple" | "analysis" | "design") => fireEvent.change(screen.getByLabelText("モード"), { target: { value: mode } });
+const modeSelect = () => screen.getByLabelText("モード") as HTMLSelectElement;
 const boardOptions = () => within(screen.getByLabelText("ボード")).getAllByRole("option").map((o) => o.textContent);
 
 describe("モードのメニュー", () => {
-  it("ファイルメニューに「モード」があり、分析（簡易）・分析（詳細）・設計を並べて今のモードに ✓ を付ける", () => {
+  it("ツールバーに「モード」の select があり、情報整理・詳細調整・設計を並べて今のモードを選んでいる。ファイルメニューにはモードが無い", () => {
     render(<Toolbar />);
-    const sub = openModeMenu();
-    const items = within(sub).getAllByRole("menuitemradio");
-    expect(items.map((i) => i.textContent)).toEqual(["分析（簡易）", "分析（詳細）✓", "設計"]);
-    expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
+    const select = modeSelect();
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["情報整理", "詳細調整", "設計"]);
+    expect(select.value).toBe("analysis");
+    // 「ファイル」メニューの後、「ボード」の前にある
+    const toolbar = screen.getByRole("banner");
+    const order = Array.from(toolbar.querySelectorAll("button, select")).filter((el) => el.matches("select") || el.textContent?.startsWith("ファイル"));
+    expect(order.map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual(["ファイル ▾", "モード", "ボード"]);
+    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
+    expect(screen.queryByRole("menuitem", { name: /^モード/ })).toBeNull();
+  });
+
+  it("モードの select で切り替えると、そのモードの最初のボードが開き、select から focus が外れる", () => {
+    render(<Toolbar />);
+    modeSelect().focus();
+    chooseMode("analysisSimple");
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    expect(modeSelect().value).toBe("analysisSimple");
+    expect(document.activeElement).not.toBe(modeSelect());
+    chooseMode("analysis");
+    expect(st().ui.mode).toBe("analysis");
+    expect(modeSelect().value).toBe("analysis");
   });
 
   it("設計を選ぶとシステムの選択が出て、選ぶと設計モードのサイトマップへ移る", () => {
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     const dialog = screen.getByRole("dialog", { name: "システムの選択" });
     fireEvent.click(within(dialog).getByRole("radio", { name: /宿泊管理システム/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "設計する" }));
@@ -52,27 +68,28 @@ describe("モードのメニュー", () => {
     expect(st().model.databases).toEqual([]);
     expect(st().history.past).toHaveLength(0);
     expect(loadLastDesignSystemId()).toBe("sys_pms");
-    // メニューの印が移る
-    const sub = openModeMenu();
-    expect(within(sub).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["分析（簡易）", "分析（詳細）", "設計✓"]);
+    // select の表示が移る
+    expect(modeSelect().value).toBe("design");
   });
 
   it("キャンセルしたら分析モードのまま、設計も足さない", () => {
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(screen.queryByRole("dialog", { name: "システムの選択" })).toBeNull();
     expect(st().ui.mode).toBe("analysis");
+    // select の表示も今のモードに戻る
+    expect(modeSelect().value).toBe("analysis");
     expect(st().model.designs).toEqual([]);
   });
 
-  it("分析（詳細）を選ぶと分析モード (analysis:issues) に戻る。対象のシステムが決まっていれば、設計は選択なしで戻れる", () => {
+  it("詳細調整を選ぶと分析モード (analysis:issues) に戻る。対象のシステムが決まっていれば、設計は選択なしで戻れる", () => {
     render(<Toolbar />);
     act(() => st().enterDesign("sys_pms"));
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "分析（詳細）" }));
+    chooseMode("analysis");
     expect(st().ui.mode).toBe("analysis");
     expect(st().ui.currentBoardId).toBe("analysis:issues");
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(st().ui.mode).toBe("design");
   });
@@ -84,7 +101,7 @@ describe("システムの選択", () => {
       st().dispatch((m) => ensureDesign(m, { systemId: "sys_booking_site" }));
     });
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     const rows = within(screen.getByRole("dialog", { name: "システムの選択" })).getAllByRole("radio");
     const names = rows.map((r) => r.closest("label")!.textContent);
     const expected = st()
@@ -98,14 +115,14 @@ describe("システムの選択", () => {
   it("初期選択は最後に設計したシステム (モデルにあるときだけ)", () => {
     saveLastDesignSystemId("sys_accounting");
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     expect((screen.getByRole("radio", { name: /会計システム/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("覚えていたシステムがモデルに無ければ、何も選ばれず、決定は押せない", () => {
     saveLastDesignSystemId("sys_gone");
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     expect(screen.getAllByRole("radio").every((r) => !(r as HTMLInputElement).checked)).toBe(true);
     expect((screen.getByRole("button", { name: "設計する" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -113,7 +130,7 @@ describe("システムの選択", () => {
   it("システムが 1 つもないときは案内を出し、選べない", () => {
     resetStore(emptyModel());
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     const dialog = screen.getByRole("dialog", { name: "システムの選択" });
     expect(within(dialog).getByText("システムがまだありません。登場人物ボードでシステムを足してください。")).toBeDefined();
     expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
@@ -127,7 +144,7 @@ describe("キーボード操作", () => {
   it("システムの選択は、選ばれているラジオ (無ければ先頭) にフォーカスし、Enter (フォームの送信) で決定できる", () => {
     saveLastDesignSystemId("sys_accounting");
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     expect(document.activeElement).toBe(screen.getByRole("radio", { name: /会計システム/ }));
     fireEvent.submit(screen.getByRole("dialog", { name: "システムの選択" }).querySelector("form")!);
     expect(st().ui.mode).toBe("design");
@@ -136,22 +153,13 @@ describe("キーボード操作", () => {
 
   it("何も選ばれていなければ先頭のラジオにフォーカスし、送信しても何も起きない", () => {
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     const first = screen.getAllByRole("radio")[0]!;
     expect(document.activeElement).toBe(first);
     fireEvent.submit(screen.getByRole("dialog", { name: "システムの選択" }).querySelector("form")!);
     expect(st().ui.mode).toBe("analysis");
   });
 
-  it("「モード」を → で開くと、今のモード (✓) の項目へフォーカスが移る", async () => {
-    render(<Toolbar />);
-    act(() => st().enterDesign("sys_pms"));
-    fireEvent.click(screen.getByRole("button", { name: "ファイル ▾" }));
-    const trigger = screen.getByRole("menuitem", { name: /^モード/ });
-    trigger.focus();
-    fireEvent.keyDown(trigger, { key: "ArrowRight" });
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: /設計/ })));
-  });
 });
 
 describe("設計モードのツールバー", () => {
@@ -234,7 +242,7 @@ describe("設計モードのツールバー", () => {
       st().loadCloudDocument(st().model, { fileId: "f", role: "viewer", doc: new (class {})() as never });
     });
     render(<Toolbar />);
-    fireEvent.click(within(openModeMenu()).getByRole("menuitemradio", { name: "設計" }));
+    chooseMode("design");
     fireEvent.click(screen.getByRole("radio", { name: /宿泊管理システム/ }));
     fireEvent.click(screen.getByRole("button", { name: "設計する" }));
     expect(st().ui.mode).toBe("design");

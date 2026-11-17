@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { addElement, addRelation, removeElement, removeRelation } from "../commands";
+import { addElement, addRelation, moveBusinessOrder, removeElement, removeRelation } from "../commands";
+import { adjacentBusinessInFlow, buildActivityFlow } from "../activityFlow";
 import {
   activityParentOptions,
+  adjacentBusinessInWorkflow,
   isShownOnSimpleBoard,
   pickSimpleTarget,
   addWorkflowElement,
@@ -23,7 +25,7 @@ import { expectFail, okModel, sample } from "./helpers";
 const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 const countOf = (items: ReturnType<typeof removalImpact>, label: string) => items.find((i) => i.label === label)?.count ?? 0;
 
-describe("簡易モードのボードの id", () => {
+describe("情報整理モードのボードの id", () => {
   it("種類と相互に変換でき、ほかのボードの id は読まない", () => {
     for (const k of SIMPLE_BOARD_KINDS) expect(parseSimpleBoardId(simpleBoardId(k))).toBe(k);
     expect(simpleBoardId("workflow")).toBe("simple:workflow");
@@ -36,8 +38,9 @@ describe("簡易モードのボードの id", () => {
 describe("buildWorkflow", () => {
   it("登場人物ごとの行に、主担当の業務を並べ、業務の中に作業 (直接) と活動 (その作業) を入れる", () => {
     const w = buildWorkflow(sample());
-    // 行は登場人物 (アクター・外部アクター) のモデルの順
-    expect(ids(w.lanes.map((l) => l.actor))).toEqual(sample().elements.filter((e) => e.kind === "actor" || e.kind === "externalActor").map((e) => e.id));
+    // 行は社内の登場人物 (アクター) のモデルの順。外部の登場人物とシステムは行ではなく、別の区画の列
+    expect(ids(w.lanes.map((l) => l.actor))).toEqual(sample().elements.filter((e) => e.kind === "actor").map((e) => e.id));
+    expect(ids(w.outsiders.map((o) => o.element))).toEqual([...sample().elements.filter((e) => e.kind === "externalActor"), ...sample().elements.filter((e) => e.kind === "system")].map((e) => e.id));
     const front = w.lanes.find((l) => l.actor.id === "actor_front")!;
     expect(ids(front.businesses.map((b) => b.business))).toEqual(["biz_checkin", "biz_stay", "biz_checkout"]);
     const checkin = front.businesses[0]!;
@@ -108,7 +111,7 @@ describe("buildWorkflow は検証に通らないモデルでも要素を落と�
 });
 
 describe("isWorkflowElement / workflowKindLabel", () => {
-  it("簡易ボードで直せる種類に、既定の活動・システム・帳票は含まれない", () => {
+  it("情報整理のボードで直せる種類に、既定の活動・システム・帳票は含まれない", () => {
     const kinds = (id: string) => isWorkflowElement(sample().elements.find((e) => e.id === id)!);
     expect(["actor_front", "ext_guest", "biz_stay", "buc_dining", "act_hand_key"].every(kinds)).toBe(true);
     expect(["buc_default_stay", "sys_pms", "ldg_guest_register"].some(kinds)).toBe(false);
@@ -253,7 +256,7 @@ describe("impactLines", () => {
   });
 });
 
-describe("簡易モードで足したものも、検証を通る", () => {
+describe("情報整理モードで足したものも、検証を通る", () => {
   it("登場人物 → 業務 → 作業と足したモデルは、スキーマの検証を通る", () => {
     let m = okModel(addElement(sample(), { kind: "actor", name: "A", id: "a1" }));
     const biz = addWorkflowElement(m, "business", "a1");
@@ -263,18 +266,47 @@ describe("簡易モードで足したものも、検証を通る", () => {
   });
 });
 
-describe("外部の登場人物の行 (発生させるイベントだけを出す。0.6.4 から)", () => {
-  const lane = (m: UntieModel, id: string) => buildWorkflow(m).lanes.find((l) => l.actor.id === id)!;
+describe("外部の登場人物とシステムの列 (発生させるイベントだけを出す)", () => {
+  const col = (m: UntieModel, id: string) => buildWorkflow(m).outsiders.find((o) => o.element.id === id)!;
 
-  it("外部の登場人物は業務の枠も作業も持たず、発生させるイベントだけを出す。社内の登場人物の行は、主担当の業務だけ", () => {
+  it("外部の登場人物は externalActorEvent、システムは systemEvent のイベントを列に出す。操作が発生させるイベント (usecaseEvent) と帳票は出さない。同じイベントは複数の列に出る", () => {
     let m = sample();
     m = okModel(addElement(m, { kind: "event", name: "宿泊の申込が届いた", id: "ev_apply" }));
     m = okModel(addRelation(m, { sourceId: "ext_guest", targetId: "ev_apply" }));
-    const l = lane(m, "ext_guest");
-    expect(l.businesses).toEqual([]);
-    expect(l.raisedEvents.map((e) => e.id).sort()).toEqual(["ev_apply", "ev_stay_requested"]);
-    expect(lane(m, "actor_front").raisedEvents).toEqual([]);
-    expect(lane(m, "actor_front").businesses.length).toBeGreaterThan(0);
+    m = okModel(addElement(m, { kind: "event", name: "夜間バッチが終わった", id: "ev_batch" }));
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "ev_batch" }));
+    m = okModel(addRelation(m, { sourceId: "sys_pms", targetId: "ev_apply" }));
+    m = okModel(addElement(m, { kind: "event", name: "操作が出した", id: "ev_uc" }));
+    m = okModel(addRelation(m, { sourceId: "uc_register_extra", targetId: "ev_uc" }));
+    expect(col(m, "ext_guest").events.map((e) => e.id).sort()).toEqual(["ev_apply", "ev_stay_requested"]);
+    expect(col(m, "sys_pms").events.map((e) => e.id)).toEqual(expect.arrayContaining(["ev_apply", "ev_batch"]));
+    const all = buildWorkflow(m).outsiders.flatMap((o) => o.events.map((e) => e.id));
+    expect(all).not.toContain("ev_uc");
+    expect(buildWorkflow(m).outsiders.some((o) => (o.element.kind as string) === "ledger")).toBe(false);
+    expect(buildWorkflow(m).lanes.some((l) => l.actor.kind !== "actor")).toBe(false);
+  });
+
+  it("addWorkflowElement(event): 外部の登場人物・システムに発生元として結んだイベントを、1 件の結果で作る。発生元の種類が違うと失敗する", () => {
+    for (const parent of ["ext_guest", "sys_pms"]) {
+      const before = sample();
+      const r = addWorkflowElement(before, "event", parent);
+      expect(r.ok).toBe(true);
+      if (!r.ok) continue;
+      expect(r.model.elements.find((e) => e.id === r.id)).toMatchObject({ kind: "event", name: "新しいイベント" });
+      expect(col(r.model, parent).events.map((e) => e.id)).toContain(r.id);
+      expect(validateModel(r.model).ok).toBe(true);
+    }
+    expect(addWorkflowElement(sample(), "event", "actor_front").ok).toBe(false);
+    expect(addWorkflowElement(sample(), "event", "ldg_guest_register").ok).toBe(false);
+    expect(addWorkflowElement(sample(), "event").ok).toBe(false);
+  });
+
+  it("外部の登場人物・システムを足せる", () => {
+    for (const kind of ["externalActor", "system"] as const) {
+      const r = addWorkflowElement(sample(), kind);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(buildWorkflow(r.model).outsiders.some((o) => o.element.id === r.id)).toBe(true);
+    }
   });
 
   it("外部の登場人物は作業の担当にできない (作業を足すときの担当も、関係も)", () => {
@@ -318,7 +350,7 @@ describe("addWorkflowElement: 担当つきの作業", () => {
   });
 });
 
-describe("簡易ボードに実際に出る要素 (isShownOnSimpleBoard / pickSimpleTarget)", () => {
+describe("情報整理のボードに実際に出る要素 (isShownOnSimpleBoard / pickSimpleTarget)", () => {
   const el = (m: UntieModel, id: string) => m.elements.find((e) => e.id === id)!;
 
   it("既定の活動と、どの操作にも結ばれていないイベントは出ない。操作に結ばれたイベントと、区画に出る要素 (結ばれていない条件・画面・情報) は出る", () => {
@@ -352,3 +384,66 @@ describe("簡易ボードに実際に出る要素 (isShownOnSimpleBoard / pickSi
     expect(pickSimpleTarget(m, [el(m, "info_x")], "workflow")).toBeNull();
   });
 });
+
+describe("業務の並べ替えの隣", () => {
+  it("業務一覧: 同じ行の中の前後。端は null、行にいない業務も null、担当なしの区画は空文字の行で引く", () => {
+    let m = sample();
+    expect(adjacentBusinessInWorkflow(m, "biz_stay", "actor_front", "before")).toBe("biz_checkin");
+    expect(adjacentBusinessInWorkflow(m, "biz_stay", "actor_front", "after")).toBe("biz_checkout");
+    expect(adjacentBusinessInWorkflow(m, "biz_checkin", "actor_front", "before")).toBeNull();
+    expect(adjacentBusinessInWorkflow(m, "biz_stay", "actor_nobody", "after")).toBeNull();
+    m = okModel(addElement(m, { kind: "business", name: "担当なし A", id: "biz_free_a" }));
+    m = okModel(addElement(m, { kind: "business", name: "担当なし B", id: "biz_free_b" }));
+    expect(adjacentBusinessInWorkflow(m, "biz_free_a", "", "after")).toBe("biz_free_b");
+    expect(adjacentBusinessInWorkflow(m, "biz_free_a", "", "before")).toBeNull();
+    // 並べ替えたあとは、隣も入れ替わる
+    m = okModel(moveBusinessOrder(m, { id: "biz_free_a", targetId: "biz_free_b", position: "after" }));
+    expect(adjacentBusinessInWorkflow(m, "biz_free_a", "", "before")).toBe("biz_free_b");
+  });
+
+  it("業務フロー: 図に出ている前後。作業の無い業務も帯になり、隣として扱う", () => {
+    let m = sample();
+    const shown = buildActivityFlow(m).bands.map((b) => b.business.id);
+    expect(shown.length).toBeGreaterThan(2);
+    expect(adjacentBusinessInFlow(m, shown[1]!, "before")).toBe(shown[0]);
+    expect(adjacentBusinessInFlow(m, shown[1]!, "after")).toBe(shown[2]);
+    expect(adjacentBusinessInFlow(m, shown[0]!, "before")).toBeNull();
+    m = okModel(addElement(m, { kind: "business", name: "作業なし", id: "biz_empty" }));
+    // 作業の無い業務は、モデルの順の最後に 1 列ぶんの帯として出る。前の業務の隣になる
+    const bands = buildActivityFlow(m).bands;
+    expect(bands.map((b) => b.business.id)).toEqual([...shown, "biz_empty"]);
+    expect(bands.find((b) => b.business.id === "biz_empty")).toMatchObject({ empty: true, columns: 1 });
+    expect(adjacentBusinessInFlow(m, "biz_empty", "before")).toBe(shown[shown.length - 1]);
+    expect(adjacentBusinessInFlow(m, "biz_empty", "after")).toBeNull();
+    expect(adjacentBusinessInFlow(m, shown[shown.length - 1]!, "after")).toBe("biz_empty");
+    m = okModel(moveBusinessOrder(m, { id: shown[0]!, targetId: shown[1]!, position: "after" }));
+    expect(buildActivityFlow(m).bands.map((b) => b.business.id).slice(0, 2)).toEqual([shown[1], shown[0]]);
+  });
+});
+
+describe("業務フロー: 作業の無い業務の帯", () => {
+  it("作業の無い業務も、業務の並びの位置に 1 列ぶんの帯になる。ほかの帯の列・線は崩れない", () => {
+    let m = sample();
+    const before = buildActivityFlow(m);
+    m = okModel(addElement(m, { kind: "business", name: "作業なし", id: "biz_empty" }));
+    const after = buildActivityFlow(m);
+    expect(after.columns).toBe(before.columns + 1);
+    expect(after.bands.slice(0, before.bands.length).map((b) => [b.business.id, b.start, b.columns])).toEqual(before.bands.map((b) => [b.business.id, b.start, b.columns]));
+    expect(after.links).toEqual(before.links);
+    expect(after.hiddenEvents).toBe(before.hiddenEvents);
+    expect(after.bands.filter((b) => b.empty).map((b) => b.business.id)).toEqual(["biz_empty"]);
+  });
+
+  it("業務だけで作業・登場人物が 1 つも無いモデルでも、帯が出る (行・線・システムは空)", () => {
+    const base = sample();
+    const m = { ...base, elements: [{ id: "biz_a", kind: "business", name: "A" }, { id: "biz_b", kind: "business", name: "B" }] as typeof base.elements, relations: [] };
+    const f = buildActivityFlow(m);
+    expect(f.bands.map((b) => [b.business.id, b.start, b.columns, b.empty])).toEqual([["biz_a", 0, 1, true], ["biz_b", 1, 1, true]]);
+    expect(f.columns).toBe(2);
+    expect(f.rows).toEqual([]);
+    expect(f.links).toEqual([]);
+    expect(f.systems).toEqual([]);
+    expect(f.hiddenEvents).toBe(0);
+  });
+});
+

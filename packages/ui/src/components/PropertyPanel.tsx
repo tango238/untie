@@ -1,4 +1,3 @@
-import { isDevMode } from "../devMode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addElement,
@@ -26,7 +25,6 @@ import { lineage } from "@untie/core/model/lineage";
 import { informationPlaces, PLACE_ROLE_LABELS, placeInformations, screenInformations, type Derived } from "@untie/core/model/placement";
 import { ANALYSIS_MAX_LENGTH, DESCRIPTION_MAX_LENGTH, LIMITS, GROUP_MAX_LENGTH, LINK_TITLE_MAX_LENGTH, LINK_URL_MAX_LENGTH, NAME_MAX_LENGTH, truncateText, VALUE_MAX_LENGTH, VERIFICATION_MAX_LENGTH, TRIGGER_NOTE_MAX_LENGTH } from "@untie/core/model/limits";
 import { FIXED_LAYER_LABELS, fixedBoardId, fixedLayerOf, type FixedLayer } from "@untie/core/model/fixedBoards";
-import { domainReferences } from "@untie/core/model/domain";
 import { previousCandidates } from "@untie/core/model/activityFlow";
 import { activitiesTriggeredBy, activityHours, activityTriggers, defaultBucOf, designReferences, formatHours, issueScope, issuesTargeting, listableElements } from "@untie/core/model/selectors";
 import {
@@ -73,8 +71,8 @@ import {
   type UntieModel,
   type Variation,
 } from "@untie/core/model/types";
-import { isAnalysisBoard, isFixedBoard, isFlowBoard, isSimpleBoard, selectReadOnly, useUntieStore } from "../store";
-import { impactLines, isWorkflowElement, parseSimpleBoardId, pickSimpleTarget, relationRemovalImpact, removalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
+import { isAnalysisBoard, isFixedBoard, isFlowBoard, isSimpleBoard, modeOf, selectReadOnly, useUntieStore } from "../store";
+import { impactLines, isWorkflowElement, parseSimpleBoardId, pickSimpleTarget, simpleBoardId, relationRemovalImpact, SIMPLE_BOARD_LABELS, simpleBoardOfKind, simpleBoardOfLayer, workflowKindLabel, type SimpleBoardKind } from "@untie/core/model/workflow";
 import { createIssue, goToLayer, goToSimpleBoard, revealElement, selectAndReveal } from "./actions";
 import { useAgentStore } from "../ai/agentStore";
 import { HEARING_ANSWERER_LABELS, type HearingAnswerer } from "../ai/hearing";
@@ -83,9 +81,19 @@ import { PROVIDERS } from "../ai/providers";
 import { getPlatform } from "../platform";
 import { CommitField } from "./CommitField";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { planRemoval, RemovalConfirmDialog, type RemovalPlan } from "./RemovalConfirm";
 import { usePeersSelecting } from "./PeerMarks";
 import { HoursField } from "./Hours";
 import { GRANULARITY, isGuideKind } from "./granularity";
+
+/**
+ * 情報整理のボードと同じ見せ方 (呼び方・移動先・削除の確認) にするか。
+ * 情報整理のボード (simple:*) のほか、情報整理モードで開いている固定ボード (登場人物) も同じにする
+ */
+function useSimpleLayout(boardId: string): boolean {
+  const simpleMode = useUntieStore((s) => modeOf(s.ui) === "analysisSimple");
+  return isSimpleBoard(boardId) || (simpleMode && isFixedBoard(boardId));
+}
 
 export function PropertyPanel() {
   const model = useUntieStore((s) => s.model);
@@ -226,22 +234,23 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
   const peers = usePeersSelecting(element.id);
   const nameRef = useRef<HTMLInputElement>(null);
   // 設計データが一緒に消える要素を消すときの確認 (消える設計データの要約)
-  // 簡易モードでは、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
-  const [confirmRemove, setConfirmRemove] = useState<{ impact: string[]; refs: string[] } | null>(null);
-  // 関係を外すとき、巻き込まれるもの (業務の子・操作の画面とイベント・条件の代替パターン) があれば確かめる (簡易モード)。外す関係の id
+  // 情報整理モードでは、子も一緒に確かめる: impact は子の巻き込まれ方、refs は消える設計データ
+  const [confirmRemove, setConfirmRemove] = useState<RemovalPlan | null>(null);
+  // 関係を外すとき、巻き込まれるもの (業務の子・操作の画面とイベント・条件の代替パターン) があれば確かめる (情報整理モード)。外す関係の id
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
   // 所属・関係・要素の作成と削除は固定ボードだけで変えられる。自由ボードでは名前と説明だけ
   // 課題はどのボードにも出ないので、どこからでも重要度・対象の編集と削除ができる (課題一覧から作って紐解く)
   // 閲覧専用のファイルでは、どれも変えられない
-  // 分析（簡易）のボード (業務一覧・システム操作・情報と状態) も、固定ボードと同じに所属・関係・削除を扱える
-  // ただし直せるのは簡易ボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細で直す
-  const simple = isSimpleBoard(boardId);
+  // 情報整理のボード (業務一覧・業務フロー・システム操作・情報と状態) と、情報整理モードで開いた登場人物の固定ボードも、固定ボードと同じに所属・関係・削除を扱える
+  // ただし直せるのは情報整理のボードに出る種類 (登場人物・業務・活動・作業・操作・画面・情報・条件・コンテキスト・状態・バリエーション・イベント) だけ。システム・帳票などは、巻き込まれるものが大きいので、詳細調整で直す
+  // 固定ボードの「登場人物」は情報整理モードでも開けるので、情報整理モードの固定ボードも情報整理のボードと同じに扱う
+  const simple = useSimpleLayout(boardId);
   // 業務フローボードでは、作業の担当と順序だけを変える (どの画面でも全部の項目を直せると、項目が多くなりすぎるため)
   const onFlow = isFlowBoard(boardId);
   // ただし外部アクターとイベントは、どのボードから選んでも同じ項目 (発生元・発生させるイベントなど) を直せるようにする
   const flowEditable = onFlow && (element.kind === "externalActor" || element.kind === "event");
-  const structural = !readOnly && (flowEditable || !onFlow) && (isFixedBoard(boardId) || flowEditable || (simple && isWorkflowElement(element)) || element.kind === "issue");
-  // 簡易モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
+  const structural = !readOnly && (flowEditable || !onFlow) && ((isFixedBoard(boardId) && (!simple || (boardId === fixedBoardId("actor") && fixedLayerOf(element.kind) === "actor"))) || flowEditable || (simple && isWorkflowElement(element)) || (boardId === simpleBoardId("workflow") && element.kind === "system") || element.kind === "issue");
+  // 情報整理モードでは、アクター・外部アクターをボードと同じ「登場人物」「外部の登場人物」と呼ぶ
   const kindLabel = (k: Element["kind"]) => (simple ? workflowKindLabel(k) : ELEMENT_KIND_LABELS[k]);
 
   // 「追加」直後に名前欄へフォーカスする。新しい要素の編集欄はマウントと同時にここへ来るので、
@@ -322,14 +331,19 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
 
       {readOnly ? (
         <p className="hint">閲覧専用のため、内容は変えられません。</p>
-      ) : onFlow && element.kind === "activity" ? (
-        <p className="hint">この画面では、作業の担当と順序を決められます。そのほかの所属・関係・削除は、業務一覧や分析（詳細）で直します。</p>
+      ) : onFlow && (element.kind === "activity" || element.kind === "business") ? (
+        <p className="hint">
+          {element.kind === "activity" ? "この画面では、作業の担当と順序を決められます。" : "この画面では、業務を選べます。"}
+          {parseSimpleBoardId(boardId) === "flow"
+            ? "名前はここで直せます。削除は、このボードの右上のボタンからもできます。所属・関係は業務一覧や詳細調整で直します。"
+            : "そのほかの所属・関係・削除は、業務一覧や詳細調整で直します。"}
+        </p>
       ) : (
         !structural &&
         !(simple && element.kind === "buc" && element.isDefault) && (
           <p className="hint">
             {simple
-              ? "この種類は、簡易モードでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は分析（詳細）で直せます。"
+              ? "この種類は、情報整理モードでは名前・説明・時間・リンクだけを変えられます。所属・関係・削除は詳細調整で直せます。"
               : `${isAnalysisBoard(boardId) ? "分析ボード" : "自由ボード"}では名前・説明・時間・リンクだけを変えられます。所属・関係・削除は固定ボードで行います。`}
           </p>
         )
@@ -412,7 +426,7 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
                       className="icon-button"
                       aria-label={`関係「${relationLabel(r.kind)} ${other?.name ?? ""}」を削除`}
                       onClick={() => {
-                        // 簡易モードで関係を外すと、子が宙に浮く (業務の活動・作業、操作の画面・イベント) か、関係が持つ代替パターンが消えるので確かめる
+                        // 情報整理モードで関係を外すと、子が宙に浮く (業務の活動・作業、操作の画面・イベント) か、関係が持つ代替パターンが消えるので確かめる
                         if (simple && relationRemovalImpact(model, r.id).length > 0) setConfirmUnlink(r.id);
                         else dispatch((m) => removeRelation(m, { id: r.id }));
                       }}
@@ -470,12 +484,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
             type="button"
             className="danger"
             onClick={() => {
-              // 設計データが一緒に消えるときは、消えるものを見せて確かめる
-              // 内部のドメインモデルから消える・外れるものは、開発モードでなければ 1 行にまとめる (集約などの言葉を出さない)
-              const internal = domainReferences(model, element.id);
-              const refs = [...designReferences(model, element.id), ...(isDevMode() ? internal : internal.length > 0 ? ["実装のための内部の設計 (この要素を使っているところ)"] : [])];
-              const impact = simple ? impactLines(removalImpact(model, element.id)) : [];
-              if (refs.length > 0 || impact.length > 0) setConfirmRemove({ impact, refs });
+              // 設計データが一緒に消えるときは、消えるものを見せて確かめる (情報整理では、つながっているものも)
+              const plan = planRemoval(model, element.id, simple);
+              if (plan) setConfirmRemove(plan);
               else removeSelected();
             }}
           >
@@ -495,17 +506,9 @@ function ElementEditor({ element, model }: { element: Element; model: UntieModel
           ))}
       </div>
       {confirmRemove && (
-        <ConfirmDialog
-          title="削除の確認"
-          message={
-            confirmRemove.impact.length > 0
-              ? `「${element.name || "(名前なし)"}」を削除します。つながっているものは次のとおりです。${confirmRemove.refs.length > 0 ? "このほか、次の設計データも一緒に消えます。" : ""}`
-              : `「${element.name || "(名前なし)"}」を削除すると、次の設計データも一緒に消えます。`
-          }
-          details={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? confirmRemove.impact : [...confirmRemove.impact, ...confirmRemove.refs]}
-          detailGroups={confirmRemove.impact.length > 0 && confirmRemove.refs.length > 0 ? [{ title: "消える設計データ", items: confirmRemove.refs }] : undefined}
-          confirmLabel="削除する"
-          danger
+        <RemovalConfirmDialog
+          element={element}
+          plan={confirmRemove}
           onCancel={() => setConfirmRemove(null)}
           onConfirm={() => {
             setConfirmRemove(null);
@@ -552,9 +555,9 @@ const TRACE_VISIBLE = 6;
 function TraceSection({ element, model }: { element: Element; model: UntieModel }) {
   const own = fixedLayerOf(element.kind);
   const boardId = useUntieStore((s) => s.ui.currentBoardId);
-  // 簡易モードでは、レイヤーを見る簡易ボード (SIMPLE_LAYER_BOARDS) へ移る (簡易モードのまま。いま開いているボードの行は出さない)。
-  // 対応する簡易ボードの無いレイヤー (非機能要件) は、今までどおり固定ボードへ移る (分析（詳細）に切り替わる)
-  const simple = isSimpleBoard(boardId);
+  // 情報整理モードでは、レイヤーを見る情報整理のボード (SIMPLE_LAYER_BOARDS) へ移る (情報整理モードのまま。いま開いているボードの行は出さない)。
+  // 対応する情報整理のボードの無いレイヤー (非機能要件) は、今までどおり固定ボードへ移る (詳細調整に切り替わる)
+  const simple = useSimpleLayout(boardId);
   const here = parseSimpleBoardId(boardId);
   const moveOf = (r: { layer: FixedLayer; elements: Element[] }): RowMove => {
     const target = simple ? simpleBoardOfLayer(r.layer) : null;
@@ -603,7 +606,7 @@ function TraceSection({ element, model }: { element: Element; model: UntieModel 
   );
 }
 
-/** トレース表の 1 行の「移動」: 固定ボードへ移る / 簡易ボードへ移る (簡易モードのまま。選ぶ要素つき) / 出さない */
+/** トレース表の 1 行の「移動」: 固定ボードへ移る / 情報整理のボードへ移る (情報整理モードのまま。選ぶ要素つき) / 出さない */
 type RowMove = { type: "none" } | { type: "fixed"; current: boolean } | { type: "simple"; board: SimpleBoardKind; elementId: string | null };
 
 function TraceRow({
@@ -850,7 +853,8 @@ function FlowOrderSection({ activity, model }: { activity: Activity; model: Unti
   const name = (id: string) => model.elements.find((e) => e.id === id)?.name || "(名前なし)";
   const assigneeRels = model.relations.filter((r) => r.kind === "actorActivity" && r.targetId === activity.id);
   const assigned = new Set(assigneeRels.map((r) => r.sourceId));
-  const actorOptions = model.elements.filter((e) => (e.kind === "actor" || e.kind === "externalActor") && !assigned.has(e.id));
+  // 担当にできるのは登場人物だけ (外部の登場人物は作業の担当にならない。イベントを発生させる)
+  const actorOptions = model.elements.filter((e) => e.kind === "actor" && !assigned.has(e.id));
   const previousRels = model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === activity.id && model.elements.some((e) => e.id === r.sourceId && e.kind === "activity"));
   const previousOptions = previousCandidates(model, activity.id);
   const followers = activitiesTriggeredBy(model, activity.id);
@@ -1513,7 +1517,7 @@ function VariationValues({ variation, onChange }: { variation: Variation; onChan
 
 function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
-  const simple = useUntieStore((s) => isSimpleBoard(s.ui.currentBoardId));
+  const simple = useSimpleLayout(useUntieStore((s) => s.ui.currentBoardId));
   const currentSimple = useUntieStore((s) => parseSimpleBoardId(s.ui.currentBoardId));
   const pushToast = useUntieStore((s) => s.pushToast);
   const scope = issueScope(model, issue);
@@ -1563,7 +1567,7 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
           <ul className="target-list">
             {issue.targetIds.map((id) => {
               const t = model.elements.find((e) => e.id === id);
-              // 簡易モードでは、対象を主役にする簡易ボードへ移る (システム・帳票はどのボードの主役でもないので出さない)
+              // 情報整理モードでは、対象を主役にする情報整理のボードへ移る (システム・帳票はどのボードの主役でもないので出さない)
               const targetBoard = t ? simpleBoardOfKind(t.kind) : null;
               const fixedLayer = t ? fixedLayerOf(t.kind) : null;
               return (
@@ -1583,7 +1587,7 @@ function IssueFields({ issue, model }: { issue: Issue; model: UntieModel }) {
                       移動
                     </button>
                   )}
-                  {/* 簡易ボードの主役でない種類のうち、固定ボードのあるもの (非機能要件など。システム・帳票は出さない) は、簡易でも固定ボードへ移る */}
+                  {/* 情報整理のボードの主役でない種類のうち、固定ボードのあるもの (非機能要件など。システム・帳票は出さない) は、情報整理でも固定ボードへ移る */}
                   {t && simple && !targetBoard && fixedLayer && fixedLayer !== "actor" && (
                     <button
                       type="button"
@@ -1761,7 +1765,7 @@ function EventTimingSection({ event }: { event: Extract<Element, { kind: "event"
   );
 }
 
-/** 外部アクターが発生させるイベント (0.6.4)。既にあるイベントを足す・外す、新しいイベントを作って結ぶ。簡易モードでは、操作に結ばれていないイベントをここから作れる */
+/** 外部アクターが発生させるイベント (0.6.4)。既にあるイベントを足す・外す、新しいイベントを作って結ぶ。情報整理モードでは、操作に結ばれていないイベントをここから作れる */
 function ExternalActorEventsSection({ actor, model }: { actor: Extract<Element, { kind: "externalActor" }>; model: UntieModel }) {
   const dispatch = useUntieStore((s) => s.dispatch);
   const pushToast = useUntieStore((s) => s.pushToast);

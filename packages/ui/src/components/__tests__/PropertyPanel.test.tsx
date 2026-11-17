@@ -727,7 +727,7 @@ describe("PropertyPanel: 作業の起点", () => {
     expect(screen.queryByRole("button", { name: /関係「起点 .*」を削除/ })).toBeNull();
   });
 
-  it("業務フローボード (簡易・詳細) では、作業の担当と前の作業だけを足す・外せる。前の作業は同じ業務の作業から選ぶ", () => {
+  it("業務フローボード (情報整理・詳細調整) では、作業の担当と前の作業だけを足す・外せる。前の作業は同じ業務の作業から選ぶ", () => {
     for (const board of ["simple:flow", "analysis:flow"]) {
       resetStore();
       act(() => st().setCurrentBoard(board));

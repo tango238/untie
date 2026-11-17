@@ -125,7 +125,7 @@ export const storeEditor: ModelEditor = {
   apply: (command) => useUntieStore.getState().agentApply(command),
 };
 
-/** 開いているボードの名前 (固定ボード・分析ボード・設計ボード・簡易ボード・自由ボード。生の id は出さない) */
+/** 開いているボードの名前 (固定ボード・分析ボード・設計ボード・情報整理のボード・自由ボード。生の id は出さない) */
 function boardLabel(boardId: string, freeBoardName: string | undefined): string {
   const layer = parseFixedBoardId(boardId);
   if (layer) return `固定ボード「${FIXED_LAYER_LABELS[layer]}」`;
@@ -134,7 +134,7 @@ function boardLabel(boardId: string, freeBoardName: string | undefined): string 
   const design = parseDesignBoardId(boardId);
   if (design) return `設計ボード「${DESIGN_BOARD_LABELS[design]}」`;
   const simple = parseSimpleBoardId(boardId);
-  if (simple) return `簡易ボード「${SIMPLE_BOARD_LABELS[simple]}」`;
+  if (simple) return `情報整理のボード「${SIMPLE_BOARD_LABELS[simple]}」`;
   return freeBoardName ?? boardId;
 }
 

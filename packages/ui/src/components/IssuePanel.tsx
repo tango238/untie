@@ -121,7 +121,7 @@ function IssueRow({ issue, selected, byId }: { issue: Issue; selected: boolean; 
 /** 対象ごとのまとまり: 対象の種類・名前、そのレイヤーの固定ボードへの「移動」、その対象の課題を足す「＋課題」 */
 function TargetGroup({ group, selectedId, readOnly }: { group: IssueTargetGroup; selectedId: string | null; readOnly: boolean }) {
   const target = group.target!;
-  // 簡易モードでは、対象を主役にする簡易ボードへ移る (無い種類は今までどおり固定ボードへ)
+  // 情報整理モードでは、対象を主役にする情報整理のボードへ移る (無い種類は今までどおり固定ボードへ)
   const board = useUntieStore((s) => (modeOf(s.ui) === "analysisSimple" ? simpleBoardOfKind(target.kind) : null));
   const where = board ? `${SIMPLE_BOARD_LABELS[board]}ボードで見る` : "固定ボードへ移る";
   return (

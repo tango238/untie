@@ -9,7 +9,7 @@ import { nameOf, Pick } from "./WorkflowBoard";
 const valuesSummary = (v: Variation) => (v.values.length === 0 ? "値はまだありません" : `値: ${v.values.slice(0, 3).join("、")}${v.values.length > 3 ? " ほか" : ""}`);
 
 /**
- * 分析（簡易）のボード「情報と状態」。コンテキスト → 情報 (・バリエーション)・状態 を 1 枚で書く。
+ * 情報整理のボード「情報と状態」。コンテキスト → 情報 (・バリエーション)・状態 を 1 枚で書く。
  * 配置は保存せず、毎回モデルから組み立てる (core の buildInformationBoard)。条件は出さない (システム操作ボードで見る)。
  */
 export function InformationBoard() {

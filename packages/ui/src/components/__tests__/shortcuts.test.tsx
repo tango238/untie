@@ -101,7 +101,7 @@ describe("ショートカットの一覧", () => {
     render(<App />);
     mod("b");
     const current = within(dialog()!).getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "true");
-    expect(current.map((b) => b.textContent)).toEqual([expect.stringContaining("分析"), expect.stringContaining("全体")]);
+    expect(current.map((b) => b.textContent)).toEqual([expect.stringContaining("詳細調整"), expect.stringContaining("全体")]);
     fireEvent.click(within(dialog()!).getByRole("button", { name: /5\s*操作$/ }));
     expect(dialog()).toBeNull();
     expect(st().ui.currentBoardId).toBe("fixed:usecase");
@@ -123,6 +123,23 @@ describe("コード (Ctrl+B)", () => {
     expect(dialog()).toBeNull();
     expect(st().ui.mode).toBe("analysis");
     expect(st().ui.currentBoardId).toBe("fixed:usecase");
+  });
+
+  it("情報整理モードで 1 (登場人物) を押すと、情報整理のまま登場人物の固定ボードを開く。一覧では登場人物の行を強調する。2 (業務) は詳細調整へ移る", () => {
+    render(<App />);
+    act(() => st().setMode("analysisSimple"));
+    act(() => st().setCurrentBoard("simple:workflow"));
+    mod("b");
+    press("1");
+    expect(dialog()).toBeNull();
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    mod("b");
+    const current = within(dialog()!).getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "true");
+    expect(current.map((b) => b.textContent)).toEqual([expect.stringContaining("情報整理"), expect.stringContaining("登場人物")]);
+    press("2");
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.currentBoardId).toBe("fixed:business");
   });
 
   it("分析ボードのキー (I) へ移る", () => {
