@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addElement, addRelation, emptyModel, removeElement, setEventTiming, setPersona, updateElement, validateModel } from "@untie/core";
+import { addElement, addRelation, emptyModel, moveBusinessOrder, removeElement, setEventTiming, setPersona, updateElement, validateModel } from "@untie/core";
 import type { UntieModel } from "@untie/core";
 import { createHotelSample } from "@untie/core/sample";
 import { applyModelDiff, getRoots, loadModel, rebuildModel } from "..";
@@ -400,3 +400,22 @@ function okAddIssue(): UntieModel {
   if (!r.ok) throw new Error(r.reason);
   return r.model;
 }
+
+describe("業務の順序の入れ替え", () => {
+  it("業務の順を入れ替えたモデルを Y.Doc に書いて読み戻すと、その順が保たれ、ほかの要素の順も崩れない", () => {
+    const base = createHotelSample();
+    const doc = fresh(base);
+    const businessIds = (m: UntieModel) => m.elements.filter((e) => e.kind === "business").map((e) => e.id);
+    const others = (m: UntieModel) => m.elements.filter((e) => e.kind !== "business").map((e) => e.id);
+    const [first, , third] = businessIds(base);
+    const r = moveBusinessOrder(base, { id: first!, targetId: third!, position: "after" });
+    if (!r.ok) throw new Error(r.reason);
+    applyModelDiff(doc, base, r.model, "local");
+    const rebuilt = rebuildModel(doc);
+    expect(businessIds(rebuilt)).toEqual(businessIds(r.model));
+    expect(businessIds(rebuilt)).not.toEqual(businessIds(base));
+    expect(others(rebuilt)).toEqual(others(base));
+    expect(rebuilt).toStrictEqual(r.model);
+    expectValid(rebuilt);
+  });
+});

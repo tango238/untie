@@ -95,11 +95,11 @@ describe("選択", () => {
     }
   });
 
-  it("システムなど、このボードで直せない種類を選んだときは、詳細で直すよう案内して削除を出さない", () => {
+  it("システムなど、このボードで直せない種類を選んだときは、詳細調整で直すよう案内して削除を出さない", () => {
     renderBoth();
     fireEvent.click(within(frame("操作 予約を登録する")).getByRole("button", { name: "システム 予約サイト" }));
     expect(screen.queryByRole("button", { name: "削除" })).toBeNull();
-    expect(screen.getByText(/分析（詳細）で直せます/)).toBeDefined();
+    expect(screen.getByText(/詳細調整で直せます/)).toBeDefined();
   });
 });
 
@@ -146,7 +146,7 @@ describe("足す", () => {
     unmount();
     act(() => void st().dispatch((m) => removeElement(m, { id: "sys_pms" })));
     render(<OperationBoard />);
-    expect(screen.getByText(/先に分析（詳細）の「登場人物」でシステムを作ってください/)).toBeDefined();
+    expect(screen.getByText(/先に「登場人物」ボードでシステムを作ってください/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /に画面を足す/ })).toBeNull();
   });
 
@@ -204,7 +204,7 @@ describe("削除の確認と「移動」", () => {
 });
 
 describe("App での表示", () => {
-  it("簡易モードのシステム操作のボードを開くと、ボードが出てツールバーのボードの選択もそれになる", () => {
+  it("情報整理モードのシステム操作のボードを開くと、ボードが出てツールバーのボードの選択もそれになる", () => {
     render(<App />);
     expect(screen.getByTestId("operation-board")).toBeDefined();
     expect((screen.getByLabelText("ボード") as HTMLSelectElement).value).toBe("simple:operation");

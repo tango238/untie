@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useUntieStore } from "../../store";
 import { resetStore } from "../../test/utils";
@@ -17,8 +17,8 @@ beforeEach(() => {
   act(() => st().setMode("analysisSimple"));
 });
 
-describe("簡易ボードどうしの「移動」の対応表", () => {
-  it("各レイヤーを見る簡易ボード: 登場人物〜作業は業務一覧、操作・画面・条件はシステム操作、コンテキスト・情報・状態・バリエーションは情報と状態。非機能要件は無し", () => {
+describe("情報整理のボードどうしの「移動」の対応表", () => {
+  it("各レイヤーを見る情報整理のボード: 登場人物〜作業は業務一覧、操作・画面・条件はシステム操作、コンテキスト・情報・状態・バリエーションは情報と状態。非機能要件は無し", () => {
     for (const l of ["actor", "business", "buc", "activity"] as const) expect(simpleBoardOfLayer(l)).toBe("workflow");
     for (const l of ["usecase", "screen", "condition"] as const) expect(simpleBoardOfLayer(l)).toBe("operation");
     for (const l of ["context", "information", "state", "variation"] as const) expect(simpleBoardOfLayer(l)).toBe("information");
@@ -41,7 +41,7 @@ describe("トレース表の「移動」を押す", () => {
     return sel?.type === "element" ? sel.id : null;
   };
 
-  it("業務一覧で作業を選び、操作の行の「移動」を押すと、簡易モードのままシステム操作ボードへ移り、その行の先頭の操作を選ぶ", () => {
+  it("業務一覧で作業を選び、操作の行の「移動」を押すと、情報整理モードのままシステム操作ボードへ移り、その行の先頭の操作を選ぶ", () => {
     select("act_confirm_reservation");
     render(<PropertyPanel />);
     fireEvent.click(screen.getByRole("button", { name: "操作をシステム操作ボードで見る" }));
@@ -99,7 +99,7 @@ describe("トレース表の「移動」を押す", () => {
     expect(st().ui.mode).toBe("analysisSimple");
   });
 
-  it("対応する簡易ボードの無い非機能要件の「移動」は、今までどおり固定ボードへ移る (分析（詳細）に切り替わる)", () => {
+  it("対応する情報整理のボードの無い非機能要件の「移動」は、今までどおり固定ボードへ移る (詳細調整に切り替わる)", () => {
     act(() => void st().dispatch((m) => ({ ok: true, model: { ...m, elements: [...m.elements, { id: "nfr_fast", kind: "nfr", name: "速く応答する", systemId: "sys_pms" }] as typeof m.elements } })));
     select("nfr_fast");
     render(<PropertyPanel />);
@@ -108,7 +108,7 @@ describe("トレース表の「移動」を押す", () => {
     expect(st().ui.currentBoardId).toBe("fixed:nfr");
   });
 
-  it("課題の対象の「移動」を押すと、対象を主役にする簡易ボードへ移って対象を選ぶ。システム・帳票が対象のときは出さない", () => {
+  it("課題の対象の「移動」を押すと、対象を主役にする情報整理のボードへ移って対象を選ぶ。システム・帳票が対象のときは出さない", () => {
     select("issue_extra_missing");
     render(<PropertyPanel />);
     fireEvent.click(screen.getByRole("button", { name: "「追加料金を登録する」をシステム操作ボードで見る" }));
@@ -116,7 +116,7 @@ describe("トレース表の「移動」を押す", () => {
     expect(st().ui.selection).toEqual({ type: "element", id: "uc_register_extra" });
   });
 
-  it("システム・帳票が課題の対象のとき、簡易モードでは「移動」を出さない (どのボードの主役でもない)", () => {
+  it("システム・帳票が課題の対象のとき、情報整理モードでは「移動」を出さない (どのボードの主役でもない)", () => {
     act(() => {
       useUntieStore.setState((s) => ({ model: { ...s.model, elements: s.model.elements.map((e) => (e.id === "issue_extra_missing" ? { ...e, targetIds: ["sys_pms", "ldg_guest_register"] } : e)) as typeof s.model.elements } }));
     });
@@ -129,8 +129,8 @@ describe("トレース表の「移動」を押す", () => {
   });
 });
 
-describe("右ペインの課題一覧・検証の「移動」とリンク (簡易モード)", () => {
-  it("課題一覧の対象の「移動」: 簡易モードでは、対象を主役にする簡易ボードへ移って選ぶ。詳細モードでは今までどおり固定ボード", () => {
+describe("右ペインの課題一覧・検証の「移動」とリンク (情報整理モード)", () => {
+  it("課題一覧の対象の「移動」: 情報整理モードでは、対象を主役にする情報整理のボードへ移って選ぶ。詳細調整モードでは今までどおり固定ボード", () => {
     act(() => st().setRightPanel("issues"));
     const { unmount } = render(<IssuePanel />);
     fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
@@ -148,7 +148,7 @@ describe("右ペインの課題一覧・検証の「移動」とリンク (簡�
     expect(st().ui.selection).toEqual({ type: "element", id: "uc_register_extra" });
   });
 
-  it("詳細モードの課題一覧の「移動」は、固定ボードへ移る (変えない)", () => {
+  it("詳細調整モードの課題一覧の「移動」は、固定ボードへ移る (変えない)", () => {
     act(() => st().setMode("analysis"));
     render(<IssuePanel />);
     fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
@@ -157,7 +157,7 @@ describe("右ペインの課題一覧・検証の「移動」とリンク (簡�
     expect(st().ui.currentBoardId).toBe("fixed:business");
   });
 
-  it("検証の途切れ箇所のリンク: 簡易モードでは、要素を主役にする簡易ボードへ移って選ぶ (詳細へ切り替えない)", () => {
+  it("検証の途切れ箇所のリンク: 情報整理モードでは、要素を主役にする情報整理のボードへ移って選ぶ (詳細調整へ切り替えない)", () => {
     act(() => {
       st().dispatch((m) => addElement(m, { kind: "activity", name: "孤立した作業", id: "act_x" }));
     });
@@ -168,7 +168,7 @@ describe("右ペインの課題一覧・検証の「移動」とリンク (簡�
     expect(st().ui.selection).toEqual({ type: "element", id: "act_x" });
   });
 
-  it("簡易ボードの主役でない種類 (システム・帳票) のリンクは、今までどおり固定ボードへ移る", () => {
+  it("情報整理のボードの主役でない種類 (システム・帳票) のリンクは、今までどおり固定ボードへ移る", () => {
     act(() => {
       st().dispatch((m) => addElement(m, { kind: "system", name: "孤立したシステム", id: "sys_x" }));
     });
@@ -177,12 +177,13 @@ describe("右ペインの課題一覧・検証の「移動」とリンク (簡�
     render(<IssuePanel />);
     fireEvent.click(screen.getByRole("button", { name: "対象ごと" }));
     fireEvent.click(screen.getByRole("button", { name: "「孤立したシステム」の固定ボードへ移る" }));
+    // システム・帳票のレイヤー (登場人物の固定ボード) は情報整理モードでも開けるので、モードは変わらない
     expect(st().ui.currentBoardId).toBe("fixed:actor");
-    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.mode).toBe("analysisSimple");
   });
 });
 
-describe("簡易モードの課題の対象が非機能要件 (簡易ボードの主役ではない) のとき", () => {
+describe("情報整理モードの課題の対象が非機能要件 (情報整理のボードの主役ではない) のとき", () => {
   it("固定ボードへ移る「移動」を出し、押すと固定ボードへ移る。システム・帳票が対象のときは出さない", () => {
     act(() => {
       useUntieStore.setState((s) => ({
@@ -209,3 +210,101 @@ describe("「移動」で選ぶ要素 (UI)", () => {
     expect(st().model.elements.find((e) => sel?.type === "element" && e.id === sel.id)?.kind).toBe("usecase");
   });
 });
+
+describe("情報整理モードで登場人物の固定ボードにいるとき", () => {
+  const select = (id: string) => act(() => st().select({ type: "element", id }));
+
+  it("最初のボードは登場人物 (固定ボード)。プロパティの種類は「登場人物」と呼ぶ", () => {
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    select("actor_front");
+    render(<PropertyPanel />);
+    expect(screen.getByText("登場人物", { selector: ".kind-line" })).toBeDefined();
+  });
+
+  it("トレース表の「移動」: 行き先に情報整理のボードがあるレイヤーは、そのボードへ移る。情報整理モードのまま", () => {
+    select("actor_front");
+    render(<PropertyPanel />);
+    const row = screen.getByText("業務", { selector: "th, th *" }).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "業務を業務一覧ボードで見る" }));
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+    expect(st().ui.selection).not.toBeNull();
+  });
+
+  it("課題の対象の「移動」: 登場人物ボードにいても、情報整理のボードがある種類はそのボードへ移り、情報整理のまま", () => {
+    select("issue_extra_missing");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "「追加料金を登録する」をシステム操作ボードで見る" }));
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:operation");
+  });
+
+  it("課題一覧の対象の「移動」と revealElement: 作業は業務一覧ボードへ移る (詳細調整へ切り替えない)", async () => {
+    const { revealElement } = await import("../actions");
+    act(() => revealElement("act_hand_key"));
+    expect(st().ui.mode).toBe("analysisSimple");
+    expect(st().ui.currentBoardId).toBe("simple:workflow");
+    expect(st().ui.selection).toEqual({ type: "element", id: "act_hand_key" });
+  });
+
+  it("登場人物ボードを開いたまま詳細調整に切り替えると、登場人物のまま。詳細調整の登場人物から情報整理へ切り替えても残る。ほかのボードからは最初のボードへ", () => {
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    act(() => st().setMode("analysis"));
+    expect(st().ui.mode).toBe("analysis");
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    act(() => st().setMode("analysisSimple"));
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
+    act(() => st().setCurrentBoard("simple:workflow"));
+    act(() => st().setMode("analysis"));
+    expect(st().ui.currentBoardId).toBe("analysis:issues");
+  });
+
+  it("登場人物ボードでシステム・帳票を選ぶと、削除が出て、確認 (巻き込まれるもの) を通して消せる。「詳細調整で直せます」の案内は出ない", () => {
+    select("sys_pms");
+    render(<PropertyPanel />);
+    expect(screen.queryByText(/詳細調整で直せます/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    // 巻き込まれるものがあれば確認を通る (無ければそのまま消える。プロパティの削除の規則)
+    const confirm = screen.queryByRole("button", { name: "削除する" });
+    if (confirm) fireEvent.click(confirm);
+    expect(st().model.elements.some((e) => e.id === "sys_pms")).toBe(false);
+  });
+
+  it("登場人物ボードの帳票も消せる (そのボードで作れる種類は、同じボードで消せる)", () => {
+    select("ldg_guest_register");
+    render(<PropertyPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+    const confirm = screen.queryByRole("button", { name: "削除する" });
+    if (confirm) fireEvent.click(confirm);
+    expect(st().model.elements.some((e) => e.id === "ldg_guest_register")).toBe(false);
+  });
+
+  it("登場人物ボードの呼び方は「登場人物」「外部の登場人物」。グローバルフィルターは出さない。詳細調整は今までどおり", async () => {
+    const { FixedBoard } = await import("../FixedBoard");
+    const { unmount } = render(<FixedBoard layer="actor" />);
+    expect(screen.getAllByRole("button", { name: /に登場人物を追加$/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /に外部の登場人物を追加$/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /に(外部)?アクターを追加$/ })).toBeNull();
+    expect(document.querySelector(".global-filter, [data-testid=global-filter]")).toBeNull();
+    expect(screen.queryByText("アクター", { selector: ".card-kind-inline" })).toBeNull();
+    expect(screen.getAllByText("登場人物", { selector: ".card-kind-inline" }).length).toBeGreaterThan(0);
+    unmount();
+    act(() => st().setMode("analysis"));
+    act(() => st().setCurrentBoard("fixed:actor"));
+    render(<FixedBoard layer="actor" />);
+    expect(screen.getAllByRole("button", { name: /にアクターを追加$/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("アクター", { selector: ".card-kind-inline" }).length).toBeGreaterThan(0);
+  });
+
+  it("登場人物ボードでは、詳細調整で付けたグローバルフィルターを適用しない", async () => {
+    const { FixedBoard } = await import("../FixedBoard");
+    act(() => st().setGlobalFilter("business", ["biz_checkin"]));
+    render(<FixedBoard layer="actor" />);
+    const count = document.querySelectorAll("[data-fixed-card]").length;
+    act(() => st().resetGlobalFilter());
+    document.body.innerHTML = "";
+    render(<FixedBoard layer="actor" />);
+    expect(document.querySelectorAll("[data-fixed-card]").length).toBe(count);
+  });
+});
+

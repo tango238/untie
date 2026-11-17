@@ -503,7 +503,7 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("design:data");
   });
 
-  it("つなぎ直し (keepUi) では、設計に入る前にいたモードも引き継ぐ (詳細 → 設計 → つなぎ直し → 対象のシステムが消えると、詳細へ戻る)", () => {
+  it("つなぎ直し (keepUi) では、設計に入る前にいたモードも引き継ぐ (詳細調整 → 設計 → つなぎ直し → 対象のシステムが消えると、詳細調整へ戻る)", () => {
     st().setMode("analysis");
     st().enterDesign("sys_pms");
     detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "design:sitemap", selection: null } });
@@ -515,7 +515,7 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("analysis:issues");
   });
 
-  it("つなぎ直し (keepUi) でも、簡易モードは業務一覧のまま", () => {
+  it("つなぎ直し (keepUi) でも、情報整理モードは業務一覧のまま (開いていたボードを保つ)", () => {
     st().setMode("analysisSimple");
     detach = attachCloudDoc(mine, { fileId: "f1", role: "editor", keepUi: { currentBoardId: "simple:workflow", selection: null } });
     st().setCloudStatus("connected");
@@ -523,7 +523,7 @@ describe("ストア: クラウドファイルと設計モード", () => {
     expect(st().ui.currentBoardId).toBe("simple:workflow");
   });
 
-  it("クラウドファイルを開く・閉じると、設計から既定の分析（簡易）に戻る", () => {
+  it("クラウドファイルを開く・閉じると、設計から既定の情報整理に戻る", () => {
     st().enterDesign("sys_pms");
     attach();
     expect(st().ui.mode).toBe("analysisSimple");
@@ -531,10 +531,10 @@ describe("ストア: クラウドファイルと設計モード", () => {
     st().enterDesign("sys_pms");
     st().closeCloud();
     expect(st().ui.mode).toBe("analysisSimple");
-    expect(st().ui.currentBoardId).toBe("simple:workflow");
+    expect(st().ui.currentBoardId).toBe("fixed:actor");
   });
 
-  it("分析（詳細）にいるときにクラウドファイルを開く・閉じても、詳細のまま", () => {
+  it("詳細調整にいるときにクラウドファイルを開く・閉じても、詳細調整のまま", () => {
     st().setMode("analysis");
     attach();
     expect(st().ui.mode).toBe("analysis");

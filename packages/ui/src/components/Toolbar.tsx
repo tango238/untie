@@ -16,7 +16,7 @@ import { ANALYSIS_LABELS, analysisBoardId } from "@untie/core/model/analysis";
 import { DESIGN_BOARD_LABELS, designBoardId } from "@untie/core/model/design";
 import { SIMPLE_BOARD_KINDS, SIMPLE_BOARD_LABELS, simpleBoardId } from "@untie/core/model/workflow";
 import { isDevMode, visibleAnalysisKinds, visibleDesignKinds } from "../devMode";
-import { hasUnsavedChanges, isBuiltinBoard, modeOf, selectReadOnly, useUntieStore, type CloudStatus, type Mode } from "../store";
+import { hasUnsavedChanges, isBuiltinBoard, modeOf, selectReadOnly, useUntieStore, MODE_LABELS, type CloudStatus, type Mode } from "../store";
 import { useAgentStore } from "../ai/agentStore";
 import { AiSettingsDialog } from "./ai/AiSettingsDialog";
 import { CreateFromPromptDialog } from "./ai/CreateFromPromptDialog";
@@ -159,13 +159,32 @@ export function Toolbar() {
             // ゲストの複製は、帯の「複製して自分のファイルにする」に一本化する (ここからだと手元のモデルを別のファイルにしてしまう)
             guest={cloud?.role === "guest"}
             readOnly={readOnly}
-            mode={mode}
-            onModeChange={changeMode}
             onHome={() => void goHome()}
             onNew={() => (dirty ? setDialog("newDocument") : newEmptyDocument())}
             onCreateFromPrompt={() => setDialog("createFromPrompt")}
             onCreateFromSource={() => setDialog("createFromSource")}
           />
+        </div>
+
+        <div className="toolbar-group toolbar-mode">
+          <label className="toolbar-label">
+            モード
+            <select
+              aria-label="モード"
+              value={mode}
+              onChange={(e) => {
+                changeMode(e.target.value as Mode);
+                // フォーカスが残ると Cmd+Z や Delete がキャンバスに効かないため外す
+                e.target.blur();
+              }}
+            >
+              {(Object.keys(MODE_LABELS) as Mode[]).map((value) => (
+                <option key={value} value={value}>
+                  {MODE_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="toolbar-group toolbar-board">
@@ -191,9 +210,10 @@ export function Toolbar() {
                       ))}
                     </optgroup>
                   ) : mode === "analysisSimple" ? (
-                    // 簡易モードで開けるのは簡易ボード (業務一覧・システム操作・情報と状態) だけ (自由ボード・固定ボードは出さない)
+                    // 情報整理モードで開けるのは、登場人物・情報整理のボード (業務一覧・業務フロー・システム操作・情報と状態)・分析ボードだけ (自由ボードと、登場人物以外の固定ボードは出さない)
                     <>
                       <optgroup label="ボード">
+                        <option value={fixedBoardId("actor")}>{FIXED_LAYER_LABELS.actor}</option>
                         {SIMPLE_BOARD_KINDS.map((kind) => (
                           <option key={kind} value={simpleBoardId(kind)}>
                             {SIMPLE_BOARD_LABELS[kind]}
@@ -201,7 +221,7 @@ export function Toolbar() {
                         ))}
                       </optgroup>
                       <optgroup label="分析ボード">
-                        {/* 業務フローは簡易ボードに出すので、分析ボードには出さない */}
+                        {/* 業務フローは情報整理のボードに出すので、分析ボードには出さない */}
                         {visibleAnalysisKinds().filter((kind) => kind !== "flow").map((kind) => (
                           <option key={kind} value={analysisBoardId(kind)}>
                             {ANALYSIS_LABELS[kind]}
@@ -460,15 +480,13 @@ function CloudBadges({ name, status, role }: { name: string; status: CloudStatus
 }
 
 /**
- * ファイルのメニュー: 新規作成・開く・最近開いたファイル・モード・保存・別名で保存・クラウドへ保存・プロンプトから作成・ソースコードから作成。
- * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製)・モードだけ
+ * ファイルのメニュー: 新規作成・開く・最近開いたファイル・保存・別名で保存・クラウドへ保存・プロンプトから作成・ソースコードから作成。
+ * クラウドファイルを開いているときは、ホーム・JSON に書き出す・クラウドへ保存 (複製) だけ
  */
 function FileMenu({
   cloud,
   guest,
   readOnly,
-  mode,
-  onModeChange,
   onHome,
   onNew,
   onCreateFromPrompt,
@@ -477,8 +495,6 @@ function FileMenu({
   cloud: boolean;
   guest: boolean;
   readOnly: boolean;
-  mode: Mode;
-  onModeChange: (mode: Mode) => void;
   onHome: () => void;
   onNew: () => void;
   onCreateFromPrompt: () => void;
@@ -486,7 +502,6 @@ function FileMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
-  const [modeOpen, setModeOpen] = useState(false);
   // 読み込むまでは null (前に開いたときの一覧を出すと、読み込み後に並びが変わってフォーカスが外れる)
   const [recent, setRecent] = useState<RecentFile[] | null>(null);
   const setSettingsOpen = useAgentStore((s) => s.setSettingsOpen);
@@ -499,8 +514,6 @@ function FileMenu({
   const ref = useRef<HTMLDivElement>(null);
   const recentRef = useRef<HTMLButtonElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
-  const modeRef = useRef<HTMLButtonElement>(null);
-  const modeSubRef = useRef<HTMLDivElement>(null);
   // → で開いたら、サブメニューの先頭へ移る (一覧の読み込みが済んでから)
   const focusFirstRecent = useRef(false);
   useEffect(() => {
@@ -511,7 +524,6 @@ function FileMenu({
   useEffect(() => {
     if (!open) {
       setRecentOpen(false);
-      setModeOpen(false);
       setRecent(null);
       focusFirstRecent.current = false;
       return;
@@ -530,7 +542,6 @@ function FileMenu({
   const close = () => {
     setOpen(false);
     setRecentOpen(false);
-    setModeOpen(false);
   };
   const item = (label: string, shortcut: string, action: () => void, disabled = false) => (
     <button
@@ -538,14 +549,12 @@ function FileMenu({
       role="menuitem"
       className="menu-item"
       disabled={disabled}
-      // 別の項目に移ったら、サブメニュー (最近開いたファイル・モード) を閉じる
+      // 別の項目に移ったら、サブメニュー (最近開いたファイル) を閉じる
       onFocus={() => {
         setRecentOpen(false);
-        setModeOpen(false);
       }}
       onMouseEnter={() => {
         setRecentOpen(false);
-        setModeOpen(false);
       }}
       onClick={() => {
         close();
@@ -555,77 +564,6 @@ function FileMenu({
       <span>{label}</span>
       <span className="menu-shortcut">{shortcut}</span>
     </button>
-  );
-  // 「モード」のサブメニュー (最近開いたファイルと同じ作り)。今のモードに ✓ を付ける
-  const modeMenu = (
-    <div className="menu-sub">
-      <button
-        ref={modeRef}
-        type="button"
-        role="menuitem"
-        className="menu-item"
-        aria-haspopup="menu"
-        aria-expanded={modeOpen}
-        onFocus={() => {
-          setModeOpen(true);
-          setRecentOpen(false);
-        }}
-        onMouseEnter={() => {
-          setModeOpen(true);
-          setRecentOpen(false);
-        }}
-        onClick={() => setModeOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowRight") {
-            e.preventDefault();
-            setModeOpen(true);
-            // サブメニューが描かれてから先頭へ移る
-            // 今のモード (✓) の項目へ
-            setTimeout(() => modeSubRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus(), 0);
-          }
-        }}
-      >
-        <span>モード</span>
-        <span className="menu-shortcut">▸</span>
-      </button>
-      {modeOpen && (
-        <div
-          ref={modeSubRef}
-          className="menu-list menu-sublist"
-          role="menu"
-          aria-label="モード"
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") {
-              e.preventDefault();
-              modeRef.current?.focus();
-            }
-          }}
-        >
-          {(
-            [
-              ["analysisSimple", "分析（簡易）"],
-              ["analysis", "分析（詳細）"],
-              ["design", "設計"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="menuitemradio"
-              aria-checked={mode === value}
-              className="menu-item"
-              onClick={() => {
-                close();
-                onModeChange(value);
-              }}
-            >
-              <span>{label}</span>
-              <span className="menu-shortcut">{mode === value ? "✓" : ""}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
   const reopenable = getPlatform().canReopenFiles();
   const saveCopyToCloud = () => {
@@ -643,7 +581,6 @@ function FileMenu({
           {item("JSON に書き出す…", comboLabel("S"), () => void exportModelToFile())}
           {hasDomain && item("ドメインモデルを書き出す (distill-ddd)…", "", () => void exportDomainDocsToFolder())}
           {signedIn && !guest && item("クラウドへ保存 (複製)", "", saveCopyToCloud, savingToCloud)}
-          {modeMenu}
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {!readOnly && (
             <>
@@ -667,8 +604,8 @@ function FileMenu({
               aria-expanded={recentOpen}
               disabled={!reopenable}
               title={reopenable ? undefined : "このブラウザでは、開いたファイルを開き直せません"}
-              onFocus={() => { setRecentOpen(true); setModeOpen(false); }}
-              onMouseEnter={() => { setRecentOpen(true); setModeOpen(false); }}
+              onFocus={() => { setRecentOpen(true); }}
+              onMouseEnter={() => { setRecentOpen(true); }}
               onClick={() => setRecentOpen(true)}
               onKeyDown={(e) => {
                 if (e.key === "ArrowRight") {
@@ -735,7 +672,6 @@ function FileMenu({
               </div>
             )}
           </div>
-          {modeMenu}
           {item("ショートカット一覧", `${modLabel()}B`, () => useShortcutsUi.getState().show())}
           {item("保存", comboLabel("S"), () => void saveDocument())}
           {item("別名で保存…", comboLabel("S", { shift: true }), () => void saveDocument(true))}

@@ -10,7 +10,7 @@ const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 const frame = (m: UntieModel, key: string) => buildOperationBoard(m).frames.find((f) => f.key === key)!;
 const opIds = (m: UntieModel, frameKey: string, actId: string) => ids(frame(m, frameKey).rows.find((r) => r.activity.id === actId)!.operations.map((o) => o.usecase));
 
-describe("簡易モードのボード (3 枚)", () => {
+describe("情報整理モードのボード (3 枚)", () => {
   it("業務一覧・システム操作・情報と状態。id と相互に変換できる", () => {
     expect(SIMPLE_BOARD_KINDS).toEqual(["workflow", "flow", "operation", "information"]);
     expect(SIMPLE_BOARD_LABELS.operation).toBe("システム操作");
@@ -18,7 +18,7 @@ describe("簡易モードのボード (3 枚)", () => {
     for (const k of SIMPLE_BOARD_KINDS) expect(parseSimpleBoardId(simpleBoardId(k))).toBe(k);
     expect(simpleBoardId("operation")).toBe("simple:operation");
   });
-  it("簡易モードに統合されたレイヤーと、直せる種類 (操作・画面・イベントを含む)", () => {
+  it("情報整理モードに統合されたレイヤーと、直せる種類 (操作・画面・イベントを含む)", () => {
     for (const l of ["actor", "business", "buc", "activity", "usecase", "screen", "information", "condition", "context", "state", "variation"] as const) expect(isSimpleModeLayer(l)).toBe(true);
     expect(isSimpleModeLayer("nfr")).toBe(false);
     const kinds = (id: string) => isWorkflowElement(sample().elements.find((e) => e.id === id)!);

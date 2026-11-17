@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { buildActivityFlow, FLOW_BOARD_LABEL, type FlowCell, type FlowEventCell, type FlowRow, type FlowSystemCell } from "@untie/core/model/activityFlow";
-import { useUntieStore } from "../../store";
+import { selectReadOnly, useUntieStore } from "../../store";
+import { simpleBoardId } from "@untie/core/model/workflow";
 import { canvasApi } from "../canvas/canvasApi";
 import { ActivityFlow } from "../ActivityFlow";
 import { nameOf } from "./WorkflowBoard";
+import { FlowEditBar } from "./FlowEditor";
 
 const FLOW_CARDS = { selector: "[data-flow-card]", attr: "data-flow-card" };
 
@@ -19,7 +21,7 @@ function stack<T>(items: T[], columnOf: (t: T) => number): { item: T; sub: numbe
 }
 
 /**
- * 業務フローボード (分析（簡易）と分析（詳細）で共通)。1 枚の図に、
+ * 業務フローボード (情報整理と詳細調整で共通)。1 枚の図に、
  * 上の山形が業務、横軸は業務ごとに作業を順に左から右へ、縦軸は担当の登場人物。
  * 一番上に外部の登場人物 (発生させるイベント)、一番下にシステム・帳票 (作業が使う操作の対象) の行を置く。
  * 作業の順序・担当・きっかけのイベントは、作業を選んだときの右のプロパティだけで決める (線を引く・ドラッグする操作は無い)。配置は保存せず、毎回モデルから組み立てる。
@@ -29,6 +31,9 @@ export function FlowBoard() {
   const select = useUntieStore((s) => s.select);
   const setRightPanel = useUntieStore((s) => s.setRightPanel);
   const selectedId = useUntieStore((s) => (s.ui.selection?.type === "element" ? s.ui.selection.id : null));
+  const readOnly = useUntieStore(selectReadOnly);
+  // 業務と作業を足す・直す・消すボタンは、情報整理の業務フローにだけ出す (詳細調整の業務フローは今までどおり、選ぶだけ)
+  const editable = useUntieStore((s) => s.ui.currentBoardId === simpleBoardId("flow")) && !readOnly;
   const flow = useMemo(() => buildActivityFlow(model), [model]);
   const boardRef = useRef<HTMLDivElement>(null);
   const diagramRef = useRef<HTMLDivElement>(null);
@@ -63,23 +68,31 @@ export function FlowBoard() {
   const sysSpan = Math.max(1, ...sysItems.map((i) => i.sub + 1));
   const sysStart = gridRow;
   const hasSystems = flow.systems.length > 0;
-  const empty = flow.rows.length === 0 && flow.orphans.length === 0;
+  // 業務が 1 つでもあれば図 (山形) を出す。案内は、業務も作業も無いときだけ
+  const empty = flow.bands.length === 0 && flow.orphans.length === 0;
   const gridStyle: CSSProperties = { gridTemplateColumns: `max-content repeat(${flow.columns}, minmax(170px, 1fr))` };
 
   return (
     <div className="fixed-board flow-board" data-testid="flow-board" ref={boardRef}>
       <div className="fixed-head">
         <h2 className="fixed-title">{FLOW_BOARD_LABEL}</h2>
-        <span className="fixed-hint">上の山形が業務です。業務ごとに、作業を順に左から右へ並べ、縦は担当の登場人物です。一番上は外部の登場人物が起こすイベント、一番下は作業が使うシステム・帳票です。作業を選ぶと、右のプロパティで「担当」「前の作業」「きっかけのイベント」を決められます (作業の順序は、このボードでだけ決めます)。</span>
+        <span className="fixed-hint">上の山形が業務です。業務ごとに、作業を順に左から右へ並べ、縦は担当の登場人物です。一番上は外部の登場人物が起こすイベント、一番下は作業が使うシステム・帳票です。作業を選ぶと、右のプロパティで「担当」「前の作業」「きっかけのイベント」を決められます (作業の順序は、このボードでだけ決めます)。{editable && "業務と作業は、右上の「＋追加」「削除」で足す・消せます。業務は「← 前へ」「後ろへ →」で並び順 (山形の左右の順) も変えられます (名前・担当・作業の順序などは、選んだときの右のプロパティで直します)。"}</span>
+        {editable && <FlowEditBar />}
       </div>
-      {empty && <p className="hint">作業がまだありません。業務一覧で業務と作業を書くと、ここに並びます。</p>}
+      {empty && <p className="hint">{editable ? "業務も作業もまだありません。右上の「＋追加」から業務と作業を足すと、ここに並びます。" : "業務も作業もまだありません。業務と作業を足すと、ここに並びます。"}</p>}
       {!empty && (
         <div className="flow-diagram" ref={diagramRef}>
           <div className="flow-grid" style={gridStyle}>
             {flow.bands.map((b) => (
-              <button key={b.business.id} type="button" className={`flow-band${selectedId === b.business.id ? " is-selected" : ""}`} style={{ gridRow: 1, gridColumn: `${b.start + 2} / span ${b.columns}` }} onClick={() => choose(b.business.id)} aria-label={`業務 ${nameOf(b.business)}`}>
+              <button key={b.business.id} type="button" data-flow-el={b.business.id} className={`flow-band${selectedId === b.business.id ? " is-selected" : ""}`} style={{ gridRow: 1, gridColumn: `${b.start + 2} / span ${b.columns}` }} onClick={() => choose(b.business.id)} aria-label={`業務 ${nameOf(b.business)}`}>
                 {nameOf(b.business)}
               </button>
+            ))}
+            {/* 作業の無い業務は、山形の下 (最初の行) に薄い注記を出す。行の高さは変えない */}
+            {flow.bands.filter((b) => b.empty).map((b) => (
+              <div key={`empty:${b.business.id}`} className="flow-band-empty" style={{ gridRow: 2, gridColumn: `${b.start + 2} / span ${b.columns}` }}>
+                作業はまだありません
+              </div>
             ))}
             {placed.map(({ row, start, span }) => (
               <div key={`bg:${row.actor?.id ?? "none"}`} className={`flow-lane${row.external ? " is-external" : ""}`} style={{ gridRow: `${start} / span ${span}`, gridColumn: "1 / -1" }} />

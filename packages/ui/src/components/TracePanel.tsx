@@ -203,7 +203,7 @@ function NoticeRow({ notice, element, contextName }: { notice: ContextNotice; el
 }
 
 function ElementLink({ element }: { element: Element }) {
-  // 簡易モードでは、要素を主役にする簡易ボードへ移る (無い種類は今までどおり固定ボードへ)
+  // 情報整理モードでは、要素を主役にする情報整理のボードへ移る (無い種類は今までどおり固定ボードへ)
   const board = useUntieStore((s) => (modeOf(s.ui) === "analysisSimple" ? simpleBoardOfKind(element.kind) : null));
   return (
     <button

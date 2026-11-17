@@ -1307,6 +1307,40 @@ export function moveActivity(model: UntieModel, payload: MoveActivityPayload): C
   return { ok: true, model: next };
 }
 
+export interface MoveBusinessOrderPayload {
+  /** 動かす業務 */
+  id: string;
+  /** この業務の直前・直後へ入れる */
+  targetId: string;
+  position: "before" | "after";
+}
+
+/**
+ * 業務の順序を変える。`model.elements` の中で `id` の業務を抜き、`targetId` の業務の直前・直後へ入れ直す (業務一覧・業務フローの並びはこの順)。
+ * 業務でない要素の相対順は変えない。すでに業務の並びでその位置なら、変更なしで成功する
+ */
+export function moveBusinessOrder(model: UntieModel, payload: MoveBusinessOrderPayload): CommandResult {
+  const moving = findElement(model, payload.id);
+  if (!moving || moving.kind !== "business") return fail(`業務が存在しません: ${payload.id}`);
+  const target = findElement(model, payload.targetId);
+  if (!target || target.kind !== "business") return fail(`移す先の業務が存在しません: ${payload.targetId}`);
+  if (payload.id === payload.targetId) return fail("同じ業務の前後へは移せません");
+  const businesses = model.elements.filter((e) => e.kind === "business");
+  const from = businesses.findIndex((e) => e.id === payload.id);
+  const to = businesses.findIndex((e) => e.id === payload.targetId);
+  // 業務の並びですでにその位置 (直前に入れるなら、すでに直前にいる)
+  if (payload.position === "before" ? from === to - 1 : from === to + 1) return { ok: true, model };
+  const next = produce(model, (draft) => {
+    const moved = draft.elements.splice(
+      draft.elements.findIndex((e) => e.id === payload.id),
+      1,
+    )[0];
+    const at = draft.elements.findIndex((e) => e.id === payload.targetId);
+    draft.elements.splice(payload.position === "before" ? at : at + 1, 0, moved);
+  });
+  return { ok: true, model: next };
+}
+
 export interface MoveToContextPayload {
   /** 情報・状態・条件・バリエーション */
   elementId: string;

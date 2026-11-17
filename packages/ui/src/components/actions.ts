@@ -127,7 +127,7 @@ export function createIssue(targetIds: string[] = []): void {
 }
 
 /**
- * 簡易モードのボードへ移る (トレース表・課題の対象の「移動」)。簡易モードのまま、行き先のボードへ切り替える。
+ * 情報整理モードのボードへ移る (トレース表・課題の対象の「移動」)。情報整理モードのまま、行き先のボードへ切り替える。
  * elementId があれば、それを選んでプロパティに出し、行き先のボードでその要素までスクロールする (切り替え直後はボードがまだ
  * canvasApi.focus を登録していないので、固定ボードへの移動と同じく描画後に呼ぶ)。無ければボードを切り替えるだけ
  * (ボードを切り替えると選択は外れる。今の選択が行き先に見えるときは、呼ぶ側が elementId に渡す)
@@ -142,7 +142,7 @@ export function goToSimpleBoard(board: SimpleBoardKind, elementId: string | null
 }
 
 /**
- * 要素を主役にする簡易ボードへ移って、その要素を選ぶ。主役にするボードが無ければ何もしない。
+ * 要素を主役にする情報整理のボードへ移って、その要素を選ぶ。主役にするボードが無ければ何もしない。
  * 行き先のボードに実際に出ない要素 (どの操作にも結ばれていないイベントなど) は、選ばずにボードを切り替えるだけ
  */
 export function revealOnSimpleBoard(elementId: string): void {
@@ -154,9 +154,9 @@ export function revealOnSimpleBoard(elementId: string): void {
 }
 
 /**
- * 「移動」で要素の場所へ移る (右ペインの課題一覧・検証、プロパティの課題の対象)。簡易モードでは、要素を主役にする簡易ボードへ
- * (いま開いているボードなら、選んでスクロールするだけ)。主役にする簡易ボードが無い種類は、今までどおり固定ボードへ (分析（詳細）に切り替わる)。
- * 詳細・設計モードは固定ボードへ移る
+ * 「移動」で要素の場所へ移る (右ペインの課題一覧・検証、プロパティの課題の対象)。情報整理モードでは、要素を主役にする情報整理のボードへ
+ * (いま開いているボードなら、選んでスクロールするだけ)。主役にする情報整理のボードが無い種類は、固定ボードへ移る (システム・帳票は登場人物の固定ボードなので、情報整理のまま。
+ * 非機能要件などは詳細調整に切り替わる)。詳細調整・設計モードは固定ボードへ移る
  */
 export function revealElement(elementId: string): void {
   const st = useUntieStore.getState();
@@ -172,7 +172,7 @@ export function revealElement(elementId: string): void {
   revealOnFixedBoard(elementId);
 }
 
-/** 簡易ボードで、その種類の要素を選べるか (そのボードの主役の種類か) */
+/** 情報整理のボードで、その種類の要素を選べるか (そのボードの主役の種類か) */
 export function isOnSimpleBoard(kind: Parameters<typeof simpleBoardOfKind>[0], board: SimpleBoardKind): boolean {
   return SIMPLE_BOARD_ELEMENT_KINDS[board].includes(kind);
 }

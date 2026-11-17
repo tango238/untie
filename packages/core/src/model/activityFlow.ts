@@ -1,4 +1,4 @@
-// 業務フローボード (分析（簡易）と分析（詳細）で共通) の組み立て。1 枚の図に、横軸は業務ごとの帯の中で作業を順に左から右へ、縦軸は担当の登場人物。
+// 業務フローボード (情報整理と詳細調整で共通) の組み立て。1 枚の図に、横軸は業務ごとの帯の中で作業を順に左から右へ、縦軸は担当の登場人物。
 // 一番上に外部アクター (発生させるイベント)、一番下にシステム・帳票 (作業が使う操作の対象) を置く。
 // 作業の順序は作業 → 作業の起点 (activityTrigger: 始点が前の作業、終点が後の作業) をそのまま使う。モデルには保存せず、毎回組み立てる。
 import { defaultBucOf } from "./selectors";
@@ -34,9 +34,11 @@ export interface FlowRow {
   events: FlowEventCell[];
 }
 
-/** 業務の帯 (上の山形)。columns 列ぶん */
+/** 業務の帯 (上の山形)。columns 列ぶん。作業の無い業務も 1 列ぶんの帯になる (empty) */
 export interface FlowBand {
   business: Business;
+  /** 作業が 1 つも無い業務 (その列には作業のカードが無い) */
+  empty: boolean;
   start: number;
   columns: number;
 }
@@ -125,7 +127,6 @@ export function buildActivityFlow(model: UntieModel): ActivityFlow {
   for (const business of model.elements.filter((e): e is Business => e.kind === "business")) {
     const acts = activitiesOf(model, business);
     for (const a of acts) shown.add(a.id);
-    if (acts.length === 0) continue;
     const ids = new Set(acts.map((a) => a.id));
     const inner = triggers.filter((r) => ids.has(r.sourceId) && ids.has(r.targetId));
     const col = columnsOf(acts, inner);
@@ -139,7 +140,7 @@ export function buildActivityFlow(model: UntieModel): ActivityFlow {
     }
     for (const r of inner) links.push({ id: r.id, kind: "order", sourceId: r.sourceId, targetId: r.targetId });
     columns = Math.max(columns, 1);
-    bands.push({ business, start: offset, columns });
+    bands.push({ business, empty: acts.length === 0, start: offset, columns });
     offset += columns;
   }
   const cellOf = new Map(cells.map((c) => [c.activity.id, c]));
@@ -223,4 +224,12 @@ export function previousCandidates(model: UntieModel, activityId: string): Activ
   if (!mine) return [];
   const taken = new Set(model.relations.filter((r) => r.kind === "activityTrigger" && r.targetId === activityId).map((r) => r.sourceId));
   return flow.rows.flatMap((r) => r.cells).filter((c) => c.businessId === mine.businessId && c.activity.id !== activityId && !taken.has(c.activity.id)).map((c) => c.activity);
+}
+
+/** 業務フローの図に出ている、隣の業務の id (並べ替えの入れ替え先。作業の無い業務も図に出ているので、隣として扱う)。前 (before)・後ろ (after)。隣が無い・図に出ていない業務なら null */
+export function adjacentBusinessInFlow(model: UntieModel, businessId: string, direction: "before" | "after"): string | null {
+  const bands = buildActivityFlow(model).bands;
+  const at = bands.findIndex((b) => b.business.id === businessId);
+  if (at < 0) return null;
+  return bands[direction === "before" ? at - 1 : at + 1]?.business.id ?? null;
 }

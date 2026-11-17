@@ -50,7 +50,7 @@ export const FIXED_KEYS: Record<FixedLayer, string> = {
   nfr: "n",
 };
 
-/** 簡易ボード: Cmd+B のあとに押すキー */
+/** 情報整理のボード: Cmd+B のあとに押すキー */
 export const SIMPLE_KEYS: Record<SimpleBoardKind, string> = { workflow: "j", flow: "o", operation: "p", information: "h" };
 
 export const ANALYSIS_KEYS: Record<AnalysisKind, string> = { flow: "y", issues: "i", people: "w", informationLocation: "l", storming: "e" };
@@ -65,8 +65,8 @@ export interface ShortcutEntry {
 }
 
 export const MODE_ENTRIES: readonly ShortcutEntry[] = [
-  { key: MODE_KEYS.analysisSimple, label: "分析（簡易）", target: { type: "mode", mode: "analysisSimple" } },
-  { key: MODE_KEYS.analysis, label: "分析（詳細）", target: { type: "mode", mode: "analysis" } },
+  { key: MODE_KEYS.analysisSimple, label: "情報整理", target: { type: "mode", mode: "analysisSimple" } },
+  { key: MODE_KEYS.analysis, label: "詳細調整", target: { type: "mode", mode: "analysis" } },
   { key: MODE_KEYS.design, label: "設計", target: { type: "mode", mode: "design" } },
 ];
 export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.map((layer) => ({
@@ -74,7 +74,7 @@ export const FIXED_ENTRIES: readonly ShortcutEntry[] = FIXED_BOARD_MENU_ORDER.ma
   label: FIXED_LAYER_LABELS[layer],
   target: { type: "fixed", layer },
 }));
-/** 分析（簡易）のボードのショートカット */
+/** 情報整理のボードのショートカット */
 export const SIMPLE_ENTRIES: readonly ShortcutEntry[] = SIMPLE_BOARD_KINDS.map((kind) => ({ key: SIMPLE_KEYS[kind], label: SIMPLE_BOARD_LABELS[kind], target: { type: "simple", kind } }));
 /** 分析ボードのショートカット (開発用のボードは、開発モードのときだけ) */
 export function analysisEntries(): ShortcutEntry[] {

@@ -156,8 +156,8 @@ function ShortcutsPanel() {
         <p className="shortcuts-waiting" role="status">キーを押すとそのボードへ移ります (Esc で閉じる)</p>
         <div className="shortcuts-groups">
           <Group title="モード" entries={MODE_ENTRIES} current={current} chord={chord} />
-          <Group title="簡易ボード (分析（簡易）)" entries={SIMPLE_ENTRIES} current={current} chord={chord} />
-          <Group title="固定ボード (分析)" entries={FIXED_ENTRIES} current={current} chord={chord} />
+          <Group title="情報整理のボード" entries={SIMPLE_ENTRIES} current={current} chord={chord} />
+          <Group title="固定ボード (詳細調整。登場人物は情報整理でも開けます)" entries={FIXED_ENTRIES} current={current} chord={chord} />
           <Group title="分析ボード" entries={analysisEntries()} current={current} chord={chord} />
           <Group title="設計ボード" entries={designEntries()} current={current} chord={chord} />
           <section className="shortcuts-group">

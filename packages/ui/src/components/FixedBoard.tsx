@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   FIXED_LAYER_LABELS,
   addToGroup,
@@ -14,10 +14,11 @@ import {
   type FixedSection,
 } from "@untie/core/model/fixedBoards";
 import { issueSummaries, triggerSummaries } from "@untie/core/model/selectors";
+import { workflowKindLabel } from "@untie/core/model/workflow";
 import { describeEventTiming, ELEMENT_KIND_LABELS, isIssueTargetKind, type Element, type ElementKind, type UntieModel } from "@untie/core/model/types";
-import { addElement, updateElement } from "@untie/core/model/commands";
-import { NAME_MAX_LENGTH } from "@untie/core/model/limits";
-import { selectReadOnly, useUntieStore } from "../store";
+import { addElement } from "@untie/core/model/commands";
+import { modeOf, selectReadOnly, useUntieStore } from "../store";
+import { NameForm } from "./NameForm";
 import { ActorChips } from "./canvas/ActorChips";
 import { canvasApi } from "./canvas/canvasApi";
 import { SystemChips } from "./canvas/SystemChips";
@@ -28,6 +29,15 @@ import { GlobalFilterBar } from "./GlobalFilterBar";
 import { IssueBadge } from "./IssueBadge";
 import { PeerLabel, peerStyle, usePeersSelecting } from "./PeerMarks";
 import { globalFilterScope } from "@untie/core/model/lineage";
+
+/**
+ * 種類の呼び方。情報整理モードでは、ほかの情報整理のボード・プロパティと同じ「登場人物」「外部の登場人物」にする
+ * (登場人物の固定ボードは情報整理モードでも開ける)。詳細調整は「アクター」「外部アクター」のまま
+ */
+function useKindLabel(): (kind: ElementKind) => string {
+  const simple = useUntieStore((s) => modeOf(s.ui) === "analysisSimple");
+  return simple ? workflowKindLabel : (k) => ELEMENT_KIND_LABELS[k];
+}
 
 /** 固定ボードの見出しに出す、上位レイヤーの説明 */
 const LAYER_HINTS: Record<FixedLayer, string> = {
@@ -59,9 +69,15 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
   // 閲覧専用では、追加・紐づけ・外す・名前の変更を出さない
   const readOnly = useUntieStore(selectReadOnly);
 
-  const allGroups = useMemo(() => fixedGroups(model, layer), [model, layer]);
   const globalFilter = useUntieStore((s) => s.ui.globalFilter);
-  const scope = useMemo(() => globalFilterScope(model, globalFilter), [model, globalFilter]);
+  // 情報整理モードの登場人物ボードでは、グローバルフィルター (詳細調整の絞り込み) を出さず、適用もしない
+  const simpleMode = useUntieStore((s) => modeOf(s.ui) === "analysisSimple");
+  // 情報整理モードの登場人物ボードは、列の見出しも情報整理の呼び方 (登場人物・外部の登場人物) にする
+  const allGroups = useMemo(() => {
+    const built = fixedGroups(model, layer);
+    return simpleMode && layer === "actor" ? built.map((g) => ({ ...g, title: workflowKindLabel(g.childKind) })) : built;
+  }, [model, layer, simpleMode]);
+  const scope = useMemo(() => globalFilterScope(model, simpleMode ? {} : globalFilter), [model, globalFilter, simpleMode]);
   const groups = useMemo(() => filterGroups(scopeGroups(allGroups, scope), query), [allGroups, scope, query]);
   const summaries = useMemo(() => issueSummaries(model), [model]);
   const triggers = useMemo(() => triggerSummaries(model), [model]);
@@ -83,10 +99,10 @@ export function FixedBoard({ layer }: { layer: FixedLayer }) {
 
   return (
     <div className="fixed-board" data-testid="fixed-board">
-      <GlobalFilterBar />
+      {!simpleMode && <GlobalFilterBar />}
       <div className="fixed-head">
         <h2 className="fixed-title">{FIXED_LAYER_LABELS[layer]}</h2>
-        <span className="fixed-hint">{LAYER_HINTS[layer]}</span>
+        <span className="fixed-hint">{simpleMode && layer === "actor" ? LAYER_HINTS.actor.replace("アクター・外部アクター", "登場人物・外部の登場人物") : LAYER_HINTS[layer]}</span>
         {layer === "context" && !readOnly && <AddContextButton />}
         <input
           type="search"
@@ -164,6 +180,7 @@ const GUIDE_ROWS: { key: keyof GranularityGuide; label: string }[] = [
 
 /** ボードで扱う要素と、取り違えやすい要素の書き方と粒度を並べて見せる。今のボードの種類を強調する */
 function GuidePanel({ kinds, current }: { kinds: GuideKind[]; current?: GuideKind }) {
+  const label = useKindLabel();
   const open = useUntieStore((s) => s.ui.guideOpen ?? false);
   const setGuideOpen = useUntieStore((s) => s.setGuideOpen);
   return (
@@ -175,14 +192,14 @@ function GuidePanel({ kinds, current }: { kinds: GuideKind[]; current?: GuideKin
         if (next !== open) setGuideOpen(next);
       }}
     >
-      <summary>書き方のヒント ({kinds.map((k) => ELEMENT_KIND_LABELS[k]).join("・")}の粒度)</summary>
+      <summary>書き方のヒント ({kinds.map((k) => label(k)).join("・")}の粒度)</summary>
       <table className="guide-table">
         <thead>
           <tr>
             <th scope="col" />
             {kinds.map((k) => (
               <th key={k} scope="col" className={k === current ? "is-current" : undefined}>
-                {ELEMENT_KIND_LABELS[k]}
+                {label(k)}
               </th>
             ))}
           </tr>
@@ -203,7 +220,7 @@ function GuidePanel({ kinds, current }: { kinds: GuideKind[]; current?: GuideKin
       <ul className="guide-questions">
         {kinds.map((k) => (
           <li key={k} className={k === current ? "is-current" : undefined}>
-            <b>{ELEMENT_KIND_LABELS[k]}</b>: {GRANULARITY[k].question}
+            <b>{label(k)}</b>: {GRANULARITY[k].question}
           </li>
         ))}
       </ul>
@@ -296,7 +313,8 @@ function GroupView({
   const fixedItems = new Set(group.fixedItemIds ?? []);
   const peers = usePeersSelecting(parent?.id);
   const candidates = linkCandidates(model, fullGroup);
-  const kindLabel = ELEMENT_KIND_LABELS[group.childKind];
+  const label = useKindLabel();
+  const kindLabel = label(group.childKind);
   const addKinds = group.addKinds ?? [group.childKind];
   const nameOf = (id: string | null) => (id ? model.elements.find((x) => x.id === id)?.name || "(名前なし)" : "未分類");
 
@@ -370,8 +388,8 @@ function GroupView({
       </ul>
       {!group.noAdd && !readOnly && <div className="fixed-add">
         {addKinds.map((kind) => (
-          <button key={kind} type="button" onClick={() => add(kind)} aria-label={`「${group.title}」に${ELEMENT_KIND_LABELS[kind]}を追加`}>
-            ＋{ELEMENT_KIND_LABELS[kind]}
+          <button key={kind} type="button" onClick={() => add(kind)} aria-label={`「${group.title}」に${label(kind)}を追加`}>
+            ＋{label(kind)}
           </button>
         ))}
         {contextMembers && candidates.length > 0 && (
@@ -388,7 +406,7 @@ function GroupView({
           >
             <option value="">別のコンテキストから移す…</option>
             {addKinds.map((kind) => (
-              <optgroup key={kind} label={ELEMENT_KIND_LABELS[kind]}>
+              <optgroup key={kind} label={label(kind)}>
                 {candidates
                   .filter((c) => c.kind === kind)
                   .map((c) => (
@@ -451,6 +469,7 @@ function FixedCard({
   readOnly?: boolean;
   onClick: () => void;
 }) {
+  const label = useKindLabel();
   const [editing, setEditing] = useState(false);
   // 既定の活動の名前は業務の名前と同じで、直接は変えられない。閲覧専用では変えられない
   const renamable = !readOnly && !(element.kind === "buc" && element.isDefault);
@@ -459,7 +478,7 @@ function FixedCard({
 
   const top = (
     <span className="fixed-card-top">
-      <span className="card-kind-inline">{ELEMENT_KIND_LABELS[element.kind]}</span>
+      <span className="card-kind-inline">{label(element.kind)}</span>
       <span className="fixed-card-badges">
         {"links" in element && element.links && element.links.length > 0 && (
           <span className="card-links" title={element.links.map((l) => l.title).join("、")} aria-label={`リンク ${element.links.length} 件`}>
@@ -495,7 +514,7 @@ function FixedCard({
       <div className={className} style={peerStyle(peers)} data-fixed-card={element.id}>
         <PeerLabel peers={peers} />
         {top}
-        <NameForm element={element} onDone={() => setEditing(false)} />
+        <NameForm element={element} kindLabel={label(element.kind)} onDone={() => setEditing(false)} />
         {rest}
       </div>
     );
@@ -514,68 +533,5 @@ function FixedCard({
       </span>
       {rest}
     </button>
-  );
-}
-
-/** カードの名前をその場で変える。Enter・保存で確定し、Esc・フォーカスが外れたら取り消す */
-function NameForm({ element, onDone }: { element: Element; onDone: () => void }) {
-  const dispatch = useUntieStore((s) => s.dispatch);
-  const pushToast = useUntieStore((s) => s.pushToast);
-  const [value, setValue] = useState(element.name);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  const save = () => {
-    if (value.trim() !== element.name) {
-      const r = dispatch((m) => updateElement(m, { id: element.id, patch: { name: value } }));
-      if (!r.ok) {
-        pushToast(r.reason, "error");
-        return;
-      }
-    }
-    onDone();
-  };
-
-  return (
-    <form
-      className="fixed-card-rename"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save();
-      }}
-      onBlur={(e) => {
-        // フォーム内 (入力欄と保存ボタンの間) の移動では取り消さない
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onDone();
-      }}
-    >
-      <input
-        ref={inputRef}
-        aria-label={`${ELEMENT_KIND_LABELS[element.kind]}の名前`}
-        maxLength={NAME_MAX_LENGTH}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          // 変換確定の Enter / Esc では確定・取り消しをしない
-          // WebKit は変換確定の Enter を compositionend の後に isComposing=false, keyCode=229 で送ることがある
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
-            if (e.key === "Enter") e.preventDefault();
-            return;
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onDone();
-          }
-        }}
-      />
-      {/* 押したときに入力欄からフォーカスが外れて取り消しにならないよう、mousedown の既定動作を止める */}
-      <button type="submit" onMouseDown={(e) => e.preventDefault()}>
-        保存
-      </button>
-    </form>
   );
 }
